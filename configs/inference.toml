@@ -1,0 +1,23 @@
+# Inference Configuration
+
+[engine]
+max_batch_size = 32
+max_sequence_length = 4096
+enable_kv_cache = true
+kv_cache_size_mb = 1024
+
+[decoding]
+default_temperature = 0.7
+default_top_p = 0.9
+default_top_k = 50
+max_tokens = 2048
+
+[streaming]
+enable_streaming = true
+streaming_buffer_size = 10
+streaming_timeout_seconds = 120
+
+[latency]
+target_latency_ms = 100
+max_latency_ms = 5000
+p95_target_ms = 200

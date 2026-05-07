@@ -1,0 +1,121 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agent",
+    "crates/api", 
+    "crates/core",
+    "crates/cognition",
+    "crates/data",
+    "crates/database",
+    "crates/foundation",
+    "crates/foundation/traits",
+    "crates/inference",
+    "crates/intelligence",
+    "crates/memory",
+    "crates/monitoring",
+    "crates/runtime",
+    "crates/tokenizer",
+    "crates/infrastructure",
+    "apps/nexora-ai",
+    "apps/dashboard",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Nexora AI Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nexora-ai/nexora"
+
+[workspace.metadata]
+docs-rs = { all-features = true }
+
+[workspace.features]
+default = ["core"]
+
+# Core features
+core = []
+full = ["core", "monitoring", "cognition"]
+
+# Component features
+monitoring = []
+cognition = []
+experimental = []
+
+# Foundation framework features
+atqs = ["foundation"]
+caffeine = ["foundation"]
+saca = ["foundation"]
+sparo = ["foundation"]
+foundation = ["atqs", "caffeine", "saca", "sparo"]
+
+# Runtime features
+cuda = []
+distributed = []
+streaming = ["runtime"]
+
+# App features
+cli = ["nexora-ai"]
+dashboard = []
+server = ["api"]
+
+# Development features
+dev = ["full", "experimental"]
+test = ["full"]
+bench = ["full"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+# Concurrency
+rayon = "1.8"
+crossbeam = "0.8"
+# Math/tensor operations
+ndarray = "0.15"
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+# Testing
+mockall = "0.12"
+proptest = "1.4"
+tempfile = "3.8"
+# Performance
+parking_lot = "0.12"
+once_cell = "1.19"
+# Text processing
+regex = "1.10"
+unicode-segmentation = "1.11"
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+# Async traits
+async-trait = "0.1"
+# Random
+rand = "0.8"
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+# HTTP server
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "compression-br", "trace"] }
+# Database drivers
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "mysql", "chrono", "uuid"] }
+postgres = "0.19"
+mysql = "25"
+# HTTP client (untuk API requests)
+reqwest = { version = "0.11", features = ["json"] }
+
+# Terminal UI dependencies
+ratatui = "0.26"
+crossterm = "0.27"
+tui-input = "0.8"
+arboard = "3.3"  # For clipboard access
+sysinfo = "0.30"  # For system monitoring
+psutil = "3.2"    # For process stats
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }

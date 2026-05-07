@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SACA Framework</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060a0f;
+    --surface: #0d1520;
+    --border: #1a2d45;
+    --accent1: #00d4ff;
+    --accent2: #7b2fff;
+    --accent3: #ff6b35;
+    --accent4: #00ff9d;
+    --accent5: #ff3d71;
+    --accent6: #ffd60a;
+    --text: #e8f0fe;
+    --muted: #6b7fa3;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 60px 24px 80px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 72px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.25);
+    border-radius: 100px;
+    padding: 6px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent1);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    animation: fadeDown 0.6s ease both;
+  }
+
+  .badge::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent1);
+    animation: pulse 2s ease infinite;
+  }
+
+  h1 {
+    font-size: clamp(52px, 8vw, 96px);
+    font-weight: 800;
+    line-height: 0.9;
+    letter-spacing: -0.03em;
+    animation: fadeDown 0.6s 0.1s ease both;
+  }
+
+  h1 .s { color: var(--accent1); }
+  h1 .a1 { color: var(--accent2); }
+  h1 .c { color: var(--accent4); }
+  h1 .a2 { color: var(--accent3); }
+
+  .subtitle {
+    margin-top: 20px;
+    color: var(--muted);
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    font-family: var(--mono);
+    animation: fadeDown 0.6s 0.2s ease both;
+  }
+
+  .tagline {
+    margin-top: 12px;
+    font-size: 18px;
+    color: var(--text);
+    opacity: 0.7;
+    animation: fadeDown 0.6s 0.3s ease both;
+  }
+
+  /* Pipeline flow */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 64px;
+    flex-wrap: wrap;
+    animation: fadeUp 0.6s 0.4s ease both;
+  }
+
+  .pipe-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .pipe-node {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    border: 2px solid;
+    position: relative;
+    cursor: default;
+    transition: transform 0.2s;
+  }
+
+  .pipe-node:hover { transform: scale(1.15); }
+
+  .pipe-label {
+    font-size: 9px;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .pipe-arrow {
+    width: 32px;
+    height: 2px;
+    position: relative;
+    margin-bottom: 20px;
+  }
+
+  .pipe-arrow::after {
+    content: '';
+    position: absolute;
+    right: 0; top: -4px;
+    border: 5px solid transparent;
+  }
+
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 48px;
+  }
+
+  .step-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .step-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .step-card::after {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    opacity: 0.04;
+    transition: opacity 0.3s;
+  }
+
+  .step-card:hover::after { opacity: 0.08; }
+
+  .step-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+
+  /* Color themes per card */
+  .card-1 { --c: var(--accent1); }
+  .card-1::before { background: var(--accent1); }
+  .card-1::after { background: var(--accent1); }
+  .card-1:hover { border-color: rgba(0,212,255,0.4); box-shadow: 0 20px 60px rgba(0,212,255,0.08); }
+
+  .card-2 { --c: var(--accent2); }
+  .card-2::before { background: var(--accent2); }
+  .card-2::after { background: var(--accent2); }
+  .card-2:hover { border-color: rgba(123,47,255,0.4); box-shadow: 0 20px 60px rgba(123,47,255,0.08); }
+
+  .card-3 { --c: var(--accent4); }
+  .card-3::before { background: var(--accent4); }
+  .card-3::after { background: var(--accent4); }
+  .card-3:hover { border-color: rgba(0,255,157,0.4); box-shadow: 0 20px 60px rgba(0,255,157,0.08); }
+
+  .card-4 { --c: var(--accent3); }
+  .card-4::before { background: var(--accent3); }
+  .card-4::after { background: var(--accent3); }
+  .card-4:hover { border-color: rgba(255,107,53,0.4); box-shadow: 0 20px 60px rgba(255,107,53,0.08); }
+
+  .card-5 { --c: var(--accent5); }
+  .card-5::before { background: var(--accent5); }
+  .card-5::after { background: var(--accent5); }
+  .card-5:hover { border-color: rgba(255,61,113,0.4); box-shadow: 0 20px 60px rgba(255,61,113,0.08); }
+
+  .card-6 { --c: var(--accent6); }
+  .card-6::before { background: var(--accent6); }
+  .card-6::after { background: var(--accent6); }
+  .card-6:hover { border-color: rgba(255,214,10,0.4); box-shadow: 0 20px 60px rgba(255,214,10,0.08); }
+
+  .step-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .step-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--c, var(--accent1));
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 4px 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .step-title {
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1.2;
+    color: var(--text);
+  }
+
+  .step-phase {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--c, var(--accent1));
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .step-desc {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .source-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 100px;
+    border: 1px solid;
+    border-color: rgba(255,255,255,0.1);
+    color: var(--muted);
+    background: rgba(255,255,255,0.02);
+  }
+
+  .icon-wrap {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  /* Feedback loop */
+  .feedback-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px 36px;
+    margin-bottom: 48px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.6s 0.6s ease both;
+  }
+
+  .feedback-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,212,255,0.03) 0%, rgba(123,47,255,0.03) 100%);
+  }
+
+  .feedback-title {
+    font-size: 13px;
+    font-family: var(--mono);
+    color: var(--accent4);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .feedback-title::before {
+    content: '↻';
+    font-size: 18px;
+    animation: spin 3s linear infinite;
+  }
+
+  .feedback-flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    position: relative;
+  }
+
+  .f-node {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: var(--mono);
+    font-weight: 700;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .f-arrow {
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  /* Bottom insight */
+  .insight-box {
+    background: linear-gradient(135deg, rgba(0,212,255,0.06), rgba(123,47,255,0.06));
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 16px;
+    padding: 28px 32px;
+    text-align: center;
+    animation: fadeUp 0.6s 0.7s ease both;
+  }
+
+  .insight-box h3 {
+    font-size: 13px;
+    font-family: var(--mono);
+    color: var(--accent1);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .insight-box p {
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.7;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .insight-box strong {
+    color: var(--text);
+  }
+
+  /* Animations */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes flow {
+    0% { opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { opacity: 0.3; }
+  }
+
+  /* Stagger cards */
+  .card-1 { animation-delay: 0.1s; }
+  .card-2 { animation-delay: 0.2s; }
+  .card-3 { animation-delay: 0.3s; }
+  .card-4 { animation-delay: 0.4s; }
+  .card-5 { animation-delay: 0.5s; }
+  .card-6 { animation-delay: 0.6s; }
+
+  /* Section label */
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 28px;
+    animation: fadeUp 0.5s 0.35s ease both;
+  }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 48px 0;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="badge">Unified Coding Intelligence Method · 2025</div>
+    <h1>
+      <span class="s">S</span><span class="a1">A</span><span class="c">C</span><span class="a2">A</span>
+    </h1>
+    <div class="subtitle">Systematic Adaptive Code Architecture</div>
+    <div class="tagline">6 metode terbaik AI coding, digabungkan menjadi 1 alur kerja terpadu</div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div class="section-label">Alur Eksekusi →</div>
+  <div class="pipeline">
+
+    <div class="pipe-step">
+      <div class="pipe-node" style="border-color:var(--accent1);color:var(--accent1);background:rgba(0,212,255,0.08)">CoT</div>
+      <div class="pipe-label">Think</div>
+    </div>
+    <div class="pipe-arrow" style="background:linear-gradient(90deg,var(--accent1),var(--accent2));margin-bottom:20px">
+      <div style="position:absolute;right:-5px;top:-4px;border:5px solid transparent;border-left-color:var(--accent2)"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-node" style="border-color:var(--accent2);color:var(--accent2);background:rgba(123,47,255,0.08)">DEC</div>
+      <div class="pipe-label">Decompose</div>
+    </div>
+    <div class="pipe-arrow" style="background:linear-gradient(90deg,var(--accent2),var(--accent4));margin-bottom:20px">
+      <div style="position:absolute;right:-5px;top:-4px;border:5px solid transparent;border-left-color:var(--accent4)"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-node" style="border-color:var(--accent4);color:var(--accent4);background:rgba(0,255,157,0.08)">CTX</div>
+      <div class="pipe-label">Context</div>
+    </div>
+    <div class="pipe-arrow" style="background:linear-gradient(90deg,var(--accent4),var(--accent3));margin-bottom:20px">
+      <div style="position:absolute;right:-5px;top:-4px;border:5px solid transparent;border-left-color:var(--accent3)"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-node" style="border-color:var(--accent3);color:var(--accent3);background:rgba(255,107,53,0.08)">SAM</div>
+      <div class="pipe-label">Sample</div>
+    </div>
+    <div class="pipe-arrow" style="background:linear-gradient(90deg,var(--accent3),var(--accent5));margin-bottom:20px">
+      <div style="position:absolute;right:-5px;top:-4px;border:5px solid transparent;border-left-color:var(--accent5)"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-node" style="border-color:var(--accent5);color:var(--accent5);background:rgba(255,61,113,0.08)">EXE</div>
+      <div class="pipe-label">Execute</div>
+    </div>
+    <div class="pipe-arrow" style="background:linear-gradient(90deg,var(--accent5),var(--accent6));margin-bottom:20px">
+      <div style="position:absolute;right:-5px;top:-4px;border:5px solid transparent;border-left-color:var(--accent6)"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-node" style="border-color:var(--accent6);color:var(--accent6);background:rgba(255,214,10,0.08)">OPT</div>
+      <div class="pipe-label">Optimize</div>
+    </div>
+
+  </div>
+
+  <!-- STEP CARDS -->
+  <div class="steps-grid">
+
+    <div class="step-card card-1">
+      <div class="step-header">
+        <div class="icon-wrap">🧠</div>
+        <div>
+          <div class="step-phase">Fase 1 · Think</div>
+          <div class="step-title">Chain-of-Thought Reasoning</div>
+        </div>
+        <div class="step-num">STEP 01</div>
+      </div>
+      <p class="step-desc">
+        Sebelum menulis satu baris kode, AI menjabarkan seluruh logika secara naratif. Identifikasi edge cases, asumsi, dan risiko. Berpikir keras dulu, sintaks belakangan.
+      </p>
+      <div class="sources">
+        <span class="source-tag">Chain-of-Thought</span>
+        <span class="source-tag">AlphaCodium Phase 1</span>
+      </div>
+    </div>
+
+    <div class="step-card card-2">
+      <div class="step-header">
+        <div class="icon-wrap">🧩</div>
+        <div>
+          <div class="step-phase">Fase 2 · Decompose</div>
+          <div class="step-title">Modular Decomposition</div>
+        </div>
+        <div class="step-num">STEP 02</div>
+      </div>
+      <p class="step-desc">
+        Masalah besar dipecah menjadi modul independen yang masing-masing bisa ditulis, diuji, dan di-debug secara terpisah. Tiap modul punya kontrak input/output yang jelas.
+      </p>
+      <div class="sources">
+        <span class="source-tag">CodeChain</span>
+        <span class="source-tag">Modular Architecture</span>
+      </div>
+    </div>
+
+    <div class="step-card card-3">
+      <div class="step-header">
+        <div class="icon-wrap">📁</div>
+        <div>
+          <div class="step-phase">Fase 3 · Context</div>
+          <div class="step-title">Repository-Level Awareness</div>
+        </div>
+        <div class="step-num">STEP 03</div>
+      </div>
+      <p class="step-desc">
+        Sebelum menulis kode baru, AI memetakan seluruh struktur proyek — fungsi yang sudah ada, dependensi antar file, dan konvensi kode yang berlaku di repo tersebut.
+      </p>
+      <div class="sources">
+        <span class="source-tag">SWE-bench</span>
+        <span class="source-tag">Repo-Level Context</span>
+      </div>
+    </div>
+
+    <div class="step-card card-4">
+      <div class="step-header">
+        <div class="icon-wrap">⚗️</div>
+        <div>
+          <div class="step-phase">Fase 4 · Sample</div>
+          <div class="step-title">Large-Scale Sampling</div>
+        </div>
+        <div class="step-num">STEP 04</div>
+      </div>
+      <p class="step-desc">
+        AI menghasilkan N ≥ 5 implementasi berbeda untuk tiap modul dengan pendekatan algoritmik yang beragam. Diversitas solusi memaksimalkan kemungkinan menemukan kandidat optimal.
+      </p>
+      <div class="sources">
+        <span class="source-tag">Large-Scale Sampling</span>
+        <span class="source-tag">Diversity Sampling</span>
+      </div>
+    </div>
+
+    <div class="step-card card-5">
+      <div class="step-header">
+        <div class="icon-wrap">🔁</div>
+        <div>
+          <div class="step-phase">Fase 5 · Execute</div>
+          <div class="step-title">Run → Fail → Fix Loop</div>
+        </div>
+        <div class="step-num">STEP 05</div>
+      </div>
+      <p class="step-desc">
+        Setiap kandidat kode dieksekusi nyata. Error log dianalisis dan dijadikan feedback untuk memperbaiki kode secara iteratif. Loop ini berlanjut hingga semua test case hijau.
+      </p>
+      <div class="sources">
+        <span class="source-tag">Self-Debugging</span>
+        <span class="source-tag">AlphaCodium Flow</span>
+      </div>
+    </div>
+
+    <div class="step-card card-6">
+      <div class="step-header">
+        <div class="icon-wrap">🏆</div>
+        <div>
+          <div class="step-phase">Fase 6 · Optimize</div>
+          <div class="step-title">Mathematical Reranking</div>
+        </div>
+        <div class="step-num">STEP 06</div>
+      </div>
+      <p class="step-desc">
+        Kandidat yang lolos eksekusi di-score menggunakan metrik: kompleksitas waktu/ruang, coverage test, keterbacaan, dan konsistensi dengan konvensi repo. Kode terbaik dipilih secara objektif.
+      </p>
+      <div class="sources">
+        <span class="source-tag">Reranking</span>
+        <span class="source-tag">Multi-metric Scoring</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FEEDBACK LOOP -->
+  <div class="feedback-section">
+    <div class="feedback-title">Adaptive Feedback Loop</div>
+    <div class="feedback-flow">
+      <div class="f-node" style="background:rgba(0,255,157,0.08);border-color:rgba(0,255,157,0.2);color:var(--accent4)">Execute Code</div>
+      <div class="f-arrow">→</div>
+      <div class="f-node" style="background:rgba(255,61,113,0.08);border-color:rgba(255,61,113,0.2);color:var(--accent5)">Capture Error Log</div>
+      <div class="f-arrow">→</div>
+      <div class="f-node" style="background:rgba(0,212,255,0.08);border-color:rgba(0,212,255,0.2);color:var(--accent1)">CoT Analysis</div>
+      <div class="f-arrow">→</div>
+      <div class="f-node" style="background:rgba(123,47,255,0.08);border-color:rgba(123,47,255,0.2);color:var(--accent2)">Patch Module</div>
+      <div class="f-arrow">→</div>
+      <div class="f-node" style="background:rgba(255,214,10,0.08);border-color:rgba(255,214,10,0.2);color:var(--accent6)">Re-Rank</div>
+      <div class="f-arrow" style="animation:flow 1.5s ease infinite">↺ repeat</div>
+    </div>
+    <div style="margin-top:16px;font-size:12px;color:var(--muted);font-family:var(--mono)">
+      Loop berjalan maksimum K iterasi atau hingga semua test case passed · Error log nyata = feedback signal terbaik
+    </div>
+  </div>
+
+  <!-- ORIGIN TABLE -->
+  <div class="divider"></div>
+  <div class="section-label">DNA Framework → Asal Usul 6 Teknik</div>
+
+  <div style="overflow-x:auto;animation:fadeUp 0.6s 0.5s ease both">
+    <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:12px 16px;color:var(--muted);letter-spacing:0.1em;font-weight:400">TEKNIK ASLI</th>
+          <th style="text-align:left;padding:12px 16px;color:var(--muted);letter-spacing:0.1em;font-weight:400">KONTRIBUSI KE SACA</th>
+          <th style="text-align:left;padding:12px 16px;color:var(--muted);letter-spacing:0.1em;font-weight:400">FASE</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+          <td style="padding:12px 16px;color:var(--accent1)">Flow Engineering (AlphaCodium)</td>
+          <td style="padding:12px 16px;color:var(--text)">Struktur Analisis → Uji → Kode sebagai tulang punggung alur</td>
+          <td style="padding:12px 16px"><span style="color:var(--accent5)">Fase 5</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+          <td style="padding:12px 16px;color:var(--accent2)">Self-Debugging via Execution</td>
+          <td style="padding:12px 16px;color:var(--text)">Loop perbaikan berbasis error log nyata</td>
+          <td style="padding:12px 16px"><span style="color:var(--accent5)">Fase 5</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+          <td style="padding:12px 16px;color:var(--accent4)">CodeChain (Modular)</td>
+          <td style="padding:12px 16px;color:var(--text)">Pemecahan masalah ke modul independen dengan kontrak I/O</td>
+          <td style="padding:12px 16px"><span style="color:var(--accent2)">Fase 2</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+          <td style="padding:12px 16px;color:var(--accent3)">Repository-Level Context</td>
+          <td style="padding:12px 16px;color:var(--text)">Pemetaan seluruh repo sebelum menulis kode baru</td>
+          <td style="padding:12px 16px"><span style="color:var(--accent4)">Fase 3</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+          <td style="padding:12px 16px;color:var(--accent5)">Large-Scale Sampling & Reranking</td>
+          <td style="padding:12px 16px;color:var(--text)">Generate N kandidat, pilih terbaik via scoring matematis</td>
+          <td style="padding:12px 16px"><span style="color:var(--accent3)">Fase 4</span> + <span style="color:var(--accent6)">Fase 6</span></td>
+        </tr>
+        <tr>
+          <td style="padding:12px 16px;color:var(--accent6)">Chain-of-Thought (CoT)</td>
+          <td style="padding:12px 16px;color:var(--text)">Penalaran logis langkah demi langkah sebelum sintaks apapun</td>
+          <td style="padding:12px 16px"><span style="color:var(--accent1)">Fase 1</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- BOTTOM INSIGHT -->
+  <div class="insight-box">
+    <h3>Prinsip Inti SACA</h3>
+    <p>
+      SACA bukan sekadar urutan langkah — ini adalah <strong>sistem umpan balik tertutup</strong> di mana setiap fase memberi sinyal ke fase lainnya.
+      CoT membentuk modul, modul membentuk sampling, eksekusi membentuk perbaikan, dan reranking memvalidasi keseluruhan sistem.
+      <strong>Hasilnya: kode yang tidak hanya benar, tapi optimal dan terpadu dengan konteks proyek nyata.</strong>
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

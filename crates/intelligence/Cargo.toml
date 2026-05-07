@@ -1,0 +1,72 @@
+[package]
+name = "nexora-intelligence"
+version = "0.1.0"
+edition = "2021"
+description = "Intelligence orchestration and model access layer for Nexora AI"
+
+[dependencies]
+nexora-core = { path = "../core" }
+nexora-tokenizer = { path = "../tokenizer" }
+nexora-common = { path = "../infrastructure/common" }
+nexora-foundation = { path = "../foundation" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+ndarray = { workspace = true, features = ["serde"] }
+tracing.workspace = true
+log = "0.4"
+parking_lot.workspace = true
+rand.workspace = true
+async-trait = "0.1"
+rand_distr = "0.4"
+ndarray-rand = "0.15"
+uuid.workspace = true
+regex = "1.10"
+chrono = { version = "0.4", features = ["serde"] }
+proptest.workspace = true
+
+# QLoRA specific dependencies
+half = "2.4"  # For BF16/FP16 support
+tracing-subscriber.workspace = true
+num_cpus = "1.16"  # For CPU core detection
+
+md5 = "0.7"  # For model fingerprinting
+tempfile = "3.8"  # For testing
+lru = "0.12"  # For LRU cache implementation
+futures = "0.3"  # For async utilities
+
+# System monitoring dependencies
+sysinfo = "0.30"  # For system information
+psutil = "3.2"    # For process and system stats
+
+# TOML parsing
+toml = "0.8"
+
+# Additional dependencies
+fastrand = "2.0"
+serde_yaml = "0.9"
+
+# Terminal UI dependencies
+ratatui = "0.26"
+crossterm = "0.27"
+tui-input = "0.8"
+arboard = "3.3"  # For clipboard access
+
+# SPARO specific dependencies
+# Note: These are placeholder packages - implement custom logic instead
+
+[lib]
+name = "nexora_model"
+path = "src/lib.rs"
+
+[dev-dependencies]
+once_cell = "1.19"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "end_to_end_integration"
+harness = false
+

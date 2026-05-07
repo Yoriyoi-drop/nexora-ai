@@ -1,0 +1,75 @@
+{
+  "dataset_name": "nexora_mixed_llm_dataset",
+  "version": "1.0.0",
+  "total_size_bytes": 3905160343,
+  "total_size_gb": 3.636963984929025,
+  "total_examples": 3362829,
+  "target_size_gb": 9.0,
+  "components": [
+    {
+      "name": "c4_realnewslike",
+      "file": "mixed_llm_dataset/c4_realnewslike.jsonl.gz",
+      "size_bytes": 1245766945,
+      "examples_count": 1178060
+    },
+    {
+      "name": "openwebtext_sample",
+      "file": "mixed_llm_dataset/openwebtext_sample.jsonl.gz",
+      "size_bytes": 803724738,
+      "examples_count": 415719
+    },
+    {
+      "name": "code_dataset",
+      "file": "mixed_llm_dataset/code_dataset.jsonl.gz",
+      "size_bytes": 110000981,
+      "examples_count": 412178
+    },
+    {
+      "name": "alpaca_dataset.jsonl",
+      "file": "mixed_llm_dataset/alpaca_dataset.jsonl.gz",
+      "size_bytes": 8398043,
+      "examples_count": 8398
+    },
+    {
+      "name": "dolly_dataset.jsonl",
+      "file": "mixed_llm_dataset/dolly_dataset.jsonl.gz",
+      "size_bytes": 5219998,
+      "examples_count": 5219
+    },
+    {
+      "name": "math_dataset_MetaMathQA.jsonl",
+      "file": "mixed_llm_dataset/math_dataset_MetaMathQA.jsonl.gz",
+      "size_bytes": 114978247,
+      "examples_count": 114978
+    },
+    {
+      "name": "c4_additional.jsonl",
+      "file": "mixed_llm_dataset/c4_additional.jsonl.gz",
+      "size_bytes": 811309762,
+      "examples_count": 811309
+    },
+    {
+      "name": "openwebtext_massive",
+      "file": "mixed_llm_dataset/openwebtext_massive.jsonl.gz",
+      "size_bytes": 805761629,
+      "examples_count": 416968
+    }
+  ],
+  "description": "Aggressive mixed dataset for LLM training - high volume, minimal filtering",
+  "languages": [
+    "en"
+  ],
+  "domains": [
+    "web",
+    "code",
+    "encyclopedia",
+    "instruction",
+    "math"
+  ],
+  "created_at": "/home/whale-d/nexora/nexora-ai/data/scripts",
+  "quality_filters": [
+    "minimum_length_filter",
+    "quality_score_filter",
+    "deduplication"
+  ]
+}

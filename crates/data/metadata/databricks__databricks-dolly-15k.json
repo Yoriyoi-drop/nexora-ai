@@ -1,0 +1,19 @@
+{
+  "name": "databricks/databricks-dolly-15k",
+  "description": "\ud83d\udfe2 LOW: Response diversity",
+  "category": "diversity",
+  "priority": "low",
+  "estimated_size_gb": 0.013,
+  "downloaded_at": "2026-04-30T11:53:44.393446Z",
+  "actual_samples": 15011,
+  "config": {
+    "name": "databricks/databricks-dolly-15k",
+    "subset": null,
+    "split": "train",
+    "max_samples": null,
+    "priority": "low",
+    "description": "\ud83d\udfe2 LOW: Response diversity",
+    "estimated_size_gb": 0.013,
+    "category": "diversity"
+  }
+}

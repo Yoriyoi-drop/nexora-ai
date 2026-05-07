@@ -1,0 +1,19 @@
+{
+  "name": "HuggingFaceH4/no_robots",
+  "description": "\ud83d\udfe2 LOW: Quality anchor",
+  "category": "quality_anchor",
+  "priority": "low",
+  "estimated_size_gb": 0.01,
+  "downloaded_at": "2026-04-30T11:53:31.075663Z",
+  "actual_samples": 9500,
+  "config": {
+    "name": "HuggingFaceH4/no_robots",
+    "subset": null,
+    "split": "train",
+    "max_samples": null,
+    "priority": "low",
+    "description": "\ud83d\udfe2 LOW: Quality anchor",
+    "estimated_size_gb": 0.01,
+    "category": "quality_anchor"
+  }
+}

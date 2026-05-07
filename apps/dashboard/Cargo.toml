@@ -1,0 +1,25 @@
+[package]
+name = "nexora-dashboard"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal UI dashboard for Nexora AI monitoring"
+
+[dependencies]
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tui-input = { workspace = true }
+arboard = { workspace = true }
+sysinfo = { workspace = true }
+psutil = { workspace = true }
+fastrand = "2.0"
+tokio = { workspace = true, features = ["process", "io-util"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+
+[[bin]]
+name = "dashboard"
+path = "src/main.rs"

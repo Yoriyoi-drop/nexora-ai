@@ -1,0 +1,44 @@
+[package]
+name = "nexora-foundation"
+version = "0.1.0"
+edition = "2021"
+description = "Foundation AI frameworks and shared utilities for Nexora AI"
+
+[dependencies]
+# Core dependencies
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+ndarray.workspace = true
+ndarray-rand = "0.15"
+rand_distr = "0.4"
+tracing.workspace = true
+uuid.workspace = true
+
+# Framework-specific dependencies
+async-trait.workspace = true
+rand.workspace = true
+regex.workspace = true
+chrono.workspace = true
+
+# Compression (ATQS) dependencies
+flate2 = "1.0"
+
+# Multimodal (CAFFEINE) dependencies
+unicode-segmentation.workspace = true
+
+# Reasoning (SACA) dependencies
+crossbeam.workspace = true
+parking_lot.workspace = true
+
+# Alignment (SPARO) dependencies
+# (uses existing dependencies)
+
+[dev-dependencies]
+mockall.workspace = true
+proptest.workspace = true
+criterion = { version = "0.5", features = ["html_reports"] }
+

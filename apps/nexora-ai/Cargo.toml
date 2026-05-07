@@ -1,0 +1,56 @@
+[package]
+name = "nexora-ai"
+version = "0.1.0"
+edition = "2021"
+description = "Nexora AI - Multi-model cognitive architecture"
+
+[dependencies]
+nexora-core = { path = "../../crates/core" }
+nexora-tokenizer = { path = "../../crates/tokenizer" }
+nexora-intelligence = { path = "../../crates/intelligence" }
+nexora-memory = { path = "../../crates/memory" }
+nexora-inference = { path = "../../crates/inference" }
+nexora-utils = { path = "../../crates/infrastructure/utils" }
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "compression-br", "trace"] }
+hyper = "1.0"
+rustls = "0.21"
+tokio-rustls = "0.24"
+rustls-pemfile = "2.0"
+rustls-pki-types = "1.0"
+rcgen = "0.12"
+clap = { version = "4.0", features = ["derive"] }
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+async-trait = "0.1"
+regex.workspace = true
+tempfile.workspace = true
+sysinfo = "0.30"
+psutil = "3.2"
+reqwest.workspace = true
+
+[[bin]]
+name = "nexora"
+path = "src/main.rs"
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "chat_example"
+path = "examples/chat_example.rs"
+
+[[example]]
+name = "server_example"
+path = "examples/server_example.rs"

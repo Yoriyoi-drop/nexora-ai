@@ -1,0 +1,114 @@
+# ==================== Nexora-AI Prometheus Configuration ====================
+# Global configuration
+global:
+  scrape_interval: 15s  # Default scrape interval
+  evaluation_interval: 15s  # Evaluate rules every 15 seconds
+  external_labels:
+    cluster: 'nexora-production'
+    environment: 'production'
+
+# Alertmanager configuration (optional, for alerting)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Rule files
+# rule_files:
+#   - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ==================== Nexora-AI Inference Service ====================
+  - job_name: 'nexora-inference'
+    static_configs:
+      - targets: ['localhost:8080']  # Inference API endpoint
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # ==================== Nexora-AI Training Service ====================
+  - job_name: 'nexora-training'
+    static_configs:
+      - targets: ['localhost:8081']  # Training service endpoint
+    metrics_path: '/metrics'
+    scrape_interval: 30s  # Training metrics change less frequently
+
+  # ==================== Nexora-AI Data Pipeline ====================
+  - job_name: 'nexora-pipeline'
+    static_configs:
+      - targets: ['localhost:8082']  # Data pipeline endpoint
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # ==================== PostgreSQL Exporter ====================
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  # ==================== Redis Exporter ====================
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+
+  # ==================== MongoDB Exporter ====================
+  - job_name: 'mongodb-exporter'
+    static_configs:
+      - targets: ['mongodb-exporter:9216']
+    scrape_interval: 30s
+
+  # ==================== Qdrant Metrics ====================
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['qdrant:6333']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # ==================== Node Exporter (System Metrics) ====================
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # ==================== GPU Exporter (NVIDIA) ====================
+  - job_name: 'nvidia-gpu-exporter'
+    static_configs:
+      - targets: ['gpu-exporter:9445']
+    scrape_interval: 10s
+
+  # ==================== cAdvisor (Container Metrics) ====================
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+
+  # ==================== MinIO Metrics ====================
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    metrics_path: '/minio/v2/metrics/cluster'
+    scrape_interval: 30s
+
+# ==================== Recording Rules ====================
+# Pre-compute frequently used queries
+# recording_rules:
+#   - name: nexora_aggregations
+#     interval: 30s
+#     rules:
+#       - record: job:nexora_inference:rate5m
+#         expr: rate(nexora_inference_requests_total[5m])
+#       
+#       - record: job:nexora_inference:p95_latency
+#         expr: histogram_quantile(0.95, rate(nexora_inference_latency_seconds_bucket[5m]))
+#       
+#       - record: job:nexora_training:loss_rate
+#         expr: rate(nexora_training_loss[5m])
+
+# ==================== Storage Configuration ====================
+# Store data for 30 days with high resolution
+# tsdb:
+#   retention.time: 30d
+#   retention.size: 50GB

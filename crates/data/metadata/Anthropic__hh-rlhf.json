@@ -1,0 +1,19 @@
+{
+  "name": "Anthropic/hh-rlhf",
+  "description": "\ud83d\udfe1 MEDIUM: Helpfulness/harmless alignment",
+  "category": "alignment",
+  "priority": "medium",
+  "estimated_size_gb": 0.15,
+  "downloaded_at": "2026-04-30T11:51:27.355697Z",
+  "actual_samples": 160800,
+  "config": {
+    "name": "Anthropic/hh-rlhf",
+    "subset": null,
+    "split": "train",
+    "max_samples": null,
+    "priority": "medium",
+    "description": "\ud83d\udfe1 MEDIUM: Helpfulness/harmless alignment",
+    "estimated_size_gb": 0.15,
+    "category": "alignment"
+  }
+}

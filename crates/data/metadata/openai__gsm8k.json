@@ -1,0 +1,19 @@
+{
+  "name": "openai/gsm8k",
+  "description": "\ud83d\udfe1 MEDIUM: Mathematical reasoning",
+  "category": "math_reasoning",
+  "priority": "medium",
+  "estimated_size_gb": 0.006,
+  "downloaded_at": "2026-04-30T11:53:46.418772+00:00",
+  "actual_samples": 7473,
+  "config": {
+    "name": "openai/gsm8k",
+    "subset": "main",
+    "split": "train",
+    "max_samples": null,
+    "priority": "medium",
+    "description": "\ud83d\udfe1 MEDIUM: Mathematical reasoning",
+    "estimated_size_gb": 0.006,
+    "category": "math_reasoning"
+  }
+}

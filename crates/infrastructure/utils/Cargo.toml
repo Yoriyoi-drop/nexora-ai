@@ -1,0 +1,32 @@
+[package]
+name = "nexora-utils"
+version = "0.1.0"
+edition = "2021"
+description = "Utility functions for Nexora AI system"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+once_cell.workspace = true
+chrono = "0.4"
+uuid.workspace = true
+regex.workspace = true
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.21"
+parking_lot.workspace = true
+rand.workspace = true
+unicode-segmentation.workspace = true
+hmac = "0.12"
+pbkdf2 = "0.12"
+flate2 = "1.0"
+pathdiff = "0.2"
+
+[dev-dependencies]
+mockall.workspace = true
+proptest.workspace = true
+tempfile.workspace = true

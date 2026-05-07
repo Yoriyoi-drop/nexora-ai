@@ -1,0 +1,14 @@
+[package]
+name = "nexora-foundation-traits"
+version = "0.1.0"
+edition = "2021"
+description = "Foundation trait definitions for Nexora AI - modular framework interfaces"
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+ndarray.workspace = true
+uuid.workspace = true

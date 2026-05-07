@@ -1,0 +1,22 @@
+# Runtime Configuration
+
+[scheduler]
+max_concurrent_tasks = 100
+task_timeout_seconds = 300
+queue_size = 1000
+
+[executor]
+thread_pool_size = 8
+max_blocking_threads = 32
+keep_alive_seconds = 60
+
+[resource]
+max_memory_mb = 8192
+max_gpu_memory_mb = 16384
+enable_gpu = true
+gpu_device_ids = [0]
+
+[monitoring]
+enable_metrics = true
+metrics_port = 9090
+health_check_interval_seconds = 30

@@ -1,0 +1,22 @@
+[package]
+name = "nexora-monitoring"
+version = "0.1.0"
+edition = "2021"
+description = "Monitoring system for Nexora AI"
+
+[dependencies]
+nexora-common = { path = "../infrastructure/common" }
+nexora-core = { path = "../core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+prometheus = "0.13"
+metrics = "0.21"
+
+[dev-dependencies]
+mockall.workspace = true
+tokio-test = "0.4"

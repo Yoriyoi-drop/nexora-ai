@@ -1,0 +1,209 @@
+version: '3.8'
+
+services:
+  # ==================== Layer 1: Vector Database (Qdrant) ====================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: nexora-qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # ==================== Layer 2: Key-Value Store (Redis) ====================
+  redis:
+    image: redis:7-alpine
+    container_name: nexora-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # ==================== Layer 3: Document Store (MongoDB) ====================
+  mongodb:
+    image: mongo:7
+    container_name: nexora-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=nexora_admin
+      - MONGO_INITDB_ROOT_PASSWORD=nexora_secure_password
+      - MONGO_INITDB_DATABASE=nexora
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # ==================== Layer 4: Relational Database (PostgreSQL) ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexora-postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_USER=nexora_user
+      - POSTGRES_PASSWORD=nexora_secure_password
+      - POSTGRES_DB=nexora
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # PgBouncer for connection pooling
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    container_name: nexora-pgbouncer
+    ports:
+      - "6432:6432"
+    environment:
+      - DATABASES_HOST=postgres
+      - DATABASES_PORT=5432
+      - DATABASES_USER=nexora_user
+      - DATABASES_PASSWORD=nexora_secure_password
+      - DATABASES_DBNAME=nexora
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=25
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # ==================== Layer 5: Time-Series (Prometheus) ====================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: nexora-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nexora-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=nexora_admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # InfluxDB for long-term metrics storage
+  influxdb:
+    image: influxdb:2
+    container_name: nexora-influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=nexora_admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=nexora_secure_password
+      - DOCKER_INFLUXDB_INIT_ORG=nexora
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_RETENTION=365d
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # ==================== Layer 6: Object Storage (MinIO) ====================
+  minio:
+    image: minio/minio:latest
+    container_name: nexora-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"  # MinIO Console
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=nexora_admin
+      - MINIO_ROOT_PASSWORD=nexora_secure_password
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    networks:
+      - nexora_network
+
+  # Create MinIO buckets on startup
+  minio_init:
+    image: minio/mc:latest
+    container_name: nexora-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      sh -c "
+      until mc alias set minio http://minio:9000 nexora_admin nexora_secure_password; do
+        echo 'Waiting for MinIO...'
+        sleep 1
+      done
+      mc mb minio/checkpoints --ignore-existing
+      mc mb minio/tokenizers --ignore-existing
+      mc mb minio/training-data --ignore-existing
+      mc mb minio/eval-artifacts --ignore-existing
+      mc mb minio/corpus --ignore-existing
+      mc policy set download minio/checkpoints
+      mc policy set download minio/tokenizers
+      mc policy set download minio/training-data
+      mc policy set download minio/eval-artifacts
+      mc policy set download minio/corpus
+      echo 'MinIO buckets created successfully'
+      "
+    networks:
+      - nexora_network
+
+volumes:
+  qdrant_data:
+    driver: local
+  redis_data:
+    driver: local
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  influxdb_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  nexora_network:
+    driver: bridge

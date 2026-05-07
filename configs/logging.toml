@@ -1,0 +1,21 @@
+# Logging Configuration
+
+[general]
+level = "info"
+format = "json"
+enable_colors = false
+
+[file]
+enable = true
+path = "/var/log/nexora"
+rotation = "daily"
+max_size_mb = 100
+max_files = 10
+
+[console]
+enable = true
+level = "info"
+
+[tracing]
+enable = true
+sample_rate = 0.1

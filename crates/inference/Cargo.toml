@@ -1,0 +1,47 @@
+[package]
+name = "nexora-inference"
+version = "0.1.0"
+edition = "2021"
+description = "Inference engine for Nexora AI system"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+async-trait.workspace = true
+parking_lot.workspace = true
+crossbeam.workspace = true
+chrono.workspace = true
+rand.workspace = true
+ndarray.workspace = true
+num_cpus = "1.16"
+ordered-float = "3.9"
+
+# Internal dependencies
+nexora-core = { path = "../core" }
+nexora-intelligence = { path = "../intelligence" }
+nexora-foundation = { path = "../foundation" }
+nexora-common = { path = "../infrastructure/common" }
+
+# For streaming
+futures = "0.3"
+tokio-stream = "0.1"
+
+# For performance
+rayon.workspace = true
+
+# For system monitoring
+sysinfo = "0.30"
+procfs = "0.16"
+nvml-wrapper = "0.9"
+libc = "0.2"
+
+[dev-dependencies]
+mockall.workspace = true
+tokio-test = "0.4"
+criterion = "0.5"
+

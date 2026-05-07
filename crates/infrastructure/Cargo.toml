@@ -1,0 +1,29 @@
+[package]
+name = "nexora-infrastructure"
+version = "0.1.0"
+edition = "2021"
+description = "Infrastructure layer for Nexora AI - logging, metrics, storage, security, config"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+# Config
+config = "0.14"
+toml = "0.8"
+
+# Storage
+sqlx.workspace = true
+
+# Metrics
+prometheus = "0.13"
+
+# Logging
+tracing-appender = "0.2"

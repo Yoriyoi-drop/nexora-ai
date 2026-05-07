@@ -1,0 +1,16 @@
+# Memory Configuration
+
+[episodic]
+max_entries = 10000
+retention_days = 30
+importance_threshold = 0.5
+
+[semantic]
+embedding_dim = 1536
+max_vector_entries = 100000
+similarity_threshold = 0.7
+
+[working]
+max_context_size = 10000
+context_window = 4096
+compression_ratio = 0.5

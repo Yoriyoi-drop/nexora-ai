@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HLDVA-T: Metode Generasi Gambar Terpadu</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050810;
+    --surface: #0b1120;
+    --surface2: #111827;
+    --accent1: #3b82f6;
+    --accent2: #8b5cf6;
+    --accent3: #06b6d4;
+    --accent4: #10b981;
+    --accent5: #f59e0b;
+    --accent6: #ef4444;
+    --text: #f1f5f9;
+    --muted: #64748b;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Starfield background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.3) 0%, transparent 100%),
+      radial-gradient(1px 1px at 80% 10%, rgba(255,255,255,0.25) 0%, transparent 100%),
+      radial-gradient(1px 1px at 50% 80%, rgba(255,255,255,0.2) 0%, transparent 100%),
+      radial-gradient(1px 1px at 10% 70%, rgba(255,255,255,0.15) 0%, transparent 100%),
+      radial-gradient(1px 1px at 90% 50%, rgba(255,255,255,0.2) 0%, transparent 100%),
+      radial-gradient(600px 600px at 30% 20%, rgba(59,130,246,0.06) 0%, transparent 70%),
+      radial-gradient(400px 400px at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 60px 24px 80px;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    text-align: center;
+    margin-bottom: 72px;
+    animation: fadeUp 0.8s ease both;
+  }
+
+  .badge {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--accent3);
+    border: 1px solid rgba(6,182,212,0.35);
+    border-radius: 20px;
+    padding: 5px 16px;
+    margin-bottom: 20px;
+    background: rgba(6,182,212,0.07);
+  }
+
+  .hero h1 {
+    font-size: clamp(2.4rem, 6vw, 4.2rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 10px;
+    background: linear-gradient(135deg, #fff 20%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero .acronym {
+    font-family: 'DM Mono', monospace;
+    font-size: clamp(1rem, 2.5vw, 1.4rem);
+    color: var(--accent1);
+    letter-spacing: 0.12em;
+    font-weight: 500;
+    margin-bottom: 18px;
+    display: block;
+  }
+
+  .hero p {
+    font-size: 1.05rem;
+    color: #94a3b8;
+    max-width: 640px;
+    margin: 0 auto;
+    line-height: 1.75;
+  }
+
+  /* ── PIPELINE FLOW ── */
+  .pipeline-section {
+    margin-bottom: 72px;
+    animation: fadeUp 0.8s 0.1s ease both;
+  }
+
+  .section-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .pipe-step {
+    flex: 1;
+    padding: 20px 16px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    border-right: 1px solid var(--border);
+    transition: background 0.25s;
+  }
+  .pipe-step:last-child { border-right: none; }
+  .pipe-step:hover { background: rgba(255,255,255,0.03); }
+
+  .pipe-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+
+  .pipe-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+  }
+
+  .pipe-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+  }
+
+  .pipe-arrow {
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: var(--muted);
+    z-index: 2;
+  }
+  .pipe-step:last-child .pipe-arrow { display: none; }
+
+  /* ── COMPONENTS GRID ── */
+  .components-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 72px;
+    animation: fadeUp 0.8s 0.2s ease both;
+  }
+
+  .comp-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+  }
+  .comp-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+  }
+
+  .comp-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .comp-card[data-c="1"]::before { background: linear-gradient(90deg, var(--accent1), transparent); }
+  .comp-card[data-c="2"]::before { background: linear-gradient(90deg, var(--accent2), transparent); }
+  .comp-card[data-c="3"]::before { background: linear-gradient(90deg, var(--accent3), transparent); }
+  .comp-card[data-c="4"]::before { background: linear-gradient(90deg, var(--accent4), transparent); }
+  .comp-card[data-c="5"]::before { background: linear-gradient(90deg, var(--accent5), transparent); }
+  .comp-card[data-c="6"]::before { background: linear-gradient(90deg, var(--accent6), transparent); }
+
+  .comp-card:hover { border-color: rgba(255,255,255,0.15); }
+
+  .comp-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .comp-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .comp-meta { flex: 1; }
+
+  .comp-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  .comp-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+  }
+
+  .comp-abbr {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .comp-desc {
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.65;
+    margin-bottom: 14px;
+  }
+
+  .comp-role {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+  }
+
+  .comp-ref {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-family: 'DM Mono', monospace;
+    font-size: 9.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* Color sets per card */
+  .c1 .comp-icon { background: rgba(59,130,246,0.12); }
+  .c1 .comp-tag { color: var(--accent1); }
+  .c1 .comp-role { background: rgba(59,130,246,0.1); color: var(--accent1); }
+
+  .c2 .comp-icon { background: rgba(139,92,246,0.12); }
+  .c2 .comp-tag { color: var(--accent2); }
+  .c2 .comp-role { background: rgba(139,92,246,0.1); color: var(--accent2); }
+
+  .c3 .comp-icon { background: rgba(6,182,212,0.12); }
+  .c3 .comp-tag { color: var(--accent3); }
+  .c3 .comp-role { background: rgba(6,182,212,0.1); color: var(--accent3); }
+
+  .c4 .comp-icon { background: rgba(16,185,129,0.12); }
+  .c4 .comp-tag { color: var(--accent4); }
+  .c4 .comp-role { background: rgba(16,185,129,0.1); color: var(--accent4); }
+
+  .c5 .comp-icon { background: rgba(245,158,11,0.12); }
+  .c5 .comp-tag { color: var(--accent5); }
+  .c5 .comp-role { background: rgba(245,158,11,0.1); color: var(--accent5); }
+
+  .c6 .comp-icon { background: rgba(239,68,68,0.12); }
+  .c6 .comp-tag { color: var(--accent6); }
+  .c6 .comp-role { background: rgba(239,68,68,0.1); color: var(--accent6); }
+
+  /* ── UNIFIED METHOD BOX ── */
+  .unified {
+    background: var(--surface);
+    border: 1px solid rgba(139,92,246,0.3);
+    border-radius: 20px;
+    padding: 40px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 72px;
+    animation: fadeUp 0.8s 0.3s ease both;
+  }
+
+  .unified::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(139,92,246,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .unified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--accent2);
+    border: 1px solid rgba(139,92,246,0.3);
+    border-radius: 20px;
+    padding: 5px 14px;
+    margin-bottom: 20px;
+    background: rgba(139,92,246,0.08);
+  }
+
+  .unified h2 {
+    font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #fff 30%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .unified .subtitle {
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+    color: var(--accent2);
+    letter-spacing: 0.1em;
+    margin-bottom: 24px;
+  }
+
+  .unified p {
+    font-size: 0.97rem;
+    color: #94a3b8;
+    line-height: 1.8;
+    margin-bottom: 16px;
+    max-width: 820px;
+  }
+
+  .phase-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .phase-item {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+
+  .phase-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent2);
+    font-weight: 500;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .phase-content h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .phase-content p {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* ── FORMULA ── */
+  .formula-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-top: 28px;
+    font-family: 'DM Mono', monospace;
+    text-align: center;
+  }
+
+  .formula-label {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: block;
+  }
+
+  .formula {
+    font-size: clamp(11px, 2vw, 14px);
+    color: #e2e8f0;
+    letter-spacing: 0.02em;
+    line-height: 2;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .f-block {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+
+  .f1 { background: rgba(59,130,246,0.12); color: var(--accent1); }
+  .f2 { background: rgba(139,92,246,0.12); color: var(--accent2); }
+  .f3 { background: rgba(6,182,212,0.12); color: var(--accent3); }
+  .f4 { background: rgba(16,185,129,0.12); color: var(--accent4); }
+  .f5 { background: rgba(245,158,11,0.12); color: var(--accent5); }
+  .f6 { background: rgba(239,68,68,0.12); color: var(--accent6); }
+  .f-op { color: var(--muted); font-size: 14px; }
+
+  /* ── CITATIONS TABLE ── */
+  .cite-section {
+    animation: fadeUp 0.8s 0.4s ease both;
+  }
+
+  .cite-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .cite-table th {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .cite-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: top;
+    color: #94a3b8;
+    line-height: 1.55;
+  }
+
+  .cite-table tr:last-child td { border-bottom: none; }
+  .cite-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .cite-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 768px) {
+    .components-grid { grid-template-columns: repeat(2, 1fr); }
+    .phase-list { grid-template-columns: 1fr; }
+    .pipeline { flex-wrap: wrap; }
+    .pipe-step { min-width: 48%; }
+    .pipe-arrow { display: none; }
+  }
+
+  @media (max-width: 500px) {
+    .components-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="badge">SINTESIS METODE TERPADU · 2024</div>
+    <h1>Hierarchical Latent Diffusion<br>with Vision-Text Alignment</h1>
+    <span class="acronym">HLDVA-T</span>
+    <p>Sebuah kerangka generasi gambar terpadu yang mengintegrasikan enam fondasi riset — DDPM, LDM, CLIP, DiT, Cascaded Diffusion, dan VAE — ke dalam satu pipeline yang kohesif, efisien, dan skalabel.</p>
+  </div>
+
+  <!-- PIPELINE FLOW -->
+  <div class="pipeline-section">
+    <div class="section-label">Alur Pipeline Terpadu</div>
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(6,182,212,0.12)">🔤</div>
+        <div class="pipe-num">01</div>
+        <div class="pipe-name">Text Input<br>via CLIP</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(239,68,68,0.12)">📦</div>
+        <div class="pipe-num">02</div>
+        <div class="pipe-name">VAE<br>Encoder</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(139,92,246,0.12)">🌫️</div>
+        <div class="pipe-num">03</div>
+        <div class="pipe-name">LDM<br>Latent Space</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(59,130,246,0.12)">🔄</div>
+        <div class="pipe-num">04</div>
+        <div class="pipe-name">DDPM<br>Denoising</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(16,185,129,0.12)">⚡</div>
+        <div class="pipe-num">05</div>
+        <div class="pipe-name">DiT<br>Transformer</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(245,158,11,0.12)">📈</div>
+        <div class="pipe-num">06</div>
+        <div class="pipe-name">Cascaded<br>Upsampling</div>
+        <div class="pipe-arrow">›</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon" style="background:rgba(239,68,68,0.12)">🖼️</div>
+        <div class="pipe-num">07</div>
+        <div class="pipe-name">VAE<br>Decoder</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMPONENTS GRID -->
+  <div class="section-label" style="margin-bottom:20px;animation: fadeUp 0.8s 0.15s ease both;">Komponen Penyusun</div>
+  <div class="components-grid">
+
+    <!-- DDPM -->
+    <div class="comp-card c1" data-c="1">
+      <div class="comp-header">
+        <div class="comp-icon">🔄</div>
+        <div class="comp-meta">
+          <span class="comp-tag">Komponen 01</span>
+          <div class="comp-title">Denoising Diffusion Probabilistic Models</div>
+          <div class="comp-abbr">DDPM</div>
+        </div>
+      </div>
+      <p class="comp-desc">Mesin utama generasi. Menambahkan noise secara bertahap ke representasi laten, lalu melatih model untuk membalikkannya langkah demi langkah menghasilkan output yang bersih.</p>
+      <span class="comp-role">⚙️ Core Denoising Engine</span>
+      <div class="comp-ref">Ho et al. (2020) · NeurIPS</div>
+    </div>
+
+    <!-- LDM -->
+    <div class="comp-card c2" data-c="2">
+      <div class="comp-header">
+        <div class="comp-icon">🌫️</div>
+        <div class="comp-meta">
+          <span class="comp-tag">Komponen 02</span>
+          <div class="comp-title">Latent Diffusion Models</div>
+          <div class="comp-abbr">LDM</div>
+        </div>
+      </div>
+      <p class="comp-desc">Memindahkan seluruh proses difusi ke dalam latent space yang terkompresi. Mengurangi biaya komputasi secara drastis tanpa mengorbankan kualitas visual akhir.</p>
+      <span class="comp-role">🗜️ Efficiency Framework</span>
+      <div class="comp-ref">Rombach et al. (2022) · CVPR</div>
+    </div>
+
+    <!-- CLIP -->
+    <div class="comp-card c3" data-c="3">
+      <div class="comp-header">
+        <div class="comp-icon">🔤</div>
+        <div class="comp-meta">
+          <span class="comp-tag">Komponen 03</span>
+          <div class="comp-title">Contrastive Language-Image Pre-training</div>
+          <div class="comp-abbr">CLIP</div>
+        </div>
+      </div>
+      <p class="comp-desc">Jembatan antara teks dan visual. Memetakan deskripsi bahasa alami ke dalam ruang vektor yang sama dengan gambar sehingga model memahami instruksi tekstual secara semantik.</p>
+      <span class="comp-role">🔗 Text-Vision Bridge</span>
+      <div class="comp-ref">Radford et al. (2021) · ICML</div>
+    </div>
+
+    <!-- DiT -->
+    <div class="comp-card c4" data-c="4">
+      <div class="comp-header">
+        <div class="comp-icon">⚡</div>
+        <div class="comp-meta">
+          <span class="comp-tag">Komponen 04</span>
+          <div class="comp-title">Diffusion Transformers</div>
+          <div class="comp-abbr">DiT</div>
+        </div>
+      </div>
+      <p class="comp-desc">Menggantikan arsitektur U-Net dengan blok Transformer yang skalabel. Memproses patch-patch gambar secara paralel dengan mekanisme attention global yang lebih ekspresif.</p>
+      <span class="comp-role">🧠 Scalable Architecture</span>
+      <div class="comp-ref">Peebles & Xie (2023) · ICCV</div>
+    </div>
+
+    <!-- Cascaded -->
+    <div class="comp-card c5" data-c="5">
+      <div class="comp-header">
+        <div class="comp-icon">📈</div>
+        <div class="comp-meta">
+          <span class="comp-tag">Komponen 05</span>
+          <div class="comp-title">Cascaded Diffusion Models</div>
+          <div class="comp-abbr">CDM</div>
+        </div>
+      </div>
+      <p class="comp-desc">Sistem bertingkat untuk meningkatkan resolusi secara progresif. Model awal menghasilkan kerangka dasar, lalu super-resolution model memperkaya detail hingga resolusi ultra-tinggi.</p>
+      <span class="comp-role">🔬 High-Res Upsampler</span>
+      <div class="comp-ref">Ho et al. (2022) · JMLR</div>
+    </div>
+
+    <!-- VAE -->
+    <div class="comp-card c6" data-c="6">
+      <div class="comp-header">
+        <div class="comp-icon">📦</div>
+        <div class="comp-meta">
+          <span class="comp-tag">Komponen 06</span>
+          <div class="comp-title">Variational Autoencoders</div>
+          <div class="comp-abbr">VAE</div>
+        </div>
+      </div>
+      <p class="comp-desc">Gerbang masuk dan keluar dari latent space. VAE encoder mengompres piksel mentah menjadi vektor laten yang ringkas, dan decoder mengubah vektor tersebut kembali menjadi gambar visual.</p>
+      <span class="comp-role">🔑 Latent Gateway</span>
+      <div class="comp-ref">Kingma & Welling (2013) · ICLR</div>
+    </div>
+
+  </div>
+
+  <!-- UNIFIED METHOD -->
+  <div class="unified">
+    <div class="unified-badge">★ METODE TERPADU BARU</div>
+    <h2>HLDVA-T</h2>
+    <div class="subtitle">Hierarchical Latent Diffusion with Vision-Text Alignment using Transformers</div>
+
+    <p>HLDVA-T adalah kerangka generasi gambar end-to-end yang menyatukan keenam metode di atas ke dalam satu arsitektur yang saling melengkapi. Alih-alih menggunakan masing-masing metode secara terpisah, HLDVA-T merancang ulang keterkaitannya sebagai satu sistem yang terintegrasi dan teroptimasi secara bersama.</p>
+
+    <p>Prinsip dasarnya: <em>teks sebagai kondisi semantik global</em> (CLIP), <em>komputasi di ruang laten yang efisien</em> (VAE + LDM), <em>denoising berbasis probabilistik</em> (DDPM) yang diakselerasi oleh <em>Transformer skalabel</em> (DiT), kemudian diselesaikan dengan <em>peningkatan resolusi bertahap</em> (Cascaded Diffusion) menuju output piksel penuh melalui decoder VAE.</p>
+
+    <div class="phase-list">
+      <div class="phase-item">
+        <div class="phase-num">F1</div>
+        <div class="phase-content">
+          <h4>Semantic Conditioning (CLIP)</h4>
+          <p>Teks prompt dikodekan oleh CLIP encoder menjadi vektor kondisi semantik yang akan memandu seluruh proses difusi berikutnya.</p>
+        </div>
+      </div>
+      <div class="phase-item">
+        <div class="phase-num">F2</div>
+        <div class="phase-content">
+          <h4>Latent Compression (VAE Encoder)</h4>
+          <p>Gambar referensi (jika ada) atau noise awal dikompres ke dalam latent space melalui VAE encoder untuk efisiensi komputasi.</p>
+        </div>
+      </div>
+      <div class="phase-item">
+        <div class="phase-num">F3</div>
+        <div class="phase-content">
+          <h4>Probabilistic Denoising (DDPM + LDM)</h4>
+          <p>Proses difusi terbalik berjalan di dalam latent space, dipandu oleh kondisi semantik CLIP dan dipercepat dengan skema LDM.</p>
+        </div>
+      </div>
+      <div class="phase-item">
+        <div class="phase-num">F4</div>
+        <div class="phase-content">
+          <h4>Transformer Denoising Core (DiT)</h4>
+          <p>Setiap langkah denoising dieksekusi oleh blok Transformer DiT yang memproses latent patches dengan cross-attention terhadap vektor CLIP.</p>
+        </div>
+      </div>
+      <div class="phase-item">
+        <div class="phase-num">F5</div>
+        <div class="phase-content">
+          <h4>Progressive Super-Resolution (CDM)</h4>
+          <p>Output laten dasar diperhalus melalui cascaded upsampler yang meningkatkan resolusi secara bertahap dari 64px → 256px → 1024px+.</p>
+        </div>
+      </div>
+      <div class="phase-item">
+        <div class="phase-num">F6</div>
+        <div class="phase-content">
+          <h4>Pixel Reconstruction (VAE Decoder)</h4>
+          <p>Representasi laten resolusi tinggi akhirnya didekode oleh VAE decoder kembali ke ruang piksel, menghasilkan gambar detail beresolusi tinggi.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="formula-box">
+      <span class="formula-label">Representasi Simbolik Pipeline</span>
+      <div class="formula">
+        <span class="f-block f3">CLIP(τ)</span>
+        <span class="f-op">→</span>
+        <span class="f-block f6">VAE_enc(x)</span>
+        <span class="f-op">→</span>
+        <span class="f-block f2">LDM_z</span>
+        <span class="f-op">→</span>
+        <span class="f-block f1">DDPM_denoise</span>
+        <span class="f-op">→</span>
+        <span class="f-block f4">DiT(z, τ)</span>
+        <span class="f-op">→</span>
+        <span class="f-block f5">CDM_upsample</span>
+        <span class="f-op">→</span>
+        <span class="f-block f6">VAE_dec(ẑ)</span>
+        <span class="f-op">=</span>
+        <span style="color:#fff; font-weight:600;">x̂_HR</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CITATIONS -->
+  <div class="cite-section">
+    <div class="section-label">Referensi Jurnal Sumber</div>
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden;">
+      <table class="cite-table">
+        <thead>
+          <tr>
+            <th>Komponen</th>
+            <th>Penulis & Tahun</th>
+            <th>Judul & Venue</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="cite-dot" style="background:var(--accent1)"></span>DDPM</td>
+            <td>Ho, Jain & Abbeel (2020)</td>
+            <td>Denoising Diffusion Probabilistic Models · <em>NeurIPS</em></td>
+          </tr>
+          <tr>
+            <td><span class="cite-dot" style="background:var(--accent2)"></span>LDM</td>
+            <td>Rombach et al. (2022)</td>
+            <td>High-Resolution Image Synthesis with Latent Diffusion Models · <em>CVPR</em></td>
+          </tr>
+          <tr>
+            <td><span class="cite-dot" style="background:var(--accent3)"></span>CLIP</td>
+            <td>Radford et al. (2021)</td>
+            <td>Learning Transferable Visual Models From Natural Language Supervision · <em>ICML</em></td>
+          </tr>
+          <tr>
+            <td><span class="cite-dot" style="background:var(--accent4)"></span>DiT</td>
+            <td>Peebles & Xie (2023)</td>
+            <td>Scalable Diffusion Models with Transformers · <em>ICCV</em></td>
+          </tr>
+          <tr>
+            <td><span class="cite-dot" style="background:var(--accent5)"></span>CDM</td>
+            <td>Ho et al. (2022)</td>
+            <td>Cascaded Diffusion Models for High Fidelity Image Generation · <em>JMLR</em></td>
+          </tr>
+          <tr>
+            <td><span class="cite-dot" style="background:var(--accent6)"></span>VAE</td>
+            <td>Kingma & Welling (2013)</td>
+            <td>Auto-Encoding Variational Bayes · <em>ArXiv / ICLR</em></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
