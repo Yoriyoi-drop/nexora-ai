@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 use std::collections::HashMap;
-use nexora_foundation_traits::FoundationResult;
+use nexora_foundation::FoundationResult;
 
 /// Context window for tracking conversation/task state
 #[derive(Debug, Clone)]

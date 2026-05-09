@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use serde::{Serialize, Deserialize};
-use nexora_foundation_traits::FoundationResult;
+use nexora_foundation::FoundationResult;
 
 /// Reflection result from self-analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]

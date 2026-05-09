@@ -2,11 +2,11 @@
 //! 
 //! Demonstrates complete usage of SACA framework for automated code generation
 
-use nexora_model::saca::prelude::*;
+use nexora_foundation::reasoning::*;
 use std::collections::HashMap;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
     
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
 }
 
 /// Example 1: Basic SACA Usage
-async fn basic_saca_example() -> Result<()> {
+async fn basic_saca_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 1: Basic SACA Usage");
     println!("---------------------------------");
     
@@ -93,7 +93,7 @@ async fn basic_saca_example() -> Result<()> {
 }
 
 /// Example 2: Advanced SACA with Custom Configuration
-async fn advanced_saca_example() -> Result<()> {
+async fn advanced_saca_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔧 Example 2: Advanced SACA Configuration");
     println!("----------------------------------------");
     
@@ -190,7 +190,7 @@ async fn advanced_saca_example() -> Result<()> {
 }
 
 /// Example 3: SACA with Model Integration
-async fn integration_example() -> Result<()> {
+async fn integration_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔗 Example 3: SACA with Model Integration");
     println!("----------------------------------------");
     
@@ -267,7 +267,7 @@ async fn integration_example() -> Result<()> {
 }
 
 /// Example 4: Performance Benchmarking
-async fn benchmark_example() -> Result<()> {
+async fn benchmark_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("⚡ Example 4: Performance Benchmarking");
     println!("------------------------------------");
     

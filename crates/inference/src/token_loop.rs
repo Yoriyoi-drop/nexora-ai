@@ -81,7 +81,7 @@ pub struct TokenLoop {
     /// Stop conditions
     stop_conditions: Arc<StopConditions>,
     /// Streaming engine (optional)
-    streaming_engine: Option<Arc<StreamingEngine>>,
+    streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     /// Loop state
     state: Arc<RwLock<TokenLoopState>>,
     /// Loop statistics
@@ -153,7 +153,7 @@ impl TokenLoop {
     }
     
     /// Set streaming engine
-    pub fn with_streaming_engine(mut self, streaming_engine: Arc<StreamingEngine>) -> Self {
+    pub fn with_streaming_engine(mut self, streaming_engine: Arc<RwLock<StreamingEngine>>) -> Self {
         self.streaming_engine = Some(streaming_engine);
         self
     }
@@ -170,7 +170,7 @@ impl TokenLoop {
         
         // Initialize streaming engine if provided
         if let Some(streaming_engine) = &self.streaming_engine {
-            streaming_engine.initialize().await?;
+            streaming_engine.write().await.initialize().await?;
         }
         
         // Update state to ready
@@ -221,14 +221,14 @@ impl TokenLoop {
         // Create stream if streaming enabled
         let stream_id = if self.config.enable_streaming {
             if let Some(streaming_engine) = &self.streaming_engine {
-                let stream = streaming_engine.create_stream(request).await?;
+                let stream_info = streaming_engine.write().await.create_stream(request).await?;
                 {
                     let mut active_loops = self.active_loops.write().await;
                     if let Some(info) = active_loops.get_mut(&loop_id) {
-                        info.stream_id = Some(stream.stream_id);
+                        info.stream_id = Some(stream_info.stream_id);
                     }
                 }
-                Some(stream.stream_id)
+                Some(stream_info.stream_id)
             } else {
                 None
             }
@@ -354,7 +354,7 @@ impl TokenLoop {
             if let Some(stream_id) = stream_id {
                 if let Some(streaming_engine) = &self.streaming_engine {
                     let is_last = tokens.len() >= request.max_tokens as usize;
-                    streaming_engine.send_token(stream_id, generated_token.clone(), is_last).await?;
+                    streaming_engine.write().await.send_token(stream_id, generated_token.clone(), is_last).await?;
                 }
             }
             
@@ -398,7 +398,7 @@ impl TokenLoop {
             // Cancel stream if exists
             if let Some(stream_id) = info.stream_id {
                 if let Some(streaming_engine) = &self.streaming_engine {
-                    streaming_engine.cancel_stream(stream_id).await?;
+                    streaming_engine.write().await.cancel_stream(stream_id).await?;
                 }
             }
             
@@ -504,7 +504,7 @@ impl TokenLoop {
         
         // Shutdown streaming engine
         if let Some(streaming_engine) = &self.streaming_engine {
-            streaming_engine.shutdown().await?;
+            streaming_engine.write().await.shutdown().await?;
         }
         
         info!("Token loop shutdown complete");

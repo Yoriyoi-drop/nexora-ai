@@ -3,12 +3,13 @@ resolver = "2"
 members = [
     "crates/agent",
     "crates/api", 
+    "crates/blaa",
     "crates/core",
     "crates/cognition",
     "crates/data",
     "crates/database",
+    "crates/deeplearning",
     "crates/foundation",
-    "crates/foundation/traits",
     "crates/inference",
     "crates/intelligence",
     "crates/memory",
@@ -30,39 +31,6 @@ repository = "https://github.com/nexora-ai/nexora"
 [workspace.metadata]
 docs-rs = { all-features = true }
 
-[workspace.features]
-default = ["core"]
-
-# Core features
-core = []
-full = ["core", "monitoring", "cognition"]
-
-# Component features
-monitoring = []
-cognition = []
-experimental = []
-
-# Foundation framework features
-atqs = ["foundation"]
-caffeine = ["foundation"]
-saca = ["foundation"]
-sparo = ["foundation"]
-foundation = ["atqs", "caffeine", "saca", "sparo"]
-
-# Runtime features
-cuda = []
-distributed = []
-streaming = ["runtime"]
-
-# App features
-cli = ["nexora-ai"]
-dashboard = []
-server = ["api"]
-
-# Development features
-dev = ["full", "experimental"]
-test = ["full"]
-bench = ["full"]
 
 [workspace.dependencies]
 # Async runtime
@@ -77,7 +45,7 @@ thiserror = "1.0"
 rayon = "1.8"
 crossbeam = "0.8"
 # Math/tensor operations
-ndarray = "0.15"
+ndarray = { version = "0.15", features = ["serde"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -95,6 +63,8 @@ unicode-segmentation = "1.11"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 # Async traits
 async-trait = "0.1"
+# Async utilities
+futures = "0.3"
 # Random
 rand = "0.8"
 # Time handling

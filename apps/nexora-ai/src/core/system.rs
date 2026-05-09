@@ -1,13 +1,14 @@
 //! System monitoring and health check functionality
 
-use anyhow::Result;
+use crate::error::{NexoraError, NexoraResult};
+use crate::NexoraConfig;
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{info, debug};
 use chrono::Utc;
 use std::process::Command;
 use sysinfo::{System, CpuRefreshKind, RefreshKind, MemoryRefreshKind};
 
-use crate::NexoraConfig;
 use super::types::{SystemInfo, ComponentStatus, HealthStatus, MemoryStats};
 
 /// System monitoring functionality
@@ -17,7 +18,7 @@ pub struct SystemMonitor {
     config: NexoraConfig,
     start_time: chrono::DateTime<Utc>,
     system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
-    request_count: Arc<RwLock<u64>>,
+    request_count: Arc<AtomicU64>,
 }
 
 impl SystemMonitor {
@@ -26,7 +27,7 @@ impl SystemMonitor {
         config: NexoraConfig,
         start_time: chrono::DateTime<Utc>,
         system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
-        request_count: Arc<RwLock<u64>>,
+        request_count: Arc<AtomicU64>,
     ) -> Self {
         Self {
             models,
@@ -38,13 +39,13 @@ impl SystemMonitor {
     }
 
     /// Get system information with caching
-    pub async fn get_system_info(&self) -> Result<SystemInfo> {
+    pub async fn get_system_info(&self) -> NexoraResult<SystemInfo> {
         info!("Getting comprehensive system information...");
         
         // Check cache first (cache for 5 seconds)
         {
             let cache = self.system_info_cache.read()
-                .map_err(|e| anyhow::anyhow!("Failed to acquire read lock for system info cache: {}", e))?;
+                .map_err(|e| NexoraError::system(format!("Failed to acquire read lock for system info cache: {}", e)))?;
             if let Some(ref cached_info) = *cache {
                 let cache_age = (Utc::now() - cached_info.last_updated).num_seconds();
                 if cache_age < 5 {
@@ -100,7 +101,7 @@ impl SystemMonitor {
         // Update cache
         {
             let mut cache = self.system_info_cache.write()
-                .map_err(|e| anyhow::anyhow!("Failed to acquire write lock for system info cache: {}", e))?;
+                .map_err(|e| NexoraError::system(format!("Failed to acquire write lock for system info cache: {}", e)))?;
             *cache = Some(system_info.clone());
         }
         
@@ -108,7 +109,7 @@ impl SystemMonitor {
     }
     
     /// Check component health with sophisticated validation
-    async fn check_component_health(&self) -> Result<ComponentStatus> {
+    async fn check_component_health(&self) -> NexoraResult<ComponentStatus> {
         let mut system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()));
         system.refresh_all();
         
@@ -117,7 +118,7 @@ impl SystemMonitor {
         
         // Models health (check if models are loaded)
         let models = self.models.read()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire read lock for models: {}", e))?;
+            .map_err(|e| NexoraError::system(format!("Failed to acquire read lock for models: {}", e)))?;
         let models_status = if !models.is_empty() { "healthy" } else { "warning" };
         
         // Memory health
@@ -193,11 +194,12 @@ impl SystemMonitor {
     }
     
     /// Actual inference health check implementation
-    async fn inference_health_check(&self) -> Result<bool> {
+    async fn inference_health_check(&self) -> NexoraResult<bool> {
         // Try to create a simple inference request to test the system
-        let _test_request = nexora_inference::InferenceRequest::new("health check test".to_string())
-            .with_max_tokens(5)
-            .with_temperature(0.1);
+        // Note: nexora_inference crate is not available, so we simulate
+        // let _test_request = nexora_inference::InferenceRequest::new("health check test".to_string())
+        //     .with_max_tokens(5)
+        //     .with_temperature(0.1);
         
         // For now, simulate health check based on system resources
         let mut system = sysinfo::System::new();
@@ -212,7 +214,7 @@ impl SystemMonitor {
     }
     
     /// Actual agent health check implementation
-    async fn agent_health_check(&self) -> Result<bool> {
+    async fn agent_health_check(&self) -> NexoraResult<bool> {
         // Check if agent processes are running and responsive
         // For now, check system resources and basic connectivity
         
@@ -230,7 +232,7 @@ impl SystemMonitor {
     }
     
     /// Actual API health check implementation
-    async fn api_health_check(&self) -> Result<bool> {
+    async fn api_health_check(&self) -> NexoraResult<bool> {
         // Check if API server is responsive
         // For now, simulate by checking network connectivity and system resources
         
@@ -252,7 +254,7 @@ impl SystemMonitor {
     }
     
     /// Calculate actual average response time from request metrics
-    async fn calculate_average_response_time(&self, request_count: u64, uptime_seconds: u64) -> Result<f64> {
+    async fn calculate_average_response_time(&self, request_count: u64, uptime_seconds: u64) -> NexoraResult<f64> {
         if request_count == 0 {
             return Ok(0.0);
         }
@@ -278,7 +280,7 @@ impl SystemMonitor {
     }
     
     /// Calculate actual error rate from request metrics
-    async fn calculate_error_rate(&self, request_count: u64) -> Result<f64> {
+    async fn calculate_error_rate(&self, request_count: u64) -> NexoraResult<f64> {
         if request_count == 0 {
             return Ok(0.0);
         }
@@ -311,7 +313,7 @@ impl SystemMonitor {
     }
     
     /// Get actual active connections count
-    async fn get_active_connections(&self) -> Result<u64> {
+    async fn get_active_connections(&self) -> NexoraResult<u64> {
         // Try to get actual network connections
         if let Ok(output) = std::process::Command::new("netstat")
             .arg("-an")
@@ -344,7 +346,7 @@ impl SystemMonitor {
     }
     
     /// Get system load average
-    async fn get_load_average(&self) -> Result<(f64, f64, f64)> {
+    async fn get_load_average(&self) -> NexoraResult<(f64, f64, f64)> {
         // Try to get load average from /proc/loadavg (Linux)
         if let Ok(output) = Command::new("cat").arg("/proc/loadavg").output() {
             if let Ok(load_str) = String::from_utf8(output.stdout) {
@@ -368,7 +370,7 @@ impl SystemMonitor {
     }
     
     /// Health check with comprehensive validation
-    pub async fn health_check(&self) -> Result<HealthStatus> {
+    pub async fn health_check(&self) -> NexoraResult<HealthStatus> {
         info!("Performing comprehensive health check...");
         
         let mut system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()));
@@ -393,6 +395,16 @@ impl SystemMonitor {
         
         let performance_score = self.calculate_performance_score(cpu_usage as f64, memory_usage_percent).await?;
         
+        // Calculate actual average response time from request metrics
+        let request_count = self.request_count.load(Ordering::Relaxed);
+        let average_response_time = self.calculate_average_response_time(request_count, uptime).await?;
+        
+        // Calculate actual error rate from request metrics
+        let error_rate = self.calculate_error_rate(request_count).await?;
+        
+        // Get actual active connections count
+        let active_connections = self.get_active_connections().await?;
+        
         Ok(HealthStatus {
             healthy: component_health.values().all(|&healthy| healthy) && performance_score > 50.0,
             performance_score,
@@ -401,16 +413,16 @@ impl SystemMonitor {
             tokenizer_status: if component_health.get("tokenizer").unwrap_or(&false) == &true { "healthy".to_string() } else { "unhealthy".to_string() },
             models_status: if component_health.get("models").unwrap_or(&false) == &true { "healthy".to_string() } else { "unhealthy".to_string() },
             memory_status: if component_health.get("memory").unwrap_or(&false) == &true { "healthy".to_string() } else { "unhealthy".to_string() },
-            total_operations: 1000,
-            average_response_time: 150.0,
-            error_rate: 0.01,
+            total_operations: request_count,
+            average_response_time,
+            error_rate,
             last_check: chrono::Utc::now(),
-            uptime_seconds: 3600,
-            active_connections: 10,
+            uptime_seconds: uptime,
+            active_connections,
         })
     }
     
-    async fn calculate_performance_score(&self, cpu_usage: f64, memory_usage_percent: f64) -> Result<f64> {
+    async fn calculate_performance_score(&self, cpu_usage: f64, memory_usage_percent: f64) -> NexoraResult<f64> {
         let mut score = 100.0;
         
         // Penalize high CPU usage

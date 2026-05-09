@@ -1,21 +1,27 @@
 //! Command handlers for CLI operations
 
-use anyhow::Result;
+use crate::error::{NexoraError, NexoraResult};
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 use crate::{NexoraAI, NexoraConfig};
 use super::commands::{Cli, Commands, ConfigAction, TokenizerAction, MemoryAction};
 
 impl Cli {
-    /// Run the CLI application
-    pub async fn run(&self) -> Result<()> {
+    /// Run CLI application
+    pub async fn run(&self) -> NexoraResult<()> {
         // Initialize logging
         self.init_logging();
         
         // Load configuration
         let mut config = if self.config.exists() {
-            NexoraConfig::from_file(&self.config)?
+            match NexoraConfig::from_file(&self.config) {
+                Ok(config) => config,
+                Err(e) => {
+                    warn!("Failed to load configuration: {}", e);
+                    return Err(NexoraError::config(format!("Configuration load failed: {}", e)));
+                }
+            }
         } else {
             warn!("Configuration file not found, using defaults");
             NexoraConfig::default()
@@ -25,10 +31,18 @@ impl Cli {
         config = self.override_config(config);
         
         // Validate configuration
-        config.validate()?;
+        if let Err(e) = config.validate() {
+            return Err(NexoraError::config(format!("Configuration validation failed: {}", e)));
+        }
         
         // Initialize Nexora AI
-        let nexora = NexoraAI::new(config).await?;
+        let nexora = match NexoraAI::new(config).await {
+            Ok(ai) => ai,
+            Err(e) => {
+                error!("Failed to initialize Nexora AI: {}", e);
+                return Err(NexoraError::Initialization(format!("Nexora AI initialization failed: {}", e)));
+            }
+        };
         
         // Execute command
         match &self.command {
@@ -120,10 +134,11 @@ impl Cli {
     }
     
     /// Write output to file or stdout
-    fn write_output(&self, content: &str, output: &Option<PathBuf>) -> Result<()> {
+    fn write_output(&self, content: &str, output: &Option<PathBuf>) -> NexoraResult<()> {
         match output {
             Some(path) => {
-                std::fs::write(path, content)?;
+                std::fs::write(path, content)
+                    .map_err(|e| NexoraError::io(e))?;
                 info!("Output written to: {:?}", path);
             }
             None => {
@@ -142,7 +157,7 @@ impl Cli {
         tls: bool,
         cert_path: &Option<PathBuf>,
         key_path: &Option<PathBuf>,
-    ) -> Result<()> {
+    ) -> NexoraResult<()> {
         info!("Starting Nexora AI server on {}:{}", host, port);
         
         let config = crate::ServerConfig {
@@ -160,6 +175,7 @@ impl Cli {
         let server = crate::NexoraServer::new(config);
         
         server.start().await
+            .map_err(|e| NexoraError::system(format!("Server start failed: {}", e)))
     }
     
     /// Run process command
@@ -169,10 +185,11 @@ impl Cli {
         input: &str,
         format: &str,
         output: &Option<PathBuf>,
-    ) -> Result<()> {
+    ) -> NexoraResult<()> {
         info!("Processing input: {}", input);
         
-        let response = nexora.process_request(input).await?;
+        let response = nexora.process_request(input).await
+            .map_err(|e| NexoraError::processing(format!("Request processing failed: {}", e)))?;
         
         match format {
             "json" => {
@@ -181,14 +198,15 @@ impl Cli {
                     "response": response,
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
-                let output_str = serde_json::to_string_pretty(&json_output)?;
+                let output_str = serde_json::to_string_pretty(&json_output)
+                    .map_err(|e| NexoraError::serialization(e))?;
                 self.write_output(&output_str, output)?;
             }
             "text" => {
                 self.write_output(&response, output)?;
             }
             _ => {
-                return Err(anyhow::anyhow!("Unsupported output format: {}", format));
+                return Err(NexoraError::validation("format", format!("Unsupported output format: {}", format)));
             }
         }
         
@@ -203,10 +221,11 @@ impl Cli {
         max_tokens: usize,
         temperature: f32,
         output: &Option<PathBuf>,
-    ) -> Result<()> {
+    ) -> NexoraResult<()> {
         info!("Generating text from prompt: {}", prompt);
         
-        let generated = nexora.generate_text(prompt, max_tokens, temperature).await?;
+        let generated = nexora.generate_text(prompt, max_tokens, temperature).await
+            .map_err(|e| NexoraError::model(format!("Text generation failed: {}", e)))?;
         self.write_output(&generated, output)?;
         
         Ok(())
@@ -220,10 +239,11 @@ impl Cli {
         language: &str,
         format: &str,
         output: &Option<PathBuf>,
-    ) -> Result<()> {
+    ) -> NexoraResult<()> {
         info!("Analyzing {} code in file: {:?}", language, file);
         
-        let code = std::fs::read_to_string(file)?;
+        let code = std::fs::read_to_string(file)
+            .map_err(|e| NexoraError::Io { source: e })?;
         let analysis = nexora.analyze_code(&code, language).await?;
         
         match format {
@@ -234,14 +254,15 @@ impl Cli {
                     "analysis": analysis,
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
-                let output_str = serde_json::to_string_pretty(&json_output)?;
+                let output_str = serde_json::to_string_pretty(&json_output)
+                    .map_err(|e| NexoraError::serialization(e))?;
                 self.write_output(&output_str, output)?;
             }
             "text" => {
                 self.write_output(&analysis, output)?;
             }
             _ => {
-                return Err(anyhow::anyhow!("Unsupported output format: {}", format));
+                return Err(NexoraError::validation("format", format!("Unsupported output format: {}", format)));
             }
         }
         
@@ -255,7 +276,7 @@ impl Cli {
         description: &str,
         language: &str,
         output: &Option<PathBuf>,
-    ) -> Result<()> {
+    ) -> NexoraResult<()> {
         info!("Generating {} code from description: {}", language, description);
         
         let code = nexora.generate_code(description, language).await?;
@@ -272,11 +293,12 @@ impl Cli {
         memory: bool,
         models: bool,
         format: &str,
-    ) -> Result<()> {
+    ) -> NexoraResult<()> {
         let mut info_text = String::new();
         
         if performance {
-            let system_info = nexora.get_system_info().await?;
+            let system_info = nexora.get_system_info().await
+                    .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
             info_text.push_str(&format!("Performance Metrics:\n"));
             info_text.push_str(&format!("  CPU Usage: {:.1}%\n", system_info.cpu_usage));
             info_text.push_str(&format!("  Memory Usage: {:.1}%\n", system_info.memory_usage));
@@ -287,7 +309,8 @@ impl Cli {
         }
         
         if memory {
-            let system_info = nexora.get_system_info().await?;
+            let system_info = nexora.get_system_info().await
+                    .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
             info_text.push_str(&format!("Memory Statistics:\n"));
             info_text.push_str(&format!("  Total Memory: {} MB\n", 
                 system_info.memory_stats.total_memory / (1024 * 1024)));
@@ -300,7 +323,8 @@ impl Cli {
         }
         
         if models {
-            let system_info = nexora.get_system_info().await?;
+            let system_info = nexora.get_system_info().await
+                    .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
             info_text.push_str(&format!("Model Information:\n"));
             info_text.push_str(&format!("  Active Models: {}\n", system_info.active_models.join(", ")));
             info_text.push_str(&format!("  Version: {}\n\n", system_info.version));
@@ -316,14 +340,15 @@ impl Cli {
                     "info": info_text,
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
-                let output_str = serde_json::to_string_pretty(&json_output)?;
+                let output_str = serde_json::to_string_pretty(&json_output)
+                    .map_err(|e| NexoraError::serialization(e))?;
                 println!("{}", output_str);
             }
             "text" => {
                 println!("{}", info_text);
             }
             _ => {
-                return Err(anyhow::anyhow!("Unsupported output format: {}", format));
+                return Err(NexoraError::validation("format", format!("Unsupported output format: {}", format)));
             }
         }
         
@@ -331,8 +356,9 @@ impl Cli {
     }
     
     /// Run health command
-    async fn run_health(&self, nexora: &NexoraAI, detailed: bool) -> Result<()> {
-        let health = nexora.health_check().await?;
+    async fn run_health(&self, nexora: &NexoraAI, detailed: bool) -> NexoraResult<()> {
+        let health = nexora.health_check().await
+            .map_err(|e| NexoraError::system(format!("Health check failed: {}", e)))?;
         
         println!("System Health: {}", if health.healthy { "✓ Healthy" } else { "✗ Unhealthy" });
         println!("Performance Score: {:.1}/100", health.performance_score);
@@ -354,11 +380,12 @@ impl Cli {
     }
     
     /// Run config command
-    async fn run_config(&self, action: &ConfigAction) -> Result<()> {
+    async fn run_config(&self, action: &ConfigAction) -> NexoraResult<()> {
         match action {
             ConfigAction::Show => {
                 if self.config.exists() {
-                    let content = std::fs::read_to_string(&self.config)?;
+                    let content = std::fs::read_to_string(&self.config)
+                    .map_err(|e| NexoraError::Io { source: e })?;
                     println!("{}", content);
                 } else {
                     println!("Configuration file not found: {:?}", self.config);
@@ -366,7 +393,8 @@ impl Cli {
             }
             ConfigAction::Validate => {
                 if self.config.exists() {
-                    let config = NexoraConfig::from_file(&self.config)?;
+                    let config = NexoraConfig::from_file(&self.config)
+                    .map_err(|e| NexoraError::config(format!("Failed to load config for validation: {}", e)))?;
                     config.validate()?;
                     println!("Configuration is valid ✓");
                 } else {
@@ -375,8 +403,10 @@ impl Cli {
             }
             ConfigAction::Generate { output } => {
                 let default_config = NexoraConfig::default();
-                let config_str = toml::to_string_pretty(&default_config)?;
-                std::fs::write(output, config_str)?;
+                let config_str = toml::to_string_pretty(&default_config)
+                    .map_err(|e| NexoraError::Serialization { source: e })?;
+                std::fs::write(output, config_str)
+                    .map_err(|e| NexoraError::Io { source: e })?;
                 println!("Default configuration generated: {:?}", output);
             }
             ConfigAction::Update { key, value } => {
@@ -387,7 +417,7 @@ impl Cli {
     }
     
     /// Run tokenizer command
-    async fn run_tokenizer(&self, action: &TokenizerAction) -> Result<()> {
+    async fn run_tokenizer(&self, action: &TokenizerAction) -> NexoraResult<()> {
         match action {
             TokenizerAction::Train { data, output, vocab_size, min_frequency } => {
                 println!("Tokenizer training not implemented yet:");
@@ -410,10 +440,11 @@ impl Cli {
     }
     
     /// Run memory command
-    async fn run_memory(&self, nexora: &NexoraAI, action: &MemoryAction) -> Result<()> {
+    async fn run_memory(&self, nexora: &NexoraAI, action: &MemoryAction) -> NexoraResult<()> {
         match action {
             MemoryAction::Stats { detailed } => {
-                let system_info = nexora.get_system_info().await?;
+                let system_info = nexora.get_system_info().await
+                    .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
                 println!("Memory Statistics:");
                 println!("  Total Memory: {} MB", 
                     system_info.memory_stats.total_memory / (1024 * 1024));

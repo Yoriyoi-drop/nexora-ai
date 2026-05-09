@@ -1,6 +1,6 @@
 //! Text generation functionality
 
-use anyhow::Result;
+use crate::error::{NexoraError, NexoraResult};
 use tracing::{debug, info};
 use chrono::Utc;
 
@@ -21,31 +21,32 @@ impl TextGenerator {
         prompt: &str,
         max_tokens: usize,
         temperature: f32,
-    ) -> Result<String> {
+    ) -> NexoraResult<String> {
         let generation_start = Utc::now();
         
-        info!("Generating text with sophisticated parameters: prompt='{}', max_tokens={}, temperature={}", 
-              prompt, max_tokens, temperature);
+        info!("🚀 Starting text generation: prompt_len={}, max_tokens={}, temperature={:.2}", 
+              prompt.len(), max_tokens, temperature);
+        debug!("📝 Prompt content: {}", prompt);
         
         // Comprehensive validation
         if prompt.is_empty() {
-            return Err(anyhow::anyhow!("Prompt cannot be empty"));
+            return Err(NexoraError::validation("prompt", "Prompt cannot be empty"));
         }
         
         if prompt.len() > 5000 {
-            return Err(anyhow::anyhow!("Prompt too long (max 5000 characters)"));
+            return Err(NexoraError::validation("prompt", "Prompt too long (max 5000 characters)"));
         }
         
         if max_tokens == 0 {
-            return Err(anyhow::anyhow!("Max tokens must be greater than 0"));
+            return Err(NexoraError::validation("max_tokens", "Max tokens must be greater than 0"));
         }
         
         if max_tokens > 4096 {
-            return Err(anyhow::anyhow!("Max tokens too large (max 4096)"));
+            return Err(NexoraError::validation("max_tokens", "Max tokens too large (max 4096)"));
         }
         
         if !(0.0..=2.0).contains(&temperature) {
-            return Err(anyhow::anyhow!("Temperature must be between 0.0 and 2.0"));
+            return Err(NexoraError::validation("temperature", "Temperature must be between 0.0 and 2.0"));
         }
         
         // Analyze prompt complexity
@@ -103,7 +104,7 @@ impl TextGenerator {
     }
     
     /// Generate deterministic text (low temperature)
-    async fn generate_deterministic_text(&self, prompt: &str, analysis: &PromptAnalysis) -> Result<String> {
+    async fn generate_deterministic_text(&self, prompt: &str, analysis: &PromptAnalysis) -> NexoraResult<String> {
         match analysis.generation_type {
             GenerationType::Code => {
                 Ok(format!("// Deterministic code generation for:\n{}\n\n// Generated code:\nfn process_{}() {{\n    // Implementation\n}}", 
@@ -121,7 +122,7 @@ impl TextGenerator {
     }
     
     /// Generate balanced text (medium temperature)
-    async fn generate_balanced_text(&self, prompt: &str, analysis: &PromptAnalysis) -> Result<String> {
+    async fn generate_balanced_text(&self, prompt: &str, analysis: &PromptAnalysis) -> NexoraResult<String> {
         let creativity_factor = (analysis.complexity_score / 100.0) * 0.5;
         
         match analysis.generation_type {
@@ -137,7 +138,7 @@ impl TextGenerator {
     }
     
     /// Generate creative text (high temperature)
-    async fn generate_creative_text(&self, prompt: &str, analysis: &PromptAnalysis) -> Result<String> {
+    async fn generate_creative_text(&self, prompt: &str, analysis: &PromptAnalysis) -> NexoraResult<String> {
         let creative_elements = vec![
             "innovative perspective",
             "creative insight", 
@@ -153,7 +154,7 @@ impl TextGenerator {
     }
     
     /// Generate experimental text (very high temperature)
-    async fn generate_experimental_text(&self, prompt: &str, analysis: &PromptAnalysis) -> Result<String> {
+    async fn generate_experimental_text(&self, prompt: &str, analysis: &PromptAnalysis) -> NexoraResult<String> {
         let experimental_patterns = vec![
             "quantum-inspired",
             "neural-network-driven",
@@ -169,7 +170,7 @@ impl TextGenerator {
     }
     
     /// Post-process generated text
-    fn post_process_generated_text(&self, text: &str, max_tokens: usize) -> Result<String> {
+    fn post_process_generated_text(&self, text: &str, max_tokens: usize) -> NexoraResult<String> {
         // Basic token count estimation (rough approximation)
         let estimated_tokens = text.len() / 4; // Rough estimate: 1 token ≈ 4 characters
         
@@ -190,5 +191,126 @@ impl TextGenerator {
         };
         
         Ok(processed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_generate_text_validation() {
+        let generator = TextGenerator::new();
+        
+        // Test empty prompt
+        let result = generator.generate_text("", 100, 0.7).await;
+        assert!(result.is_err());
+        
+        // Test prompt too long
+        let long_prompt = "a".repeat(5001);
+        let result = generator.generate_text(&long_prompt, 100, 0.7).await;
+        assert!(result.is_err());
+        
+        // Test invalid max_tokens
+        let result = generator.generate_text("test", 0, 0.7).await;
+        assert!(result.is_err());
+        
+        // Test max_tokens too large
+        let result = generator.generate_text("test", 4097, 0.7).await;
+        assert!(result.is_err());
+        
+        // Test invalid temperature
+        let result = generator.generate_text("test", 100, -0.1).await;
+        assert!(result.is_err());
+        
+        let result = generator.generate_text("test", 100, 2.1).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_generate_text_success() {
+        let generator = TextGenerator::new();
+        
+        let result = generator.generate_text("Hello world", 100, 0.7).await;
+        assert!(result.is_ok());
+        
+        let response = result.unwrap();
+        assert!(!response.is_empty());
+        assert!(response.len() <= 100 * 4); // Rough token limit check
+    }
+
+    #[tokio::test]
+    async fn test_analyze_prompt_complexity() {
+        let generator = TextGenerator::new();
+        
+        // Test simple text
+        let analysis = generator.analyze_prompt_complexity("Hello world");
+        assert_eq!(analysis.word_count, 2);
+        assert_eq!(analysis.generation_type, GenerationType::Short);
+        
+        // Test question
+        let analysis = generator.analyze_prompt_complexity("What is Rust?");
+        assert_eq!(analysis.question_count, 1);
+        assert_eq!(analysis.generation_type, GenerationType::Question);
+        
+        // Test code
+        let analysis = generator.analyze_prompt_complexity("```rust\nfn test() {}\n```");
+        assert_eq!(analysis.code_blocks, 1);
+        assert_eq!(analysis.generation_type, GenerationType::Code);
+        
+        // Test long text
+        let long_text = "word ".repeat(60);
+        let analysis = generator.analyze_prompt_complexity(&long_text);
+        assert_eq!(analysis.generation_type, GenerationType::LongForm);
+    }
+
+    #[tokio::test]
+    async fn test_temperature_based_generation() {
+        let generator = TextGenerator::new();
+        let analysis = PromptAnalysis {
+            word_count: 10,
+            sentence_count: 1,
+            question_count: 0,
+            code_blocks: 0,
+            complexity_score: 5.0,
+            generation_type: GenerationType::Short,
+        };
+        
+        // Test deterministic generation (low temperature)
+        let result = generator.generate_deterministic_text("test", &analysis).await;
+        assert!(result.is_ok());
+        
+        // Test balanced generation (medium temperature)
+        let result = generator.generate_balanced_text("test", &analysis).await;
+        assert!(result.is_ok());
+        
+        // Test creative generation (high temperature)
+        let result = generator.generate_creative_text("test", &analysis).await;
+        assert!(result.is_ok());
+        
+        // Test experimental generation (very high temperature)
+        let result = generator.generate_experimental_text("test", &analysis).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_post_process_generated_text() {
+        let generator = TextGenerator::new();
+        
+        // Test text within token limit
+        let result = generator.post_process_generated_text("Hello world", 100);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello world.");
+        
+        // Test text exceeding token limit
+        let long_text = "a".repeat(500);
+        let result = generator.post_process_generated_text(&long_text, 50);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("truncated"));
+        
+        // Test text already ending with punctuation
+        let result = generator.post_process_generated_text("Hello world!", 100);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello world!");
     }
 }

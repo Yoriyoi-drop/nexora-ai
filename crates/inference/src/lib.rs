@@ -12,9 +12,15 @@ pub mod stop_conditions;
 pub mod token_loop;
 pub mod latency;
 pub mod metrics;
+pub mod scheduler;
+pub mod kv_cache;
+pub mod streaming;
+pub mod blaa_integration;
+pub mod inference_trait;
 
 // Re-export main types
-pub use engine::{InferenceEngine, InferenceConfig};
+pub use engine::{InferenceEngine as InferenceEngineStruct, InferenceConfig};
+pub use inference_trait::InferenceEngine;
 pub use runtime::{InferenceRuntime, RuntimeState};
 pub use session::{InferenceSession, SessionConfig, SessionState};
 pub use decoding::{DecodingStrategy, DecodingConfig};
@@ -24,6 +30,7 @@ pub use stop_conditions::{StopCondition, StopConditions};
 pub use token_loop::{TokenLoop, TokenLoopConfig};
 pub use latency::{LatencyTracker, LatencyStats};
 pub use metrics::{InferenceMetrics, MetricsCollector};
+pub use blaa_integration::{BlaaInferenceEngine, BlaaEmbeddingsEngine};
 
 /// Versi inference engine
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -69,6 +76,18 @@ pub enum InferenceError {
 }
 
 pub type Result<T> = std::result::Result<T, InferenceError>;
+
+impl From<anyhow::Error> for InferenceError {
+    fn from(err: anyhow::Error) -> Self {
+        InferenceError::InternalError(err.to_string())
+    }
+}
+
+impl From<nexora_blaa::BlaaError> for InferenceError {
+    fn from(err: nexora_blaa::BlaaError) -> Self {
+        InferenceError::InternalError(format!("BLAA error: {}", err))
+    }
+}
 
 /// Token yang dihasilkan oleh inference
 #[derive(Debug, Clone)]

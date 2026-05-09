@@ -2,7 +2,10 @@
 //! 
 //! Contoh penggunaan lengkap SPARO untuk pelatihan model bahasa
 
-use nexora_model::sparo::prelude::*;
+use nexora_foundation::alignment::sparo::prelude::*;
+use nexora_foundation::alignment::sparo::trainer;
+use nexora_foundation::alignment::sparo::data;
+use nexora_foundation::alignment::sparo::kto;
 use std::collections::HashMap;
 
 fn main() -> anyhow::Result<()> {
@@ -22,7 +25,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Validasi konfigurasi
-    trainer::utils::validate_config(&sparo_config)?;
+    nexora_foundation::alignment::sparo::trainer::utils::validate_config(&sparo_config)?;
     println!("✅ Configuration validated");
 
     // 2. Buat model student dan teacher
@@ -46,7 +49,7 @@ fn main() -> anyhow::Result<()> {
 
     // 4. Generate training prompts
     println!("\n📝 Generating training prompts...");
-    let prompts = trainer::utils::generate_training_prompts(20);
+    let prompts = nexora_foundation::alignment::sparo::trainer::utils::generate_training_prompts(20);
     println!("Generated {} prompts", prompts.len());
     
     // Tampilkan beberapa contoh prompt
@@ -67,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     let mut dataset = SparoDataset::new(dataset_config);
     
     // Generate sample data
-    let (sample_traces, sample_feedback) = data::utils::generate_sample_data(50);
+    let (sample_traces, sample_feedback) = nexora_foundation::alignment::sparo::data::utils::generate_sample_data(50);
     dataset.add_data(sample_traces, sample_feedback)?;
     
     // Augmentasi data
@@ -105,7 +108,7 @@ fn main() -> anyhow::Result<()> {
     // 8. Analisis metrics
     println!("\n📈 Metrics Analysis");
     println!("==================");
-    let metrics_analysis = trainer::utils::analyze_metrics(&training_result.metrics_history);
+    let metrics_analysis = nexora_foundation::alignment::sparo::trainer::utils::analyze_metrics(&training_result.metrics_history);
     println!("Final loss: {:.6}", metrics_analysis.final_loss);
     println!("Best loss: {:.6}", metrics_analysis.best_loss);
     println!("Average loss: {:.6}", metrics_analysis.avg_loss);
@@ -192,7 +195,7 @@ fn demo_kto_component() -> anyhow::Result<()> {
     println!("KTO loss: {:.6}", loss);
     
     // Tampilkan distribusi
-    let stats = kto::utils::analyze_distribution(&labels);
+    let stats = nexora_foundation::alignment::sparo::kto::utils::analyze_distribution(&labels);
     println!("Label distribution:");
     println!("  Total: {}", stats.total);
     println!("  Good: {} ({:.1}%)", stats.good_count, stats.good_ratio * 100.0);

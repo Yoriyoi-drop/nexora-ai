@@ -259,7 +259,7 @@ impl KVCache {
         {
             let state = self.state.read().await;
             if *state != CacheState::Ready {
-                return Err(InferenceError::CacheError("Cache not ready".to_string()));
+                return Err(InferenceError::CacheError("Cache not ready".to_string()).into());
             }
         }
         
@@ -340,7 +340,7 @@ impl KVCache {
         {
             let state = self.state.read().await;
             if *state != CacheState::Ready {
-                return Err(InferenceError::CacheError("Cache not ready".to_string()));
+                return Err(InferenceError::CacheError("Cache not ready".to_string()).into());
             }
         }
         
@@ -578,7 +578,7 @@ impl KVCache {
                 }
             }
             EvictionPolicy::None => {
-                return Err(InferenceError::CacheError("Cache full and eviction disabled".to_string()));
+                return Err(InferenceError::CacheError("Cache full and eviction disabled".to_string()).into());
             }
         };
         

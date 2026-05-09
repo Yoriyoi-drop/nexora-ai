@@ -66,15 +66,15 @@ pub struct InferenceEngine {
     /// Runtime state
     runtime: Arc<InferenceRuntime>,
     /// Request scheduler
-    scheduler: Arc<RequestScheduler>,
+    scheduler: Arc<RwLock<RequestScheduler>>,
     /// KV cache
-    kv_cache: Arc<KVCache>,
+    kv_cache: Arc<RwLock<KVCache>>,
     /// Session manager
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     /// Decoding strategies
     decoding_strategies: HashMap<String, Box<dyn DecodingStrategy>>,
     /// Streaming engine
-    streaming_engine: Option<Arc<StreamingEngine>>,
+    streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     /// Request channel
     request_tx: mpsc::UnboundedSender<InferenceRequest>,
     /// Request receiver
@@ -107,12 +107,12 @@ impl InferenceEngine {
         
         let mut engine = Self {
             runtime: Arc::new(InferenceRuntime::new()),
-            scheduler: Arc::new(RequestScheduler::new(config.max_concurrent_requests)),
-            kv_cache: Arc::new(KVCache::new(config.cache_size_limit_mb * 1024 * 1024)),
+            scheduler: Arc::new(RwLock::new(RequestScheduler::new())),
+            kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
             decoding_strategies: HashMap::new(),
             streaming_engine: if config.enable_streaming {
-                Some(Arc::new(StreamingEngine::new()))
+                Some(Arc::new(RwLock::new(StreamingEngine::new())))
             } else {
                 None
             },
@@ -143,11 +143,11 @@ impl InferenceEngine {
         self.runtime.initialize().await?;
         
         // Initialize scheduler
-        self.scheduler.initialize().await?;
+        self.scheduler.write().await.initialize().await?;
         
         // Initialize KV cache
         if self.config.enable_caching {
-            self.kv_cache.initialize().await?;
+            self.kv_cache.write().await.initialize().await?;
         }
         
         // Add default decoding strategies
@@ -155,7 +155,7 @@ impl InferenceEngine {
         
         // Initialize streaming engine
         if let Some(streaming_engine) = &self.streaming_engine {
-            streaming_engine.initialize().await?;
+            streaming_engine.write().await.initialize().await?;
         }
         
         // Start request processing loop
@@ -196,7 +196,7 @@ impl InferenceEngine {
         let (response_tx, response_rx) = mpsc::unbounded_channel();
         
         // Submit to scheduler
-        self.scheduler.submit_request(request.clone(), response_tx).await?;
+        self.scheduler.write().await.submit_request(request.request_id, response_tx).await?;
         
         // Send to request processing loop
         if let Err(_) = self.request_tx.send(request) {
@@ -215,7 +215,7 @@ impl InferenceEngine {
         }
         
         if let Some(streaming_engine) = &self.streaming_engine {
-            streaming_engine.submit_request(request).await
+            streaming_engine.write().await.submit_request(request).await.map_err(|e| InferenceError::InternalError(e.to_string()))
         } else {
             Err(InferenceError::InternalError("Streaming engine not available".to_string()))
         }
@@ -226,7 +226,7 @@ impl InferenceEngine {
         debug!("Cancelling request: {}", request_id);
         
         // Try to cancel in scheduler
-        let scheduler_cancelled = self.scheduler.cancel_request(request_id).await?;
+        let scheduler_cancelled = self.scheduler.write().await.cancel_request(request_id).await?;
         
         // Try to cancel active task
         let task_cancelled = {
@@ -241,7 +241,7 @@ impl InferenceEngine {
         
         // Cancel in streaming engine
         let streaming_cancelled = if let Some(streaming_engine) = &self.streaming_engine {
-            streaming_engine.cancel_stream(request_id).await.unwrap_or(false)
+            streaming_engine.write().await.cancel_stream(request_id).await.unwrap_or(false)
         } else {
             false
         };
@@ -252,19 +252,17 @@ impl InferenceEngine {
     /// Get request status
     pub async fn get_request_status(&self, request_id: Uuid) -> Result<RequestStatus> {
         // Check in scheduler
-        if let Some(status) = self.scheduler.get_request_status(request_id).await? {
-            return Ok(RequestStatus::from_scheduler_status(status));
-        }
+        let status = self.scheduler.read().await.get_request_status(request_id).await?;
         
         // Check in streaming engine
         if let Some(streaming_engine) = &self.streaming_engine {
-            if let Some(_stream_status) = streaming_engine.get_stream_status(request_id).await? {
-                // Convert stream status to request status
+            let stream_active = streaming_engine.read().await.get_stream_status(request_id).await?;
+            if stream_active {
                 return Ok(RequestStatus::Processing);
             }
         }
         
-        Err(InferenceError::SessionNotFound(format!("Request {} not found", request_id)))
+        Ok(RequestStatus::from_scheduler_status(status))
     }
     
     /// Create or get session
@@ -289,9 +287,9 @@ impl InferenceEngine {
             state: state.clone(),
             active_requests_count: active_requests.len(),
             max_concurrent_requests: self.config.max_concurrent_requests,
-            scheduler_stats: self.scheduler.get_stats().await,
+            scheduler_stats: self.scheduler.read().await.get_stats(),
             cache_stats: if self.config.enable_caching {
-                Some(self.kv_cache.get_stats().await)
+                Some(self.kv_cache.read().await.get_stats())
             } else {
                 None
             },
@@ -325,11 +323,11 @@ impl InferenceEngine {
         }
         
         // Shutdown scheduler
-        self.scheduler.shutdown().await?;
+        self.scheduler.write().await.shutdown().await?;
         
         // Shutdown streaming engine
         if let Some(streaming_engine) = &self.streaming_engine {
-            streaming_engine.shutdown().await?;
+            streaming_engine.write().await.shutdown().await?;
         }
         
         // Update state
@@ -428,10 +426,10 @@ impl InferenceEngine {
     async fn process_single_request_internal(
         request: InferenceRequest,
         _runtime: Arc<InferenceRuntime>,
-        _scheduler: Arc<RequestScheduler>,
-        _kv_cache: Arc<KVCache>,
+        _scheduler: Arc<RwLock<RequestScheduler>>,
+        _kv_cache: Arc<RwLock<KVCache>>,
         _session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
-        _streaming_engine: Option<Arc<StreamingEngine>>,
+        _streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
         active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     ) -> Result<()> {
         let request_id = request.request_id;
@@ -542,7 +540,7 @@ impl InferenceEngine {
                 final_response.inference_time_ms = processing_time;
                 
                 // Send response
-                if let Err(e) = self.scheduler.send_response(request.request_id, final_response).await {
+                if let Err(e) = self.scheduler.write().await.send_response(request.request_id, final_response).await {
                     error!("Failed to send response for request {}: {}", request.request_id, e);
                 }
                 
@@ -556,7 +554,7 @@ impl InferenceEngine {
                     .with_finish_reason(FinishReason::Error(e.to_string()))
                     .with_inference_time(start_time.elapsed().as_millis() as u64);
                 
-                if let Err(send_err) = self.scheduler.send_response(request.request_id, error_response).await {
+                if let Err(send_err) = self.scheduler.write().await.send_response(request.request_id, error_response).await {
                     error!("Failed to send error response for request {}: {}", request.request_id, send_err);
                 }
                 
@@ -571,7 +569,7 @@ impl InferenceEngine {
         }
         
         // Update scheduler
-        let _ = self.scheduler.complete_request(request.request_id).await;
+        let _ = self.scheduler.write().await.complete_request(request.request_id).await;
     }
     
     /// Execute request

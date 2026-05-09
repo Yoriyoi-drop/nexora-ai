@@ -10,11 +10,11 @@ use tracing::{info, warn, debug, error, span, Level, Instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // Import modul yang akan di-benchmark
-use nexora_model::caffeine::{Caffeine, CaffeineConfig, MultiModalInputs};
-use nexora_model::caffeine::types::{UnifiedToken, ModalityType, TextInput, ImageInput, ImageFormat, ContextInfo, TaskType, MultiModalOutputs, PerformanceMetrics, ActionOutput};
-use nexora_model::caffeine::config::{EncodersConfig, QFormerConfig, TokenizerConfig, ActionConfig};
-use nexora_model::atqs::prelude::*;
-use nexora_model::has_moe_ffn::prelude::*;
+use nexora_foundation::multimodal::caffeine::{Caffeine, CaffeineConfig, MultiModalInputs};
+use nexora_foundation::multimodal::caffeine::types::{UnifiedToken, ModalityType, TextInput, ImageInput, ImageFormat, ContextInfo, TaskType, MultiModalOutputs, PerformanceMetrics, ActionOutput};
+use nexora_foundation::multimodal::caffeine::config::{EncodersConfig, QFormerConfig, TokenizerConfig, ActionConfig};
+use nexora_foundation::compression::prelude::*;
+use nexora_foundation::has_moe_ffn::*;
 
 /// Initialize logger untuk benchmark
 fn init_logger() {
@@ -81,7 +81,7 @@ fn create_caffeine_config(enable_atqs: bool, enable_moe: bool) -> CaffeineConfig
         tokenizer_config: TokenizerConfig::default(),
         action_config: ActionConfig::default(),
         atqs_config: if enable_atqs { Some(create_atqs_config()) } else { None },
-        has_moe_config: if enable_moe { Some(create_router_config()) } else { None },
+        has_moe_config: if enable_moe { Some(create_moe_config()) } else { None },
         enable_atqs_compression: enable_atqs,
         enable_has_moe_routing: enable_moe,
         model_dim: 768,
@@ -100,17 +100,21 @@ fn create_caffeine_config(enable_atqs: bool, enable_moe: bool) -> CaffeineConfig
 fn create_router_config() -> RouterConfig {
     debug!("Creating Router configuration for benchmark");
     
-    let config = RouterConfig::default();
+    let config = nexora_foundation::has_moe_ffn::routing::RouterConfig {
+        hidden_size: 4096,
+        num_experts: 8,
+        top_k: 2,
+    };
     
     info!("Router config created");
     config
 }
 
 /// Buat konfigurasi HAS-MoE-FFN untuk benchmark
-fn create_moe_config() -> HasMoeFfnConfig {
+fn create_moe_config() -> HasMoeFFNConfig {
     debug!("Creating HAS-MoE-FFN configuration for benchmark");
     
-    let config = HasMoeFfnConfig::new(4096, 8, 2);
+    let config = HasMoeFFNConfig::default();
     
     info!("MoE config created - num_experts: {}, top_k: {}", 
           config.num_experts, config.top_k);
@@ -355,17 +359,14 @@ fn benchmark_individual_components(c: &mut Criterion) {
             |b, &input_size| {
                 b.iter(|| {
                     let config = create_moe_config();
-                    let mut moe = HasMoeFfn::new(config).unwrap();
+                    let mut moe = HasMoeFFN::new(config);
                     
-                    let input = ndarray::ArrayD::from_shape_vec(
-                        vec![1, input_size], 
+                    let input = ndarray::Array2::from_shape_vec(
+                        (1, input_size), 
                         vec![0.5f32; input_size]
                     ).unwrap();
                     
-                    let _result = moe.forward(black_box(&input)).unwrap_or_else(|e| {
-                        debug!("MoE forward failed: {:?}", e);
-                        ndarray::ArrayD::from_elem(vec![1, 1], 0.0f32) // Return dummy tensor on error
-                    });
+                    let _result = moe.forward(black_box(&input));
                 });
             },
         );

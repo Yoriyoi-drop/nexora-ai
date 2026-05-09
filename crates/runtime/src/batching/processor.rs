@@ -109,7 +109,10 @@ impl BatchProcessor {
         drop(state);
         
         let batch_item = BatchItem::new(
-            request.request_id,
+            request.request_id
+                .as_ref()
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .unwrap_or_else(Uuid::new_v4),
             request.input_tokens,
             request.target_tokens,
             request.priority,
@@ -120,7 +123,7 @@ impl BatchProcessor {
         queue.push_back(batch_item);
         drop(queue);
         
-        debug!("Added request {} to pending queue", request.request_id);
+        debug!("Added request {:?} to pending queue", request.request_id);
         
         // Try to form a batch immediately if conditions are met
         self.try_form_batch().await?;

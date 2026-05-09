@@ -5,7 +5,6 @@
 
 pub mod types;
 pub mod controller;
-pub mod orchestration;
 pub mod execution;
 pub mod input;
 pub mod intent;
@@ -17,11 +16,6 @@ pub mod ml_intent;
 pub mod coordination;
 pub mod async_executor;
 pub mod error_recovery;
-// #[cfg(test)]
-// pub mod tests; // Disabled - tests reference non-existent types
-
-// Re-export orchestration layer
-pub use orchestration::*;
 
 // Re-export execution layer
 pub use execution::*;

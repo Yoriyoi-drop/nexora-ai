@@ -1,49 +1,43 @@
 //! Request processing functionality
 
-use anyhow::Result;
+use crate::error::{NexoraError, NexoraResult};
 use tracing::{info, debug};
 use chrono::Utc;
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::types::{InputType, CodeAnalysis, FunctionInfo, ClassInfo, ImportInfo, ComplexityMetrics, CodeIssue, IssueSeverity, PatternInfo, CodeMetrics};
 
 /// Request processor for handling different input types
 #[derive(Debug, Clone)]
 pub struct RequestProcessor {
-    request_count: Arc<RwLock<u64>>,
+    request_count: Arc<AtomicU64>,
 }
 
 impl RequestProcessor {
-    pub fn new(request_count: Arc<RwLock<u64>>) -> Self {
+    pub fn new(request_count: Arc<AtomicU64>) -> Self {
         Self { request_count }
     }
 
     /// Process a request with input type detection and routing
-    pub async fn process_request(&self, input: &str) -> Result<String> {
+    pub async fn process_request(&self, input: &str) -> NexoraResult<String> {
         let request_start = Utc::now();
-        
-        // Increment request counter
-        {
-            let mut count = self.request_count.write()
-                .map_err(|e| anyhow::anyhow!("Failed to acquire write lock for request counter: {}", e))?;
-            *count += 1;
-        }
-        
-        info!("Processing request #{}: {}", 
-              *self.request_count.read()
-                .map_err(|e| anyhow::anyhow!("Failed to acquire read lock for request counter: {}", e))?, input);
         
         // Validate input
         if input.is_empty() {
-            return Err(anyhow::anyhow!("Input cannot be empty"));
+            return Err(NexoraError::validation("input", "Input cannot be empty"));
         }
         
         if input.len() > 10000 {
-            return Err(anyhow::anyhow!("Input too long (max 10000 characters)"));
+            return Err(NexoraError::validation("input", "Input too long (max 10000 characters)"));
         }
         
         // Detect input type and route appropriately
         let input_type = self.detect_input_type(input);
+        
+        // Increment request counter (atomic operation - no lock needed)
+        let current_count = self.request_count.fetch_add(1, Ordering::Relaxed) + 1;
+        
+        info!("🔄 Processing request #{}: input_len={}, type={:?}", current_count, input.len(), input_type);
         debug!("Detected input type: {:?}", input_type);
         
         let result = match input_type {
@@ -95,7 +89,7 @@ impl RequestProcessor {
     }
     
     /// Process command input
-    async fn process_command(&self, command: &str) -> Result<String> {
+    async fn process_command(&self, command: &str) -> NexoraResult<String> {
         info!("Processing command: {}", command);
         
         match command.to_lowercase().trim() {
@@ -116,7 +110,7 @@ impl RequestProcessor {
     }
     
     /// Process query input
-    async fn process_query(&self, query: &str) -> Result<String> {
+    async fn process_query(&self, query: &str) -> NexoraResult<String> {
         info!("Processing query: {}", query);
         
         // Simple query processing - would delegate to inference engine
@@ -125,7 +119,7 @@ impl RequestProcessor {
     }
     
     /// Process code input
-    async fn process_code(&self, code: &str) -> Result<String> {
+    async fn process_code(&self, code: &str) -> NexoraResult<String> {
         info!("Processing code input ({} chars)", code.len());
         
         // Basic code analysis - would delegate to models crate
@@ -136,7 +130,7 @@ impl RequestProcessor {
     }
     
     /// Process data input
-    async fn process_data(&self, data: &str) -> Result<String> {
+    async fn process_data(&self, data: &str) -> NexoraResult<String> {
         info!("Processing JSON data");
         
         // Try to parse as JSON
@@ -150,7 +144,7 @@ impl RequestProcessor {
     }
     
     /// Process text input
-    async fn process_text(&self, text: &str) -> Result<String> {
+    async fn process_text(&self, text: &str) -> NexoraResult<String> {
         info!("Processing text input ({} chars)", text.len());
         
         // Basic text processing
@@ -161,7 +155,7 @@ impl RequestProcessor {
     }
     
     /// Analyze code structure and complexity
-    pub async fn analyze_code(&self, code: &str) -> Result<CodeAnalysis> {
+    pub async fn analyze_code(&self, code: &str) -> NexoraResult<CodeAnalysis> {
         let lines = code.lines().count();
         let characters = code.len();
         
@@ -459,5 +453,321 @@ impl RequestProcessor {
         } else {
             "Unknown".to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[tokio::test]
+    async fn test_process_request_validation() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        // Test empty input
+        let result = processor.process_request("").await;
+        assert!(result.is_err());
+        
+        // Test input too long
+        let long_input = "a".repeat(10001);
+        let result = processor.process_request(&long_input).await;
+        assert!(result.is_err());
+        
+        // Test valid input
+        let result = processor.process_request("Hello world").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_detect_input_type() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        // Test JSON data
+        let input_type = processor.detect_input_type("{\"key\": \"value\"}");
+        assert_eq!(input_type, InputType::Data);
+        
+        // Test code
+        let input_type = processor.detect_input_type("fn main() {}");
+        assert_eq!(input_type, InputType::Code);
+        
+        // Test command
+        let input_type = processor.detect_input_type("/help");
+        assert_eq!(input_type, InputType::Command);
+        
+        // Test query
+        let input_type = processor.detect_input_type("What is Rust?");
+        assert_eq!(input_type, InputType::Query);
+        
+        // Test text
+        let input_type = processor.detect_input_type("Hello world");
+        assert_eq!(input_type, InputType::Text);
+    }
+
+    #[tokio::test]
+    async fn test_process_command() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        // Test status command
+        let result = processor.process_command("/status").await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("System Status"));
+        
+        // Test help command
+        let result = processor.process_command("/help").await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("Available commands"));
+        
+        // Test unknown command
+        let result = processor.process_command("/unknown").await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("Unknown command"));
+    }
+
+    #[tokio::test]
+    async fn test_process_query() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let result = processor.process_query("What is Rust?").await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("What is Rust?"));
+    }
+
+    #[tokio::test]
+    async fn test_process_code() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = "fn main() {\n    println!(\"Hello, world!\");\n}";
+        let result = processor.process_code(code).await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("Code analysis"));
+        assert!(response.contains("lines"));
+    }
+
+    #[tokio::test]
+    async fn test_process_data() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        // Test valid JSON
+        let json = "{\"name\": \"test\", \"value\": 123}";
+        let result = processor.process_data(json).await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("JSON parsed successfully"));
+        
+        // Test invalid JSON
+        let invalid_json = "{invalid json}";
+        let result = processor.process_data(invalid_json).await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("Invalid JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_process_text() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let text = "Hello world! How are you today?";
+        let result = processor.process_text(text).await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("Text processed"));
+        assert!(response.contains("words"));
+        assert!(response.contains("sentences"));
+    }
+
+    #[tokio::test]
+    async fn test_analyze_code() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = r#"
+pub struct Test {
+    value: i32,
+}
+
+impl Test {
+    pub fn new(value: i32) -> Self {
+        Self { value }
+    }
+    
+    pub fn get_value(&self) -> i32 {
+        self.value
+    }
+}
+"#;
+        
+        let result = processor.analyze_code(code).await;
+        assert!(result.is_ok());
+        
+        let analysis = result.unwrap();
+        assert_eq!(analysis.language, "Rust");
+        assert!(analysis.line_count > 0);
+        assert!(analysis.functions.len() > 0);
+        assert!(analysis.classes.len() > 0);
+        assert!(analysis.character_count > 0);
+    }
+
+    #[test]
+    fn test_extract_functions() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = r#"
+fn main() {}
+pub fn test() -> i32 { 42 }
+private function helper() {}
+"#;
+        
+        let functions = processor.extract_functions(code);
+        assert_eq!(functions.len(), 3);
+        
+        // Check function names
+        let function_names: Vec<String> = functions.iter().map(|f| f.name.clone()).collect();
+        assert!(function_names.contains(&"main".to_string()));
+        assert!(function_names.contains(&"test".to_string()));
+        assert!(function_names.contains(&"helper".to_string()));
+    }
+
+    #[test]
+    fn test_extract_classes() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = r#"
+pub struct TestStruct {
+    value: i32,
+}
+
+class TestClass {
+    constructor() {}
+}
+"#;
+        
+        let classes = processor.extract_classes(code);
+        assert_eq!(classes.len(), 2);
+        
+        // Check class names
+        let class_names: Vec<String> = classes.iter().map(|c| c.name.clone()).collect();
+        assert!(class_names.contains(&"TestStruct".to_string()));
+        assert!(class_names.contains(&"TestClass".to_string()));
+    }
+
+    #[test]
+    fn test_extract_imports() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = r#"
+use std::collections::HashMap;
+import React from 'react';
+#include <stdio.h>
+"#;
+        
+        let imports = processor.extract_imports(code);
+        assert_eq!(imports.len(), 3);
+        
+        // Check import types
+        let import_types: Vec<String> = imports.iter().map(|i| i.import_type.clone()).collect();
+        assert!(import_types.contains(&"use".to_string()));
+        assert!(import_types.contains(&"import".to_string()));
+        assert!(import_types.contains(&"include".to_string()));
+    }
+
+    #[test]
+    fn test_calculate_complexity() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = r#"
+fn test() {
+    if condition {
+        for i in 0..10 {
+            // nested loop
+            for j in 0..5 {
+                println!("{}", i * j);
+            }
+        }
+    }
+}
+// This is a comment
+"#;
+        
+        let complexity = processor.calculate_complexity(code);
+        assert!(complexity.cyclomatic_complexity > 0);
+        assert!(complexity.nested_loops > 0);
+        assert!(complexity.conditionals > 0);
+        assert!(complexity.functions > 0);
+        assert!(complexity.comment_lines > 0);
+        assert!(complexity.code_lines > 0);
+    }
+
+    #[test]
+    fn test_detect_language() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        // Test Rust
+        let rust_code = "fn main() -> Result<(), Box<dyn Error>> { Ok(()) }";
+        assert_eq!(processor.detect_language(rust_code), "Rust");
+        
+        // Test Python
+        let python_code = "def main():\n    print('Hello, world!')";
+        assert_eq!(processor.detect_language(python_code), "Python");
+        
+        // Test JavaScript
+        let js_code = "function main() { console.log('Hello, world!'); }";
+        assert_eq!(processor.detect_language(js_code), "JavaScript");
+        
+        // Test Java
+        let java_code = "public class Main { public static void main(String[] args) {} }";
+        assert_eq!(processor.detect_language(java_code), "Java");
+        
+        // Test unknown
+        let unknown_code = "some random text";
+        assert_eq!(processor.detect_language(unknown_code), "Unknown");
+    }
+
+    #[test]
+    fn test_identify_issues() {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let processor = RequestProcessor::new(request_count);
+        
+        let code = r#"
+fn test() {
+    // This is a very long line that exceeds the 100 character limit and should trigger a warning
+    println!("Hello");
+    // TODO: implement this function
+    // FIXME: critical issue
+    // TODO: urgent task
+    // TODO: security vulnerability
+}
+"#;
+        
+        let issues = processor.identify_issues(code);
+        assert!(issues.len() > 0);
+        
+        // Check for different issue types
+        let issue_types: Vec<IssueSeverity> = issues.iter().map(|i| i.severity.clone()).collect();
+        assert!(issue_types.contains(&IssueSeverity::Warning));
+        assert!(issue_types.contains(&IssueSeverity::Error));
+        
+        // Check for specific issue messages
+        let issue_messages: Vec<String> = issues.iter().map(|i| i.message.clone()).collect();
+        assert!(issue_messages.iter().any(|msg| msg.contains("Line too long")));
+        assert!(issue_messages.iter().any(|msg| msg.contains("TODO")));
+        assert!(issue_messages.iter().any(|msg| msg.contains("FIXME")));
     }
 }

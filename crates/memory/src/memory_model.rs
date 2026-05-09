@@ -11,7 +11,7 @@ use serde::{Serialize, Deserialize};
 use rand::Rng;
 
 /// Memory types (Level 3: Multi-type memory system)
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MemoryType {
     Episodic = 0,    // Specific events/experiences (fast decay, high emotional)
     Semantic = 1,    // General knowledge/facts (slow decay, low emotional)
@@ -28,6 +28,38 @@ impl std::fmt::Display for MemoryType {
             MemoryType::Procedural => write!(f, "Procedural"),
             MemoryType::Working => write!(f, "Working"),
             MemoryType::User => write!(f, "User"),
+        }
+    }
+}
+
+impl MemoryType {
+    pub fn default_relevance(&self) -> f64 {
+        match self {
+            MemoryType::Episodic => 0.7,
+            MemoryType::Semantic => 0.9,
+            MemoryType::Procedural => 0.8,
+            MemoryType::Working => 0.6,
+            MemoryType::User => 0.8,
+        }
+    }
+    
+    pub fn default_emotional_salience(&self) -> f64 {
+        match self {
+            MemoryType::Episodic => 0.8,
+            MemoryType::Semantic => 0.3,
+            MemoryType::Procedural => 0.5,
+            MemoryType::Working => 0.4,
+            MemoryType::User => 0.9,
+        }
+    }
+    
+    pub fn decay_rate(&self) -> f64 {
+        match self {
+            MemoryType::Episodic => 0.1,
+            MemoryType::Semantic => 0.01,
+            MemoryType::Procedural => 0.005,
+            MemoryType::Working => 0.5,
+            MemoryType::User => 0.02,
         }
     }
 }
@@ -116,6 +148,66 @@ impl MemoryEntry {
             Some((dot_product / (norm1 * norm2)) as f64)
         } else {
             None
+        }
+    }
+    
+    pub fn validate(&self) -> Result<(), String> {
+        if self.memory_id == 0 {
+            return Err("Memory ID cannot be 0".to_string());
+        }
+        
+        if self.activation < 0.0 {
+            return Err("Activation cannot be negative".to_string());
+        }
+        
+        if self.relevance < 0.0 || self.relevance > 1.0 {
+            return Err("Relevance must be between 0.0 and 1.0".to_string());
+        }
+        
+        if self.emotional_salience < 0.0 || self.emotional_salience > 1.0 {
+            return Err("Emotional salience must be between 0.0 and 1.0".to_string());
+        }
+        
+        if self.strength < 0.0 {
+            return Err("Strength cannot be negative".to_string());
+        }
+        
+        if let Some(ref embedding) = self.embedding {
+            if embedding.len() != self.embedding_dim {
+                return Err("Embedding dimension mismatch".to_string());
+            }
+        }
+        
+        Ok(())
+    }
+    
+    pub fn is_expired(&self, threshold: f64, current_time: f64) -> bool {
+        let decay_rate = self.memory_type.decay_rate();
+        let current_strength = self.calculate_strength(decay_rate, current_time);
+        current_strength < threshold
+    }
+    
+    pub fn should_consolidate(&self, threshold: f64) -> bool {
+        self.strength >= threshold
+    }
+    
+    pub fn apply_emotional_decay(&mut self, decay_rate: f64, current_time: f64) {
+        let time_diff = current_time - self.timestamp;
+        let decay_factor = (-decay_rate * time_diff).exp();
+        self.emotional_salience *= decay_factor;
+        self.emotional_salience = self.emotional_salience.max(0.1); // Minimum emotional salience
+    }
+    
+    pub fn apply_relevance_decay(&mut self, decay_rate: f64, current_time: f64) {
+        // Only apply relevance decay to certain memory types
+        match self.memory_type {
+            MemoryType::Working | MemoryType::Episodic => {
+                let time_diff = current_time - self.timestamp;
+                let decay_factor = (-decay_rate * time_diff).exp();
+                self.relevance *= decay_factor;
+                self.relevance = self.relevance.max(0.1); // Minimum relevance
+            }
+            _ => {} // No relevance decay for semantic, procedural, user memories
         }
     }
 }

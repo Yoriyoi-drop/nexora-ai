@@ -15,4 +15,4 @@ uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 
-nexora-foundation-traits = { path = "../foundation/traits" }
+nexora-foundation = { path = "../foundation" }

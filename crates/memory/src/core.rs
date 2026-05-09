@@ -5,8 +5,7 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
-use rand::Rng;
-use crate::model::{MemoryEntry, MemoryType};
+use crate::memory_model::{MemoryEntry, MemoryType};
 use crate::types::{MemoryConfig, MemoryStats};
 
 /// Hebbian Memory Model

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
-use crate::types::{ModelId, ContextInfo, ControllerConfig, InputType, IntentType, IntentResult, ControllerStats, InputData};
+use crate::types::{ModelId, ContextInfo, ControllerConfig, InputType, IntentType, IntentResult, ControllerStats, InputData, ControllerState, RoutingDecision, SpecialistModel, LruContextCache, ControllerCore, ControllerMetrics};
 use crate::input::InputReceiver;
 use crate::intent::IntentDetector;
 use crate::context::ContextAnalyzer;
@@ -18,11 +18,9 @@ use parking_lot::RwLock as ParkingRwLock;
 
 use tracing::{debug, info, warn, instrument};
 
-use crate::orchestration::controller_core::ControllerCore;
-use crate::orchestration::controller_types::LruContextCache;
 
 // Re-exports
-pub use crate::orchestration::controller_types::{SpecialistModel, ControllerState, ControllerMetrics, RoutingDecision};
+
 
 /// Core Controller - Main struct untuk mengelola seluruh sistem
 pub struct CoreController {
@@ -145,7 +143,7 @@ impl CoreController {
                 
                 // Update metrics
                 self.metrics.avg_response_time_ms.store(
-                    (self.metrics.avg_response_time_ms.load(Ordering::Relaxed) + processing_time) / 2, 
+                    (self.metrics.avg_response_time_ms.load(Ordering::Relaxed) + processing_time as u64) / 2, 
                     Ordering::Relaxed
                 );
             }

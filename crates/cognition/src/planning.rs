@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use uuid::Uuid;
-use nexora_foundation_traits::FoundationResult;
+use nexora_foundation::FoundationResult;
 
 /// Plan for executing a complex task
 #[derive(Debug, Clone)]

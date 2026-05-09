@@ -6,13 +6,11 @@ pub mod layers;
 pub mod episodic;
 pub mod cache;
 pub mod compression;
-pub mod model;
 pub mod memory;
 pub mod memory_model;
 pub mod lru_memory;
 pub mod optimizer;
 pub mod types;
-pub mod entry;
 pub mod core;
 
 pub use layers::{MemoryLayers, MemoryLayer};

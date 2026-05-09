@@ -6,10 +6,68 @@
 //! - CAFFEINE (Contrastive-Aware Fusion Framework)
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN)
 
-use crate::saca::{SACA, SACAConfig, CodingTask, SACASolution, SACAIntegration};
-use crate::atqs::{ATQSConfig, compression::CompressionEngine};
-use crate::caffeine::{Caffeine, CaffeineConfig, types::{MultiModalInputs, MultiModalOutputs}};
-use crate::has_moe_ffn::{HasMoeFfn, HasMoeFfnConfig, router::ExpertRouter};
+// Import from foundation modules
+use nexora_foundation::reasoning::{
+    SACA,
+    SACAConfig,
+    CodingTask,
+    SACASolution,
+    SACAIntegration,
+};
+
+use nexora_foundation::compression::{
+    ATQSConfig,
+    compression::CompressionEngine,
+};
+
+use nexora_foundation::multimodal::caffeine::{
+    Caffeine,
+    CaffeineConfig,
+    types::MultiModalInputs,
+};
+
+// Temporary placeholder structs for has_moe_ffn until module is implemented
+#[derive(Debug, Clone)]
+pub struct HasMoeFfnConfig {
+    pub router_config: RouterConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct RouterConfig {
+    pub hidden_size: usize,
+    pub num_experts: usize,
+    pub top_k: usize,
+}
+
+#[derive(Debug)]
+pub struct HasMoeFfn;
+
+#[derive(Debug)]
+pub struct ExpertRouter;
+
+impl HasMoeFfnConfig {
+    pub fn medium_model() -> Self {
+        Self {
+            router_config: RouterConfig { 
+                hidden_size: 768, 
+                num_experts: 8, 
+                top_k: 2 
+            },
+        }
+    }
+}
+
+impl HasMoeFfn {
+    pub fn new(_config: HasMoeFfnConfig) -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl ExpertRouter {
+    pub fn new(_config: RouterConfig) -> Result<Self> {
+        Ok(Self)
+    }
+}
 use std::sync::{Arc, Mutex};
 use tracing::{info, debug, warn};
 
@@ -92,7 +150,11 @@ impl UnifiedModel {
                     let has_moe = Arc::new(HasMoeFfn::new(has_moe_config.clone())?);
                     // Note: In practice, we'd need to extract the router from HasMoeFfn
                     // For now, we'll create a separate router
-                    let router = Arc::new(ExpertRouter::new(has_moe_config.router_config.clone())?);
+                    let router = Arc::new(nexora_foundation::has_moe_ffn::routing::Router::new(
+                        has_moe_config.router_config.hidden_size,
+                        has_moe_config.router_config.num_experts,
+                        has_moe_config.router_config.top_k
+                    ));
                     saca_integration = saca_integration.with_has_moe_routing(router);
                     info!("HAS-MoE-FFN expert routing enabled");
                     Some(has_moe)
@@ -160,7 +222,7 @@ impl UnifiedModel {
     }
     
     /// Process multimodal inputs
-    pub async fn process_multimodal(&self, inputs: &MultiModalInputs) -> Result<MultiModalOutputs> {
+    pub async fn process_multimodal(&self, inputs: &MultiModalInputs) -> Result<nexora_foundation::multimodal::caffeine::types::MultiModalOutputs> {
         if let Some(caffeine) = &self.caffeine_model {
             Ok(caffeine.lock().map_err(|e| format!("Failed to lock caffeine model: {}", e))?.forward(&inputs)?)
         } else {

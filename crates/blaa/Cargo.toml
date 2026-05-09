@@ -1,0 +1,30 @@
+[package]
+name = "nexora-blaa"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nexora AI Contributors"]
+license = "MIT OR Apache-2.0"
+description = "BLAA (Black Language Model API) integration for Nexora AI"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# BLAA-specific dependencies
+base64 = "0.21"
+hmac = "0.12"
+sha2 = "0.10"
+url = "2.4"
+futures = "0.3"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = { workspace = true }

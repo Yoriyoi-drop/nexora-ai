@@ -201,13 +201,13 @@ impl StreamingEngine {
     
     /// Create new stream for request
     pub async fn create_stream(&self, request: &InferenceRequest) -> Result<TokenStream> {
-        debug!("Creating stream for request: {}", request.request_id);
+        debug!("Creating stream for request: {:?}", request.request_id);
         
         // Check engine state
         {
             let state = self.state.read().await;
             if *state != EngineState::Ready {
-                return Err(InferenceError::InternalError("Streaming engine not ready".to_string()));
+                return Err(InferenceError::InternalError("Streaming engine not ready".to_string()).into());
             }
         }
         
@@ -216,7 +216,7 @@ impl StreamingEngine {
         
         let stream_info = StreamInfo {
             stream_id,
-            request_id: request.request_id,
+            request_id: request.request_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()).unwrap_or_else(Uuid::new_v4),
             token_tx,
             config: self.config.clone(),
             stats: StreamStats::default(),
@@ -245,22 +245,26 @@ impl StreamingEngine {
         
         let token_stream = TokenStream {
             stream_id,
-            request_id: request.request_id,
+            request_id: request.request_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()).unwrap_or_else(Uuid::new_v4),
             token_rx,
             metadata: HashMap::new(),
             created_at: Utc::now(),
         };
         
-        debug!("Stream {} created for request {}", stream_id, request.request_id);
+        debug!("Stream {} created for request {:?}", stream_id, request.request_id);
         Ok(token_stream)
     }
     
     /// Submit streaming request
     pub async fn submit_request(&self, request: InferenceRequest) -> Result<mpsc::UnboundedReceiver<GeneratedToken>> {
-        debug!("Submitting streaming request: {}", request.request_id);
+        debug!("Submitting streaming request: {:?}", request.request_id);
         
-        if !request.streaming {
-            return Err(InferenceError::InvalidRequest("Request is not for streaming".to_string()));
+        let is_streaming = request.parameters.get("streaming")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        
+        if !is_streaming {
+            return Err(InferenceError::InternalError("Request is not for streaming".to_string()).into());
         }
         
         let stream = self.create_stream(&request).await?;
@@ -284,13 +288,13 @@ impl StreamingEngine {
         let mut streams = self.active_streams.write().await;
         if let Some(stream_info) = streams.get_mut(&stream_id) {
             if stream_info.finished {
-                return Err(InferenceError::InternalError("Stream is already finished".to_string()));
+                return Err(InferenceError::InternalError("Stream is already finished".to_string()).into());
             }
             
             // Apply rate limiting if configured
             if let Some(max_rate) = stream_info.config.max_tokens_per_second {
                 if !self.check_rate_limit(stream_info, max_rate).await? {
-                    return Err(InferenceError::InternalError("Rate limit exceeded".to_string()));
+                    return Err(InferenceError::InternalError("Rate limit exceeded".to_string()).into());
                 }
             }
             
@@ -305,14 +309,14 @@ impl StreamingEngine {
             if let Err(_) = stream_info.token_tx.send(stream_token) {
                 // Stream receiver dropped, clean up
                 streams.remove(&stream_id);
-                return Err(InferenceError::InternalError("Stream receiver dropped".to_string()));
+                return Err(InferenceError::InternalError("Stream receiver dropped".to_string()).into());
             }
             
             // Update stream info
             stream_info.token_count += 1;
             stream_info.last_activity = Utc::now();
             stream_info.stats.tokens_sent += 1;
-            stream_info.stats.bytes_sent += token.token_text.len();
+            stream_info.stats.bytes_sent += token.text.len();
             
             if is_last {
                 stream_info.finished = true;
@@ -327,7 +331,7 @@ impl StreamingEngine {
             debug!("Token sent successfully to stream {}", stream_id);
             Ok(())
         } else {
-            Err(InferenceError::InternalError(format!("Stream {} not found", stream_id)))
+            Err(InferenceError::InternalError(format!("Stream {} not found", stream_id)).into())
         }
     }
     
@@ -366,7 +370,7 @@ impl StreamingEngine {
         if let Some(stream_info) = streams.remove(&stream_id) {
             // Send completion signal
             let _ = stream_info.token_tx.send(StreamToken {
-                token: GeneratedToken::new(0, "[CANCELLED]".to_string(), 0.0, stream_info.token_count),
+                token: GeneratedToken { token_id: 0, text: "[CANCELLED]".to_string(), logprob: 0.0, is_special: true },
                 is_last: true,
                 position: stream_info.token_count,
                 metadata: HashMap::new(),
@@ -581,7 +585,7 @@ pub mod utils {
             let mut accumulated_text = String::new();
             
             while let Some(stream_token) = token_stream.token_rx.recv().await {
-                accumulated_text.push_str(&stream_token.token.token_text);
+                accumulated_text.push_str(&stream_token.token.text);
                 
                 if let Err(_) = text_tx.send(accumulated_text.clone()) {
                     break;
@@ -652,9 +656,9 @@ pub mod adapters {
             
             while let Some(stream_token) = self.inner.token_rx.recv().await {
                 let json_value = serde_json::json!({
-                    "token": stream_token.token.token_text,
+                    "token": stream_token.token.text,
                     "token_id": stream_token.token.token_id,
-                    "log_prob": stream_token.token.log_prob,
+                    "log_prob": stream_token.token.logprob,
                     "position": stream_token.position,
                     "is_last": stream_token.is_last
                 });
@@ -689,9 +693,9 @@ pub mod adapters {
                 let sse_data = format!(
                     "data: {}\n\n",
                     serde_json::json!({
-                        "token": stream_token.token.token_text,
+                        "token": stream_token.token.text,
                         "token_id": stream_token.token.token_id,
-                        "log_prob": stream_token.token.log_prob,
+                        "log_prob": stream_token.token.logprob,
                         "position": stream_token.position,
                         "is_last": stream_token.is_last
                     })

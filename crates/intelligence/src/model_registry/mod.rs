@@ -27,7 +27,7 @@ pub struct ModelMetadata {
 }
 
 /// Model framework types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ModelFramework {
     ATQS,      // Compression
     CAFFEINE,  // Multimodal

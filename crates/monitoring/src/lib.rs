@@ -2,10 +2,6 @@
 //! 
 //! Module ini menyediakan monitoring system untuk Nexora AI
 
-pub mod metrics;
-pub mod alerts;
-pub mod dashboard;
-pub mod collector;
 
 pub use metrics::{MetricsCollector, MetricType, MetricValue};
 pub use alerts::{AlertManager, Alert, AlertSeverity};

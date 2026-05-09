@@ -188,7 +188,7 @@ impl RequestScheduler {
     
     /// Submit request to scheduler
     pub async fn submit_request(&self, request: InferenceRequest, response_tx: mpsc::UnboundedSender<InferenceResponse>) -> Result<()> {
-        debug!("Submitting request to scheduler: {}", request.request_id);
+        debug!("Submitting request to scheduler: {:?}", request.request_id);
         
         // Check scheduler state
         {
@@ -196,7 +196,7 @@ impl RequestScheduler {
             match *state {
                 SchedulerState::Ready => {},
                 _ => {
-                    return Err(InferenceError::InternalError("Scheduler not ready".to_string()));
+                    return Err(InferenceError::InternalError("Scheduler not ready".to_string()).into());
                 }
             }
         }
@@ -208,19 +208,23 @@ impl RequestScheduler {
             queued_at: Utc::now(),
             priority: self.calculate_priority(&request),
             estimated_time_ms: self.estimate_processing_time(&request),
-            metadata: request.metadata.clone(),
+            metadata: HashMap::new(),
         };
         
         // Store response channel
+        let request_uuid = request.request_id
+            .as_ref()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .unwrap_or_else(Uuid::new_v4);
         {
             let mut response_channels = self.response_channels.write().await;
-            response_channels.insert(request.request_id, queued_request.response_tx.clone());
+            response_channels.insert(request_uuid, queued_request.response_tx.clone());
         }
         
         // Update request status
         {
             let mut request_status = self.request_status.write().await;
-            request_status.insert(request.request_id, RequestStatus::Queued);
+            request_status.insert(request_uuid, RequestStatus::Queued);
         }
         
         // Add to queue
@@ -244,7 +248,7 @@ impl RequestScheduler {
         // Try to process queue
         self.process_queue().await?;
         
-        debug!("Request {} queued successfully", request.request_id);
+        debug!("Request {:?} queued successfully", request.request_id);
         Ok(())
     }
     
@@ -382,7 +386,13 @@ impl RequestScheduler {
         // Check if request is in queue
         {
             let mut queue = self.request_queue.write().await;
-            if let Some(pos) = queue.iter().position(|req| req.request.request_id == request_id) {
+            if let Some(pos) = queue.iter().position(|req| {
+                req.request.request_id
+                    .as_ref()
+                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .map(|uuid| uuid == request_id)
+                    .unwrap_or(false)
+            }) {
                 queue.remove(pos);
                 cancelled = true;
             }
@@ -439,11 +449,11 @@ impl RequestScheduler {
         if let Some(response_tx) = response_channels.get(&request_id) {
             if let Err(_) = response_tx.send(response) {
                 warn!("Failed to send response for request {}: channel closed", request_id);
-                return Err(InferenceError::InternalError("Response channel closed".to_string()));
+                return Err(InferenceError::InternalError("Response channel closed".to_string()).into());
             }
             Ok(())
         } else {
-            Err(InferenceError::InternalError("Response channel not found".to_string()))
+            Err(InferenceError::InternalError("Response channel not found".to_string()).into())
         }
     }
     
@@ -504,7 +514,12 @@ impl RequestScheduler {
     async fn process_queue(&self) -> Result<()> {
         while let Some(queued_request) = self.get_next_request().await? {
             // Start processing the request
-            self.start_request(queued_request.request.request_id).await?;
+            self.start_request(
+                queued_request.request.request_id
+                    .as_ref()
+                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .unwrap_or_else(Uuid::new_v4)
+            ).await?;
             
             // Send request to processing engine (this would be handled by the engine)
             // For now, we just mark it as started
@@ -568,20 +583,31 @@ impl RequestScheduler {
         // Simple priority calculation based on request characteristics
         let mut priority = 50; // Base priority
         
+        // Extract parameters
+        let max_tokens = request.parameters.get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100);
+        let streaming = request.parameters.get("streaming")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let temperature = request.parameters.get("temperature")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.7) as f32;
+        
         // Higher priority for shorter requests
-        if request.max_tokens < 50 {
+        if max_tokens < 50 {
             priority += 20;
-        } else if request.max_tokens > 500 {
+        } else if max_tokens > 500 {
             priority -= 20;
         }
         
         // Higher priority for streaming requests
-        if request.streaming {
+        if streaming {
             priority += 10;
         }
         
         // Consider temperature (lower temp = higher priority for deterministic requests)
-        if request.temperature < 0.1 {
+        if temperature < 0.1 {
             priority += 15;
         }
         
@@ -593,8 +619,14 @@ impl RequestScheduler {
     fn estimate_processing_time(&self, request: &InferenceRequest) -> u64 {
         // Simple estimation based on token count and temperature
         let base_time_per_token = 50; // ms per token
-        let temperature_factor = if request.temperature > 0.0 { 1.5 } else { 1.0 };
+        let max_tokens = request.parameters.get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100);
+        let temperature = request.parameters.get("temperature")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.7) as f32;
+        let temperature_factor = if temperature > 0.0 { 1.5 } else { 1.0 };
         
-        (request.max_tokens as u64 * base_time_per_token * temperature_factor as u64).max(100)
+        (max_tokens * base_time_per_token * temperature_factor as u64).max(100)
     }
 }

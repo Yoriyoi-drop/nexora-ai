@@ -4,6 +4,7 @@
 //! dengan ownership dan type safety yang lebih baik.
 
 use serde::{Deserialize, Serialize};
+use crate::error::{CoreError, CoreResult};
 
 // ==================== Input Types ====================
 
@@ -416,4 +417,234 @@ impl ControllerStats {
             self.successful_routings as f32 / (self.successful_routings + self.failed_routings) as f32
         }
     }
+}
+
+// ==================== Controller State ====================
+
+#[derive(Debug, Clone)]
+pub struct ControllerState {
+    pub current_input: Option<InputData>,
+    pub detected_intent: Option<IntentResult>,
+    pub context: Option<ContextInfo>,
+    pub is_processing: bool,
+    pub processing_start_time: u64,
+    pub active_task_count: usize,
+    pub last_active_model: ModelId,
+    pub stats: ControllerStats,
+}
+
+// ==================== Routing Decision ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingDecision {
+    pub target_model: ModelId,
+    pub routed_query: String,
+    pub routing_confidence: f32,
+    pub routing_reasoning: String,
+    pub requires_multi_model: bool,
+    pub secondary_models: Vec<ModelId>,
+}
+
+// ==================== Specialist Model Trait ====================
+
+#[async_trait::async_trait]
+pub trait SpecialistModel: Send + Sync {
+    async fn process(&self, input: &str, context: &ContextInfo) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
+    fn model_id(&self) -> ModelId;
+    fn can_handle(&self, intent: IntentType) -> bool;
+}
+
+// ==================== LRU Context Cache ====================
+
+#[derive(Debug, Clone)]
+pub struct LruContextCache {
+    cache: std::collections::HashMap<String, (ContextInfo, u64)>, // (context, expiry_time)
+    max_size: usize,
+}
+
+impl LruContextCache {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            cache: std::collections::HashMap::new(),
+            max_size,
+        }
+    }
+    
+    pub fn get(&mut self, key: &str) -> Option<ContextInfo> {
+        let now = Self::current_timestamp_ms();
+        if let Some((context, expiry)) = self.cache.get(key) {
+            if now < *expiry {
+                Some(context.clone())
+            } else {
+                self.cache.remove(key);
+                None
+            }
+        } else {
+            None
+        }
+    }
+    
+    pub fn put(&mut self, key: String, context: &ContextInfo, ttl_ms: u64) {
+        let now = Self::current_timestamp_ms();
+        let expiry = now + ttl_ms;
+        
+        // Remove expired entries if cache is full
+        if self.cache.len() >= self.max_size {
+            self.cleanup_expired();
+        }
+        
+        // Still full? Remove oldest entry
+        if self.cache.len() >= self.max_size {
+            if let Some(oldest_key) = self.cache.keys().next().cloned() {
+                self.cache.remove(&oldest_key);
+            }
+        }
+        
+        self.cache.insert(key, (context.clone(), expiry));
+    }
+    
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+    
+    pub fn cleanup_expired(&mut self) {
+        let now = Self::current_timestamp_ms();
+        self.cache.retain(|_, (_, expiry)| now < *expiry);
+    }
+    
+    fn current_timestamp_ms() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+}
+
+// ==================== Controller Core Functions ====================
+
+pub struct ControllerCore;
+
+impl ControllerCore {
+    pub fn current_timestamp_ms() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+    
+    pub fn generate_context_key(input_data: &InputData) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let mut hasher = DefaultHasher::new();
+        input_data.raw_input.hash(&mut hasher);
+        input_data.input_type.hash(&mut hasher);
+        format!("ctx_{:x}", hasher.finish())
+    }
+    
+    pub fn map_intent_to_model(intent: IntentType) -> ModelId {
+        match intent {
+            IntentType::Coding => ModelId::Coding,
+            IntentType::Memory => ModelId::Memory,
+            IntentType::Debugging => ModelId::Logic,
+            IntentType::Planning => ModelId::Planner,
+            IntentType::Reasoning => ModelId::Logic,
+            IntentType::Ranking => ModelId::Ranking,
+            IntentType::Retrieval => ModelId::Retrieval,
+            IntentType::Validation => ModelId::Validator,
+            IntentType::Personality => ModelId::Personality,
+            IntentType::Optimization => ModelId::Optimizer,
+            IntentType::Unknown => ModelId::Controller,
+        }
+    }
+    
+    pub fn calculate_routing_confidence(intent: IntentType, context: &ContextInfo) -> f32 {
+        let base_confidence = match intent {
+            IntentType::Coding => 0.9,
+            IntentType::Memory => 0.85,
+            IntentType::Debugging => 0.8,
+            IntentType::Planning => 0.75,
+            IntentType::Reasoning => 0.8,
+            IntentType::Ranking => 0.7,
+            IntentType::Retrieval => 0.85,
+            IntentType::Validation => 0.75,
+            IntentType::Personality => 0.7,
+            IntentType::Optimization => 0.8,
+            IntentType::Unknown => 0.3,
+        };
+        
+        // Adjust based on context relevance
+        (base_confidence * context.context_relevance).min(1.0)
+    }
+    
+    pub fn get_secondary_models(intents: &[IntentScore]) -> Vec<ModelId> {
+        intents
+            .iter()
+            .filter(|score| score.confidence > 0.5)
+            .map(|score| Self::map_intent_to_model(score.intent_type))
+            .collect()
+    }
+    
+    pub fn find_alternative_model(
+        specialist_models: &std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>>,
+        target_model: ModelId,
+        intent: &IntentResult,
+    ) -> Option<ModelId> {
+        let models = specialist_models.read();
+        
+        // Try to find a model that can handle the primary intent
+        for model in models.values() {
+            if model.model_id() != target_model && model.can_handle(intent.primary_intent) {
+                return Some(model.model_id());
+            }
+        }
+        
+        // Fallback to controller
+        Some(ModelId::Controller)
+    }
+    
+    pub async fn route_to_alternative_model(
+        model: ModelId,
+        intent: &IntentResult,
+        context: &ContextInfo,
+    ) -> CoreResult<RoutingDecision> {
+        Ok(RoutingDecision {
+            target_model: model,
+            routed_query: context.current_context.clone(),
+            routing_confidence: 0.6, // Lower confidence for alternative
+            routing_reasoning: format!(
+                "Alternative routing to {} due to primary model unavailability",
+                model.name()
+            ),
+            requires_multi_model: false,
+            secondary_models: Vec::new(),
+        })
+    }
+    
+    pub async fn execute_task(
+        routing: &RoutingDecision,
+        original_input: &str,
+        specialist_models: &std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>>,
+    ) -> CoreResult<String> {
+        // For now, return a simple response
+        // In a real implementation, this would call the actual specialist model
+        Ok(format!(
+            "Model Processing Result from {:?} for input: {}",
+            routing.target_model, original_input
+        ))
+    }
+}
+
+// ==================== Controller Metrics ====================
+
+#[derive(Debug, Default)]
+pub struct ControllerMetrics {
+    pub total_requests: std::sync::atomic::AtomicU64,
+    pub successful_requests: std::sync::atomic::AtomicU64,
+    pub cache_hits: std::sync::atomic::AtomicU64,
+    pub cache_misses: std::sync::atomic::AtomicU64,
+    pub model_switches: std::sync::atomic::AtomicU64,
+    pub avg_response_time_ms: std::sync::atomic::AtomicU64,
 }
