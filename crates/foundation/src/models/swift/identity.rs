@@ -105,10 +105,10 @@ impl SwiftIdentity {
             reasoning_depth: "Intermediate",
             agents_count: 4,
             specializations: vec![
-                "Speed optimization",
-                "Real-time processing",
-                "Workflow integration",
-                "Edge computing",
+                "Speed optimization".to_string(),
+                "Real-time processing".to_string(),
+                "Workflow integration".to_string(),
+                "Edge computing".to_string(),
             ],
         }
     }

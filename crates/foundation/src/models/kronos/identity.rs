@@ -105,10 +105,10 @@ impl KronosIdentity {
             reasoning_depth: "Intermediate",
             agents_count: 4,
             specializations: vec![
-                "Knowledge management",
-                "Semantic search",
-                "Information retrieval",
-                "Knowledge synthesis",
+                "Knowledge management".to_string(),
+                "Semantic search".to_string(),
+                "Information retrieval".to_string(),
+                "Knowledge synthesis".to_string(),
             ],
         }
     }

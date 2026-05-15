@@ -107,10 +107,10 @@ impl CipherIdentity {
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![
-                "Penetration testing",
-                "Vulnerability scanning",
-                "Threat hunting",
-                "Security auditing",
+                "Penetration testing".to_string(),
+                "Vulnerability scanning".to_string(),
+                "Threat hunting".to_string(),
+                "Security auditing".to_string(),
             ],
         }
     }

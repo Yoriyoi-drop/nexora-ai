@@ -105,10 +105,10 @@ impl GenesisIdentity {
             reasoning_depth: "Intermediate",
             agents_count: 4,
             specializations: vec![
-                "Creative generation",
-                "Innovation synthesis",
-                "Cross-domain creativity",
-                "Novel content generation",
+                "Creative generation".to_string(),
+                "Innovation synthesis".to_string(),
+                "Cross-domain creativity".to_string(),
+                "Novel content generation".to_string(),
             ],
         }
     }
