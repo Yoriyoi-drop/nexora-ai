@@ -583,7 +583,7 @@ pub struct ConflictDetector {
     /// Sensitivity level
     pub sensitivity: f32,
     /// Detection history
-    pub detection_history: Vec<ConflictDetection>,
+    pub detection_history: Vec<ConflictDetectionRecord>,
     /// Detector metrics
     pub metrics: ConflictDetectorMetrics,
 }
@@ -605,7 +605,7 @@ pub enum ConflictDetectionAlgorithm {
 
 /// Conflict Detection
 #[derive(Debug, Clone)]
-pub struct ConflictDetection {
+pub struct ConflictDetectionRecord {
     /// Detection ID
     pub id: String,
     /// Conflict type
@@ -671,7 +671,7 @@ pub struct ResolutionEngine {
     /// Resolution strategies
     pub strategies: Vec<ResolutionStrategy>,
     /// Resolution history
-    pub resolution_history: Vec<ConflictResolution>,
+    pub resolution_history: Vec<ConflictResolutionRecord>,
     /// Engine metrics
     pub metrics: ResolutionEngineMetrics,
 }
@@ -695,7 +695,7 @@ pub enum ResolutionMethod {
 
 /// Conflict Resolution
 #[derive(Debug, Clone)]
-pub struct ConflictResolution {
+pub struct ConflictResolutionRecord {
     /// Resolution ID
     pub id: String,
     /// Conflict ID
@@ -703,7 +703,7 @@ pub struct ConflictResolution {
     /// Resolution method
     pub method: ResolutionMethod,
     /// Resolution outcome
-    pub outcome: ResolutionOutcome,
+    pub outcome: ResolutionStatus,
     /// Resolution time
     pub resolved_at: chrono::DateTime<chrono::Utc>,
     /// Resolution duration
@@ -712,7 +712,7 @@ pub struct ConflictResolution {
 
 /// Resolution Outcome
 #[derive(Debug, Clone)]
-pub enum ResolutionOutcome {
+pub enum ResolutionStatus {
     /// Resolved
     Resolved,
     /// Partially resolved
@@ -759,7 +759,7 @@ pub struct ResourceOptimizer {
     /// Resource monitor
     pub resource_monitor: ResourceMonitor,
     /// Allocation history
-    pub allocation_history: Vec<ResourceAllocation>,
+    pub allocation_history: Vec<ResourceAllocationRecord>,
     /// Optimization metrics
     pub metrics: ResourceOptimizationMetrics,
 }
@@ -884,7 +884,7 @@ pub struct ResourceMonitorMetrics {
 
 /// Resource Allocation
 #[derive(Debug, Clone)]
-pub struct ResourceAllocation {
+pub struct ResourceAllocationRecord {
     /// Allocation ID
     pub id: String,
     /// Agent ID
@@ -967,7 +967,7 @@ pub struct MessageRouter {
     /// Message queue
     pub message_queue: MessageQueue,
     /// Routing history
-    pub routing_history: Vec<MessageRouting>,
+    pub routing_history: Vec<MessageRoutingRecord>,
     /// Router metrics
     pub metrics: MessageRouterMetrics,
 }
@@ -1030,7 +1030,7 @@ pub struct MessageQueueMetrics {
 
 /// Message Routing
 #[derive(Debug, Clone)]
-pub struct MessageRouting {
+pub struct MessageRoutingRecord {
     /// Routing ID
     pub id: String,
     /// Source agent

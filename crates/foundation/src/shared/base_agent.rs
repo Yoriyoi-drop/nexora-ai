@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use crate::shared::base_model::NxrModelResult;
-use super::agent_types::{AgentStatus, AgentCapability, TaskPriority, AgentMetrics, AgentResult};
+use super::agent_types::{AgentStatus, AgentCapability, TaskPriority, AgentMetrics, AgentResult, AgentError};
 
 /// Base trait that all NXR agents must implement
 #[async_trait]
@@ -173,7 +173,7 @@ pub trait AgentLifecycle: BaseAgent {
     
     /// Error handling hook
     async fn handle_error(&self, error: &AgentError) -> AgentResult<()> {
-        log::error!("Agent {} encountered error: {}", self.agent_id(), error);
+        tracing::error!("Agent {} encountered error: {}", self.agent_id(), error);
         Ok(())
     }
     

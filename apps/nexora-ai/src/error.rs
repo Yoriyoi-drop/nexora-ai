@@ -32,8 +32,8 @@ pub enum NexoraError {
     #[error("IO error: {source}")]
     Io { #[from] source: std::io::Error },
 
-    #[error("Serialization error: {source}")]
-    Serialization { #[from] source: serde_json::Error },
+    #[error("Serialization error: {message}")]
+    Serialization { message: String },
 
     #[error("System error: {message}")]
     System { message: String },
@@ -65,6 +65,39 @@ impl NexoraError {
     /// Helper untuk membuat processing error
     pub fn processing(message: impl Into<String>) -> Self {
         Self::Processing {
+            message: message.into(),
+        }
+    }
+
+    /// Helper untuk membuat initialization error
+    pub fn initialization(message: impl Into<String>) -> Self {
+        Self::Initialization {
+            message: message.into(),
+        }
+    }
+
+    /// Helper untuk membuat IO error
+    pub fn io(source: std::io::Error) -> Self {
+        Self::Io { source }
+    }
+
+    /// Helper untuk membuat serialization error
+    pub fn serialization(source: impl std::fmt::Display) -> Self {
+        Self::Serialization {
+            message: source.to_string(),
+        }
+    }
+
+    /// Helper untuk membuat system error
+    pub fn system(message: impl Into<String>) -> Self {
+        Self::System {
+            message: message.into(),
+        }
+    }
+
+    /// Helper untuk membuat model error
+    pub fn model(message: impl Into<String>) -> Self {
+        Self::Model {
             message: message.into(),
         }
     }
@@ -125,6 +158,12 @@ impl NexoraError {
 
 /// Result type yang menggunakan NexoraError
 pub type NexoraResult<T> = Result<T, NexoraError>;
+
+impl From<anyhow::Error> for NexoraError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::system(error.to_string())
+    }
+}
 
 /// Error context untuk debugging
 #[derive(Debug, Clone)]

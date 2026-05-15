@@ -305,7 +305,7 @@ impl NxrModel for NxrAxiomModel {
                 finish_reason: crate::shared::base_model::FinishReason::EndOfSequence,
                 total_tokens: result.split_whitespace().count(),
                 generation_time_ms,
-                model_version: self.identity.meta().version.clone(),
+                model_version: self.identity.meta.version.clone(),
                 seed: None,
             },
             performance: crate::shared::base_model::PerformanceMetrics {

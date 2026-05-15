@@ -2,6 +2,8 @@
 //! 
 //! Capability vector and specifications for NXR-VORTEX
 
+use std::collections::HashMap;
+
 use crate::shared::{
     capability_spec::{CapabilityVector, CapabilitySpec, CapabilityDomain, CapabilityLevel, ResourceRequirements},
     model_identity::NxrModelId,

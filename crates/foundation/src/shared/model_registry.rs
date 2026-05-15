@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use super::{
@@ -40,9 +41,9 @@ impl NxrModelRegistry {
     pub async fn register_model(
         &self,
         model_id: NxrModelId,
-        model: Arc<dyn NxrModel>,
+        model: Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>,
         meta: ModelMeta,
-        capabilities: CapabilityVector,
+        model_capabilities: CapabilityVector,
         config: NxrModelConfig,
     ) -> Result<(), RegistryError> {
         // Validate model identity matches
@@ -71,7 +72,7 @@ impl NxrModelRegistry {
 
         {
             let mut capabilities = self.capabilities.write().await;
-            capabilities.insert(model_id, capabilities);
+            capabilities.insert(model_id, model_capabilities);
         }
 
         {
@@ -109,7 +110,10 @@ impl NxrModelRegistry {
     }
 
     /// Get model by ID
-    pub async fn get_model(&self, model_id: &NxrModelId) -> Result<Arc<dyn NxrModel>, RegistryError> {
+    pub async fn get_model(
+        &self,
+        model_id: &NxrModelId,
+    ) -> Result<Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>, RegistryError> {
         let models = self.models.read().await;
         models
             .get(model_id)

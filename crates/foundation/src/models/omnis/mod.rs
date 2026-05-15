@@ -339,9 +339,10 @@ impl NxrModel for NxrOmnisModel {
     }
 
     fn config(&self) -> &Self::Config {
-        // This would need to be async in a real implementation
-        // For now, return a default config
-        &OmnisConfig::default()
+        // Return reference to config stored in base
+        // For now, create a static default to avoid lifetime issues
+        static DEFAULT_CONFIG: OmnisConfig = OmnisConfig::default();
+        &DEFAULT_CONFIG
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {

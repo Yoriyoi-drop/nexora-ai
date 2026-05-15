@@ -3,7 +3,7 @@
 //! Layer ini menyediakan integrasi antara deeplearning crate dan semua NXR models
 //! Mendukung STAR-X dan ECHO-Net Ω architectures
 
-use crate::deeplearning::{
+use nexora_deeplearning::{
     star_x::{StarXConfig, StarXState, StarXMetics},
     echo_net::{EchoNetConfig, EchoNetState, EchoNetMetrics},
     traits::{Forward, Backward, Stateful, Trainable},
@@ -26,17 +26,15 @@ pub enum DLArchitecture {
 }
 
 /// Konfigurasi deep learning untuk NXR models
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DeepLearningConfig {
     /// Tipe arsitektur yang digunakan
     pub architecture: DLArchitecture,
     
     /// Konfigurasi STAR-X (jika digunakan)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub star_x_config: Option<StarXConfig>,
     
     /// Konfigurasi ECHO-Net (jika digunakan)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub echo_net_config: Option<EchoNetConfig>,
     
     /// Enable training mode
@@ -149,7 +147,7 @@ impl DeepLearningState {
 }
 
 /// Metrics deep learning untuk NXR models
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum DeepLearningMetrics {
     /// Metrics STAR-X
     StarX(StarXMetics),
@@ -328,7 +326,8 @@ impl DeepLearningEngine {
             }
         }
         
-        Ok(ArrayD::from_vec(freq.to_vec()))
+        ArrayD::from_shape_vec(ndarray::IxDyn(&[freq.len()]), freq.to_vec())
+            .map_err(DeepLearningError::from)
     }
     
     /// Convert tensor ke text representation

@@ -598,7 +598,8 @@ impl NxrModel for NxrVortexModel {
     }
 
     fn config(&self) -> &Self::Config {
-        &VortexConfig::default()
+        static DEFAULT_CONFIG: VortexConfig = VortexConfig::default();
+        &DEFAULT_CONFIG
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {

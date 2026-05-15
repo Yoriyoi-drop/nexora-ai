@@ -16,3 +16,12 @@ pub use innovation_catalyst::*;
 pub use origin_forge::*;
 pub use prime_creator::*;
 pub use system_breeder::*;
+
+#[derive(Debug, Clone, Default)]
+pub struct GenesisAgents;
+
+impl GenesisAgents {
+    pub fn new(_config: &super::config::GenesisConfig) -> Self {
+        Self
+    }
+}

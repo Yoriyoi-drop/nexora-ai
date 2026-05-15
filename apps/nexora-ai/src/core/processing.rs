@@ -3,6 +3,7 @@
 use crate::error::{NexoraError, NexoraResult};
 use tracing::{info, debug};
 use chrono::Utc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::types::{InputType, CodeAnalysis, FunctionInfo, ClassInfo, ImportInfo, ComplexityMetrics, CodeIssue, IssueSeverity, PatternInfo, CodeMetrics};

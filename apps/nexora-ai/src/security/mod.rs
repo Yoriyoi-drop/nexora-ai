@@ -76,9 +76,9 @@ impl Default for SecurityConfig {
 pub struct SecurityValidator {
     config: SecurityConfig,
     // Regex patterns for security checks
-    malicious_patterns: Lazy<Vec<Regex>>,
-    path_traversal_patterns: Lazy<Vec<Regex>>,
-    command_injection_patterns: Lazy<Vec<Regex>>,
+    malicious_patterns: Vec<Regex>,
+    path_traversal_patterns: Vec<Regex>,
+    command_injection_patterns: Vec<Regex>,
 }
 
 impl SecurityValidator {
@@ -120,9 +120,9 @@ impl SecurityValidator {
 
         Self {
             config,
-            malicious_patterns,
-            path_traversal_patterns,
-            command_injection_patterns,
+            malicious_patterns: malicious_patterns.clone(),
+            path_traversal_patterns: path_traversal_patterns.clone(),
+            command_injection_patterns: command_injection_patterns.clone(),
         }
     }
 
@@ -260,7 +260,7 @@ impl SecurityUtils {
         let mut rng = rand::thread_rng();
         
         (0..length)
-            .map(|_| charset[rng.gen_range(0..charset.len())])
+            .map(|_| charset[rng.gen_range(0..charset.len())] as char)
             .collect()
     }
 

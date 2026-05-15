@@ -566,7 +566,7 @@ impl SwiftConfig {
         }
 
         // Validate workflow integration
-        if self.workflow_integration.event_processing == EventProcessing::Batch { batch_size: 0 } {
+        if self.workflow_integration.event_handling.batch_size == 0 {
             return Err("Batch size must be > 0".to_string());
         }
 

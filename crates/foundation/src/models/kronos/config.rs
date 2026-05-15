@@ -465,9 +465,7 @@ impl KronosConfig {
         }
 
         // Validate semantic search configuration
-        if self.semantic_search.result_limit == 0 {
-            return Err("Result limit must be > 0".to_string());
-        }
+        // Note: result_limit validation removed as field doesn't exist in SemanticSearchConfig
 
         // Validate knowledge graph configuration
         if self.knowledge_graph.entity_extraction.entity_types.is_empty() {

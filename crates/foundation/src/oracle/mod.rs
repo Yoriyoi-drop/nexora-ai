@@ -59,7 +59,8 @@ impl OracleVortexIntegration {
     /// Create new integration
     pub fn new() -> Self {
         Self {
-            oracle_trainer: trainer::OracleTrainer::new(),
+            oracle_trainer: trainer::OracleTrainer::new(trainer::OracleConfig::default(), 32_000)
+                .expect("failed to initialize ORACLE trainer"),
             vortex_model: NxrVortexModel::new(),
             integration_config: OracleVortexConfig::default(),
         }

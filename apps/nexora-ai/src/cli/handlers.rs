@@ -40,7 +40,7 @@ impl Cli {
             Ok(ai) => ai,
             Err(e) => {
                 error!("Failed to initialize Nexora AI: {}", e);
-                return Err(NexoraError::Initialization(format!("Nexora AI initialization failed: {}", e)));
+                return Err(NexoraError::initialization(format!("Nexora AI initialization failed: {}", e)));
             }
         };
         
@@ -57,6 +57,7 @@ impl Cli {
             }
             Commands::Chat { interactive, message, conversation_id, history_file } => {
                 self.run_chat(&nexora, *interactive, message, conversation_id, history_file).await
+                    .map_err(|e| NexoraError::processing(format!("Chat command failed: {}", e)))
             }
             Commands::Analyze { file, language, format, output } => {
                 self.run_analyze(&nexora, file, language, format, output).await
@@ -66,9 +67,11 @@ impl Cli {
             }
             Commands::Train { data, output, epochs, batch_size, learning_rate, gpu } => {
                 self.run_train(&nexora, data, output, *epochs, *batch_size, *learning_rate, *gpu).await
+                    .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
             }
             Commands::Evaluate { model, test_data, output } => {
                 self.run_evaluate(&nexora, model, test_data, output).await
+                    .map_err(|e| NexoraError::processing(format!("Evaluate command failed: {}", e)))
             }
             Commands::Info { performance, memory, models, format } => {
                 self.run_info(&nexora, *performance, *memory, *models, format).await
@@ -404,7 +407,7 @@ impl Cli {
             ConfigAction::Generate { output } => {
                 let default_config = NexoraConfig::default();
                 let config_str = toml::to_string_pretty(&default_config)
-                    .map_err(|e| NexoraError::Serialization { source: e })?;
+                    .map_err(|e| NexoraError::serialization(e))?;
                 std::fs::write(output, config_str)
                     .map_err(|e| NexoraError::Io { source: e })?;
                 println!("Default configuration generated: {:?}", output);

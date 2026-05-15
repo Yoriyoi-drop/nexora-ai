@@ -6,7 +6,9 @@ use tracing::{info, debug, warn};
 
 use crate::NexoraAI;
 use super::models::{EvaluationReport, EvaluationResult};
-use nexora_model::specialists::{TrainingSample, TrainingModel, TrainingModelFactory, SpecialistType};
+use nexora_intelligence::model_registry::specialists::{
+    SpecialistType, TrainingModel, TrainingModelFactory, TrainingSample,
+};
 
 impl crate::cli::commands::Cli {
     /// Run train command

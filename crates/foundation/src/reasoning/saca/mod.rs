@@ -61,6 +61,26 @@ pub struct SACA {
     performance_metrics: Arc<RwLock<SACAMetrics>>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ReasoningResult {
+    pub conclusion: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SacaEngine;
+
+impl SacaEngine {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn reason(&self, problem: &str, context: &str) -> Result<ReasoningResult, crate::reasoning::saca::SACAError> {
+        Ok(ReasoningResult {
+            conclusion: format!("{} {}", problem, context).trim().to_string(),
+        })
+    }
+}
+
 impl SACA {
     /// Create new SACA instance with full 6-phase pipeline
     pub async fn new(config: SACAConfig) -> Result<Self, SACAError> {

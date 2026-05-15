@@ -60,7 +60,7 @@ impl SystemMonitor {
         system.refresh_all();
         
         let models = self.models.read()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire read lock for models: {}", e))?;
+            .map_err(|e| NexoraError::system(format!("Failed to acquire read lock for models: {}", e)))?;
         let active_models = models.clone();
         
         // Calculate uptime
@@ -269,7 +269,6 @@ impl SystemMonitor {
         let cpu_usage = system.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() 
             / system.cpus().len() as f32;
         let memory_usage_percent = (system.used_memory() as f64 / system.total_memory() as f64) * 100.0;
-        
         // Base response time adjusted by system load
         let base_response_time = 50.0; // 50ms base
         let load_factor = (cpu_usage as f64 / 100.0 + memory_usage_percent / 100.0) / 2.0;
@@ -397,6 +396,7 @@ impl SystemMonitor {
         
         // Calculate actual average response time from request metrics
         let request_count = self.request_count.load(Ordering::Relaxed);
+        let uptime = (Utc::now() - self.start_time).num_seconds() as u64;
         let average_response_time = self.calculate_average_response_time(request_count, uptime).await?;
         
         // Calculate actual error rate from request metrics

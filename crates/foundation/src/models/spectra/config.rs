@@ -2,6 +2,7 @@
 //! 
 //! Model-specific configuration for NXR-SPECTRA
 
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use crate::shared::model_config::NxrModelConfig;
 

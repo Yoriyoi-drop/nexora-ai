@@ -3,6 +3,7 @@
 pub mod core;
 pub mod tokenizer;
 pub mod memory;
+pub mod models;
 pub mod server;
 pub mod api;
 pub mod logging;
@@ -14,6 +15,7 @@ pub use loader::NexoraConfig;
 pub use core::CoreConfig;
 pub use tokenizer::{TokenizerConfig, SpecialTokens};
 pub use memory::MemoryConfig;
+pub use models::ModelsConfig;
 pub use server::ServerConfig;
 pub use api::ApiConfig;
 pub use logging::LoggingConfig;

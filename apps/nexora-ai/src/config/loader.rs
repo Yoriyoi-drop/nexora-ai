@@ -2,7 +2,7 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use std::path::Path;
-use tracing::{info, warn, debug};
+use tracing::{info, warn, debug, error};
 
 use super::core::CoreConfig;
 use super::tokenizer::TokenizerConfig;
@@ -313,7 +313,7 @@ impl NexoraConfig {
             // Logging
             self.logging.level.to_uppercase(),
             if self.logging.enable_file_logging { "✅ Enabled" } else { "❌ Disabled" },
-            if self.logging.structured_logging { "✅ Enabled" } else { "❌ Disabled" }
+            if self.logging.enable_structured_logging { "✅ Enabled" } else { "❌ Disabled" }
         );
         
         info!("📊 Configuration summary generated");
@@ -328,7 +328,7 @@ impl NexoraConfig {
         debug!("Converting configuration to safe JSON format");
         
         let json_value = serde_json::to_value(self)
-            .map_err(|e| NexoraError::Serialization { source: e })?;
+            .map_err(|e| NexoraError::serialization(e))?;
             
         // Remove sensitive information if needed
         // For now, return the full config as it doesn't contain sensitive data
@@ -374,7 +374,7 @@ impl NexoraConfig {
         if self.server.enable_tls { score += 1; }
         if self.api.enable_rate_limiting { score += 1; }
         if self.logging.enable_file_logging { score += 1; }
-        if self.logging.structured_logging { score += 1; }
+        if self.logging.enable_structured_logging { score += 1; }
         
         match score {
             0..=2 => "Simple",

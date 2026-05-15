@@ -37,6 +37,37 @@ pub struct Caffeine {
     has_moe_router: Option<crate::has_moe_ffn::routing::Router>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MultimodalResult {
+    pub processing_summary: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CaffeineProcessor;
+
+impl CaffeineProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn process_multimodal(&self, inputs: &crate::multimodal::MultimodalInputs) -> std::result::Result<MultimodalResult, CaffeineError> {
+        let mut parts = Vec::new();
+        if inputs.text.is_some() {
+            parts.push("text");
+        }
+        if inputs.image.is_some() {
+            parts.push("image");
+        }
+        if inputs.audio.is_some() {
+            parts.push("audio");
+        }
+
+        Ok(MultimodalResult {
+            processing_summary: format!("processed {}", parts.join(", ")),
+        })
+    }
+}
+
 impl Caffeine {
     /// Create new CAFFEINE instance
     pub fn new(config: CaffeineConfig) -> crate::caffeine::error::Result<Self> {

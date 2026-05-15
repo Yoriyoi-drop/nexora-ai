@@ -618,7 +618,7 @@ impl AxiomIdentity {
                 accuracy_rate: 0.96,
             },
             geometry: MathCapability {
-                proficiency: MathProficiency:Expert,
+                proficiency: MathProficiency::Expert,
                 max_complexity: ComplexityLevel::Complex,
                 solution_methods: vec![
                     "euclidean_geometry".to_string(),

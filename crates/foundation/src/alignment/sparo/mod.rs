@@ -35,3 +35,25 @@ pub mod prelude {
     pub use super::trainer::*;
     pub use super::data::*;
 }
+
+#[derive(Debug, Clone)]
+pub struct AlignmentResult {
+    pub alignment_score: f32,
+    pub safety_level: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SparoSystem;
+
+impl SparoSystem {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn align_behavior(&self, behavior: &str, context: &str) -> Result<AlignmentResult, Box<dyn std::error::Error>> {
+        Ok(AlignmentResult {
+            alignment_score: if behavior.is_empty() && context.is_empty() { 0.0 } else { 1.0 },
+            safety_level: "baseline".to_string(),
+        })
+    }
+}

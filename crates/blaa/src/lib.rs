@@ -16,6 +16,7 @@ pub mod auth;
 
 pub use client::BlaaClient;
 pub use config::BlaaConfig;
+pub use models::*;
 
 #[derive(Error, Debug)]
 pub enum BlaaError {
@@ -73,6 +74,16 @@ pub mod defaults {
 /// API models
 pub mod models {
     use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum MessageRole {
+        System,
+        User,
+        Assistant,
+        Tool,
+    }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatCompletionRequest {
@@ -80,13 +91,31 @@ pub mod models {
         pub messages: Vec<ChatMessage>,
         pub max_tokens: Option<u32>,
         pub temperature: Option<f32>,
+        pub top_p: Option<f32>,
+        pub n: Option<u32>,
         pub stream: Option<bool>,
+        pub stop: Option<StopSequence>,
+        pub presence_penalty: Option<f32>,
+        pub frequency_penalty: Option<f32>,
+        pub logit_bias: Option<HashMap<String, f32>>,
+        pub user: Option<String>,
+        pub system: Option<String>,
     }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatMessage {
-        pub role: String,
+        pub role: MessageRole,
         pub content: String,
+        pub name: Option<String>,
+        pub function_call: Option<serde_json::Value>,
+        pub tool_calls: Option<Vec<serde_json::Value>>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(untagged)]
+    pub enum StopSequence {
+        Single(String),
+        Multiple(Vec<String>),
     }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,12 +125,26 @@ pub mod models {
         pub created: u64,
         pub model: String,
         pub choices: Vec<ChatChoice>,
+        pub usage: Option<Usage>,
     }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatChoice {
         pub index: u32,
         pub message: ChatMessage,
+        pub finish_reason: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ChatDelta {
+        pub role: Option<MessageRole>,
+        pub content: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ChatChunkChoice {
+        pub index: u32,
+        pub delta: ChatDelta,
         pub finish_reason: Option<String>,
     }
     
@@ -111,19 +154,44 @@ pub mod models {
         pub object: String,
         pub created: u64,
         pub model: String,
-        pub choices: Vec<ChatChoice>,
+        pub choices: Vec<ChatChunkChoice>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Usage {
+        pub prompt_tokens: u32,
+        pub completion_tokens: u32,
+        pub total_tokens: u32,
     }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct EmbeddingRequest {
         pub model: String,
-        pub input: Vec<String>,
+        pub input: EmbeddingInput,
+        pub user: Option<String>,
+        pub encoding_format: Option<EmbeddingFormat>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(untagged)]
+    pub enum EmbeddingInput {
+        Single(String),
+        Multiple(Vec<String>),
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum EmbeddingFormat {
+        Float,
+        Base64,
     }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct EmbeddingResponse {
         pub object: String,
         pub data: Vec<EmbeddingData>,
+        pub model: Option<String>,
+        pub usage: Option<Usage>,
     }
     
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +205,7 @@ pub mod models {
     pub struct ModelInfo {
         pub id: String,
         pub object: String,
+        pub object_type: String,
         pub created: u64,
         pub owned_by: String,
     }
@@ -153,4 +222,3 @@ pub mod models {
         pub code: Option<String>,
     }
 }
-

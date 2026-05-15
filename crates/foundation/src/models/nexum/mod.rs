@@ -265,7 +265,8 @@ impl NxrModel for NxrNexumModel {
     }
 
     fn config(&self) -> &Self::Config {
-        &NexumConfig::default()
+        static DEFAULT_CONFIG: NexumConfig = NexumConfig::default();
+        &DEFAULT_CONFIG
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {

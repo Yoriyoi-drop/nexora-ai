@@ -203,7 +203,7 @@ pub struct ExploitationLimits {
 }
 
 /// Exploitation Depth
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ExploitationDepth {
     /// No exploitation
     None,

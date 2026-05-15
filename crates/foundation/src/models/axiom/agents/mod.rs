@@ -12,3 +12,12 @@ pub use axiom_prime::*;
 pub use logic_core::*;
 pub use truth_validator::*;
 pub use axiom_discoverer::*;
+
+#[derive(Debug, Clone, Default)]
+pub struct AxiomAgents;
+
+impl AxiomAgents {
+    pub fn new(_config: &super::config::AxiomConfig) -> Self {
+        Self
+    }
+}

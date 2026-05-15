@@ -313,7 +313,8 @@ impl NxrModel for NxrSpectraModel {
     }
 
     fn config(&self) -> &Self::Config {
-        &SpectraConfig::default()
+        static DEFAULT_CONFIG: SpectraConfig = SpectraConfig::default();
+        &DEFAULT_CONFIG
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {

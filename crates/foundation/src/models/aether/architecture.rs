@@ -1541,7 +1541,7 @@ impl AetherArchitecture {
     /// Generate compassionate empathy response
     async fn generate_compassionate_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
         let response = format!(
-            "I hear you, and I'm here to support you. What you're going through sounds challenging, and I want you to know that you deserve care and compassion. I'm here to help you through this, whatever you need.",
+            "I hear you, and I'm here to support you. What you're going through sounds challenging, especially with the {} you're experiencing, and I want you to know that you deserve care and compassion. I'm here to help you through this, whatever you need.",
             emotional_result.primary_emotion
         );
         Ok(response)
@@ -1550,7 +1550,7 @@ impl AetherArchitecture {
     /// Generate somatic empathy response
     async fn generate_somatic_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
         let response = format!(
-            "I can sense the physical tension and emotional weight in what you're sharing. Your body and mind are connected in this experience, and it's important to acknowledge how this affects you physically as well as emotionally.",
+            "I can sense the physical tension and emotional weight in what you're sharing. Your body and mind are connected in this experience, and it's important to acknowledge how this {} affects you physically as well as emotionally.",
             emotional_result.primary_emotion
         );
         Ok(response)
@@ -1559,7 +1559,7 @@ impl AetherArchitecture {
     /// Generate spiritual empathy response
     async fn generate_spiritual_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
         let response = format!(
-            "I recognize the deeper meaning and existential significance in what you're experiencing. This moment holds spiritual weight, and I honor the journey you're on. Your experience has meaning beyond the surface level.",
+            "I recognize the deeper meaning and existential significance in the {} you're experiencing. This moment holds spiritual weight, and I honor the journey you're on. Your experience has meaning beyond the surface level.",
             emotional_result.primary_emotion
         );
         Ok(response)

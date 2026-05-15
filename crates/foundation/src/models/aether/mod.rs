@@ -289,7 +289,8 @@ impl NxrModel for NxrAetherModel {
     }
 
     fn config(&self) -> &Self::Config {
-        &AetherConfig::default()
+        static DEFAULT_CONFIG: AetherConfig = AetherConfig::default();
+        &DEFAULT_CONFIG
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
