@@ -24,6 +24,7 @@ async-trait = { workspace = true }
 parking_lot = { workspace = true }
 unicode-segmentation = { workspace = true }
 reqwest = { workspace = true }
+nexora-tokenizer = { path = "../tokenizer" }
 
 tokio-stream = "0.1"
 url = "2"

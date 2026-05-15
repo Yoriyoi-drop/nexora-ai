@@ -252,14 +252,21 @@ pub struct RateLimitingMiddleware {
 
 impl RateLimitingMiddleware {
     pub fn new(rate_limiter: Arc<RateLimiter>, default_limit: u32, window_seconds: u64) -> Self {
-        // Configure default limit before creating the struct
-        // Note: This requires RateLimiter to have interior mutability or be modified before wrapping in Arc
-        
         Self {
             rate_limiter,
             default_limit,
             window_seconds,
         }
+    }
+
+    pub async fn init_default_limit(&self) {
+        let _ = self.rate_limiter.add_limit(
+            "default".to_string(),
+            crate::RateLimit {
+                max_requests: self.default_limit,
+                window_seconds: self.window_seconds,
+            }
+        );
     }
     
     pub fn with_custom_limits(self, limits: HashMap<String, crate::RateLimit>) -> Self {
@@ -768,17 +775,19 @@ impl Middleware for SecurityMiddleware {
 }
 
 /// Utility function to create default middleware stack
-pub fn create_default_middleware_stack() -> MiddlewareStack {
+pub async fn create_default_middleware_stack() -> MiddlewareStack {
     let mut stack = MiddlewareStack::new();
     
     // Add default middlewares in order
     stack.add_middleware(Arc::new(SecurityMiddleware::new(10 * 1024 * 1024, true))); // 10MB max
     stack.add_middleware(Arc::new(LoggingMiddleware::new(LogLevel::Info, false)));
-    stack.add_middleware(Arc::new(RateLimitingMiddleware::new(
+    let rate_limit_mw = RateLimitingMiddleware::new(
         stack.rate_limiter().clone(),
         100, // 100 requests per window
         60,  // per minute
-    )));
+    );
+    rate_limit_mw.init_default_limit().await;
+    stack.add_middleware(Arc::new(rate_limit_mw));
     stack.add_middleware(Arc::new(CorsMiddleware::new()));
     stack.add_middleware(Arc::new(AuthMiddleware::new(false))); // Auth disabled by default
     stack.add_middleware(Arc::new(CompressionMiddleware::new(true, 1024, 6)));

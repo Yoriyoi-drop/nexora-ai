@@ -2,6 +2,7 @@
 //! 
 //! Module ini menyediakan monitoring system untuk Nexora AI
 
+#![allow(dead_code, unused_imports, unused_variables)]
 
 pub use metrics::{MetricsCollector, MetricType, MetricValue};
 pub use alerts::{AlertManager, Alert, AlertSeverity};

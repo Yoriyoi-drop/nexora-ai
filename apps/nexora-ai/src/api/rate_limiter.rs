@@ -1,9 +1,10 @@
 //! Rate limiting for API requests
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use anyhow::Result;
+use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use super::config::RateLimitConfig;
@@ -31,13 +32,12 @@ impl RateLimiter {
     }
     
     /// Check if request is allowed
-    pub fn is_allowed(&self, client_id: &str) -> Result<bool> {
+    pub async fn is_allowed(&self, client_id: &str) -> Result<bool> {
         if !self.config.enabled {
             return Ok(true);
         }
         
-        let mut clients = self.clients.lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire lock for rate limiter clients: {}", e))?;
+        let mut clients = self.clients.lock().await;
         let now = Instant::now();
         
         // Get or create client info
@@ -87,9 +87,8 @@ impl RateLimiter {
     }
     
     /// Get current rate limit status
-    pub fn get_status(&self, client_id: &str) -> Result<RateLimitStatus> {
-        let clients = self.clients.lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire lock for rate limiter clients: {}", e))?;
+    pub async fn get_status(&self, client_id: &str) -> Result<RateLimitStatus> {
+        let clients = self.clients.lock().await;
         let now = Instant::now();
         
         if let Some(client_info) = clients.get(client_id) {
@@ -115,17 +114,15 @@ impl RateLimiter {
     }
     
     /// Reset rate limit for a client
-    pub fn reset_client(&self, client_id: &str) -> Result<()> {
-        let mut clients = self.clients.lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire lock for rate limiter clients: {}", e))?;
+    pub async fn reset_client(&self, client_id: &str) -> Result<()> {
+        let mut clients = self.clients.lock().await;
         clients.remove(client_id);
         Ok(())
     }
     
     /// Get statistics
-    pub fn get_stats(&self) -> Result<RateLimitStats> {
-        let clients = self.clients.lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire lock for rate limiter clients: {}", e))?;
+    pub async fn get_stats(&self) -> Result<RateLimitStats> {
+        let clients = self.clients.lock().await;
         let now = Instant::now();
         
         let total_clients = clients.len();

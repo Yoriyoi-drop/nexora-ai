@@ -802,16 +802,15 @@ mod tests {
         assert_eq!(metrics.cpu_usage_percent, 0.0);
     }
     
-    #[test]
-    fn test_custom_metrics() {
+    #[tokio::test]
+    async fn test_custom_metrics() {
         let config = MonitoringConfig::default();
         let collector = MetricsCollector::new(config);
         
         let mut tags = HashMap::new();
         tags.insert("environment".to_string(), "test".to_string());
         
-        // Note: This would need to be called in an async context in real tests
-        // collector.add_custom_metric("test_metric".to_string(), 42.0, "count".to_string(), tags).await;
+        collector.add_custom_metric("test_metric".to_string(), 42.0, "count".to_string(), tags).await;
     }
 }
 

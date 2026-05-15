@@ -55,6 +55,7 @@ impl StreamIntakeEngine {
             let sample = DataSample {
                 id: Uuid::new_v4(),
                 text: content,
+                token_ids: None,
                 metadata: std::collections::HashMap::new(),
                 source: source.clone(),
                 stats: SampleStats::default(),
@@ -86,6 +87,7 @@ impl StreamIntakeEngine {
                 let sample = DataSample {
                     id: Uuid::new_v4(),
                     text,
+                    token_ids: None,
                     metadata: std::collections::HashMap::new(),
                     source,
                     stats: SampleStats::default(),
@@ -138,6 +140,7 @@ impl StreamIntakeEngine {
                 let sample = DataSample {
                     id: Uuid::new_v4(),
                     text,
+                    token_ids: None,
                     metadata: std::collections::HashMap::new(),
                     source: source.clone(),
                     stats: SampleStats::default(),

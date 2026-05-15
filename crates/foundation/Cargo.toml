@@ -22,6 +22,7 @@ uuid.workspace = true
 nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-deeplearning = { path = "../deeplearning" }
+nexora-tokenizer = { path = "../tokenizer" }
 
 # Framework-specific dependencies
 async-trait.workspace = true

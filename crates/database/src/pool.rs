@@ -246,11 +246,7 @@ impl DatabasePool {
                     self.log_slow_query(query, duration, None, None).await;
                 }
                 
-                // Cache SELECT queries
-                if self.is_select_query(query) {
-                    // Note: PgRow doesn't implement Clone, so we'll skip caching for now
-                    // self.cache_query(query, rows.clone()).await?;
-                }
+                // Cache SELECT queries (skipped: PgRow doesn't implement Clone)
                 
                 Ok(rows)
             }

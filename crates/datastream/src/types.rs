@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct DataSample {
     pub id: Uuid,
     pub text: String,
+    pub token_ids: Option<Vec<u32>>,
     pub metadata: HashMap<String, String>,
     pub source: SourceInfo,
     pub stats: SampleStats,

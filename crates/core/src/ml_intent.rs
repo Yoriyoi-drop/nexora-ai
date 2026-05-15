@@ -296,8 +296,6 @@ impl AdvancedIntentDetector {
             }
         }
         
-        // Generate reasoning
-        // self.generate_ml_reasoning(&mut result, &predictions); // Commented out - method not implemented
         
         info!("ML Intent detected: primary={:?}, confidence={:.2}, intents_count={}", 
               result.primary_intent, 

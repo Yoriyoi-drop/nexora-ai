@@ -5,6 +5,40 @@ use regex::Regex;
 use once_cell::sync::Lazy;
 use tracing::warn;
 
+static MALICIOUS_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        Regex::new(r"<script[^>]*>.*?</script>").unwrap(),
+        Regex::new(r"javascript:").unwrap(),
+        Regex::new(r"eval\s*\(").unwrap(),
+        Regex::new(r"exec\s*\(").unwrap(),
+        Regex::new(r"system\s*\(").unwrap(),
+        Regex::new(r"__import__").unwrap(),
+        Regex::new(r"subprocess\.").unwrap(),
+        Regex::new(r"os\.").unwrap(),
+        Regex::new(r"require\s*\(").unwrap(),
+        Regex::new(r"import\s+.*from").unwrap(),
+    ]
+});
+
+static PATH_TRAVERSAL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        Regex::new(r"\.\.[/\\]").unwrap(),
+        Regex::new(r"[/\\]\.\.[/\\]").unwrap(),
+        Regex::new(r"%2e%2f").unwrap(),
+        Regex::new(r"%2e%5c").unwrap(),
+    ]
+});
+
+static COMMAND_INJECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        Regex::new(r"[;&|`$()]").unwrap(),
+        Regex::new(r"(rm|del|format|shutdown|reboot)").unwrap(),
+        Regex::new(r"(sudo|su|doas)").unwrap(),
+        Regex::new(r"(curl|wget|nc|netcat)").unwrap(),
+        Regex::new(r"(chmod|chown|chgrp)").unwrap(),
+    ]
+});
+
 /// Security configuration and validation
 pub struct SecurityConfig {
     /// Maximum allowed input length for text generation
@@ -75,55 +109,11 @@ impl Default for SecurityConfig {
 /// Security validator for input and operations
 pub struct SecurityValidator {
     config: SecurityConfig,
-    // Regex patterns for security checks
-    malicious_patterns: Vec<Regex>,
-    path_traversal_patterns: Vec<Regex>,
-    command_injection_patterns: Vec<Regex>,
 }
 
 impl SecurityValidator {
     pub fn new(config: SecurityConfig) -> Self {
-        let malicious_patterns = Lazy::new(|| {
-            vec![
-                Regex::new(r"<script[^>]*>.*?</script>").unwrap(), // XSS
-                Regex::new(r"javascript:").unwrap(), // JS injection
-                Regex::new(r"eval\s*\(").unwrap(), // Code execution
-                Regex::new(r"exec\s*\(").unwrap(), // Shell execution
-                Regex::new(r"system\s*\(").unwrap(), // System calls
-                Regex::new(r"__import__").unwrap(), // Python import
-                Regex::new(r"subprocess\.").unwrap(), // Python subprocess
-                Regex::new(r"os\.").unwrap(), // Python OS module
-                Regex::new(r"require\s*\(").unwrap(), // Node require
-                Regex::new(r"import\s+.*from").unwrap(), // Python import
-            ]
-        });
-
-        let path_traversal_patterns = Lazy::new(|| {
-            vec![
-                Regex::new(r"\.\.[/\\]").unwrap(), // Directory traversal
-                Regex::new(r"\.\.[/\\]").unwrap(), // Directory traversal
-                Regex::new(r"[/\\]\.\.[/\\]").unwrap(), // Directory traversal
-                Regex::new(r"%2e%2f").unwrap(), // URL encoded traversal
-                Regex::new(r"%2e%5c").unwrap(), // URL encoded traversal
-            ]
-        });
-
-        let command_injection_patterns = Lazy::new(|| {
-            vec![
-                Regex::new(r"[;&|`$()]").unwrap(), // Command separators
-                Regex::new(r"(rm|del|format|shutdown|reboot)").unwrap(), // Dangerous commands
-                Regex::new(r"(sudo|su|doas)").unwrap(), // Privilege escalation
-                Regex::new(r"(curl|wget|nc|netcat)").unwrap(), // Network commands
-                Regex::new(r"(chmod|chown|chgrp)").unwrap(), // Permission commands
-            ]
-        });
-
-        Self {
-            config,
-            malicious_patterns: malicious_patterns.clone(),
-            path_traversal_patterns: path_traversal_patterns.clone(),
-            command_injection_patterns: command_injection_patterns.clone(),
-        }
+        Self { config }
     }
 
     /// Validate input for security issues
@@ -141,21 +131,21 @@ impl SecurityValidator {
         }
 
         // Check for regex patterns
-        for regex in self.malicious_patterns.iter() {
+        for regex in MALICIOUS_PATTERNS.iter() {
             if regex.is_match(input) {
                 return Err(SecurityError::MaliciousContent(regex.as_str().to_string()));
             }
         }
 
         // Check for path traversal
-        for regex in self.path_traversal_patterns.iter() {
+        for regex in PATH_TRAVERSAL_PATTERNS.iter() {
             if regex.is_match(input) {
                 return Err(SecurityError::PathTraversal);
             }
         }
 
         // Check for command injection
-        for regex in self.command_injection_patterns.iter() {
+        for regex in COMMAND_INJECTION_PATTERNS.iter() {
             if regex.is_match(input) {
                 return Err(SecurityError::CommandInjection(regex.as_str().to_string()));
             }
@@ -167,7 +157,7 @@ impl SecurityValidator {
     /// Validate file path for security issues
     pub fn validate_file_path(&self, path: &str) -> Result<(), SecurityError> {
         // Check for path traversal
-        for regex in self.path_traversal_patterns.iter() {
+        for regex in PATH_TRAVERSAL_PATTERNS.iter() {
             if regex.is_match(path) {
                 return Err(SecurityError::PathTraversal);
             }
@@ -253,14 +243,14 @@ pub enum SecurityError {
 pub struct SecurityUtils;
 
 impl SecurityUtils {
-    /// Generate a secure random token
+    /// Generate a secure random token using cryptographically secure RNG
     pub fn generate_secure_token(length: usize) -> String {
         use rand::Rng;
+        use rand::rngs::OsRng;
         let charset: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        let mut rng = rand::thread_rng();
         
         (0..length)
-            .map(|_| charset[rng.gen_range(0..charset.len())] as char)
+            .map(|_| charset[OsRng.gen_range(0..charset.len())] as char)
             .collect()
     }
 

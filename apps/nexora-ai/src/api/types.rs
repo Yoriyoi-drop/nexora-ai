@@ -8,7 +8,6 @@ pub struct ProcessRequest {
     pub input: String,
     pub context: Option<String>,
     pub options: Option<ProcessOptions>,
-    pub prompt: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,7 +57,6 @@ pub struct ChatRequest {
     pub conversation_id: Option<String>,
     pub context: Option<String>,
     pub options: Option<ChatOptions>,
-    pub prompt: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

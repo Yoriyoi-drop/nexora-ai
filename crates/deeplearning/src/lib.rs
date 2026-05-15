@@ -9,14 +9,7 @@
 #![allow(
     dead_code,
     unused_imports,
-    unused_variables,
-    unused_mut,
-    unnecessary_cast,
-    unused_assignments,
-    ambiguous_glob_reexports,
-    dropping_references,
-    unused_unsafe,
-    unused_comparisons
+    unused_variables
 )]
 
 

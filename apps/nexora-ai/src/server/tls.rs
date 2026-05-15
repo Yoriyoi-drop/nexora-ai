@@ -212,7 +212,8 @@ pub fn generate_self_signed_cert() -> Result<(String, String)> {
     ];
     
     // Generate key pair
-    let _key_pair = KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256)?;
+    let key_pair = KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256)?;
+    params.key_pair = Some(key_pair);
     let cert = Certificate::from_params(params)?;
     
     // Serialize certificate and private key

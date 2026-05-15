@@ -12,7 +12,7 @@ nexora-intelligence = { path = "../../crates/intelligence" }
 nexora-memory = { path = "../../crates/memory" }
 nexora-inference = { path = "../../crates/inference" }
 nexora-blaa = { path = "../../crates/blaa" }
-nexora-utils = { path = "../../crates/infrastructure/utils" }
+nexora-infrastructure = { path = "../../crates/infrastructure" }
 
 tokio.workspace = true
 serde.workspace = true

@@ -20,7 +20,7 @@ use serde_json::json;
 
 use crate::{
     ApiConfig, ApiStatistics, HealthStatus,
-    handlers::HandlerRegistry, middleware::MiddlewareStack, metrics::MetricsCollector,
+    handlers::HandlerRegistry, MiddlewareStack, MetricsCollector,
 };
 
 /// Main API server
@@ -36,11 +36,17 @@ pub struct ApiServer {
 
 impl ApiServer {
     /// Create new API server
-    pub fn new(config: ApiConfig) -> Result<Self> {
+    pub async fn new(config: ApiConfig) -> Result<Self> {
         let handlers = Arc::new(HandlerRegistry::new());
-        let middleware = Arc::new(MiddlewareStack::new());
         let metrics = Arc::new(MetricsCollector::new());
         let statistics = Arc::new(tokio::sync::RwLock::new(ApiStatistics::default()));
+
+        let middleware = if config.enable_logging || config.enable_metrics || config.enable_cors {
+            let mw = crate::middleware::create_default_middleware_stack().await;
+            Arc::new(mw)
+        } else {
+            Arc::new(MiddlewareStack::new())
+        };
         
         let router = Self::build_router(&config, handlers.clone(), middleware.clone(), metrics.clone())?;
         
@@ -62,6 +68,14 @@ impl ApiServer {
         middleware: Arc<MiddlewareStack>,
         metrics: Arc<MetricsCollector>,
     ) -> Result<Router> {
+        let app_state = AppState {
+            handlers,
+            middleware,
+            metrics: metrics.clone(),
+            statistics: Arc::new(tokio::sync::RwLock::new(ApiStatistics::default())),
+            config: config.clone(),
+        };
+
         let mut app = Router::new()
             // Health check endpoints
             .route("/health", get(health_check_handler))
@@ -79,14 +93,8 @@ impl ApiServer {
             .route("/system/info", get(system_info_handler))
             .route("/system/stats", get(system_stats_handler))
             
-            // Add middleware state
-            .with_state(AppState {
-                handlers,
-                middleware,
-                metrics,
-                statistics: Arc::new(tokio::sync::RwLock::new(ApiStatistics::default())),
-                config: config.clone(),
-            });
+            // Add state for all handlers
+            .with_state(app_state);
         
         // Add CORS if enabled
         if config.enable_cors {
@@ -294,23 +302,14 @@ pub struct AppState {
 async fn health_check_handler(State(state): State<AppState>) -> Result<Json<HealthStatus>, StatusCode> {
     let stats = state.statistics.read().await;
     
-    // Calculate uptime from server start time (stored in stats or use current time as fallback)
-    let uptime_seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-        .as_secs();
-    
     Ok(Json(HealthStatus {
         healthy: true,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-            .as_secs(),
+        timestamp: nexora_infrastructure::common::unix_timestamp(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds,
+        uptime_seconds: 0,
         active_connections: stats.active_connections,
-        memory_usage_mb: get_memory_usage_mb(),
-        cpu_usage_percent: get_cpu_usage_percent(),
+        memory_usage_mb: nexora_infrastructure::common::get_process_memory_mb(),
+        cpu_usage_percent: nexora_infrastructure::common::get_cpu_usage_percent(),
     }))
 }
 
@@ -485,106 +484,7 @@ async fn request_logging_middleware(
     Ok(response)
 }
 
-/// Metrics collection middleware
-async fn metrics_middleware(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    let start = Instant::now();
-    let path = request.uri().path().to_string();
-    let method = request.method().to_string();
-    
-    let response = next.run(request).await;
-    
-    let duration = start.elapsed();
-    let status = response.status();
-    
-    // Update statistics
-    {
-        let mut stats = state.statistics.write().await;
-        stats.total_requests += 1;
-        
-        if status.is_success() {
-            stats.successful_requests += 1;
-        } else {
-            stats.failed_requests += 1;
-        }
-        
-        // Update average response time
-        let total_requests = stats.total_requests as f64;
-        let current_avg = stats.average_response_time_ms;
-        let new_avg = (current_avg * (total_requests - 1.0) + duration.as_millis() as f64) / total_requests;
-        stats.average_response_time_ms = new_avg;
-        
-        // Update route counts
-        let route_key = format!("{} {}", method, path);
-        *stats.route_counts.entry(route_key).or_insert(0) += 1;
-    }
-    
-    // Record metrics
-    state.metrics.record_request(&method, &path, duration, status).await;
-    
-    Ok(response)
-}
 
-/// Get current memory usage in MB
-fn get_memory_usage_mb() -> f64 {
-    use std::fs;
-    
-    // Try to read from /proc/self/status on Linux
-    if let Ok(status) = fs::read_to_string("/proc/self/status") {
-        for line in status.lines() {
-            if line.starts_with("VmRSS:") {
-                // Format: VmRSS:     12345 kB
-                if let Some(kb_str) = line.split_whitespace().nth(1) {
-                    if let Ok(kb) = kb_str.parse::<f64>() {
-                        return kb / 1024.0; // Convert KB to MB
-                    }
-                }
-            }
-        }
-    }
-    
-    // Fallback: estimate using process info (less accurate)
-    0.0
-}
-
-/// Get current CPU usage percentage
-fn get_cpu_usage_percent() -> f64 {
-    use std::fs;
-    
-    // Try to read from /proc/stat on Linux
-    if let Ok(stat) = fs::read_to_string("/proc/stat") {
-        if let Some(cpu_line) = stat.lines().next() {
-            if cpu_line.starts_with("cpu ") {
-                let parts: Vec<&str> = cpu_line.split_whitespace().collect();
-                if parts.len() >= 8 {
-                    // CPU time calculation: user + nice + system + idle + iowait + irq + softirq
-                    let mut total_time = 0;
-                    let mut idle_time = 0;
-                    
-                    for (i, part) in parts.iter().enumerate().skip(1).take(7) {
-                        if let Ok(time) = part.parse::<u64>() {
-                            total_time += time;
-                            if i == 3 { // idle time is the 4th field (index 3)
-                                idle_time = time;
-                            }
-                        }
-                    }
-                    
-                    if total_time > 0 {
-                        let usage = ((total_time - idle_time) as f64 / total_time as f64) * 100.0;
-                        return usage;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Fallback: return 0 (can't determine)
-    0.0
-}
 
 /// Rate limiting middleware
 async fn rate_limit_middleware(

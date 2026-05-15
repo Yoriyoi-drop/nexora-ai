@@ -16,14 +16,14 @@ pub async fn create_router(
     config: &ServerConfig,
 ) -> Result<Router> {
     let mut app = Router::new()
-        // Health check endpoints - temporarily commented out due to handler trait issues
-        // .route("/health", get(health_check))
-        // .route("/health/detailed", get(detailed_health_check))
+        // Health check endpoints
+        .route("/health", get(health_check))
+        .route("/health/detailed", get(detailed_health_check))
         
-        // System information endpoints - temporarily commented out due to axum handler trait issues
-        // .route("/info", get(system_info))
-        // .route("/info/performance", get(performance_metrics))
-        // .route("/info/memory", get(memory_stats))
+        // System information endpoints
+        .route("/info", get(system_info))
+        .route("/info/performance", get(performance_metrics))
+        .route("/info/memory", get(memory_stats))
         
         // Core AI endpoints
         .route("/process", post(process_request))
@@ -53,7 +53,7 @@ pub async fn create_router(
     // Add tracing middleware
     app = app.layer(TraceLayer::new_for_http());
     
-    info!("Router configured with {} endpoints", 12);
+    info!("Router configured with {} endpoints", 12usize);
     Ok(app)
 }
 

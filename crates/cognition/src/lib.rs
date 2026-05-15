@@ -3,6 +3,7 @@
 //! Provides:
 //! - planning: Task planning and execution strategies
 //! - reflection: Self-reflection and meta-cognition
+
 //! - context: Context management and evolution
 //! - reasoning: High-level reasoning capabilities
 

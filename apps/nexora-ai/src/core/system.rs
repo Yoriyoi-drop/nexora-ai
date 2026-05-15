@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{info, debug};
 use chrono::Utc;
-use std::process::Command;
 use sysinfo::{System, CpuRefreshKind, RefreshKind, MemoryRefreshKind};
 
 use super::types::{SystemInfo, ComponentStatus, HealthStatus, MemoryStats};
@@ -30,6 +29,8 @@ impl SystemMonitor {
         system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
         request_count: Arc<AtomicU64>,
     ) -> Self {
+        info!("SystemMonitor initialized with config: max_concurrent={}, timeout={}ms",
+              config.core.max_concurrent_requests, config.core.request_timeout_ms);
         Self {
             registry,
             config,
@@ -194,13 +195,7 @@ impl SystemMonitor {
     
     /// Actual inference health check implementation
     async fn inference_health_check(&self) -> NexoraResult<bool> {
-        // Try to create a simple inference request to test the system
-        // Note: nexora_inference crate is not available, so we simulate
-        // let _test_request = nexora_inference::InferenceRequest::new("health check test".to_string())
-        //     .with_max_tokens(5)
-        //     .with_temperature(0.1);
-        
-        // For now, simulate health check based on system resources
+        // Simulate health check based on system resources
         let mut system = sysinfo::System::new();
         system.refresh_all();
         
@@ -312,17 +307,16 @@ impl SystemMonitor {
     
     /// Get actual active connections count
     async fn get_active_connections(&self) -> NexoraResult<u64> {
-        // Try to get actual network connections
-        if let Ok(output) = std::process::Command::new("netstat")
-            .arg("-an")
-            .output() {
-            
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let established_connections = output_str.lines()
-                .filter(|line| line.contains("ESTABLISHED"))
+        // Try to get actual network connections from /proc/net/tcp (Linux)
+        if let Ok(content) = std::fs::read_to_string("/proc/net/tcp") {
+            let established = content.lines()
+                .skip(1)
+                .filter(|line| {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    parts.get(3).copied() == Some("01")
+                })
                 .count();
-            
-            return Ok(established_connections as u64);
+            return Ok(established as u64);
         }
         
         // Fallback: estimate based on system processes
@@ -345,16 +339,14 @@ impl SystemMonitor {
     
     /// Get system load average
     async fn get_load_average(&self) -> NexoraResult<(f64, f64, f64)> {
-        // Try to get load average from /proc/loadavg (Linux)
-        if let Ok(output) = Command::new("cat").arg("/proc/loadavg").output() {
-            if let Ok(load_str) = String::from_utf8(output.stdout) {
-                let parts: Vec<&str> = load_str.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    let load1: f64 = parts[0].parse().unwrap_or(0.0);
-                    let load5: f64 = parts[1].parse().unwrap_or(0.0);
-                    let load15: f64 = parts[2].parse().unwrap_or(0.0);
-                    return Ok((load1, load5, load15));
-                }
+        // Try to get load average from /proc/loadavg (Linux) - direct read, no subprocess
+        if let Ok(load_str) = std::fs::read_to_string("/proc/loadavg") {
+            let parts: Vec<&str> = load_str.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let load1: f64 = parts[0].parse().unwrap_or(0.0);
+                let load5: f64 = parts[1].parse().unwrap_or(0.0);
+                let load15: f64 = parts[2].parse().unwrap_or(0.0);
+                return Ok((load1, load5, load15));
             }
         }
         

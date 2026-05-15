@@ -14,7 +14,7 @@ impl Cli {
         self.init_logging();
         
         // Load configuration
-        let mut config = if self.config.exists() {
+        let config = if self.config.exists() {
             match NexoraConfig::from_file(&self.config) {
                 Ok(config) => config,
                 Err(e) => {
@@ -28,7 +28,7 @@ impl Cli {
         };
         
         // Override config with CLI arguments
-        config = self.override_config(config);
+        let config = self.override_config(config);
         
         // Validate configuration
         if let Err(e) = config.validate() {
@@ -93,8 +93,6 @@ impl Cli {
     
     /// Initialize logging
     fn init_logging(&self) {
-        use tracing_subscriber::util::SubscriberInitExt;
-        
         let level = match self.log_level.to_lowercase().as_str() {
             "trace" => tracing::Level::TRACE,
             "debug" => tracing::Level::DEBUG,
@@ -104,12 +102,10 @@ impl Cli {
             _ => tracing::Level::INFO,
         };
         
-        let subscriber = tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .with_max_level(level)
             .with_ansi(true)
-            .finish();
-        
-        subscriber.init();
+            .try_init();
         
         if self.verbose {
             info!("Verbose logging enabled");

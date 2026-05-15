@@ -1,4 +1,6 @@
+use std::sync::Arc;
 use async_trait::async_trait;
+use parking_lot::RwLock;
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterResult, FilterAction};
@@ -9,6 +11,7 @@ pub struct TokenFilter {
     pub max_tokens: usize,
     pub max_token_ratio: f64,
     pub block_tokens: Vec<String>,
+    pub tokenizer: Option<Arc<RwLock<nexora_tokenizer::BpeTokenizer>>>,
 }
 
 impl Default for TokenFilter {
@@ -23,15 +26,28 @@ impl Default for TokenFilter {
                 "<s".to_string(),
                 "</s>".to_string(),
             ],
+            tokenizer: None,
         }
     }
 }
 
 impl TokenFilter {
-    fn estimate_tokens(&self, text: &str) -> usize {
-        let words = text.split_whitespace().count() as f64;
-        let chars = text.len() as f64;
-        (words * 1.3 + chars * 0.04) as usize
+    pub fn with_tokenizer(t: Arc<RwLock<nexora_tokenizer::BpeTokenizer>>) -> Self {
+        Self { tokenizer: Some(t), ..Default::default() }
+    }
+
+    fn count_tokens(&self, text: &str) -> usize {
+        if let Some(tk) = &self.tokenizer {
+            tk.read().encode(text).len()
+        } else {
+            let words = text.split_whitespace().count() as f64;
+            let chars = text.len() as f64;
+            (words * 1.3 + chars * 0.04) as usize
+        }
+    }
+
+    fn encode_tokens(&self, text: &str) -> Option<Vec<u32>> {
+        self.tokenizer.as_ref().map(|tk| tk.read().encode(text))
     }
 
     fn has_blocked_tokens(&self, text: &str) -> Option<String> {
@@ -61,7 +77,7 @@ impl Filter for TokenFilter {
             };
         }
 
-        let token_count = self.estimate_tokens(&sample.text);
+        let token_count = self.count_tokens(&sample.text);
         let mut reason = None;
         let passed = if token_count < self.min_tokens {
             reason = Some(format!("too_few_tokens: {} < {}", token_count, self.min_tokens));

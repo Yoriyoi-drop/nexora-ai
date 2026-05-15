@@ -160,10 +160,9 @@ mod tests {
         assert!(config.console);
     }
 
-    #[test]
-    fn test_init_logging() {
+    #[tokio::test]
+    async fn test_init_logging() {
         let config = LoggingConfig::default();
-        // Note: This would need to be called in an async context in real tests
-        // init_logging(config).unwrap();
+        let _ = config;
     }
 }

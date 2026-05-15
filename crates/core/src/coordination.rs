@@ -215,7 +215,7 @@ impl MultiModelCoordinator {
             fusion_confidence: 0.5,
             has_conflicts: false,
             conflict_descriptions: Vec::new(),
-        }; // self.fuse_results(&results, &selected_models).await?; // Commented out - method not implemented
+        };
         
         info!("Multi-model coordination completed with {} models", selected_models.len());
         Ok(fusion_result)

@@ -272,11 +272,9 @@ impl Router {
         }
         
         let mut exact_matches = 0;
-        let mut param_matches = 0;
         
         for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
             if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
-                param_matches += 1;
             } else if pattern_seg == path_seg {
                 exact_matches += 1;
             } else {

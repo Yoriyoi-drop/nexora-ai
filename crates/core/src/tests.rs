@@ -238,9 +238,9 @@ mod context_manager_tests {
         // Should exist immediately
         assert!(manager.get_context("test_session").is_some());
         
-        // Wait for expiration (in real test, use mock time)
-        // tokio::time::sleep(Duration::from_secs(2)).await;
-        // assert!(manager.get_context("test_session").is_none());
+        // Verify context exists immediately after setting
+        assert!(manager.get_context("test_session").is_some());
+        // Note: expiration test requires mock time infrastructure
     }
     
     #[tokio::test]

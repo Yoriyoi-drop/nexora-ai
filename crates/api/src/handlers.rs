@@ -347,23 +347,8 @@ impl ApiHandler for InfoHandler {
         "info"
     }
     
-    /// Get current process memory usage in MB
     fn get_process_memory_usage(&self) -> f64 {
-        // Try to get memory usage from /proc/self/status on Linux
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-            for line in status.lines() {
-                if line.starts_with("VmRSS:") {
-                    if let Some(kb_str) = line.split_whitespace().nth(1) {
-                        if let Ok(kb) = kb_str.parse::<f64>() {
-                            return kb / 1024.0; // Convert KB to MB
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Fallback: return a reasonable estimate
-        50.0 // 50MB as fallback
+        nexora_infrastructure::common::get_process_memory_mb()
     }
 }
 

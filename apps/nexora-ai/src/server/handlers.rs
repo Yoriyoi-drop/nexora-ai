@@ -282,7 +282,8 @@ pub async fn get_config() -> Json<Value> {
             "version": env!("CARGO_PKG_VERSION"),
             "features": ["text_generation", "code_analysis", "chat", "health_check"],
             "endpoints": [
-                "/health", "/info", "/process", "/generate", "/chat",
+                "/health", "/health/detailed", "/info", "/info/performance", "/info/memory",
+                "/process", "/generate", "/chat",
                 "/code/analyze", "/code/generate", "/config"
             ]
         },
@@ -432,19 +433,32 @@ pub async fn index() -> Html<&'static str> {
 
 /// Static files endpoint
 pub async fn static_files(Path(path): Path<String>) -> Result<axum::response::Response, axum::http::StatusCode> {
-    // Simple static file serving - in production, use a proper static file server
+    let base_path = std::path::Path::new("static");
+    let file_path = base_path.join(&path);
+
+    // Prevent directory traversal
+    if file_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(axum::http::StatusCode::FORBIDDEN);
+    }
+
+    let content = match std::fs::read(&file_path) {
+        Ok(c) => c,
+        Err(_) => return Err(axum::http::StatusCode::NOT_FOUND),
+    };
+
     let content_type = match path.split('.').last() {
         Some("css") => "text/css",
         Some("js") => "application/javascript",
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("svg") => "image/svg+xml",
+        Some("html") => "text/html",
         _ => "text/plain",
     };
     
     Ok(axum::http::Response::builder()
         .status(200)
         .header("Content-Type", content_type)
-        .body("Static file content".into())
+        .body(axum::body::Body::from(content))
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?)
 }

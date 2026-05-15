@@ -443,14 +443,31 @@ impl RequestProcessor {
     
     /// Detect programming language
     fn detect_language(&self, code: &str) -> String {
-        if code.contains("fn ") || code.contains("let ") || code.contains("->") {
+        let trimmed = code.trim();
+        let lines: Vec<&str> = trimmed.lines().collect();
+        let first_lines: Vec<&str> = lines.iter().take(10).map(|l| l.trim()).collect();
+        let joined = first_lines.join(" ");
+
+        if joined.contains("fn ") && (joined.contains("->") || joined.contains("let mut") || joined.contains("println!")) {
             "Rust".to_string()
-        } else if code.contains("function ") || code.contains("const ") || code.contains("let ") {
-            "JavaScript".to_string()
-        } else if code.contains("def ") || code.contains("import ") || code.contains("class ") {
+        } else if joined.contains("use ") || joined.contains("mod ") || joined.contains("impl ") {
+            "Rust".to_string()
+        } else if joined.contains("def ") || joined.contains("import ") || joined.contains("from ") {
             "Python".to_string()
-        } else if code.contains("public class ") || code.contains("private ") || code.contains("public ") {
+        } else if joined.contains("function ") || joined.contains("const ") || joined.contains("=>") {
+            if joined.contains(": ") || joined.contains("interface ") {
+                "TypeScript".to_string()
+            } else {
+                "JavaScript".to_string()
+            }
+        } else if joined.contains("public class ") || joined.contains("private ") || joined.contains("protected ") {
             "Java".to_string()
+        } else if joined.contains("#include") || joined.contains("int main") || joined.contains("std::") {
+            "C++".to_string()
+        } else if joined.contains("package ") || joined.contains("func ") || joined.contains("go ") {
+            "Go".to_string()
+        } else if trimmed.starts_with("--") || joined.contains("local ") || joined.contains("function(") {
+            "Lua".to_string()
         } else {
             "Unknown".to_string()
         }

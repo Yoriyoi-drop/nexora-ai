@@ -2,8 +2,6 @@
 //! 
 //! Module ini menyediakan fungsi tokenization untuk Nexora AI system
 
-#![allow(dead_code, unused_imports, unreachable_patterns, unused_assignments)]
-
 pub mod bpe_tokenizer;
 pub mod pretokenizer;
 pub mod special_tokens;

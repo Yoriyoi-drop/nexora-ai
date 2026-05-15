@@ -6,20 +6,33 @@ use crate::shared::{
     base_model::{
         FinishReason, GenerationMetadata, NxrInput, NxrModel, NxrModelError, NxrOutput,
         NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData,
-        ValidationResult, ModelStatistics,
+        ValidationResult, ModelStatistics, TokenOutput,
     },
     capability_spec::CapabilityVector,
     model_identity::{ModelMeta, ModelTier, NxrModelId},
+    tokenizer_integration::NxrTokenizerRef,
 };
 
 macro_rules! define_foundation_model {
     ($name:ident, $id:ident, $tier:ident) => {
-        #[derive(Debug, Clone, Default)]
-        pub struct $name;
+        #[derive(Debug, Clone)]
+        pub struct $name {
+            pub tokenizer: Option<NxrTokenizerRef>,
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self { tokenizer: None }
+            }
+        }
 
         impl $name {
             pub fn new() -> Self {
-                Self
+                Self::default()
+            }
+
+            pub fn with_tokenizer(t: NxrTokenizerRef) -> Self {
+                Self { tokenizer: Some(t) }
             }
 
             pub async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
@@ -76,28 +89,51 @@ macro_rules! define_foundation_model {
             }
 
             async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
-                let text = match &input.data {
-                    crate::shared::base_model::InputData::Text(text) => text.clone(),
-                    _ => "structured input received".to_string(),
+                let (text, input_tokens) = match &input.data {
+                    crate::shared::base_model::InputData::Text(text) => (text.clone(), None),
+                    crate::shared::base_model::InputData::Tokens(tokens) => {
+                        if let Some(tk) = &self.tokenizer {
+                            (tk.read().decode(tokens), Some(tokens.clone()))
+                        } else {
+                            (format!("<{} token_ids>", tokens.len()), Some(tokens.clone()))
+                        }
+                    }
+                    _ => ("structured input received".to_string(), None),
                 };
 
-                let word_count = text.split_whitespace().count();
                 let model_name = stringify!($id);
+                let (output_data, n_tokens, real_ids) = if let Some(tk) = &self.tokenizer {
+                    let tok = tk.read();
+                    let ids = input_tokens.unwrap_or_else(|| tok.encode(&text));
+                    let count = ids.len();
+                    let token_outputs: Vec<TokenOutput> = ids.iter().enumerate().map(|(pos, &id)| {
+                        TokenOutput {
+                            token_id: id,
+                            text: tok.id_to_token(id).cloned().unwrap_or_default(),
+                            log_prob: 0.0,
+                            position: pos,
+                        }
+                    }).collect();
+                    (OutputData::Tokens(token_outputs), count, Some(ids))
+                } else {
+                    let count = text.split_whitespace().count();
+                    (OutputData::Text(format!("[{}] Processed input ({} tokens): {}", model_name, count, text)), count, None)
+                };
 
                 Ok(NxrOutput {
                     id: uuid::Uuid::new_v4(),
                     input_id: input.id,
                     timestamp: chrono::Utc::now(),
-                    data: OutputData::Text(format!("[{}] Processed input ({} tokens): {}", model_name, word_count, text)),
+                    data: output_data,
                     metadata: GenerationMetadata {
                         finish_reason: FinishReason::EndOfSequence,
-                        total_tokens: word_count,
-                        generation_time_ms: word_count as u64,
+                        total_tokens: n_tokens,
+                        generation_time_ms: n_tokens as u64,
                         model_version: self.identity().version.clone(),
                         seed: None,
                     },
                     performance: PerformanceMetrics {
-                        tokens_per_second: word_count as f32,
+                        tokens_per_second: n_tokens as f32,
                         memory_usage_gb: 0.1,
                         gpu_utilization: None,
                         cpu_utilization: 5.0,
@@ -113,28 +149,65 @@ macro_rules! define_foundation_model {
             ) -> Result<(), NxrModelError> {
                 let text = match &input.data {
                     crate::shared::base_model::InputData::Text(text) => text.clone(),
+                    crate::shared::base_model::InputData::Tokens(_) => {
+                        if let Some(tk) = &self.tokenizer {
+                            if let crate::shared::base_model::InputData::Tokens(tokens) = &input.data {
+                                tk.read().decode(tokens)
+                            } else { String::new() }
+                        } else { "structured input".to_string() }
+                    }
                     _ => "structured input".to_string(),
                 };
 
-                let words: Vec<&str> = text.split_whitespace().collect();
-                for (i, word) in words.iter().enumerate() {
-                    callback(NxrStreamChunk {
-                        id: uuid::Uuid::new_v4(),
-                        input_id: input.id,
-                        timestamp: chrono::Utc::now(),
-                        data: StreamChunkData::TextDelta(format!("{} ", word)),
-                        is_final: i == words.len() - 1,
-                    });
-                }
+                let input_id = input.id;
 
-                if words.is_empty() {
-                    callback(NxrStreamChunk {
-                        id: uuid::Uuid::new_v4(),
-                        input_id: input.id,
-                        timestamp: chrono::Utc::now(),
-                        data: StreamChunkData::TextDelta(String::new()),
-                        is_final: true,
-                    });
+                if let Some(tk) = &self.tokenizer {
+                    let tok = tk.read();
+                    let ids = tok.encode(&text);
+                    for (pos, &id) in ids.iter().enumerate() {
+                        let token_text = tok.id_to_token(id).cloned().unwrap_or_default();
+                        callback(NxrStreamChunk {
+                            id: uuid::Uuid::new_v4(),
+                            input_id,
+                            timestamp: chrono::Utc::now(),
+                            data: StreamChunkData::TokenDelta(TokenOutput {
+                                token_id: id,
+                                text: token_text,
+                                log_prob: 0.0,
+                                position: pos,
+                            }),
+                            is_final: pos == ids.len() - 1,
+                        });
+                    }
+                    if ids.is_empty() {
+                        callback(NxrStreamChunk {
+                            id: uuid::Uuid::new_v4(),
+                            input_id,
+                            timestamp: chrono::Utc::now(),
+                            data: StreamChunkData::TextDelta(String::new()),
+                            is_final: true,
+                        });
+                    }
+                } else {
+                    let words: Vec<&str> = text.split_whitespace().collect();
+                    for (i, word) in words.iter().enumerate() {
+                        callback(NxrStreamChunk {
+                            id: uuid::Uuid::new_v4(),
+                            input_id,
+                            timestamp: chrono::Utc::now(),
+                            data: StreamChunkData::TextDelta(format!("{} ", word)),
+                            is_final: i == words.len() - 1,
+                        });
+                    }
+                    if words.is_empty() {
+                        callback(NxrStreamChunk {
+                            id: uuid::Uuid::new_v4(),
+                            input_id,
+                            timestamp: chrono::Utc::now(),
+                            data: StreamChunkData::TextDelta(String::new()),
+                            is_final: true,
+                        });
+                    }
                 }
 
                 Ok(())

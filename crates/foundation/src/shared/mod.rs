@@ -11,6 +11,7 @@ pub mod deeplearning_integration;
 pub mod agent_types;
 pub mod base_agent;
 pub mod agent_coordinator;
+pub mod tokenizer_integration;
 
 // Re-export shared components
 pub use base_model::*;
@@ -22,3 +23,4 @@ pub use deeplearning_integration::*;
 pub use agent_types::*;
 pub use base_agent::*;
 pub use agent_coordinator::*;
+pub use tokenizer_integration::*;

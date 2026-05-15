@@ -3,7 +3,6 @@
 //! This crate provides orchestration layer for accessing and coordinating
 //! different AI frameworks and models in Nexora ecosystem.
 
-#![allow(dead_code, unused_imports, unused_variables)]
 //! ## Foundation Frameworks
 //! 
 //! Foundation frameworks are accessed through this layer:
@@ -27,10 +26,10 @@ pub mod model_registry;
 pub mod serving;
 pub mod unified_api;
 
-// Re-export foundation frameworks - commented out for now until foundation modules are properly structured
-// pub use nexora_foundation::reasoning::saca;
-// pub use nexora_foundation::compression::atqs;
-// pub use nexora_foundation::multimodal::caffeine;
+// Re-export foundation frameworks - modules verified existing
+pub use nexora_foundation::reasoning::saca::SACA;
+pub use nexora_foundation::compression;
+pub use nexora_foundation::multimodal::caffeine::Caffeine;
 
 // Re-export main components for easier access
 pub use model_registry::*;

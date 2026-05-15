@@ -8,13 +8,13 @@ use clap::Parser;
 
 #[tokio::main]
 async fn main() {
-    // Initialize logging
-    tracing_subscriber::fmt()
+    // Initialize logging (CLI may re-configure level later via try_init)
+    let _ = tracing_subscriber::fmt()
         .with_target(false)
         .with_thread_ids(true)
         .with_file(true)
         .with_line_number(true)
-        .init();
+        .try_init();
 
     info!("🚀 Starting Nexora AI system...");
 

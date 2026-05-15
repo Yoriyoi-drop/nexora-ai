@@ -448,12 +448,11 @@ mod integration_tests {
         let stats = integration.get_integration_stats();
         assert_eq!(stats.total_models_enabled, 0);
         
-        // Test with ATQS (if available)
-        // Note: This would require actual ATQS configuration
-        // let atqs_config = ATQSConfig::default();
-        // let integration_with_atqs = SACAFactory::create_saca_with_atqs(saca_config.clone(), atqs_config).await.unwrap();
-        // let stats_with_atqs = integration_with_atqs.get_integration_stats();
-        // assert!(stats_with_atqs.atqs_enabled);
+        // Test with ATQS
+        let atqs_config = ATQSConfig::default();
+        let integration_with_atqs = SACAFactory::create_saca_with_atqs(saca_config.clone(), atqs_config).await.unwrap();
+        let stats_with_atqs = integration_with_atqs.get_integration_stats();
+        assert!(stats_with_atqs.atqs_enabled);
         
         info!("SACA Factory integration test completed");
         Ok(())
