@@ -8,6 +8,9 @@ pub struct CacheStats {
     pub cache_hits: usize,
     pub cache_misses: usize,
     pub hit_rate: f32,
+    pub estimated_memory_bytes: usize,
+    pub max_entry_bytes: usize,
+    pub max_entries: usize,
 }
 
 struct CacheEntry {
@@ -20,6 +23,7 @@ struct CacheEntry {
 pub struct KVCache {
     entries: RwLock<HashMap<u64, CacheEntry>>,
     max_entries: usize,
+    max_entry_bytes: usize,
     stats_hits: AtomicUsize,
     stats_misses: AtomicUsize,
 }
@@ -29,6 +33,7 @@ impl KVCache {
         Self {
             entries: RwLock::new(HashMap::new()),
             max_entries: 10_000,
+            max_entry_bytes: 8_388_608, // 8MB per entry max
             stats_hits: AtomicUsize::new(0),
             stats_misses: AtomicUsize::new(0),
         }
@@ -36,6 +41,11 @@ impl KVCache {
 
     pub fn with_max_entries(mut self, max: usize) -> Self {
         self.max_entries = max;
+        self
+    }
+
+    pub fn with_max_entry_bytes(mut self, max: usize) -> Self {
+        self.max_entry_bytes = max;
         self
     }
 
@@ -58,11 +68,32 @@ impl KVCache {
     }
 
     pub async fn insert(&self, key: Vec<u8>, value: Vec<f32>) {
+        // Reject oversized entries to prevent OOM
+        let entry_size = value.len() * std::mem::size_of::<f32>() + key.len();
+        if entry_size > self.max_entry_bytes {
+            tracing::warn!(
+                "Rejected KV cache insert: {} bytes exceeds limit of {} bytes",
+                entry_size, self.max_entry_bytes
+            );
+            self.stats_misses.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+
         let hash = self.hash_key(&key);
         let mut entries = self.entries.write().await;
 
-        if entries.len() >= self.max_entries {
+        // Track total memory usage before insert
+        let total_bytes: usize = entries.values()
+            .map(|e| e.value.len() * std::mem::size_of::<f32>() + e.key.len())
+            .sum();
+
+        // Evict until we have room
+        while entries.len() >= self.max_entries || (total_bytes + entry_size) > self.max_entries * self.max_entry_bytes / 2 {
             self.evict_lru(&mut entries);
+            // Recalculate — break if cache is empty
+            if entries.is_empty() {
+                break;
+            }
         }
 
         entries.insert(hash, CacheEntry {
@@ -99,11 +130,24 @@ impl KVCache {
         let hits = self.stats_hits.load(Ordering::Relaxed);
         let misses = self.stats_misses.load(Ordering::Relaxed);
         let total = hits + misses;
+        let entries = self.entries.try_read();
+        let (cache_size, estimated_memory_bytes) = match entries {
+            Ok(guard) => {
+                let mem: usize = guard.values()
+                    .map(|e| e.value.len() * std::mem::size_of::<f32>() + e.key.len())
+                    .sum();
+                (guard.len(), mem)
+            }
+            Err(_) => (0, 0),
+        };
         CacheStats {
-            cache_size: 0,
+            cache_size,
             cache_hits: hits,
             cache_misses: misses,
             hit_rate: if total > 0 { hits as f32 / total as f32 } else { 0.0 },
+            estimated_memory_bytes,
+            max_entry_bytes: self.max_entry_bytes,
+            max_entries: self.max_entries,
         }
     }
 

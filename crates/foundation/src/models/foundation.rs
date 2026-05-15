@@ -97,7 +97,7 @@ macro_rules! define_foundation_model {
                         seed: None,
                     },
                     performance: PerformanceMetrics {
-                        tokens_per_second: word_count as f64,
+                        tokens_per_second: word_count as f32,
                         memory_usage_gb: 0.1,
                         gpu_utilization: None,
                         cpu_utilization: 5.0,

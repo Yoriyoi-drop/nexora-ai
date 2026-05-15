@@ -10,6 +10,7 @@ use std::task::{Context, Poll};
 use tokio::time::{timeout, Duration};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+use bytes::Bytes;
 
 use super::{
     auth::{AuthMethod, RateLimiter, TokenManager},
@@ -289,7 +290,7 @@ impl BlaaClient {
 
 /// Streaming chat completion response
 pub struct ChatCompletionStream {
-    stream: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
+    stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
     buffer: String,
 }
 

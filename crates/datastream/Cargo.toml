@@ -1,0 +1,39 @@
+[package]
+name = "nexora-datastream"
+description = "NXR DataStream Filter Fabric — DAG-based streaming data pipeline for AI training"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "time", "io-util", "fs"] }
+futures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
+rand = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+unicode-segmentation = { workspace = true }
+reqwest = { workspace = true }
+
+tokio-stream = "0.1"
+url = "2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[features]
+default = []
+toxicity = []
+prompt-injection = []
+candle = []
+arrow = []

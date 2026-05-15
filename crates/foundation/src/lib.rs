@@ -5,7 +5,7 @@
 //! Now includes NXR Model Series foundation implementations.
 
 // Include framework modules
-pub mod tensor;
+
 pub mod validation;
 pub mod reasoning;
 pub mod atqs;
@@ -32,7 +32,7 @@ pub mod shared;
 pub mod models;
 
 // Re-export main components for easier access
-pub use tensor::*;
+
 pub use validation::*;
 pub use hldva_t::*;
 pub use vogp::*;

@@ -136,6 +136,21 @@ impl InferenceSession {
     pub fn new(session_id: Uuid) -> Self {
         Self::with_config(session_id, SessionConfig::default())
     }
+
+    /// Get session config
+    pub fn config(&self) -> &SessionConfig {
+        &self.config
+    }
+
+    /// Get creation timestamp
+    pub fn created_at(&self) -> chrono::DateTime<chrono::Utc> {
+        self.created_at
+    }
+
+    /// Default timeout seconds for stale session cleanup
+    pub fn default_timeout_seconds() -> u64 {
+        1800
+    }
     
     /// Create session with configuration
     pub fn with_config(session_id: Uuid, config: SessionConfig) -> Self {

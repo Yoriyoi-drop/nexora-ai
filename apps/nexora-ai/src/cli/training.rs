@@ -6,7 +6,7 @@ use tracing::{info, debug, warn};
 
 use crate::NexoraAI;
 use nexora_foundation::models::{EvaluationReport, EvaluationResult};
-use nexora_intelligence::model_registry::specialists::{
+use nexora_model::model_registry::specialists::{
     SpecialistType, TrainingModel, TrainingModelFactory, TrainingSample,
 };
 

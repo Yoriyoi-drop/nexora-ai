@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Tipe arsitektur deep learning yang digunakan
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DLArchitecture {
     /// STAR-X - Selective Temporal Adaptive Resonance Network
     StarX,

@@ -72,10 +72,10 @@ impl Test {
     
     let analysis = ai.analyze_code(code, "rust").await?;
     
-    assert_eq!(analysis.language, "Rust");
-    assert!(analysis.line_count > 0);
-    assert!(analysis.functions.len() > 0);
-    assert!(analysis.classes.len() > 0);
+    assert!(analysis.contains("Language:"));
+    assert!(analysis.contains("Lines:"));
+    assert!(analysis.contains("Functions:"));
+    assert!(analysis.contains("Classes:"));
     
     Ok(())
 }

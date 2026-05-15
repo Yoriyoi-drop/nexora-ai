@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 use tokio::sync::{mpsc, RwLock};
 
@@ -19,14 +20,14 @@ struct ActiveStream {
 
 #[derive(Debug)]
 pub struct StreamingEngine {
-    active_streams: RwLock<HashMap<Uuid, ActiveStream>>,
+    active_streams: Arc<RwLock<HashMap<Uuid, ActiveStream>>>,
     max_concurrent_streams: usize,
 }
 
 impl StreamingEngine {
     pub fn new() -> Self {
         Self {
-            active_streams: RwLock::new(HashMap::new()),
+            active_streams: Arc::new(RwLock::new(HashMap::new())),
             max_concurrent_streams: 100,
         }
     }
@@ -135,12 +136,11 @@ fn simulate_token_generation(request: &crate::InferenceRequest) -> Vec<crate::Ge
     let words: Vec<&str> = text.split_whitespace().collect();
     words.iter().enumerate().map(|(i, w)| {
         let log_prob = -((i as f64 + 1.0).ln());
-        crate::GeneratedToken {
-            token_id: i as u32,
-            text: format!("{} ", w),
-            log_probability: log_prob,
-            is_end: i == words.len() - 1,
-            timestamp: chrono::Utc::now(),
-        }
+        crate::GeneratedToken::new(
+            i as u32,
+            format!("{} ", w),
+            log_prob as f32,
+            i,
+        )
     }).collect()
 }

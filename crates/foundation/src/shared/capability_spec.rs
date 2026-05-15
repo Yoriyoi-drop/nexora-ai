@@ -362,14 +362,7 @@ pub mod predefined {
             crate::shared::model_identity::NxrModelId::Kronos |
             crate::shared::model_identity::NxrModelId::Cipher |
             crate::shared::model_identity::NxrModelId::Axiom => {
-                let mut vector = CapabilityVector::new(model_id);
-                vector.reasoning_score = 0.6;
-                vector.general_knowledge_score = 0.7;
-                vector.code_generation_score = 0.5;
-                vector.multimodal_score = 0.4;
-                vector.memory_capacity = 0.6;
-                vector.context_window = 4096;
-                vector
+                CapabilityVector::new(model_id).calculate_score()
             }
             _ => CapabilityVector::new(model_id).calculate_score(),
         }

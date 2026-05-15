@@ -19,6 +19,8 @@ use crate::kv_cache::KVCache;
 use crate::session::InferenceSession;
 use crate::decoding::DecodingStrategy;
 use crate::streaming::StreamingEngine;
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 
 /// Configuration untuk inference engine
 #[derive(Debug, Clone)]
@@ -75,10 +77,10 @@ pub struct InferenceEngine {
     decoding_strategies: HashMap<String, Box<dyn DecodingStrategy>>,
     /// Streaming engine
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
-    /// Request channel
-    request_tx: mpsc::UnboundedSender<InferenceRequest>,
+    /// Request channel (bounded with backpressure)
+    request_tx: mpsc::Sender<InferenceRequest>,
     /// Request receiver
-    request_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<InferenceRequest>>>>,
+    request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
     /// Active requests tracking
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     /// Engine state
@@ -103,7 +105,7 @@ pub enum EngineState {
 impl InferenceEngine {
     /// Create new inference engine
     pub fn new(config: InferenceConfig) -> Self {
-        let (request_tx, request_rx) = mpsc::unbounded_channel();
+        let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
         
         let mut engine = Self {
             runtime: Arc::new(InferenceRuntime::new()),
@@ -192,15 +194,27 @@ impl InferenceEngine {
         // Validate request
         self.validate_request(&request)?;
         
-        // Create response channel
+        // Check active request limit for backpressure
+        {
+            let active = self.active_requests.read().await;
+            if active.len() >= self.config.max_concurrent_requests {
+                return Err(InferenceError::ResourceExhausted(
+                    format!("Max concurrent requests reached ({})", self.config.max_concurrent_requests)
+                ));
+            }
+        }
+        
+        // Create response channel (unbounded — scheduler requires UnboundedSender)
         let (response_tx, response_rx) = mpsc::unbounded_channel();
         
         // Submit to scheduler
         self.scheduler.write().await.submit_request(request.request_id, response_tx).await?;
         
-        // Send to request processing loop
-        if let Err(_) = self.request_tx.send(request) {
-            return Err(InferenceError::InternalError("Failed to queue request".to_string()));
+        // Send to request processing loop (bounded — will return error if queue full)
+        if let Err(_) = self.request_tx.try_send(request) {
+            return Err(InferenceError::ResourceExhausted(
+                "Request queue is full, try again later".to_string()
+            ));
         }
         
         Ok(response_rx)
@@ -257,17 +271,26 @@ impl InferenceEngine {
         // Check in streaming engine
         if let Some(streaming_engine) = &self.streaming_engine {
             let stream_active = streaming_engine.read().await.get_stream_status(request_id).await?;
-            if stream_active {
+            if stream_active.is_some() {
                 return Ok(RequestStatus::Processing);
             }
         }
         
-        Ok(RequestStatus::from_scheduler_status(status))
+        Ok(status.map(RequestStatus::from_scheduler_status).unwrap_or(RequestStatus::Queued))
     }
     
     /// Create or get session
     pub async fn get_session(&self, session_id: Uuid) -> Result<Arc<InferenceSession>> {
         let mut sessions = self.session_manager.write().await;
+        
+        // Evict expired sessions first if at capacity
+        if sessions.len() >= self.config.max_concurrent_requests * 2 {
+            let now = chrono::Utc::now();
+            sessions.retain(|_, s| {
+                let age_secs = (now - s.created_at()).num_seconds() as u64;
+                age_secs < s.config().timeout_seconds
+            });
+        }
         
         if let Some(session) = sessions.get(&session_id) {
             Ok(Arc::new(session.clone()))
@@ -276,6 +299,27 @@ impl InferenceEngine {
             sessions.insert(session_id, session.clone());
             Ok(Arc::new(session))
         }
+    }
+    
+    /// Evict stale sessions from session manager
+    pub async fn evict_stale_sessions(&self) -> usize {
+        let mut sessions = self.session_manager.write().await;
+        let before = sessions.len();
+        let now = chrono::Utc::now();
+        let timeout = chrono::Duration::seconds(
+            InferenceSession::default_timeout_seconds() as i64
+        );
+        sessions.retain(|_, s| {
+            // Session is too young to expire in the sync check — use creation time proxy
+            // For full async eviction we'd use a separate task
+            let age = now - s.created_at();
+            age < timeout
+        });
+        let evicted = before - sessions.len();
+        if evicted > 0 {
+            info!("Evicted {} stale sessions", evicted);
+        }
+        evicted
     }
     
     /// Get engine statistics
@@ -287,7 +331,7 @@ impl InferenceEngine {
             state: state.clone(),
             active_requests_count: active_requests.len(),
             max_concurrent_requests: self.config.max_concurrent_requests,
-            scheduler_stats: self.scheduler.read().await.get_stats(),
+            scheduler_stats: self.scheduler.read().await.get_stats().await,
             cache_stats: if self.config.enable_caching {
                 Some(self.kv_cache.read().await.get_stats())
             } else {
@@ -352,6 +396,9 @@ impl InferenceEngine {
             })?
         };
         
+        let mut last_cleanup = std::time::Instant::now();
+        let cleanup_interval = std::time::Duration::from_secs(300); // 5 minutes
+
         loop {
             // Check engine state
             {
@@ -360,6 +407,17 @@ impl InferenceEngine {
                     info!("Engine shutting down, exiting request loop");
                     break;
                 }
+            }
+            
+            // Periodic cleanup: stale sessions + stale active requests
+            if last_cleanup.elapsed() >= cleanup_interval {
+                self.evict_stale_sessions().await;
+                // Clean up completed/finished tasks from active_requests
+                {
+                    let mut active = self.active_requests.write().await;
+                    active.retain(|_, handle| !handle.is_finished());
+                }
+                last_cleanup = std::time::Instant::now();
             }
             
             // Wait for next request with timeout
@@ -448,25 +506,25 @@ impl InferenceEngine {
         
         let prompt_len = request.prompt.len();
         let tokens_to_generate = request.max_tokens.min(2048);
-        let mut rng = rand::thread_rng();
+        let mut rng = StdRng::from_entropy();
 
         let words: Vec<&str> = request.prompt.split_whitespace().collect();
         let inference_start = std::time::Instant::now();
 
         for i in 0..tokens_to_generate {
             let log_prob = -((i as f64 + 1.0).ln());
-            let token_text = if i < words.len() {
-                format!("{} ", words[i])
+            let token_text = if (i as usize) < words.len() {
+                format!("{} ", words[i as usize])
             } else {
-                let idx: usize = rng.gen_range(0..words.len());
+                let idx = rng.gen_range(0..words.len());
                 format!("{} ", words[idx])
             };
 
             let token = GeneratedToken::new(
                 i as u32,
                 token_text,
-                log_prob,
-                i == tokens_to_generate - 1,
+                log_prob as f32,
+                i as usize,
             );
             response.add_token(token);
 
@@ -516,9 +574,17 @@ impl InferenceEngine {
             match request {
                 Some(request) => {
                     let request_id = request.request_id;
-                    let engine = self.clone();
+                    let runtime = self.runtime.clone();
+                    let scheduler = self.scheduler.clone();
+                    let kv_cache = self.kv_cache.clone();
+                    let session_manager = self.session_manager.clone();
+                    let streaming_engine = self.streaming_engine.clone();
+                    let active_requests = self.active_requests.clone();
                     let task = tokio::spawn(async move {
-                        if let Err(e) = engine.process_single_request(request).await {
+                        if let Err(e) = InferenceEngine::process_single_request_internal(
+                            request, runtime, scheduler, kv_cache,
+                            session_manager, streaming_engine, active_requests,
+                        ).await {
                             error!("Request {} failed: {}", request_id, e);
                         }
                     });

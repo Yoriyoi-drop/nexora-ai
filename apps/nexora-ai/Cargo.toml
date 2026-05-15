@@ -6,6 +6,7 @@ description = "Nexora AI - Multi-model cognitive architecture"
 
 [dependencies]
 nexora-core = { path = "../../crates/core" }
+nexora-foundation = { path = "../../crates/foundation" }
 nexora-tokenizer = { path = "../../crates/tokenizer" }
 nexora-intelligence = { path = "../../crates/intelligence" }
 nexora-memory = { path = "../../crates/memory" }

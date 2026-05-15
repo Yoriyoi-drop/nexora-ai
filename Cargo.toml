@@ -17,6 +17,7 @@ members = [
     "crates/runtime",
     "crates/tokenizer",
     "crates/infrastructure",
+    "crates/datastream",
     "apps/nexora-ai",
     "apps/dashboard",
 ]
@@ -78,7 +79,7 @@ sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlit
 postgres = "0.19"
 mysql = "25"
 # HTTP client (untuk API requests)
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
 
 # Terminal UI dependencies
 ratatui = "0.26"

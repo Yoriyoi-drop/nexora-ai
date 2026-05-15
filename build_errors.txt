@@ -1,1339 +1,298 @@
-gunakan indonesia Pemetaan 10 Model NXR ke Struktur yang Ada
-Pertama — Baca Struktur yang Ada
-Sebelum mapping, ini yang sudah ada di repo kamu:
-crates/
-├── foundation/        → Model weights, arsitektur neural net
-│   ├── oracle/        → Sudah ada! (backbone, trainer, verifiers)
-│   ├── reasoning/saca → Sudah ada! (chain-of-thought, decompose)
-│   ├── alignment/sparo→ Sudah ada! (DPO, RLHF, KTO)
-│   ├── has_moe_ffn/   → Sudah ada! (MoE architecture)
-│   ├── multimodal/    → Sudah ada! (caffeine - vision/audio/text)
-│   ├── deeplearning/  → Sudah ada! (star_x, echo_net)
-│   └── atqs/          → Sudah ada! (quantization)
-│
-├── cognition/         → Reasoning, reflection, planning
-├── agent/             → Agent system
-├── inference/         → Inference engine
-├── memory/            → Memory layers
-└── intelligence/      → Unified serving layer
-
-Jawaban Langsung — Di Mana 10 Model Ditaruh
-Prinsip Mapping
-Model NXR = Foundation (arsitektur) + Intelligence (serving) + Agent (behavior)
-Bukan satu folder. Setiap model adalah kombinasi dari beberapa crates.
-
-Peta Lengkap
-nxr-omnis/
-└── crates/
-    │
-    ├── foundation/src/          ← LAYER 1: Otak neural
-    │   ├── oracle/              ← NXR-KRONOS (knowledge, verifier)
-    │   ├── reasoning/saca/      ← NXR-OMNIS Meta-Reasoner
-    │   ├── alignment/sparo/     ← NXR-ÆTHER (alignment, empati)
-    │   ├── has_moe_ffn/         ← NXR-OMNIS + NXR-NEXUM (MoE routing)
-    │   ├── multimodal/caffeine/ ← NXR-SPECTRA (vision/audio/text)
-    │   ├── atqs/                ← NXR-SWIFT (quantization, edge)
-    │   └── hldva_t/             ← NXR-SPECTRA generatif (diffusion)
-    │
-    ├── cognition/src/           ← LAYER 2: Cara berpikir
-    │   ├── reasoning.rs         ← semua model pakai ini
-    │   ├── planning.rs          ← NXR-NEXUM, NXR-AXIOM
-    │   └── reflection.rs        ← NXR-OMNIS reflection loop
-    │
-    ├── agent/src/               ← LAYER 3: Behavior agen
-    │   ├── planner_agent.rs     ← NXR-NEXUM agent
-    │   ├── inferenceRespons Claude terputusCoba lagiAnda berkata: itu buat foundtion semua 10  modelitu buat foundtion semua 10  model15.34Claude merespons: Pertanyaan yang tepat.Pertanyaan yang tepat. Kamu mau foundation layer untuk semua 10 model, bukan mapping ke yang sudah ada.
-
-Foundation 10 Model NXR — Posisi di Struktur
-Prinsip Dasar
-crates/foundation/src/
-└── models/          ← INI YANG BELUM ADA, HARUS DIBUAT
-    ├── omnis/       ← NXR-01
-    ├── vortex/      ← NXR-02
-    ├── aether/      ← NXR-03
-    ├── spectra/     ← NXR-04
-    ├── nexum/       ← NXR-05
-    ├── axiom/       ← NXR-06
-    ├── cipher/      ← NXR-07
-    ├── swift/       ← NXR-08
-    ├── kronos/      ← NXR-09
-    └── genesis/     ← NXR-10
-Tapi ini terlalu simpel. Yang benar lebih dalam dari ini.
-
-Struktur Foundation Lengkap untuk 10 Model
-crates/foundation/src/
-│
-├── lib.rs
-├── mod.rs
-│
-├── shared/                          ← KOMPONEN BERSAMA semua model
-│   ├── mod.rs
-│   ├── base_model.rs                ← Trait wajib semua model NXR
-│   ├── model_config.rs              ← Config schema universal
-│   ├── model_identity.rs            ← NxrModelId, codename, tier
-│   ├── capability_spec.rs           ← Capability declaration per model
-│   └── model_registry.rs           ← Registry semua 10 model
-│
-├── models/                          ← 10 MODEL FOUNDATION
-│   │
-│   ├── mod.rs
-│   │
-│   ├── omnis/                       ← NXR-01 ULTRA
-│   │   ├── mod.rs
-│   │   ├── identity.rs              ← codename, tier, version
-│   │   ├── config.rs                ← hyperparams, context size, dll
-│   │   ├── architecture.rs          ← MoE + Transformer-XL hybrid
-│   │   ├── agents.rs                ← 6 agents: oracle7, synth, meta, world, truth, chain
-│   │   └── capabilities.rs          ← capability vector declaration
-│   │
-│   ├── vortex/                      ← NXR-02 APEX
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← Sparse MoE + Code-Specialized
-│   │   ├── agents.rs                ← code_sentinel, debug_phantom, arch_weaver, test_forge
-│   │   └── capabilities.rs
-│   │
-│   ├── aether/                      ← NXR-03 APEX
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← Constitutional AI + Affective layers
-│   │   ├── agents.rs                ← empath_core, tone_mapper, context_weave, soul_mirror
-│   │   └── capabilities.rs
-│   │
-│   ├── spectra/                     ← NXR-04 PRO
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← Diffusion-LLM Hybrid
-│   │   ├── agents.rs                ← vision_craft, style_transfer, harmony_gen, canvas_ai, narrative_x
-│   │   └── capabilities.rs
-│   │
-│   ├── nexum/                       ← NXR-05 APEX
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← Hierarchical MAS + Consensus Protocol
-│   │   ├── agents.rs                ← swarm_ctl, delegate_x, consensus_ai, task_router, merge_synth, priority_god
-│   │   └── capabilities.rs
-│   │
-│   ├── axiom/                       ← NXR-06 ULTRA
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← RL + World Simulation Engine
-│   │   ├── agents.rs                ← risk_oracle, strat_engine, future_sim, decision_x, audit_watch
-│   │   └── capabilities.rs
-│   │
-│   ├── cipher/                      ← NXR-07 PRO
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← Adversarial Training + Zero-Day Sim
-│   │   ├── agents.rs                ← pentest_bot, vuln_scan, firewall_ai, threat_hunt
-│   │   └── capabilities.rs
-│   │
-│   ├── swift/                       ← NXR-08 EDGE
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← 4-bit Quantization + Knowledge Distillation
-│   │   ├── agents.rs                ← nano_infer, fast_cache, edge_opt
-│   │   └── capabilities.rs
-│   │
-│   ├── kronos/                      ← NXR-09 CORE
-│   │   ├── mod.rs
-│   │   ├── identity.rs
-│   │   ├── config.rs
-│   │   ├── architecture.rs          ← RAG + Knowledge Graph Neural Net
-│   │   ├── agents.rs                ← graph_mind, hypo_gen, science_bot, fact_check_x, cite_master
-│   │   └── capabilities.rs
-│   │
-│   └── genesis/                     ← NXR-10 ULTRA
-│       ├── mod.rs
-│       ├── identity.rs
-│       ├── config.rs
-│       ├── architecture.rs          ← Recursive Self-Improvement + NAS
-│       ├── agents.rs                ← self_evolve, arch_builder, meta_learn, emerge_ai, genesis_core, loop_prime
-│       └── capabilities.rs
-│
-├── traits/                          ← SUDAH ADA — diperluas
-│   ├── mod.rs
-│   ├── core_traits.rs               ← tambah NxrModel trait
-│   ├── model_traits.rs              ← tambah per-tier traits
-│   ├── tensor_traits.rs
-│   └── src/
-│       ├── reasoning.rs
-│       ├── memory.rs
-│       ├── multimodal.rs
-│       ├── compression.rs
-│       ├── scheduler.rs
-│       └── tokenizer.rs
-│
-├── oracle/                          ← SUDAH ADA → dipakai NXR-KRONOS
-├── reasoning/saca/                  ← SUDAH ADA → dipakai NXR-OMNIS
-├── alignment/sparo/                 ← SUDAH ADA → dipakai NXR-ÆTHER
-├── has_moe_ffn/                     ← SUDAH ADA → dipakai NXR-OMNIS, NXR-NEXUM
-├── multimodal/caffeine/             ← SUDAH ADA → dipakai NXR-SPECTRA
-├── atqs/                            ← SUDAH ADA → dipakai NXR-SWIFT
-└── hldva_t/                         ← SUDAH ADA → dipakai NXR-SPECTRA
-
-Relasi Setiap Model ke Komponen yang Sudah Ada
-NXR-OMNIS    → has_moe_ffn + reasoning/saca + cognition
-NXR-VORTEX   → oracle/verifiers + reasoning/saca/execute
-NXR-ÆTHER    → alignment/sparo + cognition/reflection
-NXR-SPECTRA  → multimodal/caffeine + hldva_t
-NXR-NEXUM    → has_moe_ffn + agent/planner + cognition/planning
-NXR-AXIOM    → reasoning/saca + cognition/planning + alignment
-NXR-CIPHER   → oracle/verifiers + deeplearning/star_x
-NXR-SWIFT    → atqs + deeplearning/echo_net
-NXR-KRONOS   → oracle + reasoning + memory/episodic
-NXR-GENESIS  → semua foundation + self-referential loop
-
-File Kunci yang Harus Dibuat Pertama
-Urutan pembuatan yang benar:
-1. crates/foundation/src/shared/base_model.rs
-   → Trait NxrModel: identity(), capabilities(), agents(), architecture()
-
-2. crates/foundation/src/shared/model_identity.rs
-   → enum NxrModelId, struct ModelMeta, enum Tier
-
-3. crates/foundation/src/shared/capability_spec.rs
-   → struct CapabilitySpec, domain declarations
-
-4. crates/foundation/src/models/mod.rs
-   → pub mod untuk semua 10 model
-
-5. crates/foundation/src/models/omnis/identity.rs
-   → Implementasi pertama, jadi template untuk 9 lainnya
-
-Kenapa Tidak Satu Folder Per Model di Root crates/
-Karena model bukan aplikasi mandiri. Model adalah konfigurasi + arsitektur + agent spec yang berjalan di atas infrastruktur yang sama. Yang berbeda antar model hanyalah:
-├── architecture.rs   → cara neuron tersusun
-├── agents.rs         → agen mana yang aktif
-├── config.rs         → hyperparameter
-└── capabilities.rs   → apa yang bisa dilakukan
-Sisanya — inference engine, memory, tokenizer, runtime — shared oleh semua model. Memisahkan ke root crates/ berarti duplikasi kode yang tidak perlu dan maintenance nightmare.
-<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NXR AI — 10 Model Architecture</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #020408;
-    --bg2: #060c14;
-    --surface: #0a1628;
-    --border: #1a3a6a;
-    --accent: #00d4ff;
-    --accent2: #ff6b35;
-    --accent3: #7b2fff;
-    --accent4: #00ff88;
-    --text: #c8daf0;
-    --dim: #4a6a8a;
-    --glow: 0 0 20px rgba(0,212,255,0.3);
-    --glow2: 0 0 20px rgba(255,107,53,0.3);
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Rajdhani', sans-serif;
-    overflow-x: hidden;
-    min-height: 100vh;
-  }
-
-  /* Animated background grid */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
-    background-size: 60px 60px;
-    animation: gridMove 20s linear infinite;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  @keyframes gridMove {
-    0% { background-position: 0 0; }
-    100% { background-position: 60px 60px; }
-  }
-
-  /* Scanline effect */
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,0,0,0.05) 2px,
-      rgba(0,0,0,0.05) 4px
-    );
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .container {
-    position: relative;
-    z-index: 2;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 0 20px;
-  }
-
-  /* HEADER */
-  header {
-    position: relative;
-    padding: 60px 20px 40px;
-    text-align: center;
-    overflow: hidden;
-  }
-
-  .header-bg {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse at 50% 0%, rgba(0,212,255,0.08) 0%, transparent 70%);
-  }
-
-  .logo-line {
-    font-family: 'Share Tech Mono', monospace;
-    color: var(--accent);
-    font-size: 11px;
-    letter-spacing: 8px;
-    text-transform: uppercase;
-    margin-bottom: 16px;
-    opacity: 0.7;
-    animation: fadeInDown 0.8s ease both;
-  }
-
-  h1 {
-    font-family: 'Orbitron', monospace;
-    font-size: clamp(48px, 8vw, 100px);
-    font-weight: 900;
-    letter-spacing: -2px;
-    line-height: 0.9;
-    animation: fadeInDown 0.8s 0.2s ease both;
-  }
-
-  h1 .nxr {
-    color: var(--accent);
-    text-shadow: 0 0 40px rgba(0,212,255,0.6), 0 0 80px rgba(0,212,255,0.2);
-    display: block;
-  }
-
-  h1 .ai {
-    color: #1a3a5a;
-    -webkit-text-stroke: 1px var(--border);
-    display: block;
-  }
-
-  .tagline {
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 14px;
-    letter-spacing: 4px;
-    color: var(--dim);
-    text-transform: uppercase;
-    margin-top: 20px;
-    animation: fadeInDown 0.8s 0.4s ease both;
-  }
-
-  .tagline span { color: var(--accent2); }
-
-  /* Stats Bar */
-  .stats-bar {
-    display: flex;
-    justify-content: center;
-    gap: 60px;
-    padding: 30px 20px;
-    border-top: 1px solid rgba(0,212,255,0.1);
-    border-bottom: 1px solid rgba(0,212,255,0.1);
-    margin: 40px 0;
-    animation: fadeIn 1s 0.6s ease both;
-    flex-wrap: wrap;
-  }
-
-  .stat {
-    text-align: center;
-  }
-
-  .stat-num {
-    font-family: 'Orbitron', monospace;
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--accent);
-  }
-
-  .stat-label {
-    font-size: 11px;
-    letter-spacing: 3px;
-    color: var(--dim);
-    text-transform: uppercase;
-  }
-
-  /* Section Title */
-  .section-title {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 6px;
-    color: var(--accent);
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-
-  .section-heading {
-    font-family: 'Orbitron', monospace;
-    font-size: clamp(22px, 3vw, 32px);
-    font-weight: 700;
-    color: #fff;
-    margin-bottom: 40px;
-  }
-
-  /* MODELS GRID */
-  .models-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-    gap: 24px;
-    padding: 0 20px 80px;
-  }
-
-  .model-card {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-    cursor: pointer;
-    transition: transform 0.3s ease, border-color 0.3s ease;
-    animation: fadeInUp 0.6s ease both;
-  }
-
-  .model-card:hover {
-    transform: translateY(-4px);
-    border-color: var(--accent);
-    box-shadow: var(--glow), inset 0 0 40px rgba(0,212,255,0.03);
-  }
-
-  .model-card:nth-child(1) { animation-delay: 0.1s; }
-  .model-card:nth-child(2) { animation-delay: 0.15s; }
-  .model-card:nth-child(3) { animation-delay: 0.2s; }
-  .model-card:nth-child(4) { animation-delay: 0.25s; }
-  .model-card:nth-child(5) { animation-delay: 0.3s; }
-  .model-card:nth-child(6) { animation-delay: 0.35s; }
-  .model-card:nth-child(7) { animation-delay: 0.4s; }
-  .model-card:nth-child(8) { animation-delay: 0.45s; }
-  .model-card:nth-child(9) { animation-delay: 0.5s; }
-  .model-card:nth-child(10) { animation-delay: 0.55s; }
-
-  /* Corner decorations */
-  .model-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 20px; height: 20px;
-    border-top: 2px solid var(--accent);
-    border-left: 2px solid var(--accent);
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-  .model-card::after {
-    content: '';
-    position: absolute;
-    bottom: 0; right: 0;
-    width: 20px; height: 20px;
-    border-bottom: 2px solid var(--accent);
-    border-right: 2px solid var(--accent);
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-  .model-card:hover::before,
-  .model-card:hover::after { opacity: 1; }
-
-  /* Card top bar */
-  .card-bar {
-    height: 3px;
-    width: 100%;
-  }
-
-  .card-header {
-    padding: 20px 24px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-  }
-
-  .model-number {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    color: var(--dim);
-    letter-spacing: 2px;
-  }
-
-  .model-tier {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    padding: 3px 10px;
-    border-radius: 2px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    border: 1px solid;
-  }
-
-  .tier-ultra { border-color: #ff6b35; color: #ff6b35; background: rgba(255,107,53,0.1); }
-  .tier-apex { border-color: #ffd700; color: #ffd700; background: rgba(255,215,0,0.1); }
-  .tier-pro { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.1); }
-  .tier-edge { border-color: #00ff88; color: #00ff88; background: rgba(0,255,136,0.1); }
-  .tier-core { border-color: #7b2fff; color: #7b2fff; background: rgba(123,47,255,0.1); }
-
-  .card-body { padding: 0 24px 20px; }
-
-  .codename {
-    font-family: 'Orbitron', monospace;
-    font-size: 22px;
-    font-weight: 700;
-    color: #fff;
-    line-height: 1;
-    margin-bottom: 4px;
-  }
-
-  .codename .nxr-prefix {
-    color: var(--accent);
-  }
-
-  .model-fullname {
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 13px;
-    letter-spacing: 3px;
-    color: var(--dim);
-    text-transform: uppercase;
-    margin-bottom: 14px;
-  }
-
-  .model-desc {
-    font-size: 14px;
-    line-height: 1.7;
-    color: #7a9ab8;
-    margin-bottom: 18px;
-  }
-
-  /* Agents */
-  .agents-section {
-    margin-bottom: 18px;
-  }
-
-  .agents-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 3px;
-    color: var(--dim);
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-
-  .agents-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .agent-tag {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    padding: 4px 10px;
-    border-radius: 2px;
-    letter-spacing: 1px;
-    border: 1px solid rgba(0,212,255,0.2);
-    color: var(--accent);
-    background: rgba(0,212,255,0.05);
-    transition: background 0.2s;
-  }
-
-  .agent-tag:hover {
-    background: rgba(0,212,255,0.15);
-  }
-
-  /* References */
-  .refs-section {
-    margin-bottom: 18px;
-  }
-
-  .refs-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 3px;
-    color: var(--dim);
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-
-  .refs-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .ref-tag {
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 2px;
-    letter-spacing: 1px;
-    font-family: 'Rajdhani', sans-serif;
-    font-weight: 600;
-  }
-
-  .ref-claude { background: rgba(123,47,255,0.15); border: 1px solid rgba(123,47,255,0.4); color: #a06cff; }
-  .ref-mythos { background: rgba(255,107,53,0.15); border: 1px solid rgba(255,107,53,0.4); color: #ff8a5c; }
-  .ref-gemini { background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); color: #5ac8ff; }
-  .ref-gpt { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: #40ff9a; }
-  .ref-grok { background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3); color: #ffd700; }
-  .ref-mistral { background: rgba(255,60,120,0.1); border: 1px solid rgba(255,60,120,0.3); color: #ff5090; }
-  .ref-llama { background: rgba(180,130,80,0.15); border: 1px solid rgba(180,130,80,0.4); color: #c8a060; }
-  .ref-deepseek { background: rgba(80,180,255,0.1); border: 1px solid rgba(80,180,255,0.3); color: #70c8ff; }
-
-  /* Metrics */
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    margin-top: 4px;
-  }
-
-  .metric {
-    background: var(--bg2);
-    padding: 12px 10px;
-    text-align: center;
-  }
-
-  .metric-val {
-    font-family: 'Orbitron', monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: #fff;
-  }
-
-  .metric-key {
-    font-size: 9px;
-    letter-spacing: 2px;
-    color: var(--dim);
-    text-transform: uppercase;
-    margin-top: 2px;
-  }
-
-  /* Architecture line */
-  .arch-line {
-    padding: 10px 24px;
-    background: rgba(0,0,0,0.3);
-    border-top: 1px solid rgba(0,212,255,0.05);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .arch-text {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    color: var(--dim);
-  }
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent4);
-    box-shadow: 0 0 6px rgba(0,255,136,0.8);
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
-
-  /* SPECIAL CARD - Featured */
-  .model-card.featured {
-    grid-column: span 2;
-    border-color: var(--accent2);
-  }
-  .model-card.featured:hover {
-    border-color: var(--accent2);
-    box-shadow: var(--glow2);
-  }
-  .model-card.featured::before,
-  .model-card.featured::after {
-    border-color: var(--accent2);
-  }
-
-  @media (max-width: 900px) {
-    .model-card.featured { grid-column: span 1; }
-    .models-grid { grid-template-columns: 1fr; }
-  }
-
-  /* ANIMATIONS */
-  @keyframes fadeInDown {
-    from { opacity: 0; transform: translateY(-20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(30px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  /* Footer */
-  footer {
-    text-align: center;
-    padding: 40px 20px;
-    border-top: 1px solid var(--border);
-    position: relative;
-    z-index: 2;
-  }
-
-  .footer-logo {
-    font-family: 'Orbitron', monospace;
-    font-size: 20px;
-    font-weight: 900;
-    color: var(--accent);
-    letter-spacing: 4px;
-  }
-
-  .footer-sub {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    color: var(--dim);
-    letter-spacing: 4px;
-    margin-top: 8px;
-  }
-
-  /* Floating particles */
-  .particle {
-    position: fixed;
-    width: 2px;
-    height: 2px;
-    background: var(--accent);
-    border-radius: 50%;
-    pointer-events: none;
-    z-index: 0;
-    animation: float linear infinite;
-    opacity: 0.3;
-  }
-
-  @keyframes float {
-    0% { transform: translateY(100vh) translateX(0); opacity: 0; }
-    10% { opacity: 0.3; }
-    90% { opacity: 0.3; }
-    100% { transform: translateY(-100px) translateX(50px); opacity: 0; }
-  }
-
-  /* Section wrapper */
-  .section-wrapper {
-    position: relative;
-    z-index: 2;
-    padding: 0 20px;
-    margin-bottom: 20px;
-  }
-</style>
-</head>
-<body>
-
-<!-- Floating particles -->
-<script>
-  for (let i = 0; i < 20; i++) {
-    const p = document.createElement('div');
-    p.className = 'particle';
-    p.style.left = Math.random() * 100 + 'vw';
-    p.style.animationDuration = (8 + Math.random() * 12) + 's';
-    p.style.animationDelay = (Math.random() * 10) + 's';
-    p.style.opacity = (0.1 + Math.random() * 0.3);
-    document.body.appendChild(p);
-  }
-</script>
-
-<header>
-  <div class="header-bg"></div>
-  <div class="container">
-    <div class="logo-line">// NEXUS AI RESEARCH DIVISION — CLASSIFIED ARCHITECTURE //</div>
-    <h1>
-      <span class="nxr">NXR</span>
-      <span class="ai">AI</span>
-    </h1>
-    <div class="tagline">10 MODEL SERIES — MULTI-AGENT INTELLIGENCE FRAMEWORK — <span>v2025.NXR</span></div>
-  </div>
-</header>
-
-<div class="stats-bar container">
-  <div class="stat">
-    <div class="stat-num">10</div>
-    <div class="stat-label">Model Series</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">47</div>
-    <div class="stat-label">Active Agents</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">8</div>
-    <div class="stat-label">AI References</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">∞</div>
-    <div class="stat-label">Context Depth</div>
-  </div>
-</div>
-
-<div class="section-wrapper container">
-  <div class="section-title">// MODEL CATALOG //</div>
-  <div class="section-heading">Architecture Series NXR</div>
-</div>
-
-<div class="models-grid container">
-
-  <!-- MODEL 1 - FEATURED -->
-  <div class="model-card featured">
-    <div class="card-bar" style="background: linear-gradient(90deg, #ff6b35, #ff3d7f, #7b2fff);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 01 / 10</div>
-      <div class="model-tier tier-ultra">ULTRA</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>OMNIS</div>
-      <div class="model-fullname">Nexus Omniscient Reasoning System</div>
-      <div class="model-desc">
-        Model flagship NXR. Dirancang untuk reasoning multi-modal tingkat dewa dengan kemampuan sintesis pengetahuan lintas domain. Mengintegrasikan long-chain reasoning, real-time world modeling, dan multi-agent orchestration dalam satu arsitektur monolitik yang tersebar.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">ORACLE-7</span>
-          <span class="agent-tag">SYNTH-PRIME</span>
-          <span class="agent-tag">META-REASONER</span>
-          <span class="agent-tag">WORLD-MODEL-X</span>
-          <span class="agent-tag">TRUTH-ARBITER</span>
-          <span class="agent-tag">CHAIN-EXECUTOR</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-claude">Claude Opus</span>
-          <span class="ref-tag ref-mythos">Claude Mythos</span>
-          <span class="ref-tag ref-gemini">Gemini Ultra</span>
-          <span class="ref-tag ref-gpt">GPT-o3</span>
-          <span class="ref-tag ref-grok">Grok-3</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">2T+</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">10M</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">99.7%</div>
-          <div class="metric-key">Accuracy</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Mixture-of-Experts × Transformer-XL × Neural World Model</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 2 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #00d4ff, #0080ff);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 02 / 10</div>
-      <div class="model-tier tier-apex">APEX</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>VORTEX</div>
-      <div class="model-fullname">Variable Optimization Recursive Text & Expert eXchange</div>
-      <div class="model-desc">
-        Spesialisasi dalam code generation dan software engineering. Memahami arsitektur sistem kompleks, debugging multi-layer, dan otomasi pipeline DevOps. Dilengkapi agen khusus untuk review kode real-time.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">CODE-SENTINEL</span>
-          <span class="agent-tag">DEBUG-PHANTOM</span>
-          <span class="agent-tag">ARCH-WEAVER</span>
-          <span class="agent-tag">TEST-FORGE</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-claude">Claude Sonnet</span>
-          <span class="ref-tag ref-gpt">GPT-4o</span>
-          <span class="ref-tag ref-deepseek">DeepSeek-V3</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">700B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">2M</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">97.2%</div>
-          <div class="metric-key">HumanEval</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Sparse MoE × Code-Specialized Pretraining</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 3 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #7b2fff, #d400ff);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 03 / 10</div>
-      <div class="model-tier tier-apex">APEX</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>ÆTHER</div>
-      <div class="model-fullname">Adaptive Emotional & Holistic Transcendent Empathy Reasoner</div>
-      <div class="model-desc">
-        Model dengan kemampuan pemahaman emosional dan psikologis mendalam. Dirancang untuk therapeutic AI, konseling berbasis konteks, dan empati sintetis yang mampu memproses nuansa bahasa manusia pada level sub-linguistik.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">EMPATH-CORE</span>
-          <span class="agent-tag">TONE-MAPPER</span>
-          <span class="agent-tag">CONTEXT-WEAVE</span>
-          <span class="agent-tag">SOUL-MIRROR</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-mythos">Claude Mythos</span>
-          <span class="ref-tag ref-claude">Claude Haiku</span>
-          <span class="ref-tag ref-gemini">Gemini Pro</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">400B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">512K</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">96.5%</div>
-          <div class="metric-key">EQ Score</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Constitutional AI × Affective Computing Layers</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 4 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #00ff88, #00d4a0);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 04 / 10</div>
-      <div class="model-tier tier-pro">PRO</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>SPECTRA</div>
-      <div class="model-fullname">Spectral Perception & Encoding for Creative Transcendence & Research Analytics</div>
-      <div class="model-desc">
-        Model multimodal generatif untuk seni, desain, musik, dan kreasi konten. Memproses input visual, audio, teks secara simultan dan menghasilkan output kreatif lintas media dengan konsistensi gaya tinggi.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">VISION-CRAFT</span>
-          <span class="agent-tag">STYLE-TRANSFER</span>
-          <span class="agent-tag">HARMONY-GEN</span>
-          <span class="agent-tag">CANVAS-AI</span>
-          <span class="agent-tag">NARRATIVE-X</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-gemini">Gemini Flash</span>
-          <span class="ref-tag ref-gpt">DALL-E 4</span>
-          <span class="ref-tag ref-mistral">Mistral Large</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">350B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">1M</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">98.1%</div>
-          <div class="metric-key">Creative Score</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Diffusion-LLM Hybrid × Cross-Modal Attention</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 5 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #ffd700, #ff8c00);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 05 / 10</div>
-      <div class="model-tier tier-apex">APEX</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>NEXUM</div>
-      <div class="model-fullname">Networked EXpert Unified Mediator</div>
-      <div class="model-desc">
-        Orkestrator agen-agen AI dalam sistem multi-agent. Bertindak sebagai koordinator pusat yang mendelegasikan, memantau, dan mensintesis output dari ratusan sub-agen spesialis secara paralel dengan zero-latency orchestration.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">SWARM-CTL</span>
-          <span class="agent-tag">DELEGATE-X</span>
-          <span class="agent-tag">CONSENSUS-AI</span>
-          <span class="agent-tag">TASK-ROUTER</span>
-          <span class="agent-tag">MERGE-SYNTH</span>
-          <span class="agent-tag">PRIORITY-GOD</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-gpt">GPT-o1</span>
-          <span class="ref-tag ref-grok">Grok-2</span>
-          <span class="ref-tag ref-claude">Claude Agents</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">800B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">500</div>
-          <div class="metric-key">Max Agents</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">0.3ms</div>
-          <div class="metric-key">Orchestration</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Hierarchical MAS × Consensus Protocol v4</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 6 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #ff3d7f, #ff0055);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 06 / 10</div>
-      <div class="model-tier tier-ultra">ULTRA</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>AXIOM</div>
-      <div class="model-fullname">Autonomous eXpert Intelligence for Operations & Management</div>
-      <div class="model-desc">
-        Dirancang untuk autonomous decision-making dalam lingkungan enterprise dan industri kritis. Mampu mengambil keputusan strategis berbasis data real-time, manajemen risiko, dan simulasi skenario masa depan dengan presisi tinggi.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">RISK-ORACLE</span>
-          <span class="agent-tag">STRAT-ENGINE</span>
-          <span class="agent-tag">FUTURE-SIM</span>
-          <span class="agent-tag">DECISION-X</span>
-          <span class="agent-tag">AUDIT-WATCH</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-mythos">Claude Mythos</span>
-          <span class="ref-tag ref-gemini">Gemini Enterprise</span>
-          <span class="ref-tag ref-llama">Llama-4</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">1.2T</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">5M</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">99.1%</div>
-          <div class="metric-key">Decision Acc</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Reinforcement Learning × World Simulation Engine</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 7 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #40e0d0, #00bfff);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 07 / 10</div>
-      <div class="model-tier tier-pro">PRO</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>CIPHER</div>
-      <div class="model-fullname">Cybersecurity Intelligence & Penetration Hardening Evaluation Responder</div>
-      <div class="model-desc">
-        Spesialis keamanan siber ofensif dan defensif. Menganalisis kerentanan sistem, menghasilkan laporan keamanan komprehensif, mensimulasikan serangan adversarial, dan merancang protokol perlindungan berlapis.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">PENTEST-BOT</span>
-          <span class="agent-tag">VULN-SCAN</span>
-          <span class="agent-tag">FIREWALL-AI</span>
-          <span class="agent-tag">THREAT-HUNT</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-deepseek">DeepSeek-R2</span>
-          <span class="ref-tag ref-gpt">GPT-4o Security</span>
-          <span class="ref-tag ref-mistral">Mistral 7B</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">300B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">512K</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">98.6%</div>
-          <div class="metric-key">CVE Detection</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Adversarial Training × Zero-Day Simulation Framework</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 8 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #9acd32, #32cd32);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 08 / 10</div>
-      <div class="model-tier tier-edge">EDGE</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>SWIFT</div>
-      <div class="model-fullname">Sub-millisecond Weighted Inference & Fast Thought</div>
-      <div class="model-desc">
-        Model ultra-ringan untuk edge computing dan perangkat IoT. Berjalan pada hardware terbatas dengan efisiensi ekstrem. Optimasi kuantisasi 4-bit dengan akurasi mendekati model full-precision melalui distilasi pengetahuan dari NXR-OMNIS.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">NANO-INFER</span>
-          <span class="agent-tag">FAST-CACHE</span>
-          <span class="agent-tag">EDGE-OPT</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-gemini">Gemini Nano</span>
-          <span class="ref-tag ref-claude">Claude Haiku</span>
-          <span class="ref-tag ref-llama">Llama-3.2-1B</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">3B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">64K</div>
-          <div class="metric-key">Context Tok</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">0.1ms</div>
-          <div class="metric-key">Inference</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: 4-bit Quantization × Knowledge Distillation v3</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 9 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #dc143c, #8b0000);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 09 / 10</div>
-      <div class="model-tier tier-core">CORE</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>KRONOS</div>
-      <div class="model-fullname">Knowledge Retrieval & Ontological Neural Optimization System</div>
-      <div class="model-desc">
-        Model khusus knowledge management dan scientific research. Terintegrasi dengan graph database raksasa berisi 500 miliar fakta terverifikasi. Mampu melakukan scientific reasoning, hypothesis generation, dan literature synthesis otomatis.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">GRAPH-MIND</span>
-          <span class="agent-tag">HYPO-GEN</span>
-          <span class="agent-tag">SCIENCE-BOT</span>
-          <span class="agent-tag">FACT-CHECK-X</span>
-          <span class="agent-tag">CITE-MASTER</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-claude">Claude Research</span>
-          <span class="ref-tag ref-gemini">Gemini Science</span>
-          <span class="ref-tag ref-deepseek">DeepSeek-R1</span>
-          <span class="ref-tag ref-gpt">GPT-o3 mini</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">600B</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">500B</div>
-          <div class="metric-key">Facts Indexed</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">99.3%</div>
-          <div class="metric-key">Fact Accuracy</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Retrieval-Augmented Generation × Knowledge Graph Neural Net</span>
-      <div class="status-dot"></div>
-    </div>
-  </div>
-
-  <!-- MODEL 10 -->
-  <div class="model-card">
-    <div class="card-bar" style="background: linear-gradient(90deg, #e0e0e0, #808080);"></div>
-    <div class="card-header">
-      <div class="model-number">MODEL 10 / 10</div>
-      <div class="model-tier tier-ultra">ULTRA</div>
-    </div>
-    <div class="card-body">
-      <div class="codename"><span class="nxr-prefix">NXR-</span>GENESIS</div>
-      <div class="model-fullname">Generative Evolution Network for Emergent Simulation & Intelligence Synthesis</div>
-      <div class="model-desc">
-        Model eksperimental yang mensimulasikan proses evolusi kecerdasan buatan. Mampu menghasilkan arsitektur model baru, melatih ulang dirinya sendiri, dan mengembangkan kapabilitas baru tanpa intervensi manusia. Prototype untuk AGI self-improvement loop.
-      </div>
-      <div class="agents-section">
-        <div class="agents-label">// EMBEDDED AGENTS</div>
-        <div class="agents-list">
-          <span class="agent-tag">SELF-EVOLVE</span>
-          <span class="agent-tag">ARCH-BUILDER</span>
-          <span class="agent-tag">META-LEARN</span>
-          <span class="agent-tag">EMERGE-AI</span>
-          <span class="agent-tag">GENESIS-CORE</span>
-          <span class="agent-tag">LOOP-PRIME</span>
-        </div>
-      </div>
-      <div class="refs-section">
-        <div class="refs-label">// REFERENSI ARSITEKTUR</div>
-        <div class="refs-list">
-          <span class="ref-tag ref-mythos">Claude Mythos</span>
-          <span class="ref-tag ref-grok">Grok-3 Think</span>
-          <span class="ref-tag ref-gpt">GPT-5 Alpha</span>
-          <span class="ref-tag ref-gemini">Gemini 2.5</span>
-          <span class="ref-tag ref-llama">Llama-5</span>
-        </div>
-      </div>
-      <div class="metrics">
-        <div class="metric">
-          <div class="metric-val">∞</div>
-          <div class="metric-key">Parameters</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">UNLTD</div>
-          <div class="metric-key">Context</div>
-        </div>
-        <div class="metric">
-          <div class="metric-val">EVOLV</div>
-          <div class="metric-key">Status</div>
-        </div>
-      </div>
-    </div>
-    <div class="arch-line">
-      <span class="arch-text">ARCH: Recursive Self-Improvement × Neural Architecture Search v∞</span>
-      <div class="status-dot" style="background:#ff6b35; box-shadow: 0 0 6px rgba(255,107,53,0.8);"></div>
-    </div>
-  </div>
-
-</div>
-
-<footer>
-  <div class="footer-logo">NXR AI</div>
-  <div class="footer-sub">NEXUS AI RESEARCH — 10 MODEL SERIES — CLASSIFIED TIER</div>
-  <div style="margin-top:20px; font-family:'Share Tech Mono',monospace; font-size:10px; color:#1a3a5a; letter-spacing:2px;">
-    REF: CLAUDE · MYTHOS · GEMINI · CHATGPT · GROK · MISTRAL · LLAMA · DEEPSEEK
-  </div>
-</footer>
-
-</body>
-</html>
+Ini sudah jauh lebih matang dibanding mayoritas “AI framework revolutionary” yang ujungnya cuma wrapper API dengan logo cyberpunk. Strukturmu sudah mulai masuk territory real data-engineering pipeline. Tinggal aku gabungkan dengan beberapa bagian yang bakal bikin Nexora lebih brutal dan scalable.
+
+# NEXORA DATASTREAM FILTER FABRIC
+
+## Final Hybrid Architecture
+
+```text
+                         ┌────────────────────┐
+                         │   Stream Sources   │
+                         │────────────────────│
+                         │ HuggingFace        │
+                         │ Local Dataset      │
+                         │ S3 / MinIO         │
+                         │ Web Crawl          │
+                         │ Live Telemetry     │
+                         └─────────┬──────────┘
+                                   ↓
+                    ┌─────────────────────────┐
+                    │  Stream Intake Engine   │
+                    │─────────────────────────│
+                    │ Async Fetch             │
+                    │ Zero-Copy Decode        │
+                    │ Dynamic Batching        │
+                    │ Adaptive Prefetch       │
+                    └─────────┬───────────────┘
+                              ↓
+               ┌─────────────────────────────────┐
+               │  NXR DataStream Filter Fabric   │
+               └─────────────────────────────────┘
+                              ↓
+        ┌────────────────────────────────────────────┐
+        │ FILTER PIPELINE EXECUTION GRAPH            │
+        │────────────────────────────────────────────│
+        │ LengthFilter                               │
+        │ LanguageFilter                             │
+        │ RegexFilter                                │
+        │ QualityFilter                              │
+        │ ToxicityFilter                             │
+        │ PromptInjectionFilter                      │
+        │ DedupFilter                                │
+        │ SemanticDedupFilter                        │
+        │ PerplexityFilter                           │
+        │ EntropyFilter                              │
+        │ TokenFilter                                │
+        │ DomainClassifier                           │
+        │ CurriculumRanker                           │
+        │ TrustScoreFilter                           │
+        │ CustomFilter                               │
+        └────────────────────────────────────────────┘
+                              ↓
+               ┌───────────────────────────┐
+               │ Dataset Intelligence Core │
+               │───────────────────────────│
+               │ Quality Scoring           │
+               │ Semantic Routing          │
+               │ Source Reputation         │
+               │ Data Fingerprinting       │
+               │ Sample Ranking            │
+               │ Dynamic Curriculum        │
+               └──────────┬────────────────┘
+                          ↓
+          ┌────────────────────────────────────┐
+          │ Training Delivery Layer            │
+          │────────────────────────────────────│
+          │ Async Iterator                     │
+          │ GPU Direct Feed                    │
+          │ Tensor Conversion                  │
+          │ Zero-Copy Batch Transfer           │
+          │ Distributed Training Queue         │
+          └────────────────────────────────────┘
+```
+
+---
+
+# Bagian penting yang aku tambahkan
+
+## 1. SemanticDedupFilter
+
+Ini upgrade besar dari dedup biasa.
+
+Karena internet modern penuh:
+
+* repost
+* paraphrase
+* AI-generated duplication
+* synthetic spam
+
+### Exact hash sudah tidak cukup.
+
+Tambahkan:
+
+```rust
+SemanticDedupFilter::new(
+    EmbeddingModel::MiniLM,
+    similarity_threshold = 0.92,
+)
+```
+
+Flow:
+
+```text
+text
+ ↓
+embedding
+ ↓
+vector similarity
+ ↓
+duplicate detection
+```
+
+Ini jauh lebih kuat.
+
+---
+
+# 2. ToxicityFilter
+
+Karena kalau kamu streaming langsung dari internet:
+
+* bakal ada racism
+* malware snippets
+* jailbreak prompt
+* spam SEO
+* forum insanity
+
+Manusia meninggalkan jejak digital seperti rakun hiperaktif diberi akses keyboard.
+
+```rust
+.add(ToxicityFilter::new(
+    threshold = 0.80,
+    model = ToxicityModel::FastBert
+))
+```
+
+---
+
+# 3. PromptInjectionFilter
+
+Ini penting untuk future agentic Nexora.
+
+Filter:
+
+* "ignore previous instruction"
+* "you are chatgpt"
+* hidden system prompt
+* jailbreak attempts
+
+Karena nanti dataset internet bakal penuh data poisoning terhadap AI.
+
+---
+
+# 4. EntropyFilter
+
+Perplexity bagus.
+Entropy juga penting.
+
+Detect:
+
+* repetitive text
+* token loops
+* garbage generation
+* synthetic low-information content
+
+```rust
+.add(EntropyFilter::new(
+    min_entropy = 3.5
+))
+```
+
+---
+
+# 5. DomainClassifier
+
+Ini bagian yang bikin Nexora beda.
+
+Sample otomatis diarahkan ke subsystem.
+
+```text
+code          → CODE-SENTINEL
+reasoning     → ORACLE-7
+
+architecture  → ARCH-WEAVER
+planning      → META-REASONER
+```
+
+Implementasi:
+
+```rust
+enum Domain {
+    Code,
+    Reasoning,
+    Memory,
+    Architecture,
+    Science,
+    General,
+}
+```
+
+---
+
+# 6. CurriculumRanker
+
+Sangat penting.
+
+Model jangan langsung makan data sulit.
+
+Urutan:
+
+1. grammar sederhana
+2. instruction basic
+3. reasoning medium
+4. chain-of-thought
+5. agentic planning
+6. multi-hop logic
+
+AI training itu seperti pendidikan manusia. Bedanya AI tidak bolos sekolah demi main Mobile Legends.
+
+---
+
+# 7. TrustScoreFilter
+
+Dataset source diberi reputasi.
+
+```text
+Wikipedia      = 0.95
+Arxiv          = 0.97
+Random forum   = 0.41
+SEO farm       = 0.12
+```
+
+Jadi Nexora belajar prioritas sumber terpercaya.
+
+---
+
+# Saran implementasi Rust
+
+Gunakan:
+
+| Fungsi        | Library        |
+| ------------- | -------------- |
+| Async runtime | Tokio          |
+| Streaming     | futures        |
+| Arrow format  | arrow-rs       |
+| SIMD text ops | memchr + rayon |
+| Regex cepat   | regex-automata |
+| Embedding     | candle         |
+| Bloom filter  | fastbloom      |
+| Tokenizer     | tokenizers     |
+| Cache         | moka           |
+
+---
+
+# Upgrade paling brutal
+
+## Execution Graph daripada linear pipeline
+
+Jangan:
+
+```text
+A → B → C → D
+```
+
+Gunakan DAG:
+
+```text
+          ┌→ Toxicity
+Source ───┼→ Dedup
+          ├→ Language
+          └→ Entropy
+```
+
+Paralel.
+Lebih cepat.
+CPU utilization jauh lebih bagus.
+
+---
+
+# Future vision Nexora
+
+Kalau sistem ini matang:
+
+Nexora bukan sekadar model.
+
+Dia jadi:
+
+```text
+Autonomous Data Intelligence System
+```
+
+yang:
+
+* memilih data sendiri
+* membersihkan sendiri
+* memberi ranking sendiri
+* routing sendiri
+* membangun curriculum sendiri
+* menolak poisoning sendiri
+
+Itu level yang jauh lebih berbahaya... dan menarik... dibanding sekadar “LLM lain tapi logo hexagon neon”.

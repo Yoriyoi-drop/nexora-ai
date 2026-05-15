@@ -1,6 +1,10 @@
 //! Nexora Memory - Advanced memory management system
 //! 
 //! Module ini menyediakan memory management dengan 4 layers untuk Nexora AI system
+//!
+//! Cognitive Dynamics Extension — mengubah memory system menjadi unified cognitive
+//! dynamical system dengan conservation law, phase coherence, attention curvature,
+//! meta-learning, dan identity persistence.
 
 pub mod layers;
 pub mod episodic;
@@ -12,6 +16,11 @@ pub mod lru_memory;
 pub mod optimizer;
 pub mod types;
 pub mod core;
+pub mod conservation;
+pub mod coherence;
+pub mod curvature;
+pub mod meta_learning;
+pub mod identity;
 
 pub use layers::{MemoryLayers, MemoryLayer};
 pub use episodic::{EpisodicMemory, MemoryEpisode};
@@ -25,6 +34,11 @@ pub use optimizer::{
     MemoryPool, MemoryPoolConfig, MemoryPoolStatistics, MemoryLeakDetector,
     MemoryOptimizer, MemoryOptimizerStatistics, PotentialLeak, LeakStatistics,
 };
+pub use conservation::EnergyConservation;
+pub use coherence::{CoherenceField, EmergenceOperator};
+pub use curvature::CurvatureField;
+pub use meta_learning::MetaLearningTensor;
+pub use identity::IdentityPersistence;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -297,6 +311,208 @@ impl Default for MemoryManager {
     }
 }
 
+/// ============================================================================
+/// Cognitive Dynamics — Unified Cognitive Dynamical System
+/// ============================================================================
+///
+/// Final Unified Equation:
+///
+/// Ψ_I = ∫[w·Φ + ΣT_ijk Φ_i Φ_j Φ_k − γ||Φ||² + R(x,t)] ΛGC_φ dx
+///
+/// Emergence:
+///   Ω = σ(κ(Ψ̇ − Ξ̇)) · C_φ · I_d · K(t)
+///
+/// Entropy:
+///   Ξ = αN + βI + δF
+///
+/// Komponen:
+///   Ψ_I : information field intensity
+///   Φ   : cognitive field
+///   T   : coupling tensor (3rd order)
+///   R   : attention curvature (∇²Φ)
+///   ΛGC_φ : Gabor Cognitive field (wavelet window)
+///   C_φ : phase coherence
+///   I_d : identity persistence
+///   K   : meta-learning rate
+///   Ξ   : cognitive entropy (αN + βI + δF)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CognitiveDynamics {
+    pub field_intensity: f64,
+    pub entropy: f64,
+    pub emergence: f64,
+    pub coherence: f64,
+    pub identity: f64,
+    pub meta_rate: f64,
+    pub field_energy: f64,
+
+    // Parameters
+    pub w: f64,           // linear coupling weight
+    pub gamma: f64,       // ||Φ||² penalty
+    pub alpha: f64,       // neural noise coefficient
+    pub beta: f64,        // interference coefficient
+    pub delta: f64,       // forgetting coefficient
+    pub kappa: f64,       // emergence gain
+
+    // Entropy components
+    pub neural_entropy: f64,     // αN
+    pub interference: f64,       // βI
+    pub forgetting: f64,         // δF
+}
+
+impl CognitiveDynamics {
+    pub fn new() -> Self {
+        Self {
+            field_intensity: 0.0,
+            entropy: 0.0,
+            emergence: 0.0,
+            coherence: 0.0,
+            identity: 0.0,
+            meta_rate: 0.01,
+            field_energy: 0.0,
+            w: 1.0,
+            gamma: 0.1,
+            alpha: 0.3,
+            beta: 0.2,
+            delta: 0.1,
+            kappa: 1.0,
+            neural_entropy: 0.0,
+            interference: 0.0,
+            forgetting: 0.0,
+        }
+    }
+
+    /// Compute field intensity:
+    /// Ψ_I = ∫[w·Φ + ΣT_ijk Φ_i Φ_j Φ_k − γ||Φ||² + R(x,t)] ΛGC_φ dx
+    pub fn compute_field_intensity(
+        &mut self,
+        field: &[f64],
+        curvature: &[f64],
+        coupling: f64,
+    ) -> f64 {
+        let n = field.len() as f64;
+        if n == 0.0 {
+            return 0.0;
+        }
+
+        let field_norm2: f64 = field.iter().map(|v| v * v).sum();
+        let field_norm4: f64 = field.iter().map(|v| v * v * v * v).sum();
+
+        // Linear term: w·Φ
+        let linear: f64 = field.iter().map(|v| v * coupling).sum();
+
+        // Cubic coupling: ΣT_ijk Φ_i Φ_j Φ_k — approximated as coupling * ΣΦ_i³
+        let cubic: f64 = field.iter().map(|v| coupling * v * v * v).sum();
+
+        // Regularization: −γ||Φ||²
+        let regularization = self.gamma * field_norm2;
+
+        // Curvature contribution
+        let curvature_sum: f64 = curvature.iter().sum();
+
+        // Gabor Cognitive field (ΛGC_φ) — Gaussian window approximation
+        let gabor_window: f64 = (0..field.len())
+            .map(|i| {
+                let x = i as f64 / n;
+                (-x * x * 10.0).exp() * field[i]
+            })
+            .sum();
+
+        // Ψ_I = sum over field points
+        let psi_i = (linear + cubic - regularization + curvature_sum) * gabor_window / n;
+
+        self.field_intensity = psi_i.max(0.0);
+        self.field_energy = field_norm2;
+        self.field_intensity
+    }
+
+    /// Compute entropy: Ξ = αN + βI + δF
+    pub fn compute_entropy(
+        &mut self,
+        neural_noise: f64,
+        interference_level: f64,
+        forgetting_level: f64,
+    ) -> f64 {
+        self.neural_entropy = self.alpha * neural_noise;
+        self.interference = self.beta * interference_level;
+        self.forgetting = self.delta * forgetting_level;
+        self.entropy = self.neural_entropy + self.interference + self.forgetting;
+        self.entropy
+    }
+
+    /// Compute emergence:
+    /// Ω = σ(κ(Ψ̇ − Ξ̇)) · C_φ · I_d · K(t)
+    pub fn compute_emergence(
+        &mut self,
+        psi_dot: f64,
+        xi_dot: f64,
+        coherence: f64,
+        identity: f64,
+        meta_rate: f64,
+    ) -> f64 {
+        // Sigmoid gate
+        let growth_signal = self.kappa * (psi_dot - xi_dot);
+        let gate = 1.0 / (1.0 + (-growth_signal).exp());
+
+        let emergence = gate * coherence * identity * meta_rate;
+
+        self.coherence = coherence;
+        self.identity = identity;
+        self.meta_rate = meta_rate;
+        self.emergence = emergence;
+        emergence
+    }
+
+    /// Full step: update all dynamics with time delta
+    pub fn step(
+        &mut self,
+        field: &[f64],
+        curvature: &[f64],
+        coupling: f64,
+        psi_dot: f64,
+        xi_dot: f64,
+        coherence: f64,
+        identity: f64,
+        meta_rate: f64,
+        neural_noise: f64,
+        interference_level: f64,
+        forgetting_level: f64,
+    ) -> CognitiveState {
+        let psi_i = self.compute_field_intensity(field, curvature, coupling);
+        let entropy = self.compute_entropy(neural_noise, interference_level, forgetting_level);
+        let emergence = self.compute_emergence(psi_dot, xi_dot, coherence, identity, meta_rate);
+
+        CognitiveState {
+            field_intensity: psi_i,
+            entropy,
+            emergence,
+            coherence: self.coherence,
+            identity: self.identity,
+            meta_rate: self.meta_rate,
+            field_energy: self.field_energy,
+            conservation_error: (psi_dot * 0.6 - xi_dot * 0.4).abs(),
+        }
+    }
+}
+
+impl Default for CognitiveDynamics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Snapshot dari cognitive dynamics state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CognitiveState {
+    pub field_intensity: f64,
+    pub entropy: f64,
+    pub emergence: f64,
+    pub coherence: f64,
+    pub identity: f64,
+    pub meta_rate: f64,
+    pub field_energy: f64,
+    pub conservation_error: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,5 +649,54 @@ mod tests {
         assert!(layers.contains(&MemoryLayer::Session));
         assert!(layers.contains(&MemoryLayer::Long));
         assert!(layers.contains(&MemoryLayer::Knowledge));
+    }
+
+    #[test]
+    fn test_cognitive_dynamics_new() {
+        let cd = CognitiveDynamics::new();
+        assert_eq!(cd.field_intensity, 0.0);
+        assert_eq!(cd.entropy, 0.0);
+        assert_eq!(cd.w, 1.0);
+        assert_eq!(cd.kappa, 1.0);
+    }
+
+    #[test]
+    fn test_cognitive_dynamics_field_intensity() {
+        let mut cd = CognitiveDynamics::new();
+        let field = vec![1.0, 0.5, 0.0, -0.5, 1.0];
+        let curvature = vec![0.1, 0.2, 0.0, -0.1, 0.3];
+        let psi_i = cd.compute_field_intensity(&field, &curvature, 0.5);
+        assert!(psi_i >= 0.0);
+    }
+
+    #[test]
+    fn test_cognitive_dynamics_entropy() {
+        let mut cd = CognitiveDynamics::new();
+        let entropy = cd.compute_entropy(1.0, 0.5, 0.3);
+        assert!((entropy - (0.3 * 1.0 + 0.2 * 0.5 + 0.1 * 0.3)).abs() < 1e-10);
+        assert_eq!(cd.entropy, entropy);
+    }
+
+    #[test]
+    fn test_cognitive_dynamics_emergence() {
+        let mut cd = CognitiveDynamics::new();
+        let emergence = cd.compute_emergence(5.0, 1.0, 0.9, 0.8, 0.5);
+        assert!(emergence > 0.0);
+        assert!(emergence <= 1.0);
+    }
+
+    #[test]
+    fn test_cognitive_dynamics_full_step() {
+        let mut cd = CognitiveDynamics::new();
+        let field = vec![1.0, 0.5, 0.0, -0.5, 1.0];
+        let curvature = vec![0.1, 0.0, -0.1, 0.0, 0.2];
+        let state = cd.step(
+            &field, &curvature, 0.5,
+            5.0, 1.0, 0.9, 0.8, 0.5,
+            1.0, 0.5, 0.3,
+        );
+        assert!(state.field_intensity >= 0.0);
+        assert!(state.entropy > 0.0);
+        assert!(state.emergence > 0.0);
     }
 }

@@ -426,13 +426,13 @@ pub async fn initialize_global_registry() -> Result<(), RegistryError> {
 
     for model_id in crate::shared::model_identity::NxrModelId::all() {
         let config = crate::shared::model_config::NxrModelConfig::for_model(model_id);
-        let caps = crate::shared::capability_spec::CapabilityVector::get_capabilities(model_id);
+        let caps = crate::shared::capability_spec::predefined::get_capabilities(model_id);
         let tier = model_id.tier();
         let meta = crate::shared::model_identity::ModelMeta::new(
             model_id,
             tier,
             "0.1.0".to_string(),
-            model_id.description().to_string(),
+            model_id.fullname().to_string(),
         );
 
         registry.configurations.write().await.insert(model_id, config);

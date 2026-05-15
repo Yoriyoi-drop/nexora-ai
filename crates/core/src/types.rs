@@ -456,9 +456,19 @@ pub trait SpecialistModel: Send + Sync {
 
 // ==================== LRU Context Cache ====================
 
+use std::collections::VecDeque;
+
+#[derive(Debug, Clone)]
+struct CacheItem {
+    context: ContextInfo,
+    expiry: u64,
+    created_at: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct LruContextCache {
-    cache: std::collections::HashMap<String, (ContextInfo, u64)>, // (context, expiry_time)
+    cache: std::collections::HashMap<String, CacheItem>,
+    access_order: VecDeque<String>,
     max_size: usize,
 }
 
@@ -466,17 +476,24 @@ impl LruContextCache {
     pub fn new(max_size: usize) -> Self {
         Self {
             cache: std::collections::HashMap::new(),
+            access_order: VecDeque::with_capacity(max_size),
             max_size,
         }
     }
     
     pub fn get(&mut self, key: &str) -> Option<ContextInfo> {
         let now = Self::current_timestamp_ms();
-        if let Some((context, expiry)) = self.cache.get(key) {
-            if now < *expiry {
-                Some(context.clone())
+        if let Some(item) = self.cache.get(key) {
+            if now < item.expiry {
+                // Move to back (most recently used)
+                if let Some(pos) = self.access_order.iter().position(|k| k == key) {
+                    self.access_order.remove(pos);
+                }
+                self.access_order.push_back(key.to_string());
+                Some(item.context.clone())
             } else {
                 self.cache.remove(key);
+                self.access_order.retain(|k| k != key);
                 None
             }
         } else {
@@ -493,14 +510,24 @@ impl LruContextCache {
             self.cleanup_expired();
         }
         
-        // Still full? Remove oldest entry
-        if self.cache.len() >= self.max_size {
-            if let Some(oldest_key) = self.cache.keys().next().cloned() {
-                self.cache.remove(&oldest_key);
+        // Still full? Evict LRU (front of access_order)
+        while self.cache.len() >= self.max_size {
+            if let Some(lru_key) = self.access_order.pop_front() {
+                self.cache.remove(&lru_key);
+            } else {
+                break;
             }
         }
         
-        self.cache.insert(key, (context.clone(), expiry));
+        // Remove old key from access order if it exists
+        self.access_order.retain(|k| k != &key);
+        
+        self.access_order.push_back(key.clone());
+        self.cache.insert(key, CacheItem {
+            context: context.clone(),
+            expiry,
+            created_at: now,
+        });
     }
     
     pub fn len(&self) -> usize {
@@ -509,7 +536,14 @@ impl LruContextCache {
     
     pub fn cleanup_expired(&mut self) {
         let now = Self::current_timestamp_ms();
-        self.cache.retain(|_, (_, expiry)| now < *expiry);
+        let expired_keys: Vec<String> = self.cache.iter()
+            .filter(|(_, item)| now >= item.expiry)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in &expired_keys {
+            self.cache.remove(key);
+        }
+        self.access_order.retain(|k| !expired_keys.contains(k));
     }
     
     fn current_timestamp_ms() -> u64 {
