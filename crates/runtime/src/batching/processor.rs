@@ -91,8 +91,9 @@ impl BatchProcessor {
         self.config.validate()
             .map_err(|e| InferenceError::InvalidConfig(e))?;
         
-        // Start background processing task
+        // Start background processing and flush tasks
         self.start_processing_task().await?;
+        self.start_flush_task().await?;
         
         *state = ProcessorState::Ready;
         info!("Batch processor initialized successfully");
@@ -153,83 +154,85 @@ impl BatchProcessor {
     
     /// Try to form a batch from pending requests
     async fn try_form_batch(&self) -> Result<()> {
-        let mut queue = self.pending_queue.write().await;
-        
-        if queue.len() < self.config.min_batch_size && !self.config.enable_dynamic_batching {
+        let mut batch_items = {
+            let mut queue = self.pending_queue.write().await;
+            if queue.is_empty() {
+                return Ok(());
+            }
+            let can_batch = self.config.enable_dynamic_batching
+                || queue.len() >= self.config.min_batch_size;
+            if !can_batch {
+                return Ok(());
+            }
+
+            let max_batch_size = if self.config.enable_dynamic_batching {
+                self.config.max_batch_size
+            } else {
+                self.config.max_batch_size.min(queue.len())
+            };
+
+            let items = if self.config.enable_length_sorting {
+                let mut sorted: Vec<_> = queue.drain(..).collect();
+                sorted.sort_by(|a, b| {
+                    b.sequence_length.cmp(&a.sequence_length)
+                        .then(b.priority.cmp(&a.priority))
+                });
+                sorted.truncate(max_batch_size);
+                sorted
+            } else {
+                queue.drain(..max_batch_size).collect()
+            };
+
+            if items.len() < self.config.min_batch_size && !self.config.enable_dynamic_batching {
+                queue.extend(items);
+                return Ok(());
+            }
+
+            items
+        };
+
+        if batch_items.is_empty() {
             return Ok(());
         }
-        
-        // Collect items for batch
-        let mut batch_items = Vec::new();
-        let max_batch_size = if self.config.enable_dynamic_batching {
-            self.config.max_batch_size
-        } else {
-            self.config.max_batch_size.min(queue.len())
-        };
-        
-        // Sort by priority if enabled
-        if self.config.enable_length_sorting {
-            let mut items: Vec<_> = queue.iter().cloned().collect();
-            items.sort_by(|a, b| {
-                b.sequence_length.cmp(&a.sequence_length)
-                    .then(b.priority.cmp(&a.priority))
-            });
-            
-            for item in items.iter().take(max_batch_size) {
-                if let Some(pos) = queue.iter().position(|x| x.request_id == item.request_id) {
-                    if let Some(removed_item) = queue.remove(pos) {
-                        batch_items.push(removed_item);
-                    }
-                }
-                if batch_items.len() >= max_batch_size {
-                    break;
-                }
-            }
-        } else {
-            while batch_items.len() < max_batch_size && !queue.is_empty() {
-                if let Some(item) = queue.pop_front() {
-                    batch_items.push(item);
-                }
-            }
-        }
-        
-        drop(queue);
-        
-        if batch_items.len() >= self.config.min_batch_size {
-            let batch = Batch::new(batch_items, &self.config)
-                .map_err(|e| InferenceError::BatchError(e))?;
-            
-            let batch_id = batch.batch_id;
-            
-            // Add to active batches
-            let mut active_batches = self.active_batches.write().await;
-            active_batches.insert(batch_id, batch.clone());
-            drop(active_batches);
-            
-            // Update stats
+
+        let batch = Batch::new(batch_items, &self.config)
+            .map_err(|e| InferenceError::BatchError(e))?;
+        let batch_id = batch.batch_id;
+
+        self.active_batches.write().await.insert(batch_id, batch.clone());
+        self.stats.write().await.increment_in_progress();
+
+        if let Err(e) = self.batch_sender.send(batch.clone()) {
+            error!("Failed to send batch for processing: {}", e);
+            self.active_batches.write().await.remove(&batch_id);
             let mut stats = self.stats.write().await;
-            stats.increment_in_progress();
-            drop(stats);
-            
-            // Send batch for processing
-            if let Err(e) = self.batch_sender.send(batch.clone()) {
-                error!("Failed to send batch for processing: {}", e);
-                
-                // Remove from active batches on error
-                let mut active_batches = self.active_batches.write().await;
-                active_batches.remove(&batch_id);
-                drop(active_batches);
-                
-                // Update stats
-                let mut stats = self.stats.write().await;
-                stats.decrement_in_progress();
-                stats.increment_failed();
-                drop(stats);
-            }
-            
+            stats.decrement_in_progress();
+            stats.increment_failed();
+        } else {
             info!("Formed batch {} with {} items", batch_id, batch.items.len());
         }
-        
+
+        Ok(())
+    }
+
+    /// Flush pending queue based on max_wait_time_ms timer
+    async fn start_flush_task(&self) -> Result<()> {
+        let processor = self.clone();
+        let wait = std::time::Duration::from_millis(self.config.max_wait_time_ms);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(wait).await;
+                {
+                    let state = processor.state.read().await;
+                    if *state == ProcessorState::Shutdown {
+                        break;
+                    }
+                }
+                if let Err(e) = processor.try_form_batch().await {
+                    error!("Flush batch error: {}", e);
+                }
+            }
+        });
         Ok(())
     }
     

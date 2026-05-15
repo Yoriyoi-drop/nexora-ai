@@ -2,6 +2,8 @@
 //! 
 //! This crate provides integration with the BLAA API for advanced language model capabilities.
 
+#![allow(unused_imports, unused_variables, dead_code)]
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

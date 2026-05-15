@@ -6,6 +6,19 @@
 //! - RNN, LSTM, GRU layers
 //! - Various deep learning components
 
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    unnecessary_cast,
+    unused_assignments,
+    ambiguous_glob_reexports,
+    dropping_references,
+    unused_unsafe,
+    unused_comparisons
+)]
+
 
 pub mod star_x;
 pub mod echo_net;

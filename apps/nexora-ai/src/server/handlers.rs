@@ -421,6 +421,7 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
 #[derive(Debug)]
 struct ConfigUpdateResult {
     updated_fields: Vec<String>,
+    #[allow(dead_code)]
     timestamp: chrono::DateTime<chrono::Utc>,
 }
 

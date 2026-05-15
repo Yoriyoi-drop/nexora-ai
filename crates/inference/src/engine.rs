@@ -19,8 +19,6 @@ use crate::kv_cache::KVCache;
 use crate::session::InferenceSession;
 use crate::decoding::DecodingStrategy;
 use crate::streaming::StreamingEngine;
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
 
 /// Configuration untuk inference engine
 #[derive(Debug, Clone)]
@@ -484,7 +482,7 @@ impl InferenceEngine {
     async fn process_single_request_internal(
         request: InferenceRequest,
         _runtime: Arc<InferenceRuntime>,
-        _scheduler: Arc<RwLock<RequestScheduler>>,
+        scheduler: Arc<RwLock<RequestScheduler>>,
         _kv_cache: Arc<RwLock<KVCache>>,
         _session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
         _streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
@@ -495,35 +493,22 @@ impl InferenceEngine {
         
         info!("Processing request {} with model {}", request_id, request.model_id);
         
-        // Create response
         let mut response = InferenceResponse::new(request_id);
         
-        // Validate request
         if request.prompt.is_empty() {
             response = response.with_finish_reason(FinishReason::Error("Empty prompt".to_string()));
+            scheduler.write().await.send_response(request_id, response).await.ok();
             return Err(InferenceError::InvalidRequest("Empty prompt".to_string()));
         }
         
-        let prompt_len = request.prompt.len();
         let tokens_to_generate = request.max_tokens.min(2048);
-        let mut rng = StdRng::from_entropy();
-
-        let words: Vec<&str> = request.prompt.split_whitespace().collect();
         let inference_start = std::time::Instant::now();
 
         for i in 0..tokens_to_generate {
-            let log_prob = -((i as f64 + 1.0).ln());
-            let token_text = if (i as usize) < words.len() {
-                format!("{} ", words[i as usize])
-            } else {
-                let idx = rng.gen_range(0..words.len());
-                format!("{} ", words[idx])
-            };
-
             let token = GeneratedToken::new(
                 i as u32,
-                token_text,
-                log_prob as f32,
+                format!("[token_{}]", i),
+                -(i as f64 + 1.0).ln() as f32,
                 i as usize,
             );
             response.add_token(token);
@@ -533,76 +518,19 @@ impl InferenceEngine {
             }
         }
         
-        // Set response metadata
         response = response
             .with_finish_reason(FinishReason::MaxTokens)
             .with_inference_time(start_time.elapsed().as_millis() as u64);
         
-        // Clean up active request tracking
+        scheduler.write().await.send_response(request_id, response).await?;
+        scheduler.write().await.complete_request(request_id).await?;
+        
         {
             let mut active_requests_guard = active_requests.write().await;
             active_requests_guard.remove(&request_id);
         }
         
-        info!("Completed request {} in {}ms", request_id, response.inference_time_ms);
         Ok(())
-    }
-    
-    /// Main request processing loop
-    async fn run_request_loop(&self) {
-        info!("Starting request processing loop");
-        
-        loop {
-            // Check engine state
-            {
-                let state = self.state.read().await;
-                if *state == EngineState::ShuttingDown || *state == EngineState::Shutdown {
-                    break;
-                }
-            }
-            
-            // Get next request
-            let request = {
-                let mut rx = self.request_rx.lock().await;
-                if let Some(ref mut receiver) = *rx {
-                    receiver.recv().await
-                } else {
-                    break;
-                }
-            };
-            
-            match request {
-                Some(request) => {
-                    let request_id = request.request_id;
-                    let runtime = self.runtime.clone();
-                    let scheduler = self.scheduler.clone();
-                    let kv_cache = self.kv_cache.clone();
-                    let session_manager = self.session_manager.clone();
-                    let streaming_engine = self.streaming_engine.clone();
-                    let active_requests = self.active_requests.clone();
-                    let task = tokio::spawn(async move {
-                        if let Err(e) = InferenceEngine::process_single_request_internal(
-                            request, runtime, scheduler, kv_cache,
-                            session_manager, streaming_engine, active_requests,
-                        ).await {
-                            error!("Request {} failed: {}", request_id, e);
-                        }
-                    });
-                    
-                    // Track active request
-                    {
-                        let mut active_requests = self.active_requests.write().await;
-                        active_requests.insert(request_id, task);
-                    }
-                }
-                None => {
-                    debug!("Request channel closed, exiting loop");
-                    break;
-                }
-            }
-        }
-        
-        info!("Request processing loop ended");
     }
     
     /// Process individual request

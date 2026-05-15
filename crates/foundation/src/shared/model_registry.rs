@@ -3,6 +3,7 @@
 //! Central registry for all NXR models with discovery and management
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -24,6 +25,14 @@ pub struct NxrModelRegistry {
     capabilities: Arc<RwLock<HashMap<NxrModelId, CapabilityVector>>>,
     /// Model configurations
     configurations: Arc<RwLock<HashMap<NxrModelId, NxrModelConfig>>>,
+}
+
+impl fmt::Debug for NxrModelRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NxrModelRegistry")
+            .field("registered_count", &self.models.try_read().map(|m| m.len()).unwrap_or(0))
+            .finish()
+    }
 }
 
 impl NxrModelRegistry {

@@ -91,10 +91,15 @@ struct InputValidator {
     required: bool,
 }
 
+fn build_validator_pattern(raw: &str) -> Result<Regex> {
+    Regex::new(raw).map_err(|e| anyhow::anyhow!("Invalid security regex pattern '{}': {}", raw, e))
+}
+
 /// CORS handler
 #[derive(Debug)]
 struct CorsHandler {
     allowed_origins: Vec<String>,
+    allow_all: bool,
     allowed_methods: Vec<String>,
     allowed_headers: Vec<String>,
     max_age: u64,
@@ -220,32 +225,25 @@ impl SecurityMiddleware {
     
     /// Create default input validators
     fn create_default_validators() -> Vec<InputValidator> {
-        vec![
-            InputValidator {
-                name: "sql_injection".to_string(),
-                pattern: Regex::new(r"(?i)(union|select|insert|update|delete|drop|create|alter|exec|script)").unwrap(),
-                description: "SQL injection patterns".to_string(),
-                required: true,
-            },
-            InputValidator {
-                name: "xss".to_string(),
-                pattern: Regex::new(r"(?i)(<script|javascript:|onload|onerror|onclick)").unwrap(),
-                description: "XSS patterns".to_string(),
-                required: true,
-            },
-            InputValidator {
-                name: "path_traversal".to_string(),
-                pattern: Regex::new(r"(\.\./|\.\.\\|%2e%2e%2f|%2e%2e%5c)").unwrap(),
-                description: "Path traversal patterns".to_string(),
-                required: true,
-            },
-            InputValidator {
-                name: "command_injection".to_string(),
-                pattern: Regex::new(r"(?i)(;|\||&|`|\$\(|\$\{)").unwrap(),
-                description: "Command injection patterns".to_string(),
-                required: true,
-            },
-        ]
+        let raw_patterns = [
+            ("sql_injection", r"(?i)\b(union\s+select|select\s+.*\bfrom\b|insert\s+into|delete\s+from|drop\s+table|alter\s+table|exec\s+\()"),
+            ("xss", r"(?i)(<script[\s>]|javascript:\s*\(|onload\s*=|onerror\s*=|onclick\s*=)"),
+            ("path_traversal", r"(\.\./|\.\.\\|%2e%2e%2f|%2e%2e%5c)"),
+            ("command_injection", r"(?i)(;\s*(sh|bash|cmd|powershell)|[`$](\(|\{))"),
+        ];
+
+        let mut validators = Vec::with_capacity(raw_patterns.len());
+        for (name, pattern_str) in &raw_patterns {
+            if let Ok(pattern) = build_validator_pattern(pattern_str) {
+                validators.push(InputValidator {
+                    name: name.to_string(),
+                    pattern,
+                    description: format!("{} patterns", name.replace('_', " ")),
+                    required: true,
+                });
+            }
+        }
+        validators
     }
     
     /// Validate IP address against whitelist/blacklist
@@ -454,8 +452,10 @@ impl Middleware for SecurityMiddleware {
 
 impl CorsHandler {
     fn new(config: &SecurityConfig) -> Self {
+        let allow_all = config.cors_allowed_origins.iter().any(|o| o == "*");
         Self {
             allowed_origins: config.cors_allowed_origins.clone(),
+            allow_all,
             allowed_methods: vec![
                 "GET".to_string(),
                 "POST".to_string(),
@@ -469,14 +469,13 @@ impl CorsHandler {
                 "X-API-Key".to_string(),
                 "X-Requested-With".to_string(),
             ],
-            max_age: 86400, // 24 hours
+            max_age: 86400,
             allow_credentials: false,
         }
     }
     
     fn is_origin_allowed(&self, origin: &str) -> bool {
-        self.allowed_origins.contains(&"*".to_string()) ||
-        self.allowed_origins.contains(&origin.to_string())
+        self.allow_all || self.allowed_origins.contains(&origin.to_string())
     }
 }
 

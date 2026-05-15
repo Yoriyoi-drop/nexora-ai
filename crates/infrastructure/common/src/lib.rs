@@ -2,6 +2,8 @@
 //! 
 //! This crate provides shared types and utilities used across multiple modules
 
+#![allow(dead_code, unused_imports)]
+
 pub mod task_types;
 pub mod config;
 pub mod query_utils;

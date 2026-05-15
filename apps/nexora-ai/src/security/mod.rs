@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use regex::Regex;
 use once_cell::sync::Lazy;
-use tracing::{warn, info};
+use tracing::warn;
 
 /// Security configuration and validation
 pub struct SecurityConfig {
@@ -266,7 +266,7 @@ impl SecurityUtils {
 
     /// Hash a password securely
     pub fn hash_password(password: &str, salt: &str) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::Sha256;
         use hmac::{Hmac, Mac};
         
         let mut mac = Hmac::<Sha256>::new_from_slice(salt.as_bytes()).unwrap();

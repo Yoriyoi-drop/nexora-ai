@@ -2,7 +2,8 @@
 //! 
 //! This crate provides orchestration layer for accessing and coordinating
 //! different AI frameworks and models in Nexora ecosystem.
-//! 
+
+#![allow(dead_code, unused_imports, unused_variables)]
 //! ## Foundation Frameworks
 //! 
 //! Foundation frameworks are accessed through this layer:

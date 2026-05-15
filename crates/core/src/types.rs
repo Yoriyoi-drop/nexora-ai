@@ -647,7 +647,7 @@ impl ControllerCore {
         Ok(RoutingDecision {
             target_model: model,
             routed_query: context.current_context.clone(),
-            routing_confidence: 0.6, // Lower confidence for alternative
+            routing_confidence: 0.6,
             routing_reasoning: format!(
                 "Alternative routing to {} due to primary model unavailability",
                 model.name()

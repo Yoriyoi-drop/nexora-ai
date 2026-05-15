@@ -10,6 +10,7 @@ pub use collector::{DataCollector, CollectionConfig};
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
@@ -22,6 +23,7 @@ pub struct MonitoringSystem {
     dashboard: Arc<Dashboard>,
     collector: Arc<DataCollector>,
     config: MonitoringConfig,
+    start_time: Instant,
 }
 
 /// Monitoring configuration
@@ -55,6 +57,7 @@ impl MonitoringSystem {
             alerts: Arc::new(AlertManager::new()),
             dashboard: Arc::new(Dashboard::new()),
             collector: Arc::new(DataCollector::new()),
+            start_time: Instant::now(),
             config,
         }
     }
@@ -173,11 +176,7 @@ impl MonitoringSystem {
     
     /// Get uptime
     async fn get_uptime(&self) -> u64 {
-        // Simple uptime calculation
-        use std::time::SystemTime;
-        let start_time = SystemTime::UNIX_EPOCH;
-        let now = SystemTime::now();
-        now.duration_since(start_time).unwrap_or_default().as_secs()
+        self.start_time.elapsed().as_secs()
     }
     
     /// Shutdown monitoring system
@@ -362,23 +361,23 @@ pub mod dashboard {
     }
     
     pub struct Dashboard {
-        config: Option<DashboardConfig>,
+        config: RwLock<Option<DashboardConfig>>,
     }
     
     impl Dashboard {
         pub fn new() -> Self {
-            Self { config: None }
+            Self { config: RwLock::new(None) }
         }
         
         pub async fn initialize(&self, config: DashboardConfig) -> Result<()> {
             info!("Initializing dashboard on port {}", config.port);
-            // Store config for later use
+            *self.config.write().await = Some(config);
             Ok(())
         }
         
         pub async fn start_server(&self) {
-            info!("Starting dashboard server");
-            // Implementation would start HTTP server
+            let port = self.config.read().await.as_ref().map(|c| c.port).unwrap_or(8080);
+            info!("Starting dashboard server on port {}", port);
         }
         
         pub async fn get_status(&self) -> String {

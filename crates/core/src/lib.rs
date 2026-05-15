@@ -3,6 +3,7 @@
 //! Module ini menyediakan tipe data fundamental dan core controller
 //! untuk sistem Nexora AI yang dimigrasi dari C ke Rust.
 
+#![allow(dead_code, unused_imports, unused_variables)]
 pub mod types;
 pub mod controller;
 pub mod execution;

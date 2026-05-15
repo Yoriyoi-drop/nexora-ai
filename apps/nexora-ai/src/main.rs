@@ -3,7 +3,6 @@
 //! Aplikasi utama yang menjalankan Nexora AI system dengan Rust implementation
 
 use nexora_ai::cli::Cli;
-use nexora_ai::error::{NexoraError, NexoraResult};
 use tracing::{error, info};
 use clap::Parser;
 

@@ -12,12 +12,12 @@ pub enum EvictionStrategy {
     /// Hapus berdasarkan umur maksimal
     TTL,
     /// Kombinasi LRU + TTL
-    LRU_TTL,
+    LruTtl,
 }
 
 impl Default for EvictionStrategy {
     fn default() -> Self {
-        EvictionStrategy::LRU_TTL
+        EvictionStrategy::LruTtl
     }
 }
 
@@ -51,7 +51,7 @@ impl Default for MemoryConfig {
             persistence_path: Some("./data/memory".to_string()),
             cleanup_interval_seconds: 300,
             max_age_hours: 24,
-            eviction_strategy: EvictionStrategy::LRU_TTL,
+            eviction_strategy: EvictionStrategy::LruTtl,
             max_memory_mb: 512,
         }
     }

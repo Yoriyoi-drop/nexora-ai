@@ -15,6 +15,7 @@ use super::types::*;
 pub struct ApiClient {
     client: Client,
     config: ApiConfig,
+    #[allow(dead_code)]
     nexora: Arc<NexoraAI>,
 }
 

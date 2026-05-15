@@ -190,8 +190,6 @@ impl NexoraConfig {
             errors.push("server.port must be greater than 0".to_string());
         } else if self.server.port < 1024 {
             warn!("server.port {} is in privileged range, ensure proper permissions", self.server.port);
-        } else if self.server.port > 65535 {
-            errors.push("server.port must be less than or equal to 65535".to_string());
         }
         
         if self.server.max_connections == 0 {

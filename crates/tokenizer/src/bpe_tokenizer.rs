@@ -567,16 +567,17 @@ mod tests {
         tokenizer.train(corpus).unwrap();
         
         // Save to temporary directory
-        let temp_dir = "/tmp/test_tokenizer";
-        tokenizer.save(temp_dir).unwrap();
+        let temp_dir = std::env::temp_dir().join("test_tokenizer_save_load");
+        let temp_path = temp_dir.to_str().unwrap();
+        tokenizer.save(temp_path).unwrap();
         
         // Load from saved files
-        let loaded_tokenizer = BpeTokenizer::load(temp_dir).unwrap();
+        let loaded_tokenizer = BpeTokenizer::load(temp_path).unwrap();
         
         // Check that they have the same vocab size
         assert_eq!(tokenizer.vocab_size(), loaded_tokenizer.vocab_size());
         
         // Clean up
-        fs::remove_dir_all(temp_dir).unwrap_or(());
+        fs::remove_dir_all(temp_path).unwrap_or(());
     }
 }

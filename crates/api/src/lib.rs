@@ -216,8 +216,7 @@ pub trait ApiHandler: Send + Sync {
     
     /// Get current process memory usage in MB
     fn get_process_memory_usage(&self) -> f64 {
-        // Default implementation
-        50.0 // 50MB as fallback
+        get_process_memory_mb()
     }
 }
 
@@ -291,4 +290,17 @@ impl Default for RateLimiter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Read actual RSS memory from /proc/self/statm (Linux) or return a reasonable default
+fn get_process_memory_mb() -> f64 {
+    if let Ok(contents) = std::fs::read_to_string("/proc/self/statm") {
+        if let Some(page_count_str) = contents.split_whitespace().nth(1) {
+            if let Ok(pages) = page_count_str.parse::<u64>() {
+                let page_size = 4096u64;
+                return (pages * page_size) as f64 / (1024.0 * 1024.0);
+            }
+        }
+    }
+    50.0
 }

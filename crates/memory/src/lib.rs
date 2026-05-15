@@ -3,6 +3,8 @@
 //! Module ini menyediakan memory management dengan 4 layers untuk Nexora AI system
 //!
 //! Cognitive Dynamics Extension — mengubah memory system menjadi unified cognitive
+
+#![allow(dead_code, unused_imports, unused_variables, dropping_references, confusable_idents)]
 //! dynamical system dengan conservation law, phase coherence, attention curvature,
 //! meta-learning, dan identity persistence.
 

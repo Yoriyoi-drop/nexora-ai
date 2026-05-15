@@ -16,7 +16,6 @@
 //! This layer sits above foundation AI frameworks and provides
 //! infrastructure needed for production-grade AI services.
 
-use std::fmt;
 use anyhow::Result as AnyhowResult;
 use serde::{Serialize, Deserialize};
 

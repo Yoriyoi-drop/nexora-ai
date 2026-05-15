@@ -2,6 +2,8 @@
 //! 
 //! Mesin inference utama untuk sistem Nexora AI.
 
+#![allow(dead_code, unused_imports, unused_variables, dropping_references)]
+
 pub mod engine;
 pub mod runtime;
 pub mod session;

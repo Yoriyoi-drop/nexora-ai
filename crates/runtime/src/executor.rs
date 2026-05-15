@@ -2,7 +2,7 @@
 //! 
 //! Provides async task execution capabilities for the runtime
 
-use crate::{Result, InferenceError};
+use crate::Result;
 
 /// Task executor for running async operations
 pub struct TaskExecutor {

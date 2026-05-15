@@ -2,8 +2,8 @@
 //! 
 //! Provides performance monitoring and health check capabilities
 
-use crate::{Result, InferenceError};
-use std::time::{Duration, Instant};
+use crate::Result;
+use std::time::Instant;
 use serde::{Serialize, Deserialize};
 
 /// Performance metrics

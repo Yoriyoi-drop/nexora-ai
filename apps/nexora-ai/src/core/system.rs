@@ -14,7 +14,8 @@ use super::types::{SystemInfo, ComponentStatus, HealthStatus, MemoryStats};
 /// System monitoring functionality
 #[derive(Debug, Clone)]
 pub struct SystemMonitor {
-    models: Arc<RwLock<Vec<String>>>,
+    registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,
+    #[allow(dead_code)]
     config: NexoraConfig,
     start_time: chrono::DateTime<Utc>,
     system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
@@ -23,14 +24,14 @@ pub struct SystemMonitor {
 
 impl SystemMonitor {
     pub fn new(
-        models: Arc<RwLock<Vec<String>>>,
+        registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,
         config: NexoraConfig,
         start_time: chrono::DateTime<Utc>,
         system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
         request_count: Arc<AtomicU64>,
     ) -> Self {
         Self {
-            models,
+            registry,
             config,
             start_time,
             system_info_cache,
@@ -59,9 +60,8 @@ impl SystemMonitor {
         let mut system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()));
         system.refresh_all();
         
-        let models = self.models.read()
-            .map_err(|e| NexoraError::system(format!("Failed to acquire read lock for models: {}", e)))?;
-        let active_models = models.clone();
+        let active_model_ids = self.registry.list_models().await;
+        let active_models: Vec<String> = active_model_ids.iter().map(|id| format!("{}", id)).collect();
         
         // Calculate uptime
         let uptime = (Utc::now() - self.start_time).num_seconds() as u64;
@@ -117,9 +117,8 @@ impl SystemMonitor {
         let core_status = if system.total_memory() > 0 { "healthy" } else { "critical" };
         
         // Models health (check if models are loaded)
-        let models = self.models.read()
-            .map_err(|e| NexoraError::system(format!("Failed to acquire read lock for models: {}", e)))?;
-        let models_status = if !models.is_empty() { "healthy" } else { "warning" };
+        let model_ids = self.registry.list_models().await;
+        let models_status = if !model_ids.is_empty() { "healthy" } else { "warning" };
         
         // Memory health
         let memory_usage_percent = (system.used_memory() as f64 / system.total_memory() as f64) * 100.0;

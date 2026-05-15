@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use std::path::PathBuf;
-use tracing::{info, debug, warn};
+use tracing::{info, warn};
 
 use crate::NexoraAI;
 use nexora_foundation::models::{EvaluationReport, EvaluationResult};

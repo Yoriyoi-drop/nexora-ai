@@ -102,6 +102,7 @@ async fn handle_tls_stream(
 }
 
 /// Handle individual HTTP requests over TLS
+#[allow(dead_code)]
 async fn handle_http_request(
     req: hyper::Request<Body>
 ) -> Result<hyper::Response<Body>, hyper::Error> {
