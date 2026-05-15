@@ -616,7 +616,110 @@ impl NxrModelConfig {
                 config.features.enable_streaming = true;
                 config.features.enable_compression = true;
             }
-            // TODO: Add configurations for other models
+            crate::shared::model_identity::NxrModelId::Vortex => {
+                config.architecture.hidden_size = 4096;
+                config.architecture.num_layers = 32;
+                config.architecture.num_attention_heads = 32;
+                config.architecture.max_sequence_length = 1_000_000;
+                config.resources.memory.min_memory_gb = 32.0;
+                config.resources.compute.gpu_config = Some(GpuConfig {
+                    device_ids: vec![0, 1],
+                    memory_gb: 32.0,
+                    mixed_precision: true,
+                    tensor_parallel_size: Some(2),
+                });
+                config.features.enable_streaming = true;
+            }
+            crate::shared::model_identity::NxrModelId::Nexum => {
+                config.architecture.hidden_size = 2048;
+                config.architecture.num_layers = 16;
+                config.architecture.num_attention_heads = 16;
+                config.architecture.max_sequence_length = 512_000;
+                config.resources.memory.min_memory_gb = 16.0;
+                config.resources.compute.gpu_config = Some(GpuConfig {
+                    device_ids: vec![0],
+                    memory_gb: 24.0,
+                    mixed_precision: true,
+                    tensor_parallel_size: Some(1),
+                });
+            }
+            crate::shared::model_identity::NxrModelId::Spectra => {
+                config.architecture.hidden_size = 1024;
+                config.architecture.num_layers = 12;
+                config.architecture.num_attention_heads = 12;
+                config.architecture.max_sequence_length = 256_000;
+                config.resources.memory.min_memory_gb = 8.0;
+                config.resources.compute.gpu_config = Some(GpuConfig {
+                    device_ids: vec![0],
+                    memory_gb: 16.0,
+                    mixed_precision: true,
+                    tensor_parallel_size: Some(1),
+                });
+            }
+            crate::shared::model_identity::NxrModelId::Genesis => {
+                config.architecture.hidden_size = 6144;
+                config.architecture.num_layers = 48;
+                config.architecture.num_attention_heads = 48;
+                config.architecture.max_sequence_length = 2_000_000;
+                config.architecture.model_type = ModelType::MixtureOfExperts;
+                config.architecture.moe_config = Some(MoeConfig {
+                    num_experts: 6,
+                    num_experts_per_token: 2,
+                    capacity_factor: 1.2,
+                    load_balancing_loss_coef: 0.01,
+                    routing_method: RoutingMethod::TopK,
+                });
+                config.resources.memory.min_memory_gb = 48.0;
+                config.resources.compute.gpu_config = Some(GpuConfig {
+                    device_ids: vec![0, 1, 2],
+                    memory_gb: 40.0,
+                    mixed_precision: true,
+                    tensor_parallel_size: Some(3),
+                });
+            }
+            crate::shared::model_identity::NxrModelId::Kronos => {
+                config.architecture.hidden_size = 3072;
+                config.architecture.num_layers = 24;
+                config.architecture.num_attention_heads = 24;
+                config.architecture.max_sequence_length = 128_000;
+                config.resources.memory.min_memory_gb = 24.0;
+                config.resources.compute.gpu_config = Some(GpuConfig {
+                    device_ids: vec![0],
+                    memory_gb: 32.0,
+                    mixed_precision: true,
+                    tensor_parallel_size: Some(1),
+                });
+            }
+            crate::shared::model_identity::NxrModelId::Cipher => {
+                config.architecture.hidden_size = 768;
+                config.architecture.num_layers = 6;
+                config.architecture.num_attention_heads = 8;
+                config.architecture.max_sequence_length = 64_000;
+                config.features.enable_encryption = true;
+                config.resources.memory.min_memory_gb = 4.0;
+                config.resources.compute.gpu_config = None;
+            }
+            crate::shared::model_identity::NxrModelId::Axiom => {
+                config.architecture.hidden_size = 2048;
+                config.architecture.num_layers = 16;
+                config.architecture.num_attention_heads = 16;
+                config.architecture.max_sequence_length = 256_000;
+                config.architecture.model_type = ModelType::MixtureOfExperts;
+                config.architecture.moe_config = Some(MoeConfig {
+                    num_experts: 4,
+                    num_experts_per_token: 2,
+                    capacity_factor: 1.1,
+                    load_balancing_loss_coef: 0.005,
+                    routing_method: RoutingMethod::TopK,
+                });
+                config.resources.memory.min_memory_gb = 16.0;
+                config.resources.compute.gpu_config = Some(GpuConfig {
+                    device_ids: vec![0],
+                    memory_gb: 24.0,
+                    mixed_precision: true,
+                    tensor_parallel_size: Some(1),
+                });
+            }
             _ => {}
         }
         

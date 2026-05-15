@@ -46,10 +46,30 @@ impl HealthChecker {
     /// Check system health
     pub async fn check_health(&mut self) -> Result<bool> {
         self.last_check = Instant::now();
-        
-        // TODO: Implement actual health checks
-        // For now, always return healthy
-        Ok(true)
+
+        let mut healthy = true;
+
+        if self.metrics.cpu_usage_percent > 95.0 {
+            tracing::warn!("CPU usage critical: {}%", self.metrics.cpu_usage_percent);
+            healthy = false;
+        }
+
+        if self.metrics.memory_usage_mb > 80_000.0 {
+            tracing::warn!("Memory usage critical: {} MB", self.metrics.memory_usage_mb);
+            healthy = false;
+        }
+
+        if self.metrics.error_rate > 0.3 {
+            tracing::warn!("Error rate too high: {}", self.metrics.error_rate);
+            healthy = false;
+        }
+
+        if self.metrics.average_latency_ms > 10_000.0 {
+            tracing::warn!("Average latency too high: {} ms", self.metrics.average_latency_ms);
+            healthy = false;
+        }
+
+        Ok(healthy)
     }
     
     /// Get current metrics

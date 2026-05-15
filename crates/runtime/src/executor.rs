@@ -6,23 +6,46 @@ use crate::{Result, InferenceError};
 
 /// Task executor for running async operations
 pub struct TaskExecutor {
-    // TODO: Implement executor functionality
+    task_count: std::sync::atomic::AtomicU64,
 }
 
 impl TaskExecutor {
     /// Create new task executor
     pub fn new() -> Self {
-        Self {}
+        Self {
+            task_count: std::sync::atomic::AtomicU64::new(0),
+        }
     }
-    
-    /// Execute a task
-    pub async fn execute<T>(&self, task: T) -> Result<()> 
-    where 
-        T: std::future::Future<Output = Result<()>> + Send + 'static
+
+    /// Get total tasks executed
+    pub fn task_count(&self) -> u64 {
+        self.task_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Execute a task with retry support
+    pub async fn execute_with_retry<T, F>(&self, task: T, retries: u32) -> Result<()>
+    where
+        T: Fn() -> F + Send + Sync,
+        F: std::future::Future<Output = Result<()>> + Send,
     {
-        task.await
+        for attempt in 0..=retries {
+            match task().await {
+                Ok(()) => {
+                    self.task_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Ok(());
+                }
+                Err(e) if attempt < retries => {
+                    tracing::warn!("Task failed (attempt {}/{}): {}", attempt + 1, retries + 1, e);
+                    tokio::time::sleep(std::time::Duration::from_millis(100 * 2u64.pow(attempt))).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 }
+
+
 
 impl Default for TaskExecutor {
     fn default() -> Self {

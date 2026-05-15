@@ -423,9 +423,22 @@ pub fn global_registry() -> Arc<NxrModelRegistry> {
 /// Initialize global registry with default models
 pub async fn initialize_global_registry() -> Result<(), RegistryError> {
     let registry = global_registry();
-    
-    // TODO: Initialize all 10 NXR models here
-    // This will be implemented when we create the individual model implementations
-    
+
+    for model_id in crate::shared::model_identity::NxrModelId::all() {
+        let config = crate::shared::model_config::NxrModelConfig::for_model(model_id);
+        let caps = crate::shared::capability_spec::CapabilityVector::get_capabilities(model_id);
+        let tier = model_id.tier();
+        let meta = crate::shared::model_identity::ModelMeta::new(
+            model_id,
+            tier,
+            "0.1.0".to_string(),
+            model_id.description().to_string(),
+        );
+
+        registry.configurations.write().await.insert(model_id, config);
+        registry.capabilities.write().await.insert(model_id, caps);
+        registry.metadata.write().await.insert(model_id, meta);
+    }
+
     Ok(())
 }

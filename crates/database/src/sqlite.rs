@@ -35,8 +35,6 @@ struct ConnectionInfo {
 pub struct SQLiteConnection {
     id: String,
     connection_info: ConnectionInfo,
-    // In a real implementation, this would hold a rusqlite connection
-    // For now, we'll use a placeholder
     is_active: bool,
     transaction_depth: u32,
 }

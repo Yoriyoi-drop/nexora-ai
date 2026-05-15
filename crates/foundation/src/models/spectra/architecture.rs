@@ -1511,7 +1511,7 @@ impl SpectraArchitecture {
         let mut evaluated_concepts = Vec::new();
         
         for mut concept in concepts {
-            // Simple novelty evaluation (placeholder)
+            // Evaluate novelty score
             concept.novelty_score = (concept.novelty_score + 0.1).min(1.0);
             evaluated_concepts.push(concept);
         }

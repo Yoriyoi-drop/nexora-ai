@@ -639,9 +639,6 @@ impl SecurityMiddleware {
             return true;
         }
         
-        // Check for high-frequency request patterns (would need rate limiting data)
-        // This is a placeholder for more sophisticated analysis
-        
         false
     }
     

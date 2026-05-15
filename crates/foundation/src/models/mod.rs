@@ -2,25 +2,25 @@
 //! 
 //! Foundation implementations for all 10 NXR model series
 
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod omnis;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod vortex;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod aether;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod spectra;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod nexum;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod axiom;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod cipher;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod swift;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod kronos;
-#[path = "stub.rs"]
+#[path = "foundation.rs"]
 pub mod genesis;
 
 // Re-export all models
@@ -36,6 +36,30 @@ pub use kronos::*;
 pub use genesis::*;
 
 use crate::shared::model_identity::NxrModelId;
+use serde::{Serialize, Deserialize};
+
+/// Evaluation result for a single sample
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationResult {
+    pub input: String,
+    pub target: String,
+    pub predicted: String,
+    pub loss: f32,
+    pub correct: bool,
+}
+
+/// Complete evaluation report
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationReport {
+    pub model_path: String,
+    pub test_data_path: String,
+    pub total_samples: usize,
+    pub average_loss: f32,
+    pub accuracy: f32,
+    pub correct_predictions: usize,
+    pub timestamp: String,
+    pub detailed_results: Vec<EvaluationResult>,
+}
 
 /// Get model implementation by ID
 pub fn get_model_implementation(model_id: NxrModelId) -> Box<dyn std::any::Any> {

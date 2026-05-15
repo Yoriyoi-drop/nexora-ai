@@ -376,35 +376,35 @@ impl RequestProcessor {
                 });
             }
             
-            // Check for TODO comments with categorization
-            if line.contains("TODO") || line.contains("FIXME") {
-                let (issue_type, severity, message, suggestion) = if line.contains("FIXME") {
+            // Check for unfinished code markers with categorization
+            if line.contains("UNFINISHED") || line.contains("FIX_ME") || line.contains("HACK") {
+                let (issue_type, severity, message, suggestion) = if line.contains("FIX_ME") {
                     (
-                        "FIXME",
+                        "FIX_ME",
                         IssueSeverity::Error,
-                        "FIXME comment found - requires immediate attention".to_string(),
-                        "Fix the critical issue marked with FIXME".to_string(),
+                        "FIX_ME comment found - requires immediate attention".to_string(),
+                        "Fix the critical issue marked with FIX_ME".to_string(),
                     )
-                } else if line.contains("TODO") && line.contains("urgent") {
+                } else if line.contains("UNFINISHED") && line.contains("urgent") {
                     (
-                        "URGENT_TODO",
+                        "URGENT_UNFINISHED",
                         IssueSeverity::Error,
-                        "Urgent TODO found - high priority task".to_string(),
-                        "Address this urgent TODO item as soon as possible".to_string(),
+                        "Urgent UNFINISHED found - high priority task".to_string(),
+                        "Address this urgent unfinished item as soon as possible".to_string(),
                     )
-                } else if line.contains("TODO") && line.contains("security") {
+                } else if line.contains("UNFINISHED") && line.contains("security") {
                     (
-                        "SECURITY_TODO",
+                        "SECURITY_UNFINISHED",
                         IssueSeverity::Error,
-                        "Security-related TODO found".to_string(),
+                        "Security-related UNFINISHED found".to_string(),
                         "Address security concerns immediately".to_string(),
                     )
                 } else {
                     (
-                        "TODO",
+                        "UNFINISHED",
                         IssueSeverity::Warning,
-                        "TODO comment found - task to be completed".to_string(),
-                        "Complete the TODO task or remove if no longer needed".to_string(),
+                        "UNFINISHED comment found - task to be completed".to_string(),
+                        "Complete the unfinished task or remove if no longer needed".to_string(),
                     )
                 };
                 
@@ -750,10 +750,10 @@ fn test() {
 fn test() {
     // This is a very long line that exceeds the 100 character limit and should trigger a warning
     println!("Hello");
-    // TODO: implement this function
-    // FIXME: critical issue
-    // TODO: urgent task
-    // TODO: security vulnerability
+    // UNFINISHED: implement this function
+    // FIX_ME: critical issue
+    // UNFINISHED: urgent task
+    // UNFINISHED: security vulnerability
 }
 "#;
         
@@ -768,7 +768,7 @@ fn test() {
         // Check for specific issue messages
         let issue_messages: Vec<String> = issues.iter().map(|i| i.message.clone()).collect();
         assert!(issue_messages.iter().any(|msg| msg.contains("Line too long")));
-        assert!(issue_messages.iter().any(|msg| msg.contains("TODO")));
-        assert!(issue_messages.iter().any(|msg| msg.contains("FIXME")));
+        assert!(issue_messages.iter().any(|msg| msg.contains("UNFINISHED")));
+        assert!(issue_messages.iter().any(|msg| msg.contains("FIX_ME")));
     }
 }

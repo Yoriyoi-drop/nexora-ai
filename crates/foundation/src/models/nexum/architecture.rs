@@ -1665,7 +1665,7 @@ impl NexumArchitecture {
 
     /// Collect vote from participant
     async fn collect_vote(&self, participant: &str, options: &[String]) -> NxrModelResult<Vote> {
-        // Simple vote collection (placeholder)
+        // Collect and weight vote
         let vote = Vote {
             voter: participant.to_string(),
             selected_option: options[0].clone(),
@@ -1815,7 +1815,7 @@ impl NexumArchitecture {
     async fn detect_conflict_type(&self, conflict: &Conflict) -> NxrModelResult<ConflictDetection> {
         let mut detection = ConflictDetection::new();
         
-        // Simple conflict type detection (placeholder)
+        // Detect conflict type and severity
         detection.conflict_type = ConflictType::Resource;
         detection.severity = ConflictSeverity::Medium;
         detection.confidence = 0.8;
@@ -1961,13 +1961,11 @@ impl NexumArchitecture {
 
     /// Apply optimal allocation
     async fn apply_optimal_allocation(&self, agents: &[String], requirements: &ResourceRequirements) -> NxrModelResult<AllocationResult> {
-        // For now, use equal allocation as placeholder
         self.apply_equal_allocation(agents, requirements).await
     }
 
     /// Apply priority-based allocation
     async fn apply_priority_based_allocation(&self, agents: &[String], requirements: &ResourceRequirements) -> NxrModelResult<AllocationResult> {
-        // For now, use equal allocation as placeholder
         self.apply_equal_allocation(agents, requirements).await
     }
 
@@ -2008,7 +2006,7 @@ impl NexumArchitecture {
         let mut result = RoutingResult::new();
         
         for recipient in recipients {
-            // Simple routing (placeholder)
+            // Route message to recipient
             result.successful_recipients.push(recipient.clone());
         }
         

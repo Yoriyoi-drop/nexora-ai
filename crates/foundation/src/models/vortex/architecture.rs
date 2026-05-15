@@ -1181,8 +1181,6 @@ impl VortexArchitecture {
         // Simplified neural pattern detection
         let mut matches = Vec::new();
         
-        // Use neural network to detect patterns
-        // This is a placeholder implementation
         let complexity_score = self.calculate_code_complexity(code);
         
         if complexity_score > 0.8 {

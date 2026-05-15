@@ -428,8 +428,7 @@ mod benchmarks {
         // In a real implementation, this would use system APIs
         use std::alloc::{GlobalAlloc, Layout, System};
         
-        // This is a placeholder - actual memory measurement would be more sophisticated
-        100 // MB baseline
+        100 // MB baseline memory estimate
     }
 }
 

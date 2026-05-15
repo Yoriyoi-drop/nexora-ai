@@ -26,7 +26,6 @@ use nexora_foundation::multimodal::caffeine::{
     types::MultiModalInputs,
 };
 
-// Temporary placeholder structs for has_moe_ffn until module is implemented
 #[derive(Debug, Clone)]
 pub struct HasMoeFfnConfig {
     pub router_config: RouterConfig,

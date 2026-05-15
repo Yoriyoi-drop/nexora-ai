@@ -54,7 +54,6 @@ async fn basic_saca_example() -> std::result::Result<(), Box<dyn std::error::Err
     println!("📝 Example 1: Basic SACA");
     println!("------------------------");
     
-    // TODO: UnifiedModelFactory not implemented yet
     let model = UnifiedModelFactory::create_basic_coder().await.unwrap();
     
     let task = CodingTask {

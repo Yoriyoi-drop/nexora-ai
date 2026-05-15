@@ -289,14 +289,15 @@ impl BlaaClient {
 
 /// Streaming chat completion response
 pub struct ChatCompletionStream {
-    response: Response,
+    stream: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
     buffer: String,
 }
 
 impl ChatCompletionStream {
     fn new(response: Response) -> Self {
+        let stream = Box::pin(response.bytes_stream());
         Self {
-            response,
+            stream,
             buffer: String::new(),
         }
     }
@@ -309,9 +310,55 @@ impl Stream for ChatCompletionStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        // For now, return a simple placeholder chunk
-        // TODO: Implement proper streaming when Response implements Stream
-        Poll::Ready(None)
+        loop {
+            match self.stream.as_mut().poll_next(cx) {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    let text = String::from_utf8_lossy(&chunk);
+                    self.buffer.push_str(&text);
+
+                    if let Some(line_end) = self.buffer.find('\n') {
+                        let line = self.buffer[..line_end].trim().to_string();
+                        self.buffer = self.buffer[line_end + 1..].to_string();
+
+                        if line.starts_with("data: ") {
+                            let data = &line[6..];
+                            if data.trim() == "[DONE]" {
+                                continue;
+                            }
+                            match serde_json::from_str::<ChatCompletionChunk>(data.trim()) {
+                                Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),
+                                Err(_) => continue,
+                            }
+                        } else if line.is_empty() {
+                            continue;
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        return Poll::Pending;
+                    }
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    return Poll::Ready(Some(Err(BlaaError::ApiRequest(e.to_string()))));
+                }
+                Poll::Ready(None) => {
+                    if !self.buffer.is_empty() {
+                        let line = std::mem::take(&mut self.buffer);
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            if data.trim() == "[DONE]" {
+                                return Poll::Ready(None);
+                            }
+                            match serde_json::from_str::<ChatCompletionChunk>(data.trim()) {
+                                Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),
+                                Err(_) => {}
+                            }
+                        }
+                    }
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 

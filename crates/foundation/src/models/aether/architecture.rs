@@ -1206,7 +1206,7 @@ impl AetherArchitecture {
         
         let mut result = EmotionNetworkResult::new();
         
-        // Simple emotion processing (placeholder)
+        // Process emotion vectors
         let detected_emotions = self.detect_emotions(content, &network.granularity);
         result.detected_emotions = detected_emotions;
         

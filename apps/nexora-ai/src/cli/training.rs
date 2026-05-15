@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use tracing::{info, debug, warn};
 
 use crate::NexoraAI;
-use super::models::{EvaluationReport, EvaluationResult};
+use nexora_foundation::models::{EvaluationReport, EvaluationResult};
 use nexora_intelligence::model_registry::specialists::{
     SpecialistType, TrainingModel, TrainingModelFactory, TrainingSample,
 };

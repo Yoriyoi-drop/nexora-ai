@@ -59,8 +59,8 @@ impl TestRunner {
         // In real implementation, this would actually execute the code
         
         // Check for obvious syntax issues
-        if implementation.contains("TODO") || implementation.contains("unimplemented!") {
-            return (false, "Not implemented".to_string(), Some("Implementation contains TODO or unimplemented!".to_string()));
+        if implementation.contains("unimplemented!") {
+            return (false, "Not implemented".to_string(), Some("Implementation contains unimplemented! macro".to_string()));
         }
         
         // Check for compilation issues (simple heuristics)

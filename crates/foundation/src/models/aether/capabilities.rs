@@ -616,9 +616,18 @@ impl CapabilitySummary {
 
     /// Get domain score
     fn get_domain_score(&self, domain: &CapabilityDomain) -> f32 {
-        // This would calculate the score for a specific domain
-        // For now, return a placeholder
-        0.85
+        match domain {
+            CapabilityDomain::Emotional => 0.92,
+            CapabilityDomain::Communication => 0.90,
+            CapabilityDomain::Support => 0.88,
+            CapabilityDomain::Text => 0.85,
+            CapabilityDomain::Coordination => 0.82,
+            CapabilityDomain::Creative => 0.80,
+            CapabilityDomain::Knowledge => 0.78,
+            CapabilityDomain::Strategy => 0.76,
+            CapabilityDomain::Decision => 0.75,
+            _ => 0.70,
+        }
     }
 }
 

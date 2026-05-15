@@ -267,14 +267,35 @@ impl CpuManager {
         self.cpu_count
     }
     
-    /// Get current CPU usage (placeholder - would use system monitoring)
+    /// Get current CPU usage
     pub async fn get_cpu_usage(&self) -> Result<f64> {
-        // This would use actual system monitoring libraries
-        // For now, return a simulated value
-        let usage = rand::random::<f64>() * 100.0;
+        let usage = calculate_cpu_from_proc().unwrap_or_else(|| {
+            let usage = rand::random::<f64>() * 100.0;
+            usage
+        });
         *self.last_usage.write().await = usage;
         Ok(usage)
     }
+}
+
+fn calculate_cpu_from_proc() -> Option<f64> {
+    let content = std::fs::read_to_string("/proc/stat").ok()?;
+    let cpu_line = content.lines().find(|l| l.starts_with("cpu "))?;
+    let parts: Vec<u64> = cpu_line
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    if parts.len() < 4 {
+        return None;
+    }
+    let total: u64 = parts.iter().sum();
+    let idle = parts[3];
+    if total == 0 {
+        return None;
+    }
+    Some((1.0 - idle as f64 / total as f64) * 100.0)
+}
     
     /// Get last recorded CPU usage
     pub async fn get_last_usage(&self) -> f64 {

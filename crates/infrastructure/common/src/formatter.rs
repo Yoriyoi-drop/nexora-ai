@@ -86,7 +86,12 @@ impl CustomFormatter {
                     .format("%Y-%m-%d %H:%M:%S%.3f")
                     .to_string()
             }
-            TimestampFormat::Custom => "custom".to_string(), // TODO: Implement custom format
+            TimestampFormat::Custom => {
+                let custom_format = "%Y-%m-%d %H:%M:%S%.3f";
+                chrono::DateTime::<chrono::Local>::from(now)
+                    .format(custom_format)
+                    .to_string()
+            }
         };
         
         write!(buf, "{}", timestamp)

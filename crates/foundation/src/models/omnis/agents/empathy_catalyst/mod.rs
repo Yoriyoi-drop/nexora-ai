@@ -92,58 +92,177 @@ impl EmpathyCatalystAgent {
 
     /// Generate empathetic response
     async fn generate_empathetic_response(&self, input: &EmpathyCatalystTaskInput, analysis: &types::EmotionalAnalysisResults) -> AgentResult<types::EmpatheticResponse> {
-        // TODO: Implement empathetic response generation
+        let text = &input.user_input;
+        let lower = text.to_lowercase();
+
+        let tone = if lower.contains("sad") || lower.contains("cry") || lower.contains("depress") {
+            types::ResponseTone::Compassionate
+        } else if lower.contains("angry") || lower.contains("frustrat") || lower.contains("upset") {
+            types::ResponseTone::Validating
+        } else if lower.contains("fear") || lower.contains("worry") || lower.contains("anxious") {
+            types::ResponseTone::Supportive
+        } else if lower.contains("happy") || lower.contains("excited") || lower.contains("grate") {
+            types::ResponseTone::Warm
+        } else {
+            types::ResponseTone::Empathetic
+        };
+
+        let mut content = match &tone {
+            types::ResponseTone::Compassionate => "I hear how difficult this is for you. Your feelings are completely valid, and I want you to know you're not alone in this.",
+            types::ResponseTone::Validating => "It makes complete sense that you feel this way given what you're experiencing. Your frustration is justified, and I'm here to support you through it.",
+            types::ResponseTone::Supportive => "I understand this feels overwhelming right now. Let's take it one step at a time together - you don't have to face this alone.",
+            types::ResponseTone::Warm => "That's wonderful to hear! Your positive energy is truly inspiring. I'm glad things are going well for you.",
+            _ => "I truly understand how you're feeling, and I appreciate you sharing this with me. Let me help you work through this.",
+        };
+
+        let personalization_level = if input.user_profile.user_id.is_empty() {
+            types::PersonalizationLevel::Basic
+        } else {
+            types::PersonalizationLevel::High
+        };
+
+        let empathy_score = if analysis.detected_emotions.is_empty() { 0.7 } else { 0.85 };
+
         Ok(types::EmpatheticResponse {
-            content: "I understand how you feel. Let me help you with that.".to_string(),
-            tone: types::ResponseTone::Empathetic,
-            personalization_level: types::PersonalizationLevel::High,
-            cultural_sensitivity_score: 0.9,
+            content: content.to_string(),
+            tone,
+            personalization_level,
+            cultural_sensitivity_score: input.cultural_context.cultural_values.is_empty().then(|| 0.85).unwrap_or(0.9),
+            emotional_appropriateness_score: empathy_score,
+            response_quality_metrics: types::ResponseQualityMetrics {
+                empathy_score,
+                appropriateness_score: 0.9,
+                cultural_sensitivity_score: 0.88,
+                personalization_score: if matches!(personalization_level, types::PersonalizationLevel::High) { 0.85 } else { 0.6 },
+                overall_quality_score: 0.85,
+                response_relevance_score: 0.9,
+                emotional_alignment_score: empathy_score,
+                clarity_score: 0.92,
+            },
         })
     }
 
     /// Apply personalization
     async fn apply_personalization(&self, input: &EmpathyCatalystTaskInput, response: &types::EmpatheticResponse) -> AgentResult<types::PersonalizationDetails> {
-        // TODO: Implement personalization logic
+        let mut strategies = Vec::new();
+        if input.user_profile.communication_style.formality_level > 0.7 {
+            strategies.push(types::AdaptationStrategy {
+                strategy_name: "formal_adaptation".to_string(),
+                strategy_type: "communication_style".to_string(),
+                effectiveness_score: 0.85,
+                application_context: "formal communication".to_string(),
+                cultural_appropriateness: 0.9,
+            });
+        }
+        if input.user_profile.communication_style.directness_level > 0.7 {
+            strategies.push(types::AdaptationStrategy {
+                strategy_name: "direct_adaptation".to_string(),
+                strategy_type: "communication_style".to_string(),
+                effectiveness_score: 0.8,
+                application_context: "direct communication".to_string(),
+                cultural_appropriateness: 0.85,
+            });
+        }
+
         Ok(types::PersonalizationDetails {
             user_preferences: input.user_profile.preferences.clone(),
             cultural_context: input.cultural_context.clone(),
-            adaptation_strategies: vec![],
+            adaptation_strategies: strategies,
+            personalization_effectiveness: if strategies.is_empty() { 0.7 } else { 0.85 },
         })
     }
 
     /// Assess response quality
     async fn assess_response_quality(&self, input: &EmpathyCatalystTaskInput, response: &types::EmpatheticResponse, analysis: &types::EmotionalAnalysisResults) -> AgentResult<types::ResponseQualityMetrics> {
-        // TODO: Implement quality assessment
+        let empathy_score = response.emotional_appropriateness_score;
+        let has_emotions = !analysis.detected_emotions.is_empty();
+        let cultural_context_used = !input.cultural_context.cultural_values.is_empty();
+
         Ok(types::ResponseQualityMetrics {
-            empathy_score: 0.85,
-            appropriateness_score: 0.9,
-            cultural_sensitivity_score: 0.88,
-            personalization_score: 0.82,
-            overall_quality_score: 0.86,
+            empathy_score,
+            appropriateness_score: if has_emotions { 0.9 } else { 0.75 },
+            cultural_sensitivity_score: if cultural_context_used { 0.92 } else { 0.8 },
+            personalization_score: response.response_quality_metrics.personalization_score,
+            overall_quality_score: (empathy_score * 0.3 + 0.9 * 0.25 + 0.88 * 0.25 + response.response_quality_metrics.personalization_score * 0.2),
+            response_relevance_score: 0.9,
+            emotional_alignment_score: empathy_score,
+            clarity_score: 0.92,
         })
     }
 
-    // Helper methods (simplified implementations)
+    // Helper methods with heuristic-based implementations
     async fn detect_emotions(&self, input: &str) -> AgentResult<Vec<types::DetectedEmotion>> {
-        // TODO: Implement emotion detection
-        Ok(vec![])
+        let lower = input.to_lowercase();
+        let emotion_keywords = vec![
+            ("joy", vec!["happy", "joy", "delight", "wonderful", "great", "excellent", "love", "amazing"]),
+            ("sadness", vec!["sad", "unhappy", "depress", "grief", "sorrow", "heartbroken", "melancholy"]),
+            ("anger", vec!["angry", "frustrat", "annoyed", "furious", "outraged", "irritated"]),
+            ("fear", vec!["fear", "scared", "anxious", "worried", "terrified", "nervous"]),
+            ("surprise", vec!["surpris", "shock", "amazed", "astonished", "stunned"]),
+            ("trust", vec!["trust", "believe", "confident", "rely", "depend"]),
+            ("anticipation", vec!["expect", "anticipat", "hope", "look forward", "eager"]),
+            ("disgust", vec!["disgust", "revolting", "repulsive", "appalled"]),
+        ];
+
+        let mut detections: std::collections::HashMap<String, (u32, f32)> = std::collections::HashMap::new();
+        for (emotion, keywords) in &emotion_keywords {
+            let count = keywords.iter().filter(|k| lower.contains(*k)).count() as u32;
+            if count > 0 {
+                let intensity = (count as f32 / keywords.len() as f32).min(1.0);
+                let confidence = 0.6 + intensity * 0.3;
+                detections.insert(emotion.to_string(), (count, (count as f32 / 10.0).min(1.0)));
+            }
+        }
+
+        Ok(detections.into_iter().map(|(emotion, (_count, intensity))| {
+            types::DetectedEmotion {
+                emotion_name: emotion,
+                confidence_score: 0.7 + intensity * 0.2,
+                intensity,
+                duration: None,
+                triggers: vec![],
+            }
+        }).collect())
     }
 
-    async fn analyze_sentiment(&self, input: &str) -> AgentResult<types::SentimentAnalysis> {
-        // TODO: Implement sentiment analysis
-        Ok(types::SentimentAnalysis {
-            polarity: 0.0,
-            subjectivity: 0.5,
-            confidence: 0.8,
+    async fn analyze_sentiment(&self, input: &str) -> AgentResult<types::SentimentAnalysisResult> {
+        let positive_words = ["happy", "good", "great", "excellent", "wonderful", "love", "beautiful", "fantastic", "amazing", "joy"];
+        let negative_words = ["bad", "terrible", "awful", "hate", "horrible", "sad", "angry", "ugly", "dreadful", "worst"];
+        let lower = input.to_lowercase();
+
+        let pos_count = positive_words.iter().filter(|w| lower.contains(*w)).count() as f32;
+        let neg_count = negative_words.iter().filter(|w| lower.contains(*w)).count() as f32;
+        let total = pos_count + neg_count;
+
+        let polarity = if total == 0.0 { 0.0 } else { (pos_count - neg_count) / total.max(1.0) };
+        let word_count = input.split_whitespace().count().max(1);
+        let subjectivity = (total / word_count as f32).min(1.0);
+
+        Ok(types::SentimentAnalysisResult {
+            polarity: polarity.max(-1.0).min(1.0),
+            subjectivity,
+            confidence: 0.7 + subjectivity * 0.2,
+            emotional_valence: (polarity + 1.0) / 2.0,
+            arousal_level: subjectivity,
         })
     }
 
-    async fn assess_emotional_state(&self, state: &str) -> AgentResult<types::EmotionalStateAssessment> {
-        // TODO: Implement emotional state assessment
-        Ok(types::EmotionalStateAssessment {
+    async fn assess_emotional_state(&self, state: &str) -> AgentResult<types::EmotionalStateAssessmentResult> {
+        let lower = state.to_lowercase();
+        let stable_indicators = ["stable", "calm", "peaceful", "composed", "balanced", "content"];
+        let intense_indicators = ["intense", "overwhelming", "extreme", "powerful", "strong", "passionate"];
+
+        let stability = if stable_indicators.iter().any(|s| lower.contains(*s)) { 0.8 } else { 0.5 };
+        let intensity = if intense_indicators.iter().any(|s| lower.contains(*s)) { 0.8 } else { 0.5 };
+
+        Ok(types::EmotionalStateAssessmentResult {
             current_state: state.to_string(),
-            intensity: 0.5,
-            stability: 0.7,
+            intensity,
+            stability,
+            predicted_transitions: vec![
+                types::StateTransition { from_state: state.to_string(), to_state: "calm".to_string(), probability: 0.6, timeframe: None, triggers: vec!["intervention".to_string()] },
+            ],
+            state_duration: None,
         })
     }
 }

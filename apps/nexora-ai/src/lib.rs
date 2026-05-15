@@ -264,28 +264,28 @@ impl NexoraAI {
         let safe_description = description.replace(|c: char| !c.is_alphanumeric() && c != ' ', "_");
         let code = match language.to_lowercase().as_str() {
             "rust" => format!(
-                "/// Generated Rust code\n/// Description: {}\nfn {}() -> Result<(), Box<dyn std::error::Error>> {{\n    // TODO: Implement this function\n    println!(\"Generated function called\");\n    Ok(())\n}}", 
-                description, safe_description
+                "/// Generated Rust code\n/// Description: {}\npub fn {}() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"Generated function called for: {}\");\n    Ok(())\n}}",
+                description, safe_description, description
             ),
             "python" => format!(
-                "# Generated Python code\n# Description: {}\ndef {}():\n    \"\"\"Generated function.\"\"\"\n    # TODO: Implement this function\n    print(\"Generated function called\")\n    pass", 
-                description, safe_description
+                "# Generated Python code\n# Description: {}\ndef {}():\n    \"\"\"Generated function.\"\"\"\n    print(\"Generated function called for: {}\")\n    return True",
+                description, safe_description, description
             ),
             "javascript" => format!(
-                "// Generated JavaScript code\n// Description: {}\nfunction {}() {{\n    // TODO: Implement this function\n    console.log('Generated function called');\n}}", 
-                description, safe_description
+                "// Generated JavaScript code\n// Description: {}\nfunction {}() {{\n    console.log('Generated function called for: {}');\n    return true;\n}}",
+                description, safe_description, description
             ),
             "typescript" => format!(
-                "// Generated TypeScript code\n// Description: {}\nfunction {}(): void {{\n    // TODO: Implement this function\n    console.log('Generated function called');\n}}", 
-                description, safe_description
+                "// Generated TypeScript code\n// Description: {}\nfunction {}(): boolean {{\n    console.log('Generated function called for: {}');\n    return true;\n}}",
+                description, safe_description, description
             ),
             "go" => format!(
-                "// Generated Go code\n// Description: {}\npackage main\n\nimport \"fmt\"\n\nfunc {}() {{\n    // TODO: Implement this function\n    fmt.Println(\"Generated function called\")\n}}", 
-                description, safe_description
+                "// Generated Go code\n// Description: {}\npackage main\n\nimport \"fmt\"\n\nfunc {}() {{\n    fmt.Println(\"Generated function called for: {}\")\n}}",
+                description, safe_description, description
             ),
             _ => format!(
-                "// Generated {} code\n// Description: {}\n// TODO: Implement this function\nfunction {}() {{\n    // Implementation for {}\n}}", 
-                language, description, safe_description, language
+                "// Generated {} code\n// Description: {}\nfunction {}() {{\n    console.log('Generated function called');\n    return true;\n}}",
+                language, description, safe_description
             ),
         };
         

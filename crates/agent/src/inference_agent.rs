@@ -81,7 +81,7 @@ pub enum InferenceSessionStatus {
     Cancelled,
 }
 
-/// Trait untuk inference engine (placeholder)
+/// Trait untuk inference engine
 #[async_trait]
 pub trait InferenceEngine: Send + Sync {
     /// Start inference session

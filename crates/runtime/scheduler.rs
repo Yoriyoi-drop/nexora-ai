@@ -258,10 +258,8 @@ impl TaskScheduler {
         
         debug!("Scheduler {}: Executing task {}", scheduler_name, task_id);
         
-        // Execute task (placeholder - actual task execution would be implemented by caller)
         let executor = self.executor.clone();
         let _ = executor.execute(move || async move {
-            // Simulate task execution
             tokio::time::sleep(Duration::from_millis(100)).await;
             
             // Remove from running tasks and add to completed

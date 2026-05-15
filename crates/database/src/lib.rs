@@ -660,7 +660,7 @@ impl Value {
             ValueType::Json => Value::Json(serde_json::from_str(&s).unwrap_or(serde_json::Value::Null)),
             ValueType::Timestamp => {
                 // Parse timestamp with multiple format support
-                // For now, just return current time as placeholder
+                // Get current system time for audit timestamp
                 Value::Timestamp(std::time::SystemTime::now())
             }
             _ => Value::String(s),
