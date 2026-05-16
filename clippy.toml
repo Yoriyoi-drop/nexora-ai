@@ -1,0 +1,15 @@
+# deny — hard errors
+disallowed-types = []
+disallowed-methods = []
+
+# warn — pedantic but not blocking
+cognitive-complexity = 25
+too-many-arguments-threshold = 10
+too-many-lines-threshold = 500
+too-many-fields-threshold = 15
+type-complexity-threshold = 250
+
+# allow
+allow-dbg-in-test = false
+allow-print-in-test = false
+allow-unwrap-in-test = false
