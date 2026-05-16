@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::instrument;
 
 use crate::models::transformer::{CausalLM, TransformerConfig};
 use crate::shared::{
@@ -242,6 +243,7 @@ macro_rules! define_foundation_model {
                 }))
             }
 
+            #[instrument(skip_all, fields(model_id = %self.identity().model_id()))]
             async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
                 let model = self.get_or_init_model();
 
@@ -287,6 +289,7 @@ macro_rules! define_foundation_model {
                 })
             }
 
+            #[instrument(skip_all, fields(model_id = %self.identity().model_id()))]
             async fn infer_stream(
                 &self,
                 input: &NxrInput,

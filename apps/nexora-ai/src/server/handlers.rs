@@ -1,23 +1,43 @@
-//! HTTP handlers for server endpoints
-
 use std::sync::Arc;
 use axum::{Json, Extension, response::Html, extract::Path, response::IntoResponse};
 use serde_json::{json, Value};
 use tracing::{info, error};
+use std::sync::OnceLock;
+use nexora_monitoring::MetricsCollector;
 
 use crate::NexoraAI;
 
-/// Health check endpoint
+static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
+
+pub fn init_metrics() -> Arc<MetricsCollector> {
+    let collector = Arc::new(MetricsCollector::new());
+    METRICS.set(collector.clone()).ok();
+    collector
+}
+
+pub fn metrics_collector() -> Option<&'static Arc<MetricsCollector>> {
+    METRICS.get()
+}
+
 pub async fn health_check(
     Extension(nexora): Extension<Arc<NexoraAI>>
 ) -> Json<Value> {
+    let start = std::time::Instant::now();
     match nexora.health_check().await {
-        Ok(health) => Json(json!({
-            "healthy": health.healthy,
-            "timestamp": health.last_check,
-            "version": env!("CARGO_PKG_VERSION")
-        })),
+        Ok(health) => {
+            if let Some(m) = metrics_collector() {
+                m.record_request(true, start.elapsed().as_secs_f64());
+            }
+            Json(json!({
+                "healthy": health.healthy,
+                "timestamp": health.last_check,
+                "version": env!("CARGO_PKG_VERSION")
+            }))
+        }
         Err(e) => {
+            if let Some(m) = metrics_collector() {
+                m.record_request(false, start.elapsed().as_secs_f64());
+            }
             error!("Health check failed: {}", e);
             Json(json!({
                 "healthy": false,
@@ -28,7 +48,6 @@ pub async fn health_check(
     }
 }
 
-/// Detailed health check endpoint
 pub async fn detailed_health_check(
     Extension(nexora): Extension<Arc<NexoraAI>>
 ) -> Json<Value> {
@@ -45,7 +64,22 @@ pub async fn detailed_health_check(
     }
 }
 
-/// System information endpoint
+pub async fn metrics_handler() -> axum::response::Response {
+    match metrics_collector() {
+        Some(m) => {
+            let body = m.gather_prometheus();
+            axum::http::Response::builder()
+                .header("Content-Type", "text/plain; charset=utf-8")
+                .body(axum::body::Body::from(body))
+                .unwrap()
+        }
+        None => axum::http::Response::builder()
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .body(axum::body::Body::from("# metrics disabled"))
+            .unwrap(),
+    }
+}
+
 pub async fn system_info(
     Extension(nexora): Extension<Arc<NexoraAI>>
 ) -> impl IntoResponse {
@@ -62,7 +96,6 @@ pub async fn system_info(
     }
 }
 
-/// Performance metrics endpoint
 pub async fn performance_metrics(
     Extension(nexora): Extension<Arc<NexoraAI>>
 ) -> impl IntoResponse {
@@ -78,7 +111,6 @@ pub async fn performance_metrics(
     }
 }
 
-/// Memory statistics endpoint
 pub async fn memory_stats(
     Extension(nexora): Extension<Arc<NexoraAI>>
 ) -> impl IntoResponse {
@@ -101,17 +133,17 @@ pub async fn memory_stats(
     }
 }
 
-/// Process request endpoint
 pub async fn process_request(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
+    let start = std::time::Instant::now();
     let input = payload.get("input")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    
+
     info!("Processing request: {}", input);
-    
+
     match nexora.process_request(input).await {
         Ok(response) => Json(json!({
             "success": true,
@@ -119,6 +151,9 @@ pub async fn process_request(
             "timestamp": chrono::Utc::now().to_rfc3339()
         })),
         Err(e) => {
+            if let Some(m) = metrics_collector() {
+                m.record_request(false, start.elapsed().as_secs_f64());
+            }
             error!("Request processing failed: {}", e);
             Json(json!({
                 "success": false,
@@ -129,26 +164,26 @@ pub async fn process_request(
     }
 }
 
-/// Generate text endpoint
 pub async fn generate_text(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
+    let start = std::time::Instant::now();
     let prompt = payload.get("prompt")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    
+
     let max_tokens = payload.get("max_tokens")
         .and_then(|v| v.as_u64())
         .unwrap_or(100) as usize;
-    
+
     let temperature = payload.get("temperature")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.7) as f32;
-    
+
     info!("Generating text: prompt='{}', max_tokens={}, temperature={}", 
           prompt, max_tokens, temperature);
-    
+
     match nexora.generate_text(prompt, max_tokens, temperature).await {
         Ok(generated) => Json(json!({
             "success": true,
@@ -161,6 +196,9 @@ pub async fn generate_text(
             "timestamp": chrono::Utc::now().to_rfc3339()
         })),
         Err(e) => {
+            if let Some(m) = metrics_collector() {
+                m.record_request(false, start.elapsed().as_secs_f64());
+            }
             error!("Text generation failed: {}", e);
             Json(json!({
                 "success": false,
@@ -171,21 +209,21 @@ pub async fn generate_text(
     }
 }
 
-/// Chat endpoint
 pub async fn chat(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
+    let start = std::time::Instant::now();
     let message = payload.get("message")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    
+
     let conversation_id = payload.get("conversation_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    
+
     info!("Chat message: {} (conversation_id: {:?})", message, conversation_id);
-    
+
     match nexora.chat(message, conversation_id).await {
         Ok(response) => Json(json!({
             "success": true,
@@ -193,6 +231,9 @@ pub async fn chat(
             "timestamp": chrono::Utc::now().to_rfc3339()
         })),
         Err(e) => {
+            if let Some(m) = metrics_collector() {
+                m.record_request(false, start.elapsed().as_secs_f64());
+            }
             error!("Chat failed: {}", e);
             Json(json!({
                 "success": false,
@@ -203,7 +244,6 @@ pub async fn chat(
     }
 }
 
-/// Analyze code endpoint
 pub async fn analyze_code(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
@@ -211,13 +251,13 @@ pub async fn analyze_code(
     let code = payload.get("code")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    
+
     let language = payload.get("language")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    
+
     info!("Analyzing code: {} chars, language: {}", code.len(), language);
-    
+
     match nexora.analyze_code(code, language).await {
         Ok(analysis) => Json(json!({
             "success": true,
@@ -239,7 +279,6 @@ pub async fn analyze_code(
     }
 }
 
-/// Generate code endpoint
 pub async fn generate_code(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
@@ -247,13 +286,13 @@ pub async fn generate_code(
     let description = payload.get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    
+
     let language = payload.get("language")
         .and_then(|v| v.as_str())
         .unwrap_or("rust");
-    
+
     info!("Generating code: description='{}', language='{}'", description, language);
-    
+
     match nexora.generate_code(description, language).await {
         Ok(code) => Json(json!({
             "success": true,
@@ -275,14 +314,14 @@ pub async fn generate_code(
     }
 }
 
-/// Get configuration endpoint
 pub async fn get_config() -> Json<Value> {
     Json(json!({
         "server": {
             "version": env!("CARGO_PKG_VERSION"),
-            "features": ["text_generation", "code_analysis", "chat", "health_check"],
+            "features": ["text_generation", "code_analysis", "chat", "health_check", "metrics"],
             "endpoints": [
-                "/health", "/health/detailed", "/info", "/info/performance", "/info/memory",
+                "/health", "/health/detailed", "/metrics",
+                "/info", "/info/performance", "/info/memory",
                 "/process", "/generate", "/chat",
                 "/code/analyze", "/code/generate", "/config"
             ]
@@ -291,13 +330,11 @@ pub async fn get_config() -> Json<Value> {
     }))
 }
 
-/// Update configuration endpoint
 pub async fn update_config(Json(payload): Json<Value>) -> Json<Value> {
     info!("Processing configuration update request");
-    
-    // Validate configuration payload
+
     let config_result = validate_and_process_config(&payload);
-    
+
     match config_result {
         Ok(updated_config) => {
             info!("Configuration updated successfully");
@@ -319,18 +356,16 @@ pub async fn update_config(Json(payload): Json<Value>) -> Json<Value> {
     }
 }
 
-/// Validate and process configuration updates
 fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, anyhow::Error> {
     let mut updated_fields = Vec::new();
-    
-    // Process server configuration
+
     if let Some(server_config) = payload.get("server") {
         if let Some(host) = server_config.get("host").and_then(|v| v.as_str()) {
             if !host.is_empty() {
                 updated_fields.push(format!("server.host: {}", host));
             }
         }
-        
+
         if let Some(port) = server_config.get("port").and_then(|v| v.as_u64()) {
             if port > 0 && port <= 65535 {
                 updated_fields.push(format!("server.port: {}", port));
@@ -338,27 +373,26 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
                 return Err(anyhow::anyhow!("Invalid port number: {}", port));
             }
         }
-        
+
         if let Some(max_connections) = server_config.get("max_connections").and_then(|v| v.as_u64()) {
             if max_connections > 0 && max_connections <= 10000 {
                 updated_fields.push(format!("server.max_connections: {}", max_connections));
             }
         }
     }
-    
-    // Process API configuration
+
     if let Some(api_config) = payload.get("api") {
         if let Some(timeout) = api_config.get("timeout_seconds").and_then(|v| v.as_u64()) {
             if timeout >= 1 && timeout <= 300 {
                 updated_fields.push(format!("api.timeout_seconds: {}", timeout));
             }
         }
-        
+
         if let Some(rate_limit) = api_config.get("rate_limit") {
             if let Some(enabled) = rate_limit.get("enabled").and_then(|v| v.as_bool()) {
                 updated_fields.push(format!("api.rate_limit.enabled: {}", enabled));
             }
-            
+
             if let Some(requests_per_minute) = rate_limit.get("requests_per_minute").and_then(|v| v.as_u64()) {
                 if requests_per_minute > 0 && requests_per_minute <= 1000 {
                     updated_fields.push(format!("api.rate_limit.requests_per_minute: {}", requests_per_minute));
@@ -366,21 +400,20 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
             }
         }
     }
-    
-    // Process model configuration
+
     if let Some(model_config) = payload.get("models") {
         if let Some(default_model) = model_config.get("default").and_then(|v| v.as_str()) {
             if !default_model.is_empty() {
                 updated_fields.push(format!("models.default: {}", default_model));
             }
         }
-        
+
         if let Some(max_tokens) = model_config.get("max_tokens").and_then(|v| v.as_u64()) {
             if max_tokens > 0 && max_tokens <= 8192 {
                 updated_fields.push(format!("models.max_tokens: {}", max_tokens));
             }
         }
-        
+
         if let Some(temperature) = model_config.get("temperature").and_then(|v| v.as_f64()) {
             if temperature >= 0.0 && temperature <= 2.0 {
                 updated_fields.push(format!("models.temperature: {}", temperature));
@@ -389,8 +422,7 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
             }
         }
     }
-    
-    // Process logging configuration
+
     if let Some(logging_config) = payload.get("logging") {
         if let Some(level) = logging_config.get("level").and_then(|v| v.as_str()) {
             match level {
@@ -402,23 +434,22 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
                 }
             }
         }
-        
+
         if let Some(enabled) = logging_config.get("file_enabled").and_then(|v| v.as_bool()) {
             updated_fields.push(format!("logging.file_enabled: {}", enabled));
         }
     }
-    
+
     if updated_fields.is_empty() {
         return Err(anyhow::anyhow!("No valid configuration fields provided"));
     }
-    
+
     Ok(ConfigUpdateResult {
         updated_fields,
         timestamp: chrono::Utc::now(),
     })
 }
 
-/// Result of configuration update
 #[derive(Debug)]
 struct ConfigUpdateResult {
     updated_fields: Vec<String>,
@@ -426,17 +457,14 @@ struct ConfigUpdateResult {
     timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-/// Index page endpoint
 pub async fn index() -> Html<&'static str> {
     Html(include_str!("../../static/index.html"))
 }
 
-/// Static files endpoint
 pub async fn static_files(Path(path): Path<String>) -> Result<axum::response::Response, axum::http::StatusCode> {
     let base_path = std::path::Path::new("static");
     let file_path = base_path.join(&path);
 
-    // Prevent directory traversal
     if file_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
         return Err(axum::http::StatusCode::FORBIDDEN);
     }
@@ -455,7 +483,7 @@ pub async fn static_files(Path(path): Path<String>) -> Result<axum::response::Re
         Some("html") => "text/html",
         _ => "text/plain",
     };
-    
+
     Ok(axum::http::Response::builder()
         .status(200)
         .header("Content-Type", content_type)

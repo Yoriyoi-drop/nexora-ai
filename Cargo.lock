@@ -2979,6 +2979,7 @@ dependencies = [
  "nexora-infrastructure",
  "nexora-intelligence",
  "nexora-memory",
+ "nexora-monitoring",
  "nexora-tokenizer",
  "once_cell",
  "psutil",

@@ -15,6 +15,7 @@ nexora-blaa = { path = "../../crates/blaa" }
 nexora-infrastructure = { path = "../../crates/infrastructure" }
 nexora-datastream = { path = "../../crates/datastream" }
 nexora-deeplearning = { path = "../../crates/deeplearning" }
+nexora-monitoring = { path = "../../crates/monitoring" }
 
 tokio.workspace = true
 serde.workspace = true
