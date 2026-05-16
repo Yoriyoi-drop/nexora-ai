@@ -649,7 +649,7 @@ impl EmpathyPrimeAgent {
         }
         
         let primary_emotion = emotions.iter()
-            .max_by(|a, b| a.intensity.partial_cmp(&b.intensity).unwrap())
+            .max_by(|a, b| a.intensity.total_cmp(&b.intensity))
             .unwrap();
         
         match primary_emotion.name.as_str() {

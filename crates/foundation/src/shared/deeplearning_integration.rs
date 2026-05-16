@@ -3,6 +3,8 @@
 //! Layer ini menyediakan integrasi antara deeplearning crate dan semua NXR models
 //! Mendukung STAR-X dan ECHO-Net Ω architectures
 
+use super::foundation_components::FoundationComponents;
+
 use nexora_deeplearning::{
     star_x::{StarXConfig, StarXState, StarXMetics},
     echo_net::{EchoNetConfig, EchoNetState, EchoNetMetrics},
@@ -180,16 +182,20 @@ impl DeepLearningEngine {
         
         let state = match config.architecture {
             DLArchitecture::StarX => {
-                let star_x_config = config.star_x_config.as_ref().unwrap();
+                let star_x_config = config.star_x_config.as_ref()
+                    .ok_or_else(|| DeepLearningError::Configuration { reason: "star_x_config required for StarX architecture".into() })?;
                 DeepLearningState::StarX(StarXState::new(star_x_config)?)
             }
             DLArchitecture::EchoNet => {
-                let echo_net_config = config.echo_net_config.as_ref().unwrap();
+                let echo_net_config = config.echo_net_config.as_ref()
+                    .ok_or_else(|| DeepLearningError::Configuration { reason: "echo_net_config required for EchoNet architecture".into() })?;
                 DeepLearningState::EchoNet(EchoNetState::new(echo_net_config)?)
             }
             DLArchitecture::Hybrid => {
-                let star_x_config = config.star_x_config.as_ref().unwrap();
-                let echo_net_config = config.echo_net_config.as_ref().unwrap();
+                let star_x_config = config.star_x_config.as_ref()
+                    .ok_or_else(|| DeepLearningError::Configuration { reason: "star_x_config required for Hybrid architecture".into() })?;
+                let echo_net_config = config.echo_net_config.as_ref()
+                    .ok_or_else(|| DeepLearningError::Configuration { reason: "echo_net_config required for Hybrid architecture".into() })?;
                 DeepLearningState::Hybrid {
                     star_x: StarXState::new(star_x_config)?,
                     echo_net: EchoNetState::new(echo_net_config)?,
@@ -395,31 +401,32 @@ impl DeepLearningEngine {
     }
 }
 
+/// Trait untuk models yang memiliki akses ke FoundationComponents
+pub trait HasComponents {
+    /// Get reference ke FoundationComponents
+    fn components(&self) -> &FoundationComponents;
+}
+
 /// Trait untuk models yang menggunakan deep learning
 #[async_trait::async_trait]
-pub trait DeepLearningModel {
+pub trait DeepLearningModel: HasComponents {
     /// Get deep learning engine
-    fn dl_engine(&self) -> &DeepLearningEngine;
-    
-    /// Get deep learning engine mutable
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine;
-    
+    fn dl_engine(&self) -> &DeepLearningEngine {
+        &self.components().dl_engine
+    }
+
     /// Process input dengan deep learning
     async fn dl_process(&self, input: &str) -> DLResult<String> {
         self.dl_engine().process_text(input).await
     }
-    
+
     /// Enable training mode
     async fn enable_training(&mut self) -> DLResult<()> {
-        let mut state = self.dl_engine_mut().state.write().await;
-        // Update config untuk enable training
         Ok(())
     }
-    
+
     /// Disable training mode (inference only)
     async fn disable_training(&mut self) -> DLResult<()> {
-        let mut state = self.dl_engine_mut().state.write().await;
-        // Update config untuk disable training
         Ok(())
     }
 }

@@ -247,7 +247,7 @@ impl SpectrumAnalyzerAgent {
 
     async fn identify_dominant_frequencies(&self, components: &[(f32, f32)]) -> AgentResult<Vec<f32>> {
         let mut sorted_components = components.to_vec();
-        sorted_components.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        sorted_components.sort_by(|a, b| b.1.total_cmp(&a.1));
         
         Ok(sorted_components.iter().take(5).map(|(freq, _)| *freq).collect())
     }

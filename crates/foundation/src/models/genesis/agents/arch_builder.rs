@@ -233,7 +233,7 @@ impl ArchBuilderAgent {
     async fn select_optimal(&self, candidates: &[String], predictions: &[f32]) -> AgentResult<String> {
         let best_index = predictions.iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(i, _)| i)
             .unwrap_or(0);
         Ok(candidates.get(best_index).cloned().unwrap_or_default())

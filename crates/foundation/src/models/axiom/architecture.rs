@@ -1007,7 +1007,7 @@ impl AxiomArchitecture {
                 } else {
                     q_table[state].iter()
                         .enumerate()
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                        .max_by(|(_, a), (_, b)| a.total_cmp(b))
                         .map(|(idx, _)| idx)
                         .unwrap_or(0)
                 };
@@ -1017,7 +1017,7 @@ impl AxiomArchitecture {
 
                 let max_next_q = q_table[next_state].iter()
                     .cloned()
-                    .max_by(|a, b| a.partial_cmp(b).unwrap())
+                    .max_by(|a, b| a.total_cmp(b))
                     .unwrap_or(0.0);
 
                 let td_target = reward + gamma * max_next_q;
