@@ -32,6 +32,7 @@ pub mod erp;
 // Include NXR Model Series
 pub mod shared;
 pub mod models;
+pub mod clustering_orchestrator;
 
 // Re-export main components for easier access
 

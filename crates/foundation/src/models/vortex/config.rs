@@ -2,6 +2,7 @@
 //! 
 //! Model-specific configuration for NXR-VORTEX
 
+use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
 
@@ -442,7 +443,7 @@ impl VortexConfig {
                 self.security = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(serde_json::Error::syntax(serde_json::error::ErrorCode::ExpectedColon, 0, 0));
+                return Err(SerdeError::custom(format!("unknown component: {}", component)));
             }
         }
 

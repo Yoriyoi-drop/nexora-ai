@@ -2,7 +2,7 @@
 //! 
 //! Module ini menyediakan fungsi-fungsi utility untuk Nexora AI system
 
-#![allow(dead_code)]
+
 
 pub mod time;
 pub mod string;

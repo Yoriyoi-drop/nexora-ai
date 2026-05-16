@@ -13,6 +13,7 @@ pub mod saca;
 pub use saca::*;
 
 // Integration with NXR-ÆTHER
+use crate::shared::base_model::NxrModel;
 pub use crate::models::aether::NxrAetherModel;
 
 /// Enhanced SACA with NXR-ÆTHER integration

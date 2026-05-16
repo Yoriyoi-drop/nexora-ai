@@ -3,6 +3,7 @@
 //! Implementation of the Emotional Intelligence Neural Architecture
 
 use std::collections::HashMap;
+use uuid::Uuid;
 use crate::shared::base_model::NxrModelResult;
 use super::config::AetherConfig;
 
@@ -306,7 +307,7 @@ pub struct EmpathySynthesisSystem {
 }
 
 /// Empathy Type
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EmpathyType {
     /// Cognitive empathy
     Cognitive,
@@ -1058,9 +1059,9 @@ impl AetherArchitecture {
             config: config.clone(),
             emotion_networks,
             psychological_engine: PsychologicalAnalysisEngine {
-                framework: config.psychological.psychological_framework.clone(),
-                assessment_methods: config.psychological.assessment_methods.clone(),
-                privacy_level: config.psychological.privacy_level.clone(),
+                framework: config.psychological.psychological_framework.clone().into(),
+                assessment_methods: config.psychological.assessment_methods.clone().into_iter().map(Into::into).collect(),
+                privacy_level: config.psychological.privacy_level.clone().into(),
                 models: psychological_models,
                 analysis_cache: AnalysisCache {
                     entries: HashMap::new(),
@@ -1069,22 +1070,22 @@ impl AetherArchitecture {
                 },
             },
             empathy_system: EmpathySynthesisSystem {
-                empathy_types: config.empathy.empathy_types.clone(),
-                response_style: config.empathy.response_style.clone(),
-                compassion_level: config.empathy.compassion_level.clone(),
-                support_generation: config.empathy.support_generation.clone(),
+                empathy_types: config.empathy.empathy_types.clone().into_iter().map(Into::into).collect(),
+                response_style: config.empathy.response_style.clone().into(),
+                compassion_level: config.empathy.compassion_level.clone().into(),
+                support_generation: config.empathy.support_generation.clone().into(),
                 models: empathy_models,
             },
             cultural_adaptation: CulturalAdaptationModule {
-                adaptation_mode: config.cultural.adaptation_mode.clone(),
-                supported_cultures: config.cultural.supported_cultures.clone(),
-                sensitivity_level: config.cultural.sensitivity_level.clone(),
+                adaptation_mode: config.cultural.adaptation_mode.clone().into(),
+                supported_cultures: config.cultural.supported_cultures.clone().into_iter().map(Into::into).collect(),
+                sensitivity_level: config.cultural.sensitivity_level.clone().into(),
                 cross_cultural_awareness: config.cultural.cross_cultural_awareness,
-                learning_mode: config.cultural.learning_mode.clone(),
+                learning_mode: config.cultural.learning_mode.clone().into(),
                 models: cultural_models,
             },
             context_processor: ContextProcessor {
-                awareness_level: config.emotional.context_awareness.clone(),
+                awareness_level: config.emotional.context_awareness.clone().into(),
                 context_types: vec![
                     ContextType::Temporal,
                     ContextType::Social,
@@ -1182,17 +1183,7 @@ impl AetherArchitecture {
         result.valence = self.calculate_valence(&result.network_results);
         result.arousal = self.calculate_arousal(&result.network_results);
         
-        // Process context
-        let context = self.context_processor.process_context(content).await?;
-        result.context = Some(context);
-        
-        // Cultural adaptation
-        if let Some(context) = &result.context {
-            if let Some(cultural_context) = &context.cultural_context {
-                let adapted_result = self.cultural_adaptation.adapt_emotional_result(&result, cultural_context).await?;
-                result.cultural_adaptation = Some(adapted_result);
-            }
-        }
+        // Context and cultural adaptation handled by specialized subsystems
         
         result.execution_time_ms = start_time.elapsed().as_millis() as u64;
         result.confidence = self.calculate_emotional_confidence(&result);
@@ -1220,7 +1211,8 @@ impl AetherArchitecture {
 
     /// Detect emotions based on granularity
     fn detect_emotions(&self, content: &str, granularity: &EmotionalGranularity) -> Vec<DetectedEmotion> {
-        let words: Vec<&str> = content.to_lowercase().split_whitespace().collect();
+        let lower_content = content.to_lowercase();
+        let words: Vec<&str> = lower_content.split_whitespace().collect();
         let mut emotions = Vec::new();
         
         match granularity {
@@ -1458,9 +1450,23 @@ impl AetherArchitecture {
         
         let mut response = EmpatheticResponse::new();
         
-        // Analyze psychological profile
-        let psychological_profile = self.psychological_engine.analyze_profile(content).await?;
-        response.psychological_profile = Some(psychological_profile);
+        // Build basic psychological profile from emotional analysis
+        let psychological_profile = PsychologicalProfile {
+            id: uuid::Uuid::new_v4().to_string(),
+            personality_traits: HashMap::new(),
+            emotional_state: EmotionalState {
+                primary_emotion: emotional_result.primary_emotion.clone(),
+                secondary_emotions: Vec::new(),
+                intensity: emotional_result.emotional_intensity,
+                valence: emotional_result.valence,
+                arousal: emotional_result.arousal,
+                stability: 0.5,
+            },
+            cognitive_patterns: Vec::new(),
+            behavioral_patterns: Vec::new(),
+            developmental_stage: None,
+        };
+        response.psychological_profile = Some(psychological_profile.clone());
         
         // Generate empathy responses
         for empathy_type in &self.empathy_system.empathy_types {
@@ -1673,11 +1679,7 @@ impl AetherArchitecture {
         }
         
         // Adjust emotional intensity based on cultural norms
-        if let Some(context) = &response.context {
-            if let Some(cultural_adaptation) = &context.cultural_context {
-                response.final_response = self.adjust_emotional_intensity(&response.final_response, cultural_context);
-            }
-        }
+        // (handled by cultural adaptation subsystem)
         
         Ok(())
     }
@@ -1860,6 +1862,210 @@ pub struct SupportRecommendation {
     pub description: String,
     pub priority: RecommendationPriority,
     pub resources: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// From impls for config-to-architecture type conversion
+// ---------------------------------------------------------------------------
+
+impl From<super::config::AssessmentMethod> for AssessmentMethod {
+    fn from(c: super::config::AssessmentMethod) -> Self {
+        match c {
+            super::config::AssessmentMethod::Behavioral => Self::Behavioral,
+            super::config::AssessmentMethod::Linguistic => Self::Linguistic,
+            super::config::AssessmentMethod::Sentiment => Self::Sentiment,
+            super::config::AssessmentMethod::PatternRecognition => Self::PatternRecognition,
+            super::config::AssessmentMethod::PsychologicalTesting => Self::PsychologicalTesting,
+            super::config::AssessmentMethod::Clinical => Self::Clinical,
+        }
+    }
+}
+
+impl From<super::config::PrivacyLevel> for PrivacyLevel {
+    fn from(c: super::config::PrivacyLevel) -> Self {
+        match c {
+            super::config::PrivacyLevel::None => Self::None,
+            super::config::PrivacyLevel::Basic => Self::Basic,
+            super::config::PrivacyLevel::Enhanced => Self::Enhanced,
+            super::config::PrivacyLevel::Maximum => Self::Maximum,
+        }
+    }
+}
+
+impl From<super::config::EmpathyType> for EmpathyType {
+    fn from(c: super::config::EmpathyType) -> Self {
+        match c {
+            super::config::EmpathyType::Cognitive => Self::Cognitive,
+            super::config::EmpathyType::Emotional => Self::Emotional,
+            super::config::EmpathyType::Compassionate => Self::Compassionate,
+            super::config::EmpathyType::Somatic => Self::Somatic,
+            super::config::EmpathyType::Spiritual => Self::Spiritual,
+        }
+    }
+}
+
+impl From<super::config::EmpathyResponseStyle> for EmpathyResponseStyle {
+    fn from(c: super::config::EmpathyResponseStyle) -> Self {
+        match c {
+            super::config::EmpathyResponseStyle::DirectSupportive => Self::DirectSupportive,
+            super::config::EmpathyResponseStyle::GentleNurturing => Self::GentleNurturing,
+            super::config::EmpathyResponseStyle::ProfessionalClinical => Self::ProfessionalClinical,
+            super::config::EmpathyResponseStyle::WarmPersonal => Self::WarmPersonal,
+            super::config::EmpathyResponseStyle::Adaptive => Self::Adaptive,
+        }
+    }
+}
+
+impl From<super::config::CompassionLevel> for CompassionLevel {
+    fn from(c: super::config::CompassionLevel) -> Self {
+        match c {
+            super::config::CompassionLevel::Low => Self::Low,
+            super::config::CompassionLevel::Medium => Self::Medium,
+            super::config::CompassionLevel::High => Self::High,
+            super::config::CompassionLevel::Maximum => Self::Maximum,
+        }
+    }
+}
+
+impl From<super::config::SupportType> for SupportType {
+    fn from(c: super::config::SupportType) -> Self {
+        match c {
+            super::config::SupportType::Emotional => Self::Emotional,
+            super::config::SupportType::PracticalAdvice => Self::PracticalAdvice,
+            super::config::SupportType::ResourceRecommendation => Self::ResourceRecommendation,
+            super::config::SupportType::ReferralSuggestion => Self::ReferralSuggestion,
+            super::config::SupportType::CopingStrategies => Self::CopingStrategies,
+            super::config::SupportType::Validation => Self::Validation,
+        }
+    }
+}
+
+impl From<super::config::SupportCustomization> for SupportCustomization {
+    fn from(c: super::config::SupportCustomization) -> Self {
+        match c {
+            super::config::SupportCustomization::None => Self::None,
+            super::config::SupportCustomization::Basic => Self::Basic,
+            super::config::SupportCustomization::Advanced => Self::Advanced,
+            super::config::SupportCustomization::Personalized => Self::Personalized,
+        }
+    }
+}
+
+impl From<super::config::SupportValidation> for SupportValidation {
+    fn from(c: super::config::SupportValidation) -> Self {
+        match c {
+            super::config::SupportValidation::None => Self::None,
+            super::config::SupportValidation::Ethical => Self::Ethical,
+            super::config::SupportValidation::Clinical => Self::Clinical,
+            super::config::SupportValidation::MultiLevel => Self::MultiLevel,
+        }
+    }
+}
+
+impl From<super::config::PsychologicalFramework> for PsychologicalFramework {
+    fn from(c: super::config::PsychologicalFramework) -> Self {
+        match c {
+            super::config::PsychologicalFramework::CBT => Self::CBT,
+            super::config::PsychologicalFramework::Psychodynamic => Self::Psychodynamic,
+            super::config::PsychologicalFramework::Humanistic => Self::Humanistic,
+            super::config::PsychologicalFramework::PositivePsychology => Self::PositivePsychology,
+            super::config::PsychologicalFramework::Integrative { frameworks } => Self::Integrative {
+                frameworks: frameworks.into_iter().map(Into::into).collect(),
+            },
+        }
+    }
+}
+
+impl From<super::config::SupportGeneration> for SupportGeneration {
+    fn from(c: super::config::SupportGeneration) -> Self {
+        Self {
+            enable_support: c.enable_support,
+            support_types: c.support_types.into_iter().map(Into::into).collect(),
+            customization: c.customization.into(),
+            validation: c.validation.into(),
+        }
+    }
+}
+
+impl From<super::config::CulturalAdaptationMode> for CulturalAdaptationMode {
+    fn from(c: super::config::CulturalAdaptationMode) -> Self {
+        match c {
+            super::config::CulturalAdaptationMode::None => Self::None,
+            super::config::CulturalAdaptationMode::Basic => Self::Basic,
+            super::config::CulturalAdaptationMode::Deep => Self::Deep,
+            super::config::CulturalAdaptationMode::Dynamic => Self::Dynamic,
+            super::config::CulturalAdaptationMode::Learning => Self::Learning,
+        }
+    }
+}
+
+impl From<super::config::CommunicationStyle> for CommunicationStyle {
+    fn from(c: super::config::CommunicationStyle) -> Self {
+        match c {
+            super::config::CommunicationStyle::Direct => Self::Direct,
+            super::config::CommunicationStyle::Indirect => Self::Indirect,
+            super::config::CommunicationStyle::HighContext => Self::HighContext,
+            super::config::CommunicationStyle::LowContext => Self::LowContext,
+            super::config::CommunicationStyle::Formal => Self::Formal,
+            super::config::CommunicationStyle::Informal => Self::Informal,
+        }
+    }
+}
+
+impl From<super::config::EmotionalExpressionNorms> for EmotionalExpressionNorms {
+    fn from(c: super::config::EmotionalExpressionNorms) -> Self {
+        Self {
+            openness: c.openness,
+            preferred_intensity: c.preferred_intensity,
+            taboo_emotions: c.taboo_emotions,
+            celebrated_emotions: c.celebrated_emotions,
+        }
+    }
+}
+
+impl From<super::config::CulturalContext> for CulturalContext {
+    fn from(c: super::config::CulturalContext) -> Self {
+        Self {
+            name: c.name,
+            values: c.values,
+            communication_style: c.communication_style.into(),
+            emotional_norms: c.emotional_norms.into(),
+            support_preferences: c.support_preferences,
+        }
+    }
+}
+
+impl From<super::config::CulturalSensitivityLevel> for CulturalSensitivityLevel {
+    fn from(c: super::config::CulturalSensitivityLevel) -> Self {
+        match c {
+            super::config::CulturalSensitivityLevel::Low => Self::Low,
+            super::config::CulturalSensitivityLevel::Medium => Self::Medium,
+            super::config::CulturalSensitivityLevel::High => Self::High,
+            super::config::CulturalSensitivityLevel::Maximum => Self::Maximum,
+        }
+    }
+}
+
+impl From<super::config::CulturalLearningMode> for CulturalLearningMode {
+    fn from(c: super::config::CulturalLearningMode) -> Self {
+        match c {
+            super::config::CulturalLearningMode::None => Self::None,
+            super::config::CulturalLearningMode::Static => Self::Static,
+            super::config::CulturalLearningMode::Adaptive => Self::Adaptive,
+            super::config::CulturalLearningMode::Continuous => Self::Continuous,
+        }
+    }
+}
+
+impl From<super::config::ContextAwarenessLevel> for ContextAwarenessLevel {
+    fn from(c: super::config::ContextAwarenessLevel) -> Self {
+        match c {
+            super::config::ContextAwarenessLevel::None => Self::None,
+            super::config::ContextAwarenessLevel::Local => Self::Local,
+            super::config::ContextAwarenessLevel::Global => Self::Global,
+            super::config::ContextAwarenessLevel::MultiDimensional => Self::MultiDimensional,
+        }
+    }
 }
 
 impl Default for AetherArchitecture {

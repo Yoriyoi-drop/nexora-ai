@@ -333,7 +333,7 @@ impl SecurityGuardianAgent {
             0.0
         };
         
-        let final_score = base_score + threat_adjustment + log_adjustment;
+        let final_score: f32 = base_score + threat_adjustment + log_adjustment;
         Ok(final_score.max(0.0).min(1.0))
     }
 }

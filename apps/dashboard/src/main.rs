@@ -117,7 +117,7 @@ impl App {
         // Run cargo-nextest with JSON output
         let output = Command::new("cargo")
             .args(&["nextest", "run", "--message-format=json"])
-            .current_dir("/home/whale-d/nexora/nexora-ai")
+            .current_dir(std::env::current_dir()?)
             .output()
             .await?;
 

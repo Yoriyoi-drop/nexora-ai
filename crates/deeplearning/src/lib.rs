@@ -16,6 +16,7 @@
 pub mod star_x;
 pub mod echo_net;
 pub mod gnac;
+pub mod autograd;
 
 // Re-export main components
 pub use echo_net::*;

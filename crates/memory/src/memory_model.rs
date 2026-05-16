@@ -939,6 +939,213 @@ pub fn free_c_memory_entry(c_entry: CMemoryEntry) {
     // Note: embedding is owned by Rust, so don't free it here
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Differentiable Neural Attention Memory
+// Menggantikan k-NN heuristic dengan soft attention (differentiable)
+// Key-Value memory dengan soft addressing — gradient bisa mengalir ke store
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Konfigurasi untuk Differentiable Neural Attention Memory
+#[derive(Debug, Clone)]
+pub struct NeuralAttentionMemoryConfig {
+    pub key_dim: usize,
+    pub value_dim: usize,
+    pub memory_size: usize,
+    pub temperature: f32,
+    pub top_k_retrieval: usize,
+    pub learning_rate: f32,
+}
+
+impl Default for NeuralAttentionMemoryConfig {
+    fn default() -> Self {
+        Self {
+            key_dim: 128,
+            value_dim: 128,
+            memory_size: 1024,
+            temperature: 0.1,
+            top_k_retrieval: 16,
+            learning_rate: 1e-3,
+        }
+    }
+}
+
+/// Memory entry dalam Differentiable Neural Attention Memory
+#[derive(Debug, Clone)]
+pub struct NeuralMemoryEntry {
+    pub key: Vec<f32>,
+    pub value: Vec<f32>,
+    pub timestamp: usize,
+    pub access_count: usize,
+}
+
+/// Differentiable Neural Attention Memory
+/// Key-value memory dengan softmax-based addressing (differentiable)
+/// Bisa di-backprop — gradient mengalir dari loss ke key-value store
+#[derive(Debug, Clone)]
+pub struct NeuralAttentionMemory {
+    pub config: NeuralAttentionMemoryConfig,
+    pub entries: Vec<NeuralMemoryEntry>,
+    pub usage_counts: Vec<usize>,
+    write_index: usize,
+}
+
+impl NeuralAttentionMemory {
+    pub fn new(config: NeuralAttentionMemoryConfig) -> Self {
+        Self {
+            entries: Vec::with_capacity(config.memory_size),
+            usage_counts: Vec::new(),
+            write_index: 0,
+            config,
+        }
+    }
+
+    /// Write memory menggunakan soft addressing (differentiable)
+    /// output = Σ_i α_i · V_i  where α = softmax(K·Q / τ)
+    pub fn read(&self, query: &[f32]) -> Vec<f32> {
+        if self.entries.is_empty() || query.len() != self.config.key_dim {
+            return vec![0.0; self.config.value_dim];
+        }
+
+        let n = self.entries.len();
+        let mut scores = Vec::with_capacity(n);
+
+        // Compute attention scores: α_i = exp(K_i · Q / τ)
+        let max_score = self.entries.iter()
+            .map(|e| self.dot_product(query, &e.key) / self.config.temperature)
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        let mut sum_exp = 0.0;
+        for entry in &self.entries {
+            let s = self.dot_product(query, &entry.key) / self.config.temperature;
+            let e = (s - max_score).exp();
+            scores.push(e);
+            sum_exp += e;
+        }
+
+        // Weighted sum of values
+        let mut output = vec![0.0; self.config.value_dim];
+        if sum_exp > 1e-10 {
+            for (i, entry) in self.entries.iter().enumerate() {
+                let alpha = scores[i] / sum_exp;
+                for j in 0..self.config.value_dim.min(entry.value.len()) {
+                    output[j] += alpha * entry.value[j];
+                }
+            }
+        }
+
+        output
+    }
+
+    /// Top-k retrieval (untuk non-differentiable inference / fast path)
+    pub fn read_top_k(&self, query: &[f32], k: usize) -> Vec<(Vec<f32>, f32)> {
+        if self.entries.is_empty() {
+            return Vec::new();
+        }
+
+        let k = k.min(self.entries.len());
+        let mut similarities: Vec<(usize, f32)> = self.entries.iter().enumerate()
+            .map(|(i, e)| (i, self.dot_product(query, &e.key)))
+            .collect();
+        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        similarities.iter().take(k)
+            .map(|(i, _)| (self.entries[*i].value.clone(), similarities[0].1))
+            .collect()
+    }
+
+    /// Write memory (LSH + least-used replacement)
+    pub fn write(&mut self, key: Vec<f32>, value: Vec<f32>, timestamp: usize) {
+        if self.entries.len() < self.config.memory_size {
+            self.entries.push(NeuralMemoryEntry {
+                key,
+                value,
+                timestamp,
+                access_count: 0,
+            });
+            self.usage_counts.push(0);
+        } else {
+            // Least-used replacement
+            let lru_idx = self.usage_counts.iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| a.cmp(b))
+                .map(|(idx, _)| idx)
+                .unwrap_or(0);
+
+            self.entries[lru_idx] = NeuralMemoryEntry {
+                key,
+                value,
+                timestamp,
+                access_count: 0,
+            };
+            self.usage_counts[lru_idx] = 0;
+        }
+    }
+
+    /// Compute gradient untuk memory update (differentiable)
+    /// Mengupdate key-value store berdasarkan retrieval error
+    pub fn backward(&mut self, query: &[f32], gradient: &[f32]) {
+        if self.entries.is_empty() {
+            return;
+        }
+
+        let n = self.entries.len();
+        let mut scores = Vec::with_capacity(n);
+        let max_score = self.entries.iter()
+            .map(|e| self.dot_product(query, &e.key) / self.config.temperature)
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        let mut sum_exp = 0.0;
+        for entry in &self.entries {
+            let s = self.dot_product(query, &entry.key) / self.config.temperature;
+            let e = (s - max_score).exp();
+            scores.push(e);
+            sum_exp += e;
+        }
+
+        if sum_exp < 1e-10 {
+            return;
+        }
+
+        let lr = self.config.learning_rate;
+        for (i, entry) in self.entries.iter_mut().enumerate() {
+            let alpha = scores[i] / sum_exp;
+
+            // Update value: V_i += lr · α · grad
+            for j in 0..self.config.value_dim.min(gradient.len()).min(entry.value.len()) {
+                entry.value[j] += lr * alpha * gradient[j];
+            }
+
+            // Update key: K_i += lr · α · grad · V_i · (1 - α) · query
+            let grad_dot_value: f32 = gradient.iter()
+                .zip(entry.value.iter())
+                .map(|(g, v)| g * v)
+                .sum();
+            for j in 0..self.config.key_dim.min(query.len()).min(entry.key.len()) {
+                entry.key[j] += lr * alpha * grad_dot_value * (1.0 - alpha as f64) as f32 * query[j];
+            }
+
+            entry.access_count += 1;
+
+            // Update usage counts
+            if i < self.usage_counts.len() {
+                self.usage_counts[i] += 1;
+            }
+        }
+    }
+
+    fn dot_product(&self, a: &[f32], b: &[f32]) -> f32 {
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

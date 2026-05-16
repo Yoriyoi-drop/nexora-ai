@@ -643,7 +643,7 @@ impl InnovationEngineAgent {
         
         let concept_name = format!("Innovative Concept {} for {}", index + 1, input.description);
         let concept_description = format!(
-            "A novel concept combining {} with {} using {:?} approach",
+            "A novel concept combining {} with {:?} using {:?} approach",
             input.domain, innovation_type, generation_method
         );
         

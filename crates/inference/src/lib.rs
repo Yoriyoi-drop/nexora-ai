@@ -9,6 +9,7 @@ pub mod runtime;
 pub mod session;
 pub mod decoding;
 pub mod beam_search;
+pub mod speculative_decoding;
 pub mod sampler;
 pub mod stop_conditions;
 pub mod token_loop;

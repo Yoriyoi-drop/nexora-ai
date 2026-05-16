@@ -63,7 +63,7 @@ pub struct LogicCapability {
 }
 
 /// Logic Support Level
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub enum LogicSupportLevel {
     /// No support
     None,
@@ -122,7 +122,7 @@ pub struct MathCapability {
 }
 
 /// Math Proficiency
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub enum MathProficiency {
     /// No proficiency
     None,
@@ -400,16 +400,26 @@ pub enum ReasoningDomain {
 }
 
 impl AxiomIdentity {
+    /// Get model metadata
+    pub fn meta(&self) -> &ModelMeta {
+        &self.meta
+    }
+
     /// Create new NXR-AXIOM identity
     pub fn new() -> Self {
         let meta = ModelMeta {
+            id: NxrModelId::Axiom,
             name: "NXR-AXIOM".to_string(),
             version: "1.0.0".to_string(),
             description: "Neural eXecutive AI for Logical and Mathematical Operations - Advanced logical reasoning and mathematical proof system".to_string(),
-            model_id: NxrModelId::Axiom,
+            model_id: NxrModelId::Axiom.to_string(),
             tier: ModelTier::Master,
+            uuid: uuid::Uuid::new_v4(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            parameter_count: None,
+            context_window: None,
+            experimental: false,
             tags: vec![
                 "logical_reasoning".to_string(),
                 "mathematical_proof".to_string(),

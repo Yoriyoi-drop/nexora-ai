@@ -1,7 +1,7 @@
 //! Quantum entanglement profiling for layer sensitivity analysis
 //! Implements iPEPS-TRG based entanglement analysis
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
+use ndarray::{Array, Array2, ArrayD, ArrayView, IxDyn};
 use ndarray_rand::RandomExt;
 use rand_distr::Standard;
 use std::collections::HashMap;
@@ -507,7 +507,8 @@ fn compute_entanglement_similarity(
     Ok(0.6 * entropy_similarity + 0.4 * correlation_similarity)
 }
 
-/// Compute truncated SVD using power iteration method      
+/// Compute truncated SVD using randomized SVD (Halko et al. 2011)
+/// Proper implementation, menggantikan random placeholder
 fn compute_truncated_svd(
     matrix: &ArrayView<f32, ndarray::Ix2>,
     rank: usize,
@@ -515,16 +516,135 @@ fn compute_truncated_svd(
     let (m, n) = matrix.dim();
     let actual_rank = rank.min(m.min(n));
     
-    // Random initialization for demonstration
+    if actual_rank == 0 {
+        return Err(crate::ATQSError::ProfilingError("SVD rank cannot be zero".to_string()));
+    }
+
+    // Randomized SVD: oversample by 10
+    let p = 10;
+    let k = (actual_rank + p).min(m.min(n));
+
+    // Step 1: Random projection matrix Ω (n × k)
+    let mut omega = Array::zeros((n, k));
+    for elem in omega.iter_mut() {
+        *elem = rand::random::<f32>() * 2.0 - 1.0;
+    }
+
+    // Step 2: Y = A·Ω  (m × k)
+    let y = matrix.dot(&omega);
+
+    // Step 3: QR decomposition of Y
+    let (q, _r) = qr_decomposition(&y, k)?;
+
+    // Step 4: B = Qᵀ·A  (k × n)
+    let q_t = q.t();
+    let b = q_t.dot(matrix);
+
+    // Step 5: SVD of small matrix B
+    let (u_b, s, vt_b) = thin_svd(&b, actual_rank)?;
+
+    // Step 6: U = Q·U_b
+    let u = q.dot(&u_b);
+
+    Ok((u, s, vt_b))
+}
+
+/// QR decomposition via Gram-Schmidt
+fn qr_decomposition(
+    matrix: &Array2<f32>,
+    k: usize,
+) -> Result<(Array2<f32>, Array2<f32>), crate::ATQSError> {
+    let (m, n) = matrix.dim();
+    let rank = k.min(m.min(n));
+    
+    let mut q = Array::zeros((m, rank));
+    let mut r = Array::zeros((rank, n));
+    
+    for i in 0..rank {
+        let mut v = if i < n {
+            matrix.column(i).to_owned()
+        } else {
+            Array::zeros(m)
+        };
+        
+        for j in 0..i {
+            let r_ji = q.column(j).dot(&v);
+            r[[j, i]] = r_ji;
+            v = v - &q.column(j).mapv(|x| x * r_ji);
+        }
+        
+        let norm = v.mapv(|x| x * x).sum().sqrt();
+        if norm > 1e-10 {
+            r[[i, i]] = norm;
+            for (idx, val) in q.column_mut(i).iter_mut().enumerate() {
+                *val = v[idx] / norm;
+            }
+        }
+    }
+    
+    Ok((q, r))
+}
+
+/// Thin SVD via eigenvalue decomposition of A·Aᵀ
+fn thin_svd(
+    matrix: &Array2<f32>,
+    rank: usize,
+) -> Result<(Array2<f32>, Vec<f32>, Array2<f32>), crate::ATQSError> {
+    let (m, n) = matrix.dim();
+    let actual_rank = rank.min(m.min(n));
+    
+    // Compute A·Aᵀ (m × m) for eigenvalues
+    let aat = matrix.dot(&matrix.t());
+    
+    // Power iteration for top-k eigenvalues/eigenvectors
     let mut u = Array::zeros((m, actual_rank));
-    for elem in u.iter_mut() {
-        *elem = rand::random::<f32>();
+    let mut s = Vec::with_capacity(actual_rank);
+    
+    for k in 0..actual_rank {
+        // Random initialization
+        let mut vec = Array::from_iter(
+            (0..m).map(|_| rand::random::<f32>() * 2.0 - 1.0)
+        );
+        let vec_norm = vec.mapv(|x| x * x).sum().sqrt();
+        if vec_norm > 1e-10 {
+            vec = vec / vec_norm;
+        }
+        
+        // Power iteration (20 iterations)
+        for _ in 0..20 {
+            vec = aat.dot(&vec);
+            let norm = vec.mapv(|x| x * x).sum().sqrt();
+            if norm > 1e-10 {
+                vec = vec / norm;
+            }
+        }
+        
+        // Eigenvalue = Rayleigh quotient
+        let rayleigh = vec.dot(&aat.dot(&vec));
+        let sigma = rayleigh.abs().sqrt();
+        
+        // Orthogonalize against previous eigenvectors (Gram-Schmidt)
+        for j in 0..k {
+            let proj = u.column(j).dot(&vec);
+            vec = vec - &u.column(j).mapv(|x| x * proj);
+        }
+        let vec_norm = vec.mapv(|x| x * x).sum().sqrt();
+        if vec_norm > 1e-10 {
+            vec = vec / vec_norm;
+        }
+        
+        for (idx, val) in u.column_mut(k).iter_mut().enumerate() {
+            *val = vec[idx];
+        }
+        s.push(sigma);
     }
-    let s: Vec<f32> = (0..actual_rank).map(|i| 1.0 / (i + 1) as f32).collect();
-    let mut vt = Array::zeros((actual_rank, n));
-    for elem in vt.iter_mut() {
-        *elem = rand::random::<f32>();
-    }
+    
+    // Compute V = Aᵀ·U·Σ⁻¹
+    let sigma_inv = Array2::from_diag(&Array::from_vec(
+        s.iter().map(|&v| if v > 1e-10 { 1.0 / v } else { 0.0 }).collect()
+    ));
+    let ut = u.t();
+    let vt = sigma_inv.dot(&ut.dot(matrix));
     
     Ok((u, s, vt))
 }

@@ -104,6 +104,7 @@ fn create_router_config() -> RouterConfig {
         hidden_size: 4096,
         num_experts: 8,
         top_k: 2,
+        ..Default::default()
     };
     
     info!("Router config created");

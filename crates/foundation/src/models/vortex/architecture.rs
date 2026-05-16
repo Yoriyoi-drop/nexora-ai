@@ -17,7 +17,7 @@ pub struct VortexArchitecture {
     /// Code tokenizer
     code_tokenizer: CodeTokenizer,
     /// Pattern recognition engine
-    pattern_engine: PatternRecognitionEngine,
+    pattern_engine: PatternEngine,
     /// Neural debugger
     neural_debugger: NeuralDebugger,
     /// Architecture analyzer
@@ -1107,7 +1107,7 @@ impl VortexArchitecture {
                 RecognitionAlgorithm::StatisticalAnalysis => {
                     self.statistical_pattern_analysis(code).await?
                 }
-                RecognitionAlgorithm::Hybrid { weights } => {
+                RecognitionAlgorithm::Hybrid { ref weights } => {
                     self.hybrid_pattern_analysis(code, weights).await?
                 }
             };
@@ -1455,7 +1455,7 @@ impl VortexArchitecture {
                 let classes = code.matches("class ").count();
                 
                 if functions > 0 && classes > 0 {
-                    (functions as f32 / classes as f32).min(1.0)
+                    (functions as f32 / classes as f32).min(1.0_f32)
                 } else {
                     0.5
                 }
@@ -1564,7 +1564,7 @@ pub struct MetricResult {
 }
 
 /// Metric status
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MetricStatus {
     Good,
     Poor,

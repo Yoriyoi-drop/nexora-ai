@@ -2,12 +2,14 @@
 //! 
 //! Capability vector and specifications for NXR-NEXUM
 
+use std::collections::HashMap;
 use crate::shared::{
     capability_spec::{CapabilityVector, CapabilitySpec, CapabilityDomain, CapabilityLevel, ResourceRequirements},
     model_identity::NxrModelId,
 };
 
 /// NXR-NEXUM Capabilities Manager
+#[derive(Clone)]
 pub struct NexumCapabilities {
     /// Capability vector
     vector: CapabilityVector,
@@ -489,7 +491,7 @@ impl NexumCapabilities {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
-                let new_score = (current_score + improvement).min(1.0);
+                let new_score = (current_score + improvement).min(1.0_f32);
                 
                 // Update capability metrics
                 capability.metrics.insert("simulated_score".to_string(), new_score);
@@ -508,7 +510,7 @@ impl NexumCapabilities {
             resource_optimization: self.performance_metrics.resource_optimization_efficiency,
             agent_coordination: self.performance_metrics.agent_coordination_latency,
             alignment_enforcement: self.performance_metrics.alignment_enforcement_strength,
-            response_efficiency: (1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0),
+            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0)) as f32,
         }
     }
 
@@ -602,9 +604,9 @@ impl NexumCapabilities {
     /// Calculate task throughput
     fn calculate_task_throughput(&self) -> f32 {
         // Estimate based on coordination speed and response time
-        let base_throughput = 1000.0; // Base throughput in tasks/hour
+        let base_throughput = 1000.0_f32; // Base throughput in tasks/hour
         let coordination_factor = self.performance_metrics.agent_coordination_latency;
-        let response_factor = (1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0);
+        let response_factor = ((1000.0_f32 / self.performance_metrics.avg_response_time_ms as f32).min(1.0));
 
         base_throughput * coordination_factor * response_factor
     }

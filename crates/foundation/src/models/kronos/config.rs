@@ -287,6 +287,16 @@ pub enum QueryLanguage {
     Custom { language: String },
 }
 
+/// Update Strategy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum UpdateStrategy {
+    Batch,
+    Incremental,
+    EventDriven,
+    Scheduled,
+    Manual,
+}
+
 /// GraphUpdates
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphUpdates {

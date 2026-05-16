@@ -405,6 +405,17 @@ pub enum RiskAggregation {
     Multiplicative,
 }
 
+/// Update Frequency
+#[derive(Debug, Clone)]
+pub enum UpdateFrequency {
+    RealTime,
+    Hourly,
+    Daily,
+    Weekly,
+    Monthly,
+    Manual,
+}
+
 /// Vulnerability Database
 #[derive(Debug, Clone)]
 pub struct VulnerabilityDatabase {
@@ -1018,8 +1029,8 @@ impl CipherArchitecture {
         }
 
         // Validate zero-day simulation
-        if self.zero_day_simulation.safety_constraints.allow_exploitation 
-           && self.zero_day_simulation.safety_constraints.system_impact_limits.allow_modification {
+        if self.zero_day_simulation.exploit_generation.safety_constraints.allow_exploitation 
+           && self.zero_day_simulation.exploit_generation.safety_constraints.system_impact_limits.allow_modification {
             return Err("Cannot allow both exploitation and modification".into());
         }
 

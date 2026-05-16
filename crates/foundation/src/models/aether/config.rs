@@ -2,6 +2,7 @@
 //! 
 //! Model-specific configuration for NXR-ÆTHER
 
+use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
 
@@ -111,7 +112,7 @@ pub enum PsychologicalFramework {
 }
 
 /// Assessment Method
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AssessmentMethod {
     /// Behavioral analysis
     Behavioral,
@@ -212,7 +213,7 @@ pub struct SupportGeneration {
 }
 
 /// Support Type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SupportType {
     /// Emotional support
     Emotional,
@@ -363,6 +364,7 @@ impl Default for AetherConfig {
             psychological: PsychologicalConfig::default(),
             empathy: EmpathyConfig::default(),
             cultural: CulturalConfig::default(),
+            deep_learning: DeepLearningConfig::default(),
         }
     }
 }
@@ -541,7 +543,7 @@ impl AetherConfig {
                 self.cultural = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(serde_json::Error::syntax(serde_json::error::ErrorCode::ExpectedColon, 0, 0));
+                return Err(SerdeError::custom(format!("unknown component: {}", component)));
             }
         }
 

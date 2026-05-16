@@ -88,23 +88,3 @@ rustdoc-args = ["--cfg", "docsrs"]
 [package.metadata.cargo-machete]
 ignored = ["cudarc", "blas"]
 
-[profile.dev]
-opt-level = 0
-debug = true
-overflow-checks = true
-
-[profile.bench]
-opt-level = 3
-debug = true
-lto = true
-codegen-units = 1
-debug-assertions = false
-
-[profile.release]
-opt-level = 3
-debug = false
-lto = true
-codegen-units = 1
-panic = "abort"
-overflow-checks = false
-

@@ -9,6 +9,7 @@ pub mod caffeine;
 pub use caffeine::*;
 
 // Integration with NXR-SPECTRA
+use crate::shared::base_model::NxrModel;
 pub use crate::models::spectra::NxrSpectraModel;
 
 /// Enhanced CAFFEINE with NXR-SPECTRA integration

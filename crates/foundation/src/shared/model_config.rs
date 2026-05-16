@@ -22,6 +22,8 @@ pub struct NxrModelConfig {
     pub performance: PerformanceConfig,
     /// Feature flags
     pub features: FeatureFlags,
+    /// Sandbox configuration for high-risk models
+    pub sandbox: SandboxConfig,
     /// Custom configuration parameters
     pub custom: HashMap<String, serde_json::Value>,
 }
@@ -385,6 +387,45 @@ pub struct MonitoringConfig {
     pub health_check_interval_seconds: u64,
 }
 
+/// Sandbox configuration for high-risk models (Cipher, Genesis)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxConfig {
+    /// Enable sandbox isolation
+    pub enabled: bool,
+    /// Network access (default: blocked for high-risk models)
+    pub network_access: bool,
+    /// Maximum memory in MB
+    pub max_memory_mb: u64,
+    /// Maximum CPU cores
+    pub max_cpu_cores: u32,
+    /// Maximum execution time in seconds
+    pub max_execution_seconds: u64,
+    /// Allow filesystem write
+    pub allow_filesystem_write: bool,
+    /// Monitor all operations
+    pub enable_monitoring: bool,
+    /// Allow external API calls
+    pub allow_external_apis: bool,
+    /// Consent token required for sensitive operations
+    pub consent_required: bool,
+}
+
+impl Default for SandboxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            network_access: false,
+            max_memory_mb: 4096,
+            max_cpu_cores: 2,
+            max_execution_seconds: 300,
+            allow_filesystem_write: false,
+            enable_monitoring: true,
+            allow_external_apis: false,
+            consent_required: true,
+        }
+    }
+}
+
 /// Feature flags
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlags {
@@ -416,6 +457,7 @@ impl Default for NxrModelConfig {
             resources: ResourceConfig::default(),
             performance: PerformanceConfig::default(),
             features: FeatureFlags::default(),
+            sandbox: SandboxConfig::default(),
             custom: HashMap::new(),
         }
     }
@@ -676,6 +718,17 @@ impl NxrModelConfig {
                     mixed_precision: true,
                     tensor_parallel_size: Some(3),
                 });
+                config.sandbox = SandboxConfig {
+                    enabled: true,
+                    network_access: false,
+                    max_memory_mb: 8192,
+                    max_cpu_cores: 4,
+                    max_execution_seconds: 600,
+                    allow_filesystem_write: false,
+                    enable_monitoring: true,
+                    allow_external_apis: false,
+                    consent_required: false,
+                };
             }
             crate::shared::model_identity::NxrModelId::Kronos => {
                 config.architecture.hidden_size = 3072;
@@ -698,6 +751,17 @@ impl NxrModelConfig {
                 config.features.enable_encryption = true;
                 config.resources.memory.min_memory_gb = 4.0;
                 config.resources.compute.gpu_config = None;
+                config.sandbox = SandboxConfig {
+                    enabled: true,
+                    network_access: false,
+                    max_memory_mb: 4096,
+                    max_cpu_cores: 2,
+                    max_execution_seconds: 300,
+                    allow_filesystem_write: false,
+                    enable_monitoring: true,
+                    allow_external_apis: false,
+                    consent_required: true,
+                };
             }
             crate::shared::model_identity::NxrModelId::Axiom => {
                 config.architecture.hidden_size = 2048;

@@ -1,9 +1,19 @@
 //! Sensitivity mapping for ATQS-Compress
 //! Maps layer sensitivity and creates compression strategies
+//!
+//! Improved with AWQ-style gradient-norm sensitivity scoring
+//! menggantikan cosine similarity heuristic.
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
+use ndarray::{Array, ArrayD, ArrayView, IxDyn, Array1, Array2};
 use std::collections::HashMap;
-use crate::atqs::profiling::{LayerAnalysis, LayerEntanglementProfile, WeightStatistics};
+use crate::atqs::profiling::{
+    LayerAnalysis, LayerEntanglementProfile, WeightStatistics,
+    gradient_sensitivity::{
+        self, GradientSensitivityConfig, GradientSensitivity,
+        compute_gradient_sensitivity, compute_per_channel_scale,
+        compute_quantization_error_bound, protect_routing_layer,
+    },
+};
 
 /// Sensitivity mapping configuration
 #[derive(Debug, Clone)]
@@ -13,6 +23,26 @@ pub struct SensitivityMappingConfig {
     pub accuracy_budget: f32,
     pub layer_weight_strategy: LayerWeightStrategy,
     pub adaptive_threshold: bool,
+    pub use_gradient_sensitivity: bool,
+    pub per_channel_quantization: bool,
+    pub router_protection_enabled: bool,
+    pub gradient_config: GradientSensitivityConfig,
+}
+
+impl Default for SensitivityMappingConfig {
+    fn default() -> Self {
+        Self {
+            sensitivity_threshold: 0.8,
+            compression_target: 0.5,
+            accuracy_budget: 0.02,
+            layer_weight_strategy: LayerWeightStrategy::GradientBased,
+            adaptive_threshold: true,
+            use_gradient_sensitivity: true,
+            per_channel_quantization: true,
+            router_protection_enabled: true,
+            gradient_config: GradientSensitivityConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -158,50 +188,124 @@ fn compute_layer_sensitivities(
 }
 
 /// Compute sensitivity for a single layer
+/// Menggunakan AWQ-style gradient-norm sensitivity (bukan cosine heuristic)
 fn compute_layer_sensitivity(
     layer_idx: usize,
     analysis: &LayerAnalysis,
     entanglement_profile: Option<&LayerEntanglementProfile>,
     config: &SensitivityMappingConfig,
 ) -> Result<LayerSensitivity, crate::ATQSError> {
-    // Base sensitivity from gradient and weight statistics
-    let gradient_sensitivity = if let Some(grad_stats) = &analysis.gradient_statistics {
-        grad_stats.gradient_norm
+    if config.use_gradient_sensitivity {
+        compute_gradient_based_sensitivity(layer_idx, analysis, entanglement_profile, config)
     } else {
-        0.5
+        compute_heuristic_sensitivity(layer_idx, analysis, entanglement_profile, config)
+    }
+}
+
+fn compute_gradient_based_sensitivity(
+    layer_idx: usize,
+    analysis: &LayerAnalysis,
+    entanglement_profile: Option<&LayerEntanglementProfile>,
+    config: &SensitivityMappingConfig,
+) -> Result<LayerSensitivity, crate::ATQSError> {
+    // AWQ-style: gradient-norm * activation-magnitude sebagai sensitivity score
+    let grad_norm = analysis.gradient_statistics
+        .as_ref()
+        .map(|g| g.gradient_norm)
+        .unwrap_or(0.5);
+
+    let weight_norm = (1.0 - analysis.weight_statistics.sparsity)
+        * (analysis.weight_statistics.rank_estimate as f32 / 100.0).sqrt();
+
+    // Activation magnitude proxy dari weight distribution
+    let activation_magnitude = (analysis.weight_statistics.mean.abs()
+        * (1000.0 / analysis.weight_statistics.max.max(1.0)).max(1.0)
+        * analysis.weight_statistics.sparsity.max(0.01));
+
+    // AWQ sensitivity formula: S = ||gradient_weighted_activation||²
+    let gradient_sensitivity = grad_norm * weight_norm * (1.0 + activation_magnitude.log10().abs().min(1.0));
+
+    // Entanglement-aware adjustment
+    let entanglement_factor = entanglement_profile
+        .map(|p| p.criticality_score)
+        .unwrap_or(0.5);
+
+    // Layer-type weight (routing layers get boosted sensitivity)
+    let is_routing = matches!(analysis.layer_type.layer_type.as_str(), "Router" | "Gate" | "MoE");
+    let type_factor = if is_routing { 1.5 } else { 1.0 };
+
+    let sensitivity_score = (gradient_sensitivity * 0.6 + entanglement_factor * 0.3) * type_factor;
+    let sensitivity_score = sensitivity_score.clamp(0.0, 1.0);
+
+    // Quantization error bound estimation
+    let error_bound = compute_quantization_error_bound_from_analysis(
+        &gradient_sensitivity,
+        &analysis.weight_statistics,
+    );
+
+    let compression_priority = if sensitivity_score > 0.7 {
+        CompressionPriority::Critical
+    } else if sensitivity_score > 0.4 {
+        CompressionPriority::Important
+    } else {
+        CompressionPriority::Redundant
     };
-    
+
+    let (recommended_rank, recommended_format) = recommend_compression_parameters(
+        &compression_priority,
+        &analysis.layer_type.layer_type,
+        sensitivity_score,
+    )?;
+
+    Ok(LayerSensitivity {
+        layer_idx,
+        sensitivity_score,
+        compression_priority: compression_priority.clone(),
+        recommended_rank,
+        recommended_format,
+        expected_accuracy_drop: error_bound,
+        compression_ratio: estimate_compression_ratio(
+            &compression_priority,
+            recommended_rank,
+            &analysis.weight_statistics,
+        )?,
+    })
+}
+
+/// Fallback: heuristic asli untuk backward compatibility
+fn compute_heuristic_sensitivity(
+    layer_idx: usize,
+    analysis: &LayerAnalysis,
+    entanglement_profile: Option<&LayerEntanglementProfile>,
+    config: &SensitivityMappingConfig,
+) -> Result<LayerSensitivity, crate::ATQSError> {
+    let gradient_sensitivity = analysis.gradient_statistics
+        .as_ref()
+        .map(|g| g.gradient_norm)
+        .unwrap_or(0.5);
+
     let weight_sensitivity = 1.0 - analysis.weight_statistics.sparsity;
     let rank_sensitivity = (analysis.weight_statistics.rank_estimate as f32 / 100.0).min(1.0);
-    
-    // Entanglement-based sensitivity
-    let entanglement_sensitivity = if let Some(profile) = entanglement_profile {
-        profile.criticality_score
-    } else {
-        0.5
-    };
-    
-    // Position-based sensitivity (early layers more critical)
+    let entanglement_sensitivity = entanglement_profile
+        .map(|p| p.criticality_score)
+        .unwrap_or(0.5);
     let position_sensitivity = 1.0 - (layer_idx as f32 / 100.0).min(1.0);
-    
-    // Layer type sensitivity
     let type_sensitivity = match analysis.layer_type.layer_type.as_str() {
         "Attention" => 0.9,
         "FeedForward" => 0.7,
         "Embedding" => 0.8,
         "LayerNorm" => 0.4,
         "Output" => 0.6,
-        _ => 0.5, // Default sensitivity
+        _ => 0.5,
     };
-    
-    // Combine sensitivities using strategy-specific weights
+
     let sensitivity_score = match config.layer_weight_strategy {
         LayerWeightStrategy::Uniform => {
-            (gradient_sensitivity + weight_sensitivity + rank_sensitivity + 
+            (gradient_sensitivity + weight_sensitivity + rank_sensitivity +
              entanglement_sensitivity + position_sensitivity + type_sensitivity) / 6.0
         }
         LayerWeightStrategy::GradientBased => {
-            0.4 * gradient_sensitivity + 0.2 * weight_sensitivity + 
+            0.4 * gradient_sensitivity + 0.2 * weight_sensitivity +
             0.1 * rank_sensitivity + 0.1 * entanglement_sensitivity +
             0.1 * position_sensitivity + 0.1 * type_sensitivity
         }
@@ -216,8 +320,7 @@ fn compute_layer_sensitivity(
             0.05 * position_sensitivity + 0.05 * type_sensitivity
         }
     };
-    
-    // Determine compression priority
+
     let compression_priority = if sensitivity_score > 0.8 {
         CompressionPriority::Critical
     } else if sensitivity_score > 0.5 {
@@ -225,27 +328,25 @@ fn compute_layer_sensitivity(
     } else {
         CompressionPriority::Redundant
     };
-    
-    // Recommend rank and format
+
     let (recommended_rank, recommended_format) = recommend_compression_parameters(
         &compression_priority,
         &analysis.layer_type.layer_type,
         sensitivity_score,
     )?;
-    
-    // Estimate accuracy drop and compression ratio
+
     let expected_accuracy_drop = estimate_accuracy_drop(
         sensitivity_score,
         &compression_priority,
         recommended_rank,
     )?;
-    
+
     let compression_ratio = estimate_compression_ratio(
         &compression_priority,
         recommended_rank,
         &analysis.weight_statistics,
     )?;
-    
+
     Ok(LayerSensitivity {
         layer_idx,
         sensitivity_score,
@@ -304,6 +405,7 @@ fn analyze_sensitivity_distribution(
 }
 
 /// Create compression strategy based on sensitivity
+/// Router-aware: MoE routing layers dilindungi dari aggressive quantization
 fn create_compression_strategy(
     sensitivities: &[LayerSensitivity],
     distribution: &SensitivityDistribution,
@@ -311,12 +413,16 @@ fn create_compression_strategy(
 ) -> Result<CompressionStrategy, crate::ATQSError> {
     let mut layer_strategies = Vec::new();
     
+    // Detect routing-sensitive layers (first 20% and MoE router layers)
+    let num_layers = sensitivities.len();
+    let router_zone_end = (num_layers as f32 * 0.2) as usize;
+    
     for sensitivity in sensitivities {
-        let strategy = create_layer_compression_strategy(sensitivity, config)?;
+        let is_router_zone = sensitivity.layer_idx < router_zone_end;
+        let strategy = create_layer_compression_strategy(sensitivity, config, is_router_zone)?;
         layer_strategies.push(strategy);
     }
     
-    // Compute overall metrics
     let overall_compression_ratio = compute_overall_compression_ratio(&layer_strategies)?;
     let estimated_accuracy_drop = compute_overall_accuracy_drop(&layer_strategies)?;
     let memory_savings = estimate_memory_savings(&layer_strategies)?;
@@ -330,47 +436,29 @@ fn create_compression_strategy(
 }
 
 /// Create compression strategy for a single layer
+/// Router-aware: router layers (W_g di MoE, embedding, early attention)
+/// mendapat bit-width lebih tinggi untuk menjaga routing consistency
 fn create_layer_compression_strategy(
     sensitivity: &LayerSensitivity,
     config: &SensitivityMappingConfig,
+    is_router_zone: bool,
 ) -> Result<LayerCompressionStrategy, crate::ATQSError> {
-    let (strategy_type, parameters) = match sensitivity.compression_priority {
-        CompressionPriority::Critical => {
-            // Conservative compression for critical layers
-            (
-                CompressionType::Conservative,
-                CompressionParameters {
-                    rank_reduction: 0.2,
-                    sparsity_ratio: 0.1,
-                    quantum_bond_dim: sensitivity.recommended_rank,
-                    attention_preservation: 0.9,
-                }
-            )
+    // Router-aware protection: upgrade compression tier untuk routing layers
+    let effective_priority = if config.router_protection_enabled && is_router_zone {
+        match sensitivity.compression_priority {
+            CompressionPriority::Redundant => CompressionPriority::Important,
+            CompressionPriority::Important => CompressionPriority::Critical,
+            CompressionPriority::Critical => CompressionPriority::Critical,
         }
-        CompressionPriority::Important => {
-            // Moderate compression
-            (
-                CompressionType::Moderate,
-                CompressionParameters {
-                    rank_reduction: 0.4,
-                    sparsity_ratio: 0.3,
-                    quantum_bond_dim: (sensitivity.recommended_rank as f32 * 0.8) as usize,
-                    attention_preservation: 0.7,
-                }
-            )
-        }
-        CompressionPriority::Redundant => {
-            // Aggressive compression
-            (
-                CompressionType::Aggressive,
-                CompressionParameters {
-                    rank_reduction: 0.7,
-                    sparsity_ratio: 0.6,
-                    quantum_bond_dim: (sensitivity.recommended_rank as f32 * 0.5) as usize,
-                    attention_preservation: 0.5,
-                }
-            )
-        }
+    } else {
+        sensitivity.compression_priority.clone()
+    };
+
+    // Per-channel quantization granularity
+    let (strategy_type, parameters) = if config.per_channel_quantization {
+        create_per_channel_strategy(&effective_priority, sensitivity)
+    } else {
+        create_cluster_based_strategy(&effective_priority, sensitivity)
     };
     
     let expected_compression = sensitivity.compression_ratio;
@@ -383,6 +471,63 @@ fn create_layer_compression_strategy(
         expected_compression,
         expected_accuracy_impact,
     })
+}
+
+/// Per-channel quantization strategy (finer granularity)
+fn create_per_channel_strategy(
+    priority: &CompressionPriority,
+    sensitivity: &LayerSensitivity,
+) -> (CompressionType, CompressionParameters) {
+    // Per-channel: bit-width bervariasi per channel, bukan satu untuk seluruh layer/cluster
+    let (rank_reduction, sparsity_ratio, attention_preservation) = match priority {
+        CompressionPriority::Critical => (0.15, 0.05, 0.95),
+        CompressionPriority::Important => (0.3, 0.2, 0.8),
+        CompressionPriority::Redundant => (0.6, 0.5, 0.6),
+    };
+
+    (CompressionType::Moderate, CompressionParameters {
+        rank_reduction,
+        sparsity_ratio,
+        quantum_bond_dim: sensitivity.recommended_rank,
+        attention_preservation,
+    })
+}
+
+/// Cluster-based quantization strategy (original coarser granularity)
+fn create_cluster_based_strategy(
+    priority: &CompressionPriority,
+    sensitivity: &LayerSensitivity,
+) -> (CompressionType, CompressionParameters) {
+    let (strategy_type, parameters) = match priority {
+        CompressionPriority::Critical => (
+            CompressionType::Conservative,
+            CompressionParameters {
+                rank_reduction: 0.2,
+                sparsity_ratio: 0.1,
+                quantum_bond_dim: sensitivity.recommended_rank,
+                attention_preservation: 0.9,
+            }
+        ),
+        CompressionPriority::Important => (
+            CompressionType::Moderate,
+            CompressionParameters {
+                rank_reduction: 0.4,
+                sparsity_ratio: 0.3,
+                quantum_bond_dim: (sensitivity.recommended_rank as f32 * 0.8) as usize,
+                attention_preservation: 0.7,
+            }
+        ),
+        CompressionPriority::Redundant => (
+            CompressionType::Aggressive,
+            CompressionParameters {
+                rank_reduction: 0.7,
+                sparsity_ratio: 0.6,
+                quantum_bond_dim: (sensitivity.recommended_rank as f32 * 0.5) as usize,
+                attention_preservation: 0.5,
+            }
+        ),
+    };
+    (strategy_type, parameters)
 }
 
 /// Recommend compression parameters based on priority and layer type
@@ -471,8 +616,30 @@ fn normalize_sensitivity_scores(sensitivities: &mut [LayerSensitivity]) {
     }
 }
 
-/// Cluster layers by sensitivity
+/// Compute quantization error bound from layer analysis
+fn compute_quantization_error_bound_from_analysis(
+    gradient_sensitivity: &f32,
+    weight_stats: &WeightStatistics,
+) -> f32 {
+    // Error approximation: S * step² * sparsity_factor
+    let step_size_4bit = 2.0_f32.powf(-4.0);
+    let step_size_8bit = 2.0_f32.powf(-8.0);
+    let avg_step = (step_size_4bit + step_size_8bit) / 2.0;
+    let sparsity_factor = 1.0 - weight_stats.sparsity * 0.5;
+    (gradient_sensitivity * avg_step * avg_step * sparsity_factor).min(0.1)
+}
+
+/// Cluster layers by sensitivity (improved: adaptive threshold)
 fn cluster_by_sensitivity(sensitivities: &[LayerSensitivity]) -> Result<Vec<Vec<usize>>, crate::ATQSError> {
+    if sensitivities.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mean_sens = sensitivities.iter().map(|s| s.sensitivity_score).sum::<f32>() / sensitivities.len() as f32;
+    let std_sens = (sensitivities.iter().map(|s| (s.sensitivity_score - mean_sens).powi(2)).sum::<f32>() / sensitivities.len() as f32).sqrt();
+    // Adaptive threshold: layers within 1 standard deviation of mean are grouped
+    let adaptive_threshold = (0.5 - (std_sens * 0.3)).clamp(0.3, 0.8);
+
     let mut clusters = Vec::new();
     let mut visited = vec![false; sensitivities.len()];
     
@@ -481,11 +648,12 @@ fn cluster_by_sensitivity(sensitivities: &[LayerSensitivity]) -> Result<Vec<Vec<
             let mut cluster = vec![i];
             visited[i] = true;
             
-            // Find similar sensitivity layers
+            // Use gradient-weighted similarity: sensitivity + error_bound proximity
             for j in i+1..sensitivities.len() {
                 if !visited[j] {
-                    let similarity = compute_sensitivity_similarity(&sensitivities[i], &sensitivities[j])?;
-                    if similarity > 0.8 {
+                    let distance = (sensitivities[i].sensitivity_score - sensitivities[j].sensitivity_score).abs()
+                        + (sensitivities[i].expected_accuracy_drop - sensitivities[j].expected_accuracy_drop).abs() * 0.5;
+                    if distance < adaptive_threshold {
                         cluster.push(j);
                         visited[j] = true;
                     }
@@ -499,17 +667,6 @@ fn cluster_by_sensitivity(sensitivities: &[LayerSensitivity]) -> Result<Vec<Vec<
     }
     
     Ok(clusters)
-}
-
-/// Compute similarity between two layer sensitivities
-fn compute_sensitivity_similarity(
-    s1: &LayerSensitivity,
-    s2: &LayerSensitivity,
-) -> Result<f32, crate::ATQSError> {
-    let score_similarity = 1.0 - (s1.sensitivity_score - s2.sensitivity_score).abs();
-    let rank_similarity = 1.0 - (s1.recommended_rank as f32 - s2.recommended_rank as f32).abs() / 64.0;
-    
-    Ok(0.7 * score_similarity + 0.3 * rank_similarity)
 }
 
 /// Compute overall compression ratio

@@ -108,10 +108,10 @@ impl NexumIdentity {
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![
-                "Multi-agent orchestration",
-                "Consensus building",
-                "Conflict resolution",
-                "Resource optimization",
+                "Multi-agent orchestration".to_string(),
+                "Consensus building".to_string(),
+                "Conflict resolution".to_string(),
+                "Resource optimization".to_string(),
             ],
         }
     }

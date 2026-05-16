@@ -716,13 +716,16 @@ impl ConsensusBuilderAgent {
             reasoning_scores.insert(trace.agent_id.clone(), score);
         }
         
+        let overall_quality = reasoning_scores.values().sum::<f32>() / reasoning_scores.len() as f32;
+        let best_reasoning = reasoning_scores.iter()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(id, _)| id.clone())
+            .unwrap_or_default();
+
         Ok(ReasoningEvaluation {
             reasoning_scores,
-            overall_quality: reasoning_scores.values().sum::<f32>() / reasoning_scores.len() as f32,
-            best_reasoning: reasoning_scores.iter()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-                .map(|(id, _)| id.clone())
-                .unwrap_or_default(),
+            overall_quality,
+            best_reasoning,
         })
     }
 
@@ -766,8 +769,10 @@ impl ConsensusBuilderAgent {
     /// Calculate disagreement score between two outputs
     fn calculate_disagreement_score(&self, output1: &AgentOutput, output2: &AgentOutput) -> f32 {
         // Simplified semantic distance calculation
-        let words1: std::collections::HashSet<_> = output1.content.to_lowercase().split_whitespace().collect();
-        let words2: std::collections::HashSet<_> = output2.content.to_lowercase().split_whitespace().collect();
+        let lower1 = output1.content.to_lowercase();
+        let lower2 = output2.content.to_lowercase();
+        let words1: std::collections::HashSet<_> = lower1.split_whitespace().collect();
+        let words2: std::collections::HashSet<_> = lower2.split_whitespace().collect();
         
         let intersection = words1.intersection(&words2).count();
         let union = words1.union(&words2).count();
@@ -803,7 +808,7 @@ impl ConsensusBuilderAgent {
         }
         
         // Sort by weight and select best elements
-        weighted_outputs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        weighted_outputs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         
         let consensus_text = if let Some((best_output, _)) = weighted_outputs.first() {
             best_output.content.clone()
@@ -874,7 +879,7 @@ impl ConsensusBuilderAgent {
             }
         }
         
-        best_result.ok_or_else(|| crate::shared::agent_types::AgentError::ProcessingError(
+        best_result.ok_or_else(|| crate::shared::agent_types::AgentError::ProcessingFailed(
             "No valid consensus strategy found".to_string()
         ))
     }

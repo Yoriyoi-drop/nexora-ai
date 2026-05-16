@@ -108,10 +108,10 @@ impl VortexIdentity {
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![
-                "Code generation",
-                "Debugging",
-                "Architecture analysis",
-                "Performance optimization",
+                "Code generation".to_string(),
+                "Debugging".to_string(),
+                "Architecture analysis".to_string(),
+                "Performance optimization".to_string(),
             ],
         }
     }

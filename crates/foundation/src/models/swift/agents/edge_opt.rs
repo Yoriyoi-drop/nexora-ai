@@ -44,7 +44,7 @@ pub enum OptimizationMode {
     Battery,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResourceConstraints {
     pub max_memory_mb: u32,
     pub max_cpu_percent: f32,
@@ -53,7 +53,7 @@ pub struct ResourceConstraints {
     pub thermal_throttling_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PerformanceTargets {
     pub target_latency_ms: u32,
     pub target_throughput_ops_per_sec: f64,
@@ -572,12 +572,13 @@ impl EdgeOptAgent {
 
         let primary_bottleneck = self.identify_primary_bottleneck(&current_utilization);
         let secondary_bottlenecks = self.identify_secondary_bottlenecks(&current_utilization);
+        let mitigation_suggestions = self.generate_mitigation_suggestions(&primary_bottleneck, &secondary_bottlenecks);
 
         let bottleneck_analysis = BottleneckAnalysis {
             primary_bottleneck,
             secondary_bottlenecks,
             bottleneck_severity: self.calculate_bottleneck_severity(&current_utilization),
-            mitigation_suggestions: self.generate_mitigation_suggestions(&primary_bottleneck, &secondary_bottlenecks),
+            mitigation_suggestions,
         };
 
         let resource_trends = self.analyze_resource_trends(&input.current_hardware_state);
@@ -805,7 +806,7 @@ impl EdgeOptAgent {
 
         Ok(PerformanceForecast {
             predicted_latency_ms: base_latency * (1.0 + impact.latency_change_percent / 100.0),
-            predicted_throughput_ops_per_sec: base_throughput * (1.0 + impact.throughput_change_percent / 100.0),
+            predicted_throughput_ops_per_sec: base_throughput * (1.0 + impact.throughput_change_percent / 100.0) as f64,
             predicted_accuracy: base_accuracy * (1.0 + impact.accuracy_change_percent / 100.0),
             predicted_energy_efficiency: base_efficiency * (1.0 + impact.power_change_percent / 100.0),
             forecast_confidence: impact.confidence,

@@ -3,6 +3,7 @@
 //! Model-specific configuration for NXR-SPECTRA
 
 use std::collections::HashMap;
+use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use crate::shared::model_config::NxrModelConfig;
 
@@ -95,7 +96,7 @@ pub struct MultimodalConfig {
 }
 
 /// Modality
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Modality {
     /// Text modality
     Text,
@@ -234,7 +235,7 @@ pub enum InnovationMode {
 }
 
 /// Innovation Domain
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InnovationDomain {
     /// Visual innovation
     Visual,
@@ -466,7 +467,7 @@ impl SpectraConfig {
                 self.innovation = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(serde_json::Error::syntax(serde_json::error::ErrorCode::ExpectedColon, 0, 0));
+                return Err(SerdeError::custom(format!("unknown component: {}", component)));
             }
         }
 
@@ -729,7 +730,7 @@ impl SpectraConfig {
 
     /// Calculate creative potential score
     pub fn calculate_creative_potential_score(&self) -> f32 {
-        let creativity_level_score = match self.creative.creativity_level {
+        let creativity_level_score: f32 = match self.creative.creativity_level {
             CreativityLevel::Conservative => 0.2,
             CreativityLevel::Moderate => 0.4,
             CreativityLevel::High => 0.6,
@@ -737,11 +738,11 @@ impl SpectraConfig {
             CreativityLevel::Transcendent => 1.0,
         };
         
-        let cross_modal_bonus = if self.creative.enable_cross_modal_creativity { 0.1 } else { 0.0 };
-        let style_learning_bonus = if self.style.style_learning { 0.1 } else { 0.0 };
-        let concept_generation_bonus = if self.innovation.enable_concept_generation { 0.1 } else { 0.0 };
+        let cross_modal_bonus: f32 = if self.creative.enable_cross_modal_creativity { 0.1 } else { 0.0 };
+        let style_learning_bonus: f32 = if self.style.style_learning { 0.1 } else { 0.0 };
+        let concept_generation_bonus: f32 = if self.innovation.enable_concept_generation { 0.1 } else { 0.0 };
         
-        (creativity_level_score + cross_modal_bonus + style_learning_bonus + concept_generation_bonus).min(1.0)
+        (creativity_level_score + cross_modal_bonus + style_learning_bonus + concept_generation_bonus).min(1.0f32)
     }
 
     /// Get configuration summary

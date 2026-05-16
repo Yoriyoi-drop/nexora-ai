@@ -108,10 +108,10 @@ impl SpectraIdentity {
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![
-                "Creative synthesis",
-                "Multimodal generation",
-                "Style adaptation",
-                "Artistic composition",
+                "Creative synthesis".to_string(),
+                "Multimodal generation".to_string(),
+                "Style adaptation".to_string(),
+                "Artistic composition".to_string(),
             ],
         }
     }

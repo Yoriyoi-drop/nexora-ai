@@ -365,9 +365,9 @@ impl NanoInferAgent {
 
     async fn calculate_accuracy_metrics(&self, result: &[f32], _requirements: &AccuracyRequirements) -> AgentResult<AccuracyMetrics> {
         // Calculate confidence based on result distribution
-        let max_val = result.iter().fold(0.0, |a, &b| a.max(b));
+        let max_val = result.iter().fold(0.0f32, |a, &b| a.max(b));
         let sum_val = result.iter().sum::<f32>();
-        let confidence = if sum_val > 0.0 { max_val / sum_val } else { 0.0 };
+        let confidence: f32 = if sum_val > 0.0 { max_val / sum_val } else { 0.0 };
 
         Ok(AccuracyMetrics {
             confidence_score: confidence,

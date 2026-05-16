@@ -2,25 +2,16 @@
 //! 
 //! Foundation implementations for all 10 NXR model series
 
-#[path = "foundation.rs"]
+// Individual model implementations (each model has its own directory)
 pub mod omnis;
-#[path = "foundation.rs"]
 pub mod vortex;
-#[path = "foundation.rs"]
 pub mod aether;
-#[path = "foundation.rs"]
 pub mod spectra;
-#[path = "foundation.rs"]
 pub mod nexum;
-#[path = "foundation.rs"]
 pub mod axiom;
-#[path = "foundation.rs"]
 pub mod cipher;
-#[path = "foundation.rs"]
 pub mod swift;
-#[path = "foundation.rs"]
 pub mod kronos;
-#[path = "foundation.rs"]
 pub mod genesis;
 
 pub mod transformer;

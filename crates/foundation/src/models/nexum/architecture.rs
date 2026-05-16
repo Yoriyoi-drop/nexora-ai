@@ -370,7 +370,7 @@ pub enum AgentType {
 }
 
 /// Agent Status
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentStatus {
     /// Active
     Active,
@@ -669,7 +669,7 @@ pub struct ResolutionEngine {
     /// Resolution methods
     pub methods: Vec<ResolutionMethod>,
     /// Resolution strategies
-    pub strategies: Vec<ResolutionStrategy>,
+    pub strategies: Vec<ResolutionStrategyType>,
     /// Resolution history
     pub resolution_history: Vec<ConflictResolutionRecord>,
     /// Engine metrics
@@ -1172,10 +1172,10 @@ impl NexumArchitecture {
     /// Create new architecture with configuration
     pub fn new(config: &NexumConfig) -> Self {
         let orchestration_engine = OrchestrationEngine {
-            orchestration_mode: config.orchestration.orchestration_mode.clone(),
-            coordination_strategy: config.orchestration.agent_coordination_strategy.clone(),
+            orchestration_mode: config.orchestration.orchestration_mode.clone().into(),
+            coordination_strategy: config.orchestration.agent_coordination_strategy.clone().into(),
             task_distribution: TaskDistributionSystem {
-                distribution_method: config.orchestration.task_distribution_method.clone(),
+                distribution_method: config.orchestration.task_distribution_method.clone().into(),
                 load_balancer: LoadBalancer {
                     algorithm: LoadBalancingAlgorithm::ResourceBased,
                     agent_loads: HashMap::new(),
@@ -1233,8 +1233,8 @@ impl NexumArchitecture {
         };
 
         let consensus_system = ConsensusSystem {
-            algorithm: config.consensus.consensus_algorithm.clone(),
-            voting_mechanism: config.consensus.voting_mechanism.clone(),
+            algorithm: config.consensus.consensus_algorithm.clone().into(),
+            voting_mechanism: config.consensus.voting_mechanism.clone().into(),
             consensus_builder: ConsensusBuilder {
                 builder_type: ConsensusBuilderType::Optimized,
                 threshold: config.consensus.consensus_threshold,
@@ -1255,7 +1255,7 @@ impl NexumArchitecture {
         };
 
         let conflict_resolution_system = ConflictResolutionSystem {
-            strategy: config.conflict_resolution.resolution_strategy.clone(),
+            strategy: config.conflict_resolution.resolution_strategy.clone().into(),
             conflict_detector: ConflictDetector {
                 algorithm: ConflictDetectionAlgorithm::Hybrid,
                 sensitivity: config.conflict_resolution.conflict_detection_sensitivity,
@@ -1268,8 +1268,8 @@ impl NexumArchitecture {
                 },
             },
             resolution_engine: ResolutionEngine {
-                methods: config.conflict_resolution.resolution_methods.clone(),
-                strategies: vec![config.conflict_resolution.resolution_strategy.clone()],
+                methods: config.conflict_resolution.resolution_methods.clone().into_iter().map(Into::into).collect(),
+                strategies: vec![config.conflict_resolution.resolution_strategy.clone().into()],
                 resolution_history: Vec::new(),
                 metrics: ResolutionEngineMetrics {
                     success_rate: 0.0,
@@ -1287,15 +1287,15 @@ impl NexumArchitecture {
         };
 
         let resource_optimizer = ResourceOptimizer {
-            allocation_strategy: config.resource_allocation.allocation_strategy.clone(),
-            optimization_algorithm: config.resource_allocation.optimization_algorithm.clone(),
+            allocation_strategy: config.resource_allocation.allocation_strategy.clone().into(),
+            optimization_algorithm: config.resource_allocation.optimization_algorithm.clone().into(),
             resource_monitor: ResourceMonitor {
                 monitoring_frequency_ms: 1000,
                 resource_pool: ResourcePool {
                     total_resources: HashMap::new(),
                     available_resources: HashMap::new(),
                     allocated_resources: HashMap::new(),
-                    constraints: config.resource_allocation.resource_constraints.clone(),
+                    constraints: config.resource_allocation.resource_constraints.clone().into_iter().map(Into::into).collect(),
                 },
                 usage_history: Vec::new(),
                 metrics: ResourceMonitorMetrics {
@@ -1316,7 +1316,7 @@ impl NexumArchitecture {
 
         let communication_network = CommunicationNetwork {
             topology: NetworkTopology::Dynamic,
-            protocol: config.orchestration.communication_protocol.clone(),
+            protocol: config.orchestration.communication_protocol.clone().into(),
             message_router: MessageRouter {
                 routing_algorithm: RoutingAlgorithm::Adaptive,
                 message_queue: MessageQueue {
@@ -1707,6 +1707,7 @@ impl NexumArchitecture {
         let total_votes = votes.len();
         let threshold = (total_votes / 2) + 1;
         
+        let vote_counts_clone = vote_counts.clone();
         let winner = vote_counts
             .into_iter()
             .max_by_key(|(_, count)| *count)
@@ -1717,14 +1718,14 @@ impl NexumArchitecture {
                 Ok(ConsensusOutcome {
                     consensus_reached: true,
                     winning_option,
-                    vote_counts,
+                    vote_counts: vote_counts_clone,
                     consensus_strength: winning_count as f32 / total_votes as f32,
                 })
             } else {
                 Ok(ConsensusOutcome {
                     consensus_reached: false,
                     winning_option: winning_option,
-                    vote_counts,
+                    vote_counts: vote_counts_clone,
                     consensus_strength: winning_count as f32 / total_votes as f32,
                 })
             }
@@ -1742,12 +1743,12 @@ impl NexumArchitecture {
             *weight += vote.vote_weight;
         }
         
-        let total_weight = vote_weights.values().sum();
+        let total_weight: f32 = vote_weights.values().sum();
         let threshold = self.consensus_system.consensus_builder.threshold * total_weight;
         
         let winner = vote_weights
             .into_iter()
-            .max_by_key(|(_, weight)| *weight)
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(option, weight)| (option, weight));
         
         if let Some((winning_option, winning_weight)) = winner {
@@ -1797,28 +1798,27 @@ impl NexumArchitecture {
         
         // Detect conflict type
         let detected_conflict = self.detect_conflict_type(conflict).await?;
-        resolution.conflict_type = detected_conflict.conflict_type;
-        resolution.conflict_severity = detected_conflict.severity;
+        resolution.conflict_type = detected_conflict.conflict_type.clone();
+        resolution.conflict_severity = detected_conflict.severity.clone();
         
         // Apply resolution strategy
         let resolution_outcome = self.apply_resolution_strategy(conflict, &detected_conflict).await?;
-        resolution.resolution_method = resolution_outcome.method;
-        resolution.resolution_outcome = resolution_outcome.outcome;
+        resolution.resolution_method = resolution_outcome.method.clone();
+        resolution.resolution_outcome = resolution_outcome;
         
         resolution.resolution_time_ms = start_time.elapsed().as_millis() as u64;
-        resolution.resolution_quality = self.calculate_resolution_quality(&resolution);
+        resolution.resolution_quality = self.calculate_resolution_quality(&resolution)?;
         
         Ok(resolution)
     }
 
     /// Detect conflict type
     async fn detect_conflict_type(&self, conflict: &Conflict) -> NxrModelResult<ConflictDetection> {
-        let mut detection = ConflictDetection::new();
-        
-        // Detect conflict type and severity
-        detection.conflict_type = ConflictType::Resource;
-        detection.severity = ConflictSeverity::Medium;
-        detection.confidence = 0.8;
+        let detection = ConflictDetection {
+            conflict_type: ConflictType::Resource,
+            severity: ConflictSeverity::Medium,
+            confidence: 0.8,
+        };
         
         Ok(detection)
     }
@@ -1880,7 +1880,7 @@ impl NexumArchitecture {
 
     /// Calculate resolution quality
     fn calculate_resolution_quality(&self, resolution: &ConflictResolution) -> NxrModelResult<f32> {
-        let mut quality = 0.5; // Base quality
+        let mut quality: f32 = 0.5; // Base quality
         
         // Adjust based on resolution time
         if resolution.resolution_time_ms < 1000 {
@@ -1897,7 +1897,7 @@ impl NexumArchitecture {
             ResolutionOutcomeType::Unresolved => quality -= 0.3,
         }
         
-        Ok(quality.min(1.0))
+        Ok(quality.min(1.0_f32))
     }
 
     /// Allocate resources
@@ -1911,7 +1911,7 @@ impl NexumArchitecture {
         allocation.allocation_result = allocation_result;
         
         allocation.allocation_time_ms = start_time.elapsed().as_millis() as u64;
-        allocation.allocation_efficiency = self.calculate_allocation_efficiency(&allocation);
+        allocation.allocation_efficiency = self.calculate_allocation_efficiency(&allocation)?;
         
         Ok(allocation)
     }
@@ -1941,7 +1941,7 @@ impl NexumArchitecture {
     async fn apply_equal_allocation(&self, agents: &[String], requirements: &ResourceRequirements) -> NxrModelResult<AllocationResult> {
         let mut result = AllocationResult::new();
         
-        let agent_count = agents.len() as f64;
+        let agent_count = agents.len() as f32;
         
         for agent_id in agents {
             let agent_allocation = AgentAllocation {
@@ -1949,7 +1949,7 @@ impl NexumArchitecture {
                 cpu_allocation: requirements.cpu_requirement / agent_count,
                 memory_allocation: requirements.memory_requirement / agent_count,
                 network_allocation: requirements.network_requirement / agent_count,
-                storage_allocation: requirements.storage_requirement / agent_count,
+                storage_allocation: requirements.storage_requirement / agent_count as f64,
                 gpu_allocation: requirements.gpu_requirement / agent_count,
             };
             
@@ -1971,18 +1971,18 @@ impl NexumArchitecture {
 
     /// Calculate allocation efficiency
     fn calculate_allocation_efficiency(&self, allocation: &ResourceAllocation) -> NxrModelResult<f32> {
-        if allocation.agent_allocations.is_empty() {
+        if allocation.allocation_result.agent_allocations.is_empty() {
             return Ok(0.0);
         }
         
         let mut total_efficiency = 0.0;
         
-        for agent_allocation in allocation.agent_allocations.values() {
+        for agent_allocation in allocation.allocation_result.agent_allocations.values() {
             let efficiency = (agent_allocation.cpu_allocation + agent_allocation.memory_allocation) / 2.0;
             total_efficiency += efficiency;
         }
         
-        Ok(total_efficiency / allocation.agent_allocations.len() as f32)
+        Ok(total_efficiency / allocation.allocation_result.agent_allocations.len() as f32)
     }
 
     /// Route message
@@ -1996,7 +1996,7 @@ impl NexumArchitecture {
         routing.routing_result = routing_result;
         
         routing.routing_time_ms = start_time.elapsed().as_millis() as u64;
-        routing.routing_success = !routing_result.failed_recipients.is_empty();
+        routing.routing_success = !routing.routing_result.failed_recipients.is_empty();
         
         Ok(routing)
     }
@@ -2380,6 +2380,202 @@ pub struct SchedulingMetrics {
     pub avg_wait_time_ms: f64,
     pub throughput: f32,
     pub fairness_score: f32,
+}
+
+// ---------------------------------------------------------------------------
+// From impls for config-to-architecture type conversion
+// ---------------------------------------------------------------------------
+
+impl From<super::config::OrchestrationMode> for OrchestrationMode {
+    fn from(c: super::config::OrchestrationMode) -> Self {
+        match c {
+            super::config::OrchestrationMode::Centralized => Self::Centralized,
+            super::config::OrchestrationMode::Distributed => Self::Distributed,
+            super::config::OrchestrationMode::Hierarchical => Self::Hierarchical,
+            super::config::OrchestrationMode::Hybrid { centralized_weight, distributed_weight } => Self::Hybrid { centralized_weight, distributed_weight },
+            super::config::OrchestrationMode::Adaptive => Self::Adaptive,
+            super::config::OrchestrationMode::Swarm => Self::Swarm,
+            super::config::OrchestrationMode::Synchronous => Self::Centralized,
+        }
+    }
+}
+
+impl From<super::config::AgentCoordinationStrategy> for AgentCoordinationStrategy {
+    fn from(c: super::config::AgentCoordinationStrategy) -> Self {
+        match c {
+            super::config::AgentCoordinationStrategy::Direct => Self::Direct,
+            super::config::AgentCoordinationStrategy::Mediated => Self::Mediated,
+            super::config::AgentCoordinationStrategy::Hierarchical => Self::Hierarchical,
+            super::config::AgentCoordinationStrategy::PeerToPeer => Self::PeerToPeer,
+            super::config::AgentCoordinationStrategy::EventDriven => Self::EventDriven,
+            super::config::AgentCoordinationStrategy::ConsensusBased => Self::ConsensusBased,
+        }
+    }
+}
+
+impl From<super::config::TaskDistributionMethod> for TaskDistributionMethod {
+    fn from(c: super::config::TaskDistributionMethod) -> Self {
+        match c {
+            super::config::TaskDistributionMethod::RoundRobin => Self::RoundRobin,
+            super::config::TaskDistributionMethod::LoadBalanced => Self::LoadBalanced,
+            super::config::TaskDistributionMethod::SkillBased => Self::SkillBased,
+            super::config::TaskDistributionMethod::PriorityBased => Self::PriorityBased,
+            super::config::TaskDistributionMethod::Dynamic => Self::Dynamic,
+            super::config::TaskDistributionMethod::Optimal => Self::Optimal,
+        }
+    }
+}
+
+impl From<super::config::CommunicationProtocol> for CommunicationProtocol {
+    fn from(c: super::config::CommunicationProtocol) -> Self {
+        match c {
+            super::config::CommunicationProtocol::Synchronous => Self::Synchronous,
+            super::config::CommunicationProtocol::Asynchronous => Self::Asynchronous,
+            super::config::CommunicationProtocol::EventDriven => Self::EventDriven,
+            super::config::CommunicationProtocol::MessageQueue => Self::MessageQueue,
+            super::config::CommunicationProtocol::PubSub => Self::PubSub,
+            super::config::CommunicationProtocol::Hybrid { sync_weight, async_weight } => Self::Hybrid { sync_weight, async_weight },
+        }
+    }
+}
+
+impl From<super::config::ConsensusAlgorithm> for ConsensusAlgorithm {
+    fn from(c: super::config::ConsensusAlgorithm) -> Self {
+        match c {
+            super::config::ConsensusAlgorithm::MajorityVoting => Self::MajorityVoting,
+            super::config::ConsensusAlgorithm::WeightedVoting => Self::WeightedVoting,
+            super::config::ConsensusAlgorithm::ConsensusRanking => Self::ConsensusRanking,
+            super::config::ConsensusAlgorithm::DelphiMethod => Self::DelphiMethod,
+            super::config::ConsensusAlgorithm::ByzantineFaultTolerance => Self::ByzantineFaultTolerance,
+            super::config::ConsensusAlgorithm::PracticalByzantineFaultTolerance => Self::PracticalByzantineFaultTolerance,
+            super::config::ConsensusAlgorithm::Raft => Self::Raft,
+            super::config::ConsensusAlgorithm::Hybrid { algorithms } => Self::Hybrid {
+                algorithms: algorithms.into_iter().map(Into::into).collect(),
+            },
+        }
+    }
+}
+
+impl From<super::config::VotingMechanism> for VotingMechanism {
+    fn from(c: super::config::VotingMechanism) -> Self {
+        match c {
+            super::config::VotingMechanism::Simple => Self::Simple,
+            super::config::VotingMechanism::Weighted => Self::Weighted,
+            super::config::VotingMechanism::Ranked => Self::Ranked,
+            super::config::VotingMechanism::Approval => Self::Approval,
+            super::config::VotingMechanism::Delegated => Self::Delegated,
+            super::config::VotingMechanism::Quadratic => Self::Quadratic,
+        }
+    }
+}
+
+impl From<super::config::ConflictResolutionStrategy> for ConflictResolutionStrategy {
+    fn from(c: super::config::ConflictResolutionStrategy) -> Self {
+        match c {
+            super::config::ConflictResolutionStrategy::Negotiation => Self::Negotiation,
+            super::config::ConflictResolutionStrategy::Arbitration => Self::Arbitration,
+            super::config::ConflictResolutionStrategy::Mediation => Self::Mediation,
+            super::config::ConflictResolutionStrategy::ConsensusBuilding => Self::ConsensusBuilding,
+            super::config::ConflictResolutionStrategy::Compromise => Self::Compromise,
+            super::config::ConflictResolutionStrategy::Escalation => Self::Escalation,
+        }
+    }
+}
+
+impl From<super::config::ResolutionMethod> for ResolutionMethod {
+    fn from(c: super::config::ResolutionMethod) -> Self {
+        match c {
+            super::config::ResolutionMethod::Negotiation => Self::Negotiation,
+            super::config::ResolutionMethod::Arbitration => Self::Arbitration,
+            super::config::ResolutionMethod::Mediation => Self::Mediation,
+            super::config::ResolutionMethod::Consensus => Self::Consensus,
+            super::config::ResolutionMethod::Compromise => Self::Compromise,
+            super::config::ResolutionMethod::Voting => Self::Voting,
+        }
+    }
+}
+
+impl From<super::config::AllocationStrategy> for AllocationStrategy {
+    fn from(c: super::config::AllocationStrategy) -> Self {
+        match c {
+            super::config::AllocationStrategy::Equal => Self::Equal,
+            super::config::AllocationStrategy::PriorityBased => Self::PriorityBased,
+            super::config::AllocationStrategy::DemandBased => Self::DemandBased,
+            super::config::AllocationStrategy::PerformanceBased => Self::PerformanceBased,
+            super::config::AllocationStrategy::MarketBased => Self::MarketBased,
+            super::config::AllocationStrategy::Optimal => Self::Optimal,
+        }
+    }
+}
+
+impl From<super::config::OptimizationAlgorithm> for OptimizationAlgorithm {
+    fn from(c: super::config::OptimizationAlgorithm) -> Self {
+        match c {
+            super::config::OptimizationAlgorithm::LinearProgramming => Self::LinearProgramming,
+            super::config::OptimizationAlgorithm::GeneticAlgorithm => Self::GeneticAlgorithm,
+            super::config::OptimizationAlgorithm::SimulatedAnnealing => Self::SimulatedAnnealing,
+            super::config::OptimizationAlgorithm::ParticleSwarmOptimization => Self::ParticleSwarmOptimization,
+            super::config::OptimizationAlgorithm::ReinforcementLearning => Self::ReinforcementLearning,
+            super::config::OptimizationAlgorithm::MultiObjective => Self::MultiObjective,
+        }
+    }
+}
+
+impl From<super::config::ConstraintType> for ConstraintType {
+    fn from(c: super::config::ConstraintType) -> Self {
+        match c {
+            super::config::ConstraintType::Hard => Self::Hard,
+            super::config::ConstraintType::Soft => Self::Soft,
+            super::config::ConstraintType::Elastic => Self::Elastic,
+            super::config::ConstraintType::Dynamic => Self::Dynamic,
+        }
+    }
+}
+
+impl From<super::config::ResourceConstraint> for ResourceConstraint {
+    fn from(c: super::config::ResourceConstraint) -> Self {
+        let resource_type = match c.resource_type {
+            super::config::ResourceType::CPU => "CPU".to_string(),
+            super::config::ResourceType::Memory => "Memory".to_string(),
+            super::config::ResourceType::Network => "Network".to_string(),
+            super::config::ResourceType::Storage => "Storage".to_string(),
+            super::config::ResourceType::GPU => "GPU".to_string(),
+            super::config::ResourceType::Custom { name, .. } => name,
+        };
+        Self {
+            name: c.name,
+            resource_type,
+            min_value: c.min_value,
+            max_value: c.max_value,
+            constraint_type: c.constraint_type.into(),
+            priority: c.priority,
+        }
+    }
+}
+
+/// Resolution Strategy Type
+#[derive(Debug, Clone)]
+pub enum ResolutionStrategyType {
+    Negotiation,
+    Arbitration,
+    Mediation,
+    Consensus,
+    Compromise,
+    Escalation,
+    Voting,
+}
+
+impl From<super::config::ConflictResolutionStrategy> for ResolutionStrategyType {
+    fn from(strategy: super::config::ConflictResolutionStrategy) -> Self {
+        match strategy {
+            super::config::ConflictResolutionStrategy::Negotiation => ResolutionStrategyType::Negotiation,
+            super::config::ConflictResolutionStrategy::Arbitration => ResolutionStrategyType::Arbitration,
+            super::config::ConflictResolutionStrategy::Mediation => ResolutionStrategyType::Mediation,
+            super::config::ConflictResolutionStrategy::ConsensusBuilding => ResolutionStrategyType::Consensus,
+            super::config::ConflictResolutionStrategy::Compromise => ResolutionStrategyType::Compromise,
+            super::config::ConflictResolutionStrategy::Escalation => ResolutionStrategyType::Escalation,
+        }
+    }
 }
 
 impl Default for NexumArchitecture {

@@ -352,8 +352,8 @@ impl NxrModel for NxrOmnisModel {
     fn config(&self) -> &Self::Config {
         // Return reference to config stored in base
         // For now, create a static default to avoid lifetime issues
-        static DEFAULT_CONFIG: OmnisConfig = OmnisConfig::default();
-        &DEFAULT_CONFIG
+        static DEFAULT_CONFIG: std::sync::OnceLock<OmnisConfig> = std::sync::OnceLock::new();
+        DEFAULT_CONFIG.get_or_init(OmnisConfig::default)
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -366,11 +366,11 @@ impl NxrModel for NxrOmnisModel {
         
         // Initialize architecture
         self.architecture.initialize(&config).await
-            .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e))?;
-        
+            .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
+
         // Initialize agents
         self.agents.initialize(&config).await
-            .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e))?;
+            .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
         
         // Mark as initialized
         self.base.mark_initialized().await;
@@ -426,6 +426,7 @@ impl NxrModel for NxrOmnisModel {
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         let generation_time_ms = start_time.elapsed().as_millis() as u64;
+        let total_tokens = result.split_whitespace().count();
 
         Ok(NxrOutput {
             id: uuid::Uuid::new_v4(),
@@ -434,13 +435,13 @@ impl NxrModel for NxrOmnisModel {
             data: crate::shared::base_model::OutputData::Text(result),
             metadata: crate::shared::base_model::GenerationMetadata {
                 finish_reason: crate::shared::base_model::FinishReason::EndOfSequence,
-                total_tokens: result.split_whitespace().count(),
+                total_tokens,
                 generation_time_ms,
                 model_version: self.identity.meta().version.clone(),
                 seed: None,
             },
             performance: crate::shared::base_model::PerformanceMetrics {
-                tokens_per_second: result.split_whitespace().count() as f32 / (generation_time_ms as f32 / 1000.0),
+                tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
                 memory_usage_gb: 64.0, // Estimated
                 gpu_utilization: Some(0.85),
                 cpu_utilization: 0.45,

@@ -1,11 +1,155 @@
-//! Vector Quantized VAE implementation for CAFFEINE
+//! Vector Quantized VAE + FSQ (Finite Scalar Quantization) untuk CAFFEINE
 //! 
-//! Implements VQ-VAE for discrete tokenization of continuous features
+//! VQ-VAE: EMA-based codebook (existing)
+//! FSQ: Lookup-free quantization (SOTA — tidak ada codebook collapse)
 
 use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
 
-/// Vector Quantized VAE
+/// FSQ levels per dimension — fixed rounding boundaries
+/// Default: [8, 6, 5] → 8×6×5 = 240 codes, 3 dimensi
+pub const DEFAULT_FSQ_LEVELS: &[usize] = &[8, 6, 5];
+/// High capacity FSQ levels: [8, 6, 5, 4] → 8×6×5×4 = 960 codes
+pub const HIGH_CAPACITY_FSQ: &[usize] = &[8, 6, 5, 4];
+/// Max capacity FSQ levels: [8, 6, 5, 4, 3] → 8×6×5×4×3 = 2880 codes
+pub const MAX_CAPACITY_FSQ: &[usize] = &[8, 6, 5, 4, 3];
+
+/// Finite Scalar Quantization (FSQ)
+/// Tidak memerlukan codebook — langsung round ke nearest integer.
+/// Tidak ada codebook collapse, deterministik, zero training overhead.
+pub struct FSQuantizer {
+    /// Levels per dimension (e.g., [8, 6, 5])
+    levels: Vec<usize>,
+    /// Projection dimension (before quantization)
+    input_dim: usize,
+    /// Number of codebooks (repeated quantization for higher capacity)
+    num_codebooks: usize,
+    /// Scaling factor (prevents saturation)
+    scale: f32,
+}
+
+impl FSQuantizer {
+    pub fn new(input_dim: usize, levels: &[usize], num_codebooks: usize) -> Self {
+        let scale = (levels.iter().max().copied().unwrap_or(8) as f32) * 0.9;
+        Self {
+            levels: levels.to_vec(),
+            input_dim,
+            num_codebooks,
+            scale,
+        }
+    }
+
+    /// Quantize input embedding using FSQ
+    /// 1. Project input ke low-dim space
+    /// 2. Apply tanh untuk bounded range
+    /// 3. Round ke nearest integer level
+    pub fn quantize(&self, input: &[f32]) -> Result<(Vec<f32>, Vec<usize>, f32)> {
+        let codebook_dim = self.levels.len();
+        let mut quantized_output = vec![0.0f32; input.len()];
+        let mut token_ids = Vec::new();
+        let mut total_rounding_error = 0.0f32;
+
+        for book in 0..self.num_codebooks {
+            let offset = book * codebook_dim;
+            let (codes, ids, error) = self.quantize_single_codebook(input, offset)?;
+            
+            for (i, &val) in codes.iter().enumerate() {
+                if i < quantized_output.len() {
+                    quantized_output[i] += val / self.num_codebooks as f32;
+                }
+            }
+            
+            token_ids.push(ids);
+            total_rounding_error += error;
+        }
+
+        Ok((quantized_output, token_ids, total_rounding_error))
+    }
+
+    /// Single codebook FSQ quantization
+    fn quantize_single_codebook(&self, input: &[f32], offset: usize) -> Result<(Vec<f32>, usize, f32)> {
+        let codebook_dim = self.levels.len();
+        let mut codes = vec![0.0f32; codebook_dim];
+        let mut rounding_error = 0.0f32;
+        let mut id = 0usize;
+        let mut stride = 1usize;
+
+        for d in 0..codebook_dim {
+            let input_idx = (offset + d) % self.input_dim.max(1);
+            let val = if input_idx < input.len() { input[input_idx] } else { 0.0 };
+            
+            // tanh untuk bounded range dalam [-scale, scale]
+            let bounded = (val * self.scale * 0.1).tanh() * self.scale;
+            let level = self.levels[d];
+            let half_levels = (level - 1) as f32 / 2.0;
+            
+            // Map ke [0, level-1]
+            let normalized = (bounded / self.scale * half_levels + half_levels)
+                .clamp(0.0, (level - 1) as f32);
+            let rounded = normalized.round();
+            let rounded_idx = rounded as usize;
+            
+            codes[d] = (rounded - half_levels) / half_levels * self.scale;
+            rounding_error += (normalized - rounded).powi(2);
+            
+            // Encode ke single integer ID (base-level encoding)
+            id = id * level + rounded_idx.min(level - 1);
+            stride *= level;
+        }
+
+        Ok((codes, id, rounding_error))
+    }
+
+    /// Dequantize token IDs back to embeddings
+    pub fn dequantize(&self, token_ids: &[usize]) -> Result<Vec<f32>> {
+        let codebook_dim = self.levels.len();
+        let mut output = vec![0.0f32; self.input_dim];
+
+        for (book, &token_id) in token_ids.iter().enumerate() {
+            let mut id = token_id;
+            let mut codes = vec![0.0f32; codebook_dim];
+
+            for d in (0..codebook_dim).rev() {
+                let level = self.levels[d];
+                let idx = id % level;
+                id /= level;
+                
+                let half_levels = (level - 1) as f32 / 2.0;
+                // Reverse the mapping
+                codes[d] = (idx as f32 - half_levels) / half_levels * self.scale;
+            }
+
+            for (i, &val) in codes.iter().enumerate() {
+                let output_idx = (book * codebook_dim + i) % self.input_dim;
+                if output_idx < output.len() {
+                    output[output_idx] += val / self.num_codebooks as f32;
+                }
+            }
+        }
+
+        Ok(output)
+    }
+
+    /// Get compression ratio
+    pub fn get_compression_ratio(&self) -> f32 {
+        let total_codes: usize = self.levels.iter().product();
+        let bits_per_token = (total_codes as f32).log2();
+        let original_bits = self.input_dim as f32 * 32.0; // FP32
+        original_bits / bits_per_token
+    }
+
+    /// FSQ does not require training
+    pub fn train_batch(&self, _inputs: &[Vec<f32>]) -> Result<TrainingMetrics> {
+        Ok(TrainingMetrics {
+            total_loss: 0.0,
+            reconstruction_error: 0.0,
+            commitment_loss: 0.0,
+            codebook_entropy: (self.levels.iter().product::<usize>() as f32).log2(),
+        })
+    }
+}
+
+/// Vector Quantized VAE (existing) — EMA-based codebook
 pub struct VectorQuantizedVAE {
     token_dim: usize,
     codebook_size: usize,

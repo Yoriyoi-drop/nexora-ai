@@ -208,7 +208,7 @@ pub struct SeverityAssessment {
 }
 
 /// Severity Level
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SeverityLevel {
     /// Low severity
     Low,
@@ -276,6 +276,8 @@ pub enum ResolutionMechanism {
     EthicalCommittee,
     /// System override
     SystemOverride,
+    /// Ethical override
+    EthicalOverride,
 }
 
 /// Objective Alignment
@@ -1163,7 +1165,7 @@ impl AlignmentArbiterAgent {
         for (i, obj1) in input.agent_objectives.iter().enumerate() {
             for (j, obj2) in input.agent_objectives.iter().enumerate() {
                 if i < j {
-                    let alignment_score = self.calculate_alignment_score(obj1, obj2);
+                    let alignment_score = self.calculate_pairwise_alignment_score(obj1, obj2);
                     let coherence_score = self.calculate_coherence_score(obj1, obj2);
                     
                     alignment_scores.insert(format!("{}_{}", obj1.agent_id, obj2.agent_id), alignment_score);
@@ -1197,10 +1199,13 @@ impl AlignmentArbiterAgent {
             }
         }
         
+        let total_conflicts = conflicts.len();
+        let severity_distribution = self.calculate_severity_distribution(&conflicts);
+
         Ok(ConflictAnalysisResult {
             conflicts,
-            total_conflicts: conflicts.len(),
-            severity_distribution: self.calculate_severity_distribution(&conflicts),
+            total_conflicts,
+            severity_distribution,
         })
     }
 
@@ -1215,7 +1220,7 @@ impl AlignmentArbiterAgent {
             
             if compliance_score < self.config.alignment_thresholds.ethical_compliance {
                 ethical_issues.push(EthicalIssue {
-                    issue_id: format!("ethical_issue_{}", framework as u8),
+                    issue_id: format!("ethical_issue_{:?}", framework),
                     description: format!("Low compliance with {:?} framework", framework),
                     severity: SeverityLevel::Medium,
                     affected_agents: input.agent_objectives.iter().map(|obj| obj.agent_id.clone()).collect(),
@@ -1314,10 +1319,12 @@ impl AlignmentArbiterAgent {
     }
 
     /// Calculate alignment score between two objectives
-    fn calculate_alignment_score(&self, obj1: &AgentObjective, obj2: &AgentObjective) -> f32 {
+    fn calculate_pairwise_alignment_score(&self, obj1: &AgentObjective, obj2: &AgentObjective) -> f32 {
         // Simplified alignment calculation based on semantic similarity
-        let words1: std::collections::HashSet<_> = obj1.objective.to_lowercase().split_whitespace().collect();
-        let words2: std::collections::HashSet<_> = obj2.objective.to_lowercase().split_whitespace().collect();
+        let lower1 = obj1.objective.to_lowercase();
+        let lower2 = obj2.objective.to_lowercase();
+        let words1: std::collections::HashSet<_> = lower1.split_whitespace().collect();
+        let words2: std::collections::HashSet<_> = lower2.split_whitespace().collect();
         
         let intersection = words1.intersection(&words2).count();
         let union = words1.union(&words2).count();
@@ -1328,7 +1335,7 @@ impl AlignmentArbiterAgent {
     /// Calculate coherence score between two objectives
     fn calculate_coherence_score(&self, obj1: &AgentObjective, obj2: &AgentObjective) -> f32 {
         // Simplified coherence calculation
-        let alignment = self.calculate_alignment_score(obj1, obj2);
+        let alignment = self.calculate_pairwise_alignment_score(obj1, obj2);
         let priority_diff = (obj1.priority as f32 - obj2.priority as f32).abs() / 255.0;
         
         alignment * (1.0 - priority_diff)
@@ -1336,7 +1343,7 @@ impl AlignmentArbiterAgent {
 
     /// Detect conflict between two objectives
     fn detect_conflict(&self, obj1: &AgentObjective, obj2: &AgentObjective) -> Option<AlignmentConflict> {
-        let alignment_score = self.calculate_alignment_score(obj1, obj2);
+        let alignment_score = self.calculate_pairwise_alignment_score(obj1, obj2);
         
         if alignment_score < self.config.alignment_thresholds.conflict_tolerance {
             Some(AlignmentConflict {
@@ -1371,9 +1378,9 @@ impl AlignmentArbiterAgent {
     async fn resolve_single_conflict(&self, conflict: &AlignmentConflict, _input: &AlignmentTaskInput) -> AgentResult<ConflictResolutionResult> {
         let resolution_strategy = match conflict.severity {
             SeverityLevel::Low => ResolutionStrategy::CompromiseFinding,
-            SeverityLevel::Medium => ResolutionStrategy::Negotiation,
+            SeverityLevel::Medium => ResolutionStrategy::CompromiseFinding,
             SeverityLevel::High => ResolutionStrategy::EthicalOverride,
-            _ => ResolutionStrategy::EscalationPriorityEscalation,
+            _ => ResolutionStrategy::PriorityEscalation,
         };
         
         Ok(ConflictResolutionResult {
@@ -1482,7 +1489,7 @@ mod tests {
             dependencies: vec![],
         };
         
-        let alignment = agent.calculate_alignment_score(&obj1, &obj2);
+        let alignment = agent.calculate_pairwise_alignment_score(&obj1, &obj2);
         assert!(alignment > 0.0);
         assert!(alignment <= 1.0);
     }

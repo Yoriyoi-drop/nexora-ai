@@ -21,6 +21,7 @@ pub use tensor::*;
 pub use config::ATQSConfig;
 
 // Integration with NXR-SWIFT for edge optimization
+use crate::shared::base_model::NxrModel;
 pub use crate::models::swift::NxrSwiftModel;
 
 /// Enhanced ATQS with NXR-SWIFT integration

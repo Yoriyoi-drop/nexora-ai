@@ -51,7 +51,7 @@ pub enum CreativeNetworkType {
 }
 
 /// Creative Domain
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CreativeDomain {
     /// Visual arts
     Visual,
@@ -496,6 +496,15 @@ pub struct StyleCombinationRule {
     pub combination_method: StyleCombinationMethod,
     /// Rule weight
     pub weight: f32,
+}
+
+/// Model Parameters
+#[derive(Debug, Clone)]
+pub struct ModelParameters {
+    pub hidden_size: usize,
+    pub num_layers: usize,
+    pub learning_rate: f32,
+    pub dropout_rate: f32,
 }
 
 /// Style Combination Method
@@ -1082,7 +1091,7 @@ impl SpectraArchitecture {
             concept_generators.insert(format!("concept_{}", format!("{:?}", domain).to_lowercase()), ConceptGenerator {
                 id: format!("concept_{}", format!("{:?}", domain).to_lowercase()),
                 generator_type: ConceptGeneratorType::Neural,
-                target_domain: domain.clone(),
+                target_domain: domain.clone().into(),
                 parameters: ConceptGeneratorParameters {
                     concept_space_size: 10000,
                     novelty_threshold: config.innovation.novelty_threshold,
@@ -1102,8 +1111,8 @@ impl SpectraArchitecture {
             config: config.clone(),
             creative_transformers,
             multimodal_fusion: MultimodalFusionEngine {
-                fusion_strategy: config.multimodal.modality_fusion.clone(),
-                supported_modalities: config.multimodal.supported_modalities.clone(),
+                fusion_strategy: config.multimodal.modality_fusion.clone().into(),
+                supported_modalities: config.multimodal.supported_modalities.clone().into_iter().map(Into::into).collect(),
                 modality_encoders,
                 fusion_network: FusionNetwork {
                     id: "main_fusion".to_string(),
@@ -1134,8 +1143,8 @@ impl SpectraArchitecture {
                 },
             },
             style_adaptation: StyleAdaptationSystem {
-                adaptation_mode: config.style.style_adaptation_mode.clone(),
-                supported_styles: config.style.supported_styles.clone(),
+                adaptation_mode: config.style.style_adaptation_mode.clone().into(),
+                supported_styles: config.style.supported_styles.clone().into_iter().map(Into::into).collect(),
                 style_encoders,
                 style_synthesis: StyleSynthesisEngine {
                     models: HashMap::new(),
@@ -1170,8 +1179,8 @@ impl SpectraArchitecture {
                 },
             },
             innovation_engine: InnovationEngine {
-                innovation_mode: config.innovation.innovation_mode.clone(),
-                innovation_domains: config.innovation.innovation_domains.clone(),
+                innovation_mode: config.innovation.innovation_mode.clone().into(),
+                innovation_domains: config.innovation.innovation_domains.clone().into_iter().map(Into::into).collect(),
                 concept_generators,
                 novelty_evaluators: vec![
                     NoveltyEvaluator {
@@ -1192,7 +1201,7 @@ impl SpectraArchitecture {
                         },
                     },
                 ],
-                constraints: config.innovation.creative_constraints.clone(),
+                constraints: config.innovation.creative_constraints.clone().into_iter().map(Into::into).collect(),
             },
             cross_modal_attention: CrossModalAttentionNetwork {
                 attention_layers: vec![
@@ -1281,12 +1290,12 @@ impl SpectraArchitecture {
         
         // Fuse multimodal content if multiple domains
         if result.domain_results.len() > 1 {
-            result.fused_content = self.fuse_multimodal_content(&result.domain_results).await?;
+            result.fused_content = Some(self.fuse_multimodal_content(&result.domain_results).await?);
         }
         
         // Apply style adaptation
         if !styles.is_empty() {
-            result.styled_content = self.apply_style_adaptation(&result.domain_results, styles).await?;
+            result.styled_content = Some(self.apply_style_adaptation(&result.domain_results, styles).await?);
         }
         
         // Generate innovative concepts
@@ -1512,7 +1521,7 @@ impl SpectraArchitecture {
         
         for mut concept in concepts {
             // Evaluate novelty score
-            concept.novelty_score = (concept.novelty_score + 0.1).min(1.0);
+            concept.novelty_score = (concept.novelty_score + 0.1_f32).min(1.0_f32);
             evaluated_concepts.push(concept);
         }
         
@@ -1813,6 +1822,132 @@ pub enum StyleLearningAlgorithm {
     Evolutionary,
     /// Hybrid learning
     Hybrid,
+}
+
+// ---------------------------------------------------------------------------
+// From impls for config-to-architecture type conversion
+// ---------------------------------------------------------------------------
+
+impl From<super::config::ModalityFusionStrategy> for ModalityFusionStrategy {
+    fn from(c: super::config::ModalityFusionStrategy) -> Self {
+        match c {
+            super::config::ModalityFusionStrategy::Early => Self::Early,
+            super::config::ModalityFusionStrategy::Late => Self::Late,
+            super::config::ModalityFusionStrategy::Hierarchical => Self::Hierarchical,
+            super::config::ModalityFusionStrategy::AttentionBased => Self::AttentionBased,
+            super::config::ModalityFusionStrategy::Adaptive => Self::Adaptive,
+        }
+    }
+}
+
+impl From<super::config::Modality> for Modality {
+    fn from(c: super::config::Modality) -> Self {
+        match c {
+            super::config::Modality::Text => Self::Text,
+            super::config::Modality::Image => Self::Image,
+            super::config::Modality::Audio => Self::Audio,
+            super::config::Modality::Video => Self::Video,
+            super::config::Modality::ThreeD => Self::ThreeD,
+            super::config::Modality::Interactive => Self::Interactive,
+        }
+    }
+}
+
+impl From<super::config::StyleAdaptationMode> for StyleAdaptationMode {
+    fn from(c: super::config::StyleAdaptationMode) -> Self {
+        match c {
+            super::config::StyleAdaptationMode::None => Self::None,
+            super::config::StyleAdaptationMode::Basic => Self::Basic,
+            super::config::StyleAdaptationMode::Advanced => Self::Advanced,
+            super::config::StyleAdaptationMode::Deep => Self::Deep,
+            super::config::StyleAdaptationMode::Learning => Self::Learning,
+        }
+    }
+}
+
+impl From<super::config::StyleCategory> for StyleCategory {
+    fn from(c: super::config::StyleCategory) -> Self {
+        match c {
+            super::config::StyleCategory::Classical => Self::Classical,
+            super::config::StyleCategory::Modern => Self::Modern,
+            super::config::StyleCategory::Contemporary => Self::Contemporary,
+            super::config::StyleCategory::Digital => Self::Digital,
+            super::config::StyleCategory::Experimental => Self::Experimental,
+            super::config::StyleCategory::Cultural => Self::Cultural,
+        }
+    }
+}
+
+impl From<super::config::StyleParameters> for StyleParameters {
+    fn from(c: super::config::StyleParameters) -> Self {
+        Self {
+            color_palette: c.color_palette,
+            brush_stroke_style: c.brush_stroke_style,
+            composition_style: c.composition_style,
+            texture_characteristics: c.texture_characteristics,
+            mood_characteristics: c.mood_characteristics,
+        }
+    }
+}
+
+impl From<super::config::ArtisticStyle> for ArtisticStyle {
+    fn from(c: super::config::ArtisticStyle) -> Self {
+        Self {
+            name: c.name,
+            category: c.category.into(),
+            characteristics: c.characteristics,
+            parameters: c.parameters.into(),
+            historical_context: c.historical_context,
+        }
+    }
+}
+
+impl From<super::config::InnovationMode> for InnovationMode {
+    fn from(c: super::config::InnovationMode) -> Self {
+        match c {
+            super::config::InnovationMode::Incremental => Self::Incremental,
+            super::config::InnovationMode::Radical => Self::Radical,
+            super::config::InnovationMode::Disruptive => Self::Disruptive,
+            super::config::InnovationMode::Transformative => Self::Transformative,
+            super::config::InnovationMode::Adaptive => Self::Adaptive,
+        }
+    }
+}
+
+impl From<super::config::InnovationDomain> for InnovationDomain {
+    fn from(c: super::config::InnovationDomain) -> Self {
+        match c {
+            super::config::InnovationDomain::Visual => Self::Visual,
+            super::config::InnovationDomain::Audio => Self::Audio,
+            super::config::InnovationDomain::Text => Self::Text,
+            super::config::InnovationDomain::Interactive => Self::Interactive,
+            super::config::InnovationDomain::Conceptual => Self::Conceptual,
+            super::config::InnovationDomain::Technical => Self::Technical,
+        }
+    }
+}
+
+impl From<super::config::ConstraintType> for ConstraintType {
+    fn from(c: super::config::ConstraintType) -> Self {
+        match c {
+            super::config::ConstraintType::Style => Self::Style,
+            super::config::ConstraintType::Medium => Self::Medium,
+            super::config::ConstraintType::Theme => Self::Theme,
+            super::config::ConstraintType::Technical => Self::Technical,
+            super::config::ConstraintType::Cultural => Self::Cultural,
+        }
+    }
+}
+
+impl From<super::config::CreativeConstraint> for CreativeConstraint {
+    fn from(c: super::config::CreativeConstraint) -> Self {
+        Self {
+            name: c.name,
+            constraint_type: c.constraint_type.into(),
+            parameters: c.parameters,
+            flexibility: c.flexibility,
+        }
+    }
 }
 
 impl Default for SpectraArchitecture {

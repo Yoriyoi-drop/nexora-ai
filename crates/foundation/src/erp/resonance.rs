@@ -5,6 +5,7 @@
 
 use crate::erp::{ERPConfig, ERPError};
 use ndarray::{Array1, Array2};
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
 /// Advanced resonance graph clustering algorithms
@@ -130,23 +131,207 @@ impl ResonanceClusterer {
         modularity_gain * resolution
     }
 
-    /// Spectral clustering menggunakan eigenvalue decomposition
+    /// Spectral clustering menggunakan eigenvalue decomposition (proper)
+    /// Langkah:
+    /// 1. Build normalized Laplacian L = I - D^(-1/2)·A·D^(-1/2)
+    /// 2. Compute k smallest eigenvectors via power iteration + deflation
+    /// 3. Form matrix U ∈ R^(n×k) dari eigenvectors
+    /// 4. Cluster rows of U via k-means
     fn spectral_clustering(&self, graph: &ResonanceGraph, signatures: &[crate::erp::core::NeuronSignature], n_clusters: usize) -> Result<Vec<ResonanceGroup>, ERPError> {
         let n_nodes = graph.adjacency.len();
         if n_nodes <= n_clusters {
             return self.each_node_as_group(n_nodes, signatures);
         }
 
-        // Build Laplacian matrix
         let laplacian = self.build_laplacian_matrix(graph);
         
-        // Simplified spectral clustering - dalam implementasi nyata gunakan proper eigenvalue decomposition
-        let mut assignments = vec![0; n_nodes];
-        for i in 0..n_nodes {
-            assignments[i] = i % n_clusters;
-        }
+        // Compute eigenvectors corresponding to k smallest eigenvalues
+        // via power iteration on (I - L) = D^(-1/2)·A·D^(-1/2)
+        let k = n_clusters.min(n_nodes);
+        let eigenvectors = self.compute_k_smallest_eigenvectors(&laplacian, k)?;
+        
+        // Normalize rows to unit length
+        let normalized_rows = self.normalize_eigenvector_rows(&eigenvectors, k, n_nodes);
+        
+        // Simple k-means on normalized rows (Lloyd's algorithm, 20 iterations)
+        let assignments = self.kmeans_on_rows(&normalized_rows, n_clusters, 20)?;
 
         self.communities_to_groups(assignments, signatures)
+    }
+
+    /// Compute k smallest eigenvectors via power iteration + deflation
+    fn compute_k_smallest_eigenvectors(
+        &self,
+        laplacian: &Array2<f32>,
+        k: usize,
+    ) -> Result<Vec<Vec<f32>>, ERPError> {
+        let n = laplacian.shape()[0];
+        let mut eigenvectors = Vec::new();
+
+        // Transform: smallest eigenvalues of L = largest eigenvalues of (I - L)
+        // I - L = D^(-1/2)·A·D^(-1/2)
+        let mut shifted = Array2::eye(n) - laplacian;
+
+        for _ in 0..k {
+            // Power iteration untuk dominant eigenvector dari shifted matrix
+            let mut v = Array1::from_iter(
+                (0..n).map(|_| rand::random::<f32>() * 2.0 - 1.0)
+            );
+            let v_norm = v.mapv(|x| x * x).sum().sqrt();
+            if v_norm > 1e-10 { v = v / v_norm; }
+
+            for _ in 0..30 {
+                v = shifted.dot(&v);
+                let norm = v.mapv(|x| x * x).sum().sqrt();
+                if norm > 1e-10 { v = v / norm; }
+            }
+
+            eigenvectors.push(v.to_vec());
+
+            // Deflation: remove this eigenvector from the matrix
+            // shifted = shifted - λ·v·vᵀ
+            let lambda = v.dot(&shifted.dot(&v));
+            for i in 0..n {
+                for j in 0..n {
+                    shifted[[i, j]] -= lambda * v[i] * v[j];
+                }
+            }
+        }
+
+        Ok(eigenvectors)
+    }
+
+    /// Normalize eigenvector rows untuk spectral embedding
+    fn normalize_eigenvector_rows(
+        &self,
+        eigenvectors: &[Vec<f32>],
+        k: usize,
+        n: usize,
+    ) -> Vec<Vec<f32>> {
+        let mut rows = vec![vec![0.0f32; k]; n];
+        
+        for (eig_idx, eig_vec) in eigenvectors.iter().enumerate() {
+            for (node, &val) in eig_vec.iter().enumerate() {
+                if node < n && eig_idx < k {
+                    rows[node][eig_idx] = val;
+                }
+            }
+        }
+
+        // Normalize each row to unit length
+        for row in rows.iter_mut() {
+            let norm: f32 = row.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if norm > 1e-10 {
+                for val in row.iter_mut() {
+                    *val /= norm;
+                }
+            }
+        }
+
+        rows
+    }
+
+    /// Simple k-means on spectral embedding rows
+    fn kmeans_on_rows(
+        &self,
+        rows: &[Vec<f32>],
+        k: usize,
+        max_iterations: usize,
+    ) -> Result<Vec<usize>, ERPError> {
+        let n = rows.len();
+        let dim = if rows.is_empty() { 0 } else { rows[0].len() };
+        let k_actual = k.min(n);
+
+        if k_actual == 0 || dim == 0 {
+            return Ok(vec![0; n]);
+        }
+
+        // Initialize centroids: kmeans++
+        let mut centroids: Vec<Vec<f32>> = Vec::with_capacity(k_actual);
+        let mut rng = rand::thread_rng();
+
+        // First centroid: random
+        centroids.push(rows[rng.gen_range(0..n)].clone());
+
+        for _ in 1..k_actual {
+            // For each point, compute distance to nearest centroid
+            let mut distances: Vec<f32> = rows.iter().map(|row| {
+                centroids.iter()
+                    .map(|c| self.euclidean_squared(row, c))
+                    .fold(f32::INFINITY, f32::min)
+            }).collect();
+
+            let sum_dist: f32 = distances.iter().sum();
+            if sum_dist < 1e-10 { break; }
+
+            // Weighted random selection
+            for d in distances.iter_mut() {
+                *d /= sum_dist;
+            }
+            let r: f32 = rng.gen();
+            let mut cumulative = 0.0;
+            for (i, &d) in distances.iter().enumerate() {
+                cumulative += d;
+                if r <= cumulative {
+                    centroids.push(rows[i].clone());
+                    break;
+                }
+            }
+        }
+
+        // Lloyd iterations
+        let mut assignments = vec![0usize; n];
+
+        for _iter in 0..max_iterations {
+            // Assignment step
+            let mut changed = false;
+            for (i, row) in rows.iter().enumerate() {
+                let best = centroids.iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        self.euclidean_squared(row, a)
+                            .partial_cmp(&self.euclidean_squared(row, b))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(0);
+
+                if assignments[i] != best {
+                    assignments[i] = best;
+                    changed = true;
+                }
+            }
+
+            if !changed { break; }
+
+            // Update step
+            let mut sums: Vec<Vec<f32>> = vec![vec![0.0f32; dim]; k_actual];
+            let mut counts: Vec<usize> = vec![0; k_actual];
+
+            for (i, row) in rows.iter().enumerate() {
+                let cluster = assignments[i];
+                for (j, &val) in row.iter().enumerate() {
+                    sums[cluster][j] += val;
+                }
+                counts[cluster] += 1;
+            }
+
+            for cluster in 0..k_actual {
+                if counts[cluster] > 0 {
+                    for j in 0..dim {
+                        centroids[cluster][j] = sums[cluster][j] / counts[cluster] as f32;
+                    }
+                }
+            }
+        }
+
+        Ok(assignments)
+    }
+
+    fn euclidean_squared(&self, a: &[f32], b: &[f32]) -> f32 {
+        a.iter().zip(b.iter())
+            .map(|(x, y)| (x - y) * (x - y))
+            .sum()
     }
 
     /// Build normalized Laplacian matrix

@@ -11,6 +11,7 @@ pub mod sparo;
 pub use sparo::*;
 
 // Integration with NXR-NEXUM
+use crate::shared::base_model::NxrModel;
 pub use crate::models::nexum::NxrNexumModel;
 
 /// Enhanced SPARO with NXR-NEXUM integration
@@ -21,6 +22,8 @@ pub struct SparoNexumIntegration {
     pub nexum_model: NxrNexumModel,
     /// Integration configuration
     pub integration_config: SparoNexumConfig,
+    /// Whether alignment is mandatory (safety default)
+    pub alignment_enforced: bool,
 }
 
 /// Configuration for SPARO-NEXUM integration
@@ -45,22 +48,31 @@ impl Default for SparoNexumConfig {
 }
 
 impl SparoNexumIntegration {
-    /// Create new integration
+    /// Create new integration with alignment enforced by default
     pub fn new() -> Self {
         Self {
             sparo_system: sparo::SparoSystem::new(),
             nexum_model: NxrNexumModel::new(),
             integration_config: SparoNexumConfig::default(),
+            alignment_enforced: true,
         }
     }
 
     /// Enhanced alignment with multi-agent coordination
+    /// Alignment is MANDATORY and cannot be bypassed
     pub async fn enhanced_alignment(&self, behavior: &str, context: &str) -> Result<EnhancedAlignmentResult, Box<dyn std::error::Error>> {
         let mut result = EnhancedAlignmentResult::new();
 
-        // Original SPARO alignment analysis
-        if let Ok(sparo_result) = self.sparo_system.align_behavior(behavior, context).await {
-            result.sparo_alignment = Some(sparo_result);
+        // SPARO alignment analysis is MANDATORY
+        let sparo_result = self.sparo_system.align_behavior(behavior, context).await
+            .map_err(|e| format!("SPARO alignment failed: {}", e))?;
+        result.sparo_alignment = Some(sparo_result);
+
+        // Fail if alignment score is too low
+        if let Some(ref sparo) = result.sparo_alignment {
+            if sparo.alignment_score < 0.3 && self.alignment_enforced {
+                return Err(format!("Alignment gate BLOCKED: score {:.3} below minimum threshold 0.3", sparo.alignment_score).into());
+            }
         }
 
         // NXR-NEXUM multi-agent coordination

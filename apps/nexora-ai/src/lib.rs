@@ -38,7 +38,7 @@ use nexora_foundation::shared::{
 /// - Code analysis and generation
 /// 
 /// The system uses the NXR foundation model series for all AI inference.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NexoraAI {
     /// Foundation model registry (all registered NXR models)
     registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,

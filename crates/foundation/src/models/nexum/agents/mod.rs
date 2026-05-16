@@ -361,6 +361,7 @@ pub struct RoutedTask {
 pub struct MergeSynthAgent {
     pub id: String,
     pub strategy: MergeStrategy,
+    #[serde(skip)]
     pub conflict_resolution: ConflictMode,
 }
 
@@ -379,7 +380,16 @@ impl Default for MergeStrategy {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+impl Default for MergeSynthAgent {
+    fn default() -> Self {
+        Self {
+            id: String::default(),
+            strategy: MergeStrategy::default(),
+            conflict_resolution: ConflictMode::Discard,
+        }
+    }
+}
+
 pub enum ConflictMode {
     Discard,
     KeepAll,

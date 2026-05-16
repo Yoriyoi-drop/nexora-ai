@@ -108,10 +108,10 @@ impl AetherIdentity {
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![
-                "Emotional intelligence",
-                "Psychological analysis",
-                "Empathy synthesis",
-                "Cross-cultural understanding",
+                "Emotional intelligence".to_string(),
+                "Psychological analysis".to_string(),
+                "Empathy synthesis".to_string(),
+                "Cross-cultural understanding".to_string(),
             ],
         }
     }

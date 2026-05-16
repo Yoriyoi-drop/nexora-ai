@@ -10,6 +10,7 @@ use crate::shared::{
 };
 
 /// NXR-VORTEX Capabilities Manager
+#[derive(Clone)]
 pub struct VortexCapabilities {
     /// Capability vector
     vector: CapabilityVector,

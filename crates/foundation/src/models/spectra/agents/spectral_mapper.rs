@@ -225,8 +225,8 @@ impl SpectralMapperAgent {
         let mut mapped_data = Vec::new();
         
         for (i, (freq, amp)) in input.spectral_data.iter().enumerate() {
-            let x = freq;
-            let y = amp;
+            let x = *freq;
+            let y = *amp;
             let z = (i as f32 * 0.1).sin();
             mapped_data.push((x, y, z));
         }

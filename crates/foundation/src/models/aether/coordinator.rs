@@ -7,9 +7,8 @@ use crate::shared::{
     agent_coordinator::{AgentCoordinator, CoordinationStrategy},
     agent_types::{TaskRoutingRule, CommunicationChannel, AgentResult},
 };
-use super::agents::{
-    EmpathyPrimeAgent, PsycheAnalyzerAgent, EmotionWeaverAgent, CultureAdapterAgent,
-};
+// Agents are looked up by string name, not imported types
+
 
 /// Aether-specific Agent Coordinator
 pub struct AetherCoordinator {
@@ -79,18 +78,18 @@ impl AetherCoordinator {
             weight: Some(0.15),
         };
         
-        self.add_routing_rule(empathy_rule);
-        self.add_routing_rule(psyche_rule);
-        self.add_routing_rule(emotion_rule);
-        self.add_routing_rule(culture_rule);
+        self.inner.add_routing_rule(empathy_rule);
+        self.inner.add_routing_rule(psyche_rule);
+        self.inner.add_routing_rule(emotion_rule);
+        self.inner.add_routing_rule(culture_rule);
     }
     
     /// Setup agent weights based on emotional capabilities
     fn setup_agent_weights(&mut self) {
-        self.add_agent_weight("empathy_prime".to_string(), 0.35);
-        self.add_agent_weight("psyche_analyzer".to_string(), 0.3);
-        self.add_agent_weight("emotion_weaver".to_string(), 0.2);
-        self.add_agent_weight("culture_adapter".to_string(), 0.15);
+        self.inner.add_agent_weight("empathy_prime".to_string(), 0.35);
+        self.inner.add_agent_weight("psyche_analyzer".to_string(), 0.3);
+        self.inner.add_agent_weight("emotion_weaver".to_string(), 0.2);
+        self.inner.add_agent_weight("culture_adapter".to_string(), 0.15);
     }
     
     /// Setup communication channels between agents
@@ -142,16 +141,16 @@ impl AetherCoordinator {
             config: HashMap::new(),
         };
         
-        self.add_communication_channel(empathy_channel);
-        self.add_communication_channel(psyche_channel);
-        self.add_communication_channel(culture_channel);
-        self.add_communication_channel(synthesis_channel);
+        self.inner.add_communication_channel(empathy_channel);
+        self.inner.add_communication_channel(psyche_channel);
+        self.inner.add_communication_channel(culture_channel);
+        self.inner.add_communication_channel(synthesis_channel);
     }
     
     /// Route emotional task to appropriate agent
     pub fn route_emotional_task(&self, task_description: &str, emotional_context: &str) -> AgentResult<String> {
         let enhanced_description = format!("{} context:{}", task_description, emotional_context);
-        self.route_task(&enhanced_description)
+        self.inner.route_task(&enhanced_description)
     }
     
     /// Get agents by emotional capability
@@ -188,7 +187,7 @@ impl AetherCoordinator {
             CoordinationStrategy::Sequential
         };
         
-        self.update_strategy(new_strategy);
+        self.inner.update_strategy(new_strategy);
     }
 }
 
@@ -199,9 +198,9 @@ mod tests {
     #[test]
     fn test_aether_coordinator_creation() {
         let coordinator = AetherCoordinator::new_aether();
-        assert!(coordinator.routing_rules.len() > 0);
-        assert!(coordinator.agent_weights.len() == 4);
-        assert!(coordinator.communication_channels.len() == 4);
+        assert!(coordinator.inner.routing_rules.len() > 0);
+        assert!(coordinator.inner.agent_weights.len() == 4);
+        assert!(coordinator.inner.communication_channels.len() == 4);
     }
 
     #[test]

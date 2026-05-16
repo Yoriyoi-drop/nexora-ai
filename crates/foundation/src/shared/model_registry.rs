@@ -13,6 +13,7 @@ use super::{
     capability_spec::CapabilityVector,
     base_model::NxrModel,
     model_config::NxrModelConfig,
+    safety_gate::CapabilityLock,
 };
 
 /// Model registry for managing all NXR models
@@ -46,7 +47,7 @@ impl NxrModelRegistry {
         }
     }
 
-    /// Register a model
+    /// Register a model (with safety gate enforcement)
     pub async fn register_model(
         &self,
         model_id: NxrModelId,
@@ -68,6 +69,11 @@ impl NxrModelRegistry {
             }
         }
 
+        // Enforce safety capability locks at registration
+        let cap_lock = CapabilityLock::new();
+        let mut caps = model_capabilities;
+        cap_lock.enforce(&mut caps).await.map_err(|e| RegistryError::Validation(e.to_string()))?;
+
         // Register all components
         {
             let mut models = self.models.write().await;
@@ -81,7 +87,7 @@ impl NxrModelRegistry {
 
         {
             let mut capabilities = self.capabilities.write().await;
-            capabilities.insert(model_id, model_capabilities);
+            capabilities.insert(model_id, caps);
         }
 
         {
@@ -255,8 +261,11 @@ impl NxrModelRegistry {
         Ok(())
     }
 
-    /// Update model capabilities
-    pub async fn update_capabilities(&self, model_id: &NxrModelId, capabilities: CapabilityVector) -> Result<(), RegistryError> {
+    /// Update model capabilities (enforces safety capability locks)
+    pub async fn update_capabilities(&self, model_id: &NxrModelId, mut capabilities: CapabilityVector) -> Result<(), RegistryError> {
+        let cap_lock = CapabilityLock::new();
+        cap_lock.enforce(&mut capabilities).await.map_err(|e| RegistryError::Validation(e.to_string()))?;
+
         let mut caps = self.capabilities.write().await;
         if !caps.contains_key(model_id) {
             return Err(RegistryError::NotFound(*model_id));

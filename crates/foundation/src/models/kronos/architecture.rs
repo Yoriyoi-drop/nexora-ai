@@ -399,10 +399,10 @@ impl KronosArchitecture {
             },
             semantic_search_engine: SemanticSearchEngine {
                 embedding_model: EmbeddingModel {
-                    model_architecture: match config.semantic_search.embedding_model {
+                    model_architecture: match &config.semantic_search.embedding_model {
                         super::config::EmbeddingModel::BERT => ModelArchitecture::BERT,
                         super::config::EmbeddingModel::RoBERTa => ModelArchitecture::RoBERTa,
-                        super::config::EmbeddingModel::Custom { model_name } => ModelArchitecture::Custom { name: model_name },
+                        super::config::EmbeddingModel::Custom { model_name } => ModelArchitecture::Custom { name: model_name.clone() },
                     },
                     embedding_dimensions: 768,
                     accuracy: 0.92,
@@ -429,11 +429,11 @@ impl KronosArchitecture {
                 },
                 storage_backend: StorageBackend::Distributed,
                 query_engine: QueryEngine {
-                    query_language: match config.agents.knowledge_graph.graph_querying.query_language {
+                    query_language: match &config.agents.knowledge_graph.graph_querying.query_language {
                         super::config::QueryLanguage::SPARQL => QueryLanguage::SPARQL,
                         super::config::QueryLanguage::Cypher => QueryLanguage::Cypher,
                         super::config::QueryLanguage::Gremlin => QueryLanguage::Gremlin,
-                        super::config::QueryLanguage::Custom { language } => QueryLanguage::Custom { language },
+                        super::config::QueryLanguage::Custom { language } => QueryLanguage::Custom { language: language.clone() },
                     },
                     query_optimization: config.agents.knowledge_graph.graph_querying.query_optimization,
                 },

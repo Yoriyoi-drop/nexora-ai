@@ -22,6 +22,7 @@ pub use code_utils::*;
 pub use verifiers::*;
 
 // Integration with NXR-VORTEX
+use crate::shared::base_model::NxrModel;
 pub use crate::models::vortex::NxrVortexModel;
 
 /// Enhanced ORACLE with NXR-VORTEX integration

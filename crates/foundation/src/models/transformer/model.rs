@@ -6,6 +6,48 @@ use super::block::TransformerBlock;
 use super::gqa::KVCacheEntry;
 use super::rope::RoPE;
 
+fn softmax(logits: &Array1<f32>) -> Array1<f32> {
+    let max_val = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let exps: Vec<f32> = logits.iter().map(|&x| (x - max_val).exp()).collect();
+    let sum: f32 = exps.iter().sum();
+    Array1::from_shape_fn(logits.len(), |i| if sum > 0.0 { exps[i] / sum } else { 1.0 / logits.len() as f32 })
+}
+
+pub(crate) fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32 {
+    if temperature <= 0.0 {
+        let mut best = 0;
+        for i in 1..logits.len() {
+            if logits[i] > logits[best] { best = i; }
+        }
+        return best as u32;
+    }
+    let scaled: Array1<f32> = logits.mapv(|v| v / temperature);
+    let probs = softmax(&scaled);
+
+    if top_k > 0 && top_k < probs.len() {
+        let mut indices: Vec<usize> = (0..probs.len()).collect();
+        indices.sort_by(|&a, &b| probs[b].partial_cmp(&probs[a]).unwrap_or(std::cmp::Ordering::Equal));
+        let k = top_k.min(probs.len());
+        let sum_k: f32 = indices[..k].iter().map(|&i| probs[i]).sum();
+        if sum_k <= 0.0 { return indices[0] as u32; }
+        let r: f32 = rand::random::<f32>() * sum_k;
+        let mut cum = 0.0;
+        for &i in &indices[..k] {
+            cum += probs[i];
+            if cum >= r { return i as u32; }
+        }
+        return indices[k - 1] as u32;
+    }
+
+    let r: f32 = rand::random();
+    let mut cum = 0.0;
+    for i in 0..probs.len() {
+        cum += probs[i];
+        if cum >= r { return i as u32; }
+    }
+    (probs.len() - 1) as u32
+}
+
 #[derive(Debug, Clone)]
 pub struct CausalLM {
     pub config: TransformerConfig,
@@ -133,5 +175,38 @@ impl CausalLM {
         }
         count += self.norm.weight.len();
         count
+    }
+
+    pub fn memory_bytes(&self) -> usize {
+        self.parameter_count() * 4
+    }
+
+    pub fn generate(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        let mut cache = self.reset_cache();
+
+        for &token_id in prompt_ids {
+            self.forward(&[token_id], &mut cache);
+        }
+
+        let mut output = Vec::new();
+        let mut last_id = *prompt_ids.last().unwrap_or(&0);
+
+        for _ in 0..max_tokens {
+            let logits = self.forward(&[last_id], &mut cache);
+            let next_id = sample_token(&logits, temperature, top_k);
+            output.push(next_id);
+            if next_id == 0 {
+                break;
+            }
+            last_id = next_id;
+        }
+
+        (output, cache)
     }
 }

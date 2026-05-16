@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use super::ImplementationComplexity;
 use crate::shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
     agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
@@ -115,6 +116,67 @@ pub struct ResourceConstraints {
     pub storage_constraints: StorageConstraints,
     /// Budget constraints
     pub budget_constraints: BudgetConstraints,
+}
+
+impl Default for ResourceConstraints {
+    fn default() -> Self {
+        Self {
+            cpu_constraints: CpuConstraints {
+                max_cpu_usage: 80.0,
+                cpu_cores: 16,
+                cpu_architecture: "x86_64".to_string(),
+                specialized_hardware: vec![],
+            },
+            memory_constraints: MemoryConstraints {
+                max_memory_gb: 64.0,
+                memory_type: MemoryType::DDR4,
+                memory_bandwidth_gbps: 25.6,
+                swap_space_gb: 32.0,
+            },
+            network_constraints: NetworkConstraints {
+                max_bandwidth_mbps: 1000.0,
+                latency_requirements: LatencyRequirements {
+                    max_latency_ms: 100.0,
+                    avg_latency_target_ms: 50.0,
+                    latency_percentile: 95.0,
+                    jitter_tolerance_ms: 10.0,
+                },
+                connection_limits: ConnectionLimits {
+                    max_concurrent_connections: 1000,
+                    connection_rate_limit: 100,
+                    timeout_settings: TimeoutSettings {
+                        connection_timeout_ms: 5000,
+                        read_timeout_ms: 30000,
+                        write_timeout_ms: 30000,
+                        idle_timeout_ms: 60000,
+                    },
+                },
+                supported_protocols: vec!["HTTP".to_string(), "HTTPS".to_string(), "TCP".to_string()],
+            },
+            storage_constraints: StorageConstraints {
+                max_storage_gb: 1000.0,
+                storage_type: StorageType::SSD,
+                iops_requirements: IopsRequirements {
+                    read_iops: 10000,
+                    write_iops: 5000,
+                    mixed_iops: 7500,
+                    iops_consistency: 0.9,
+                },
+                throughput_requirements: ThroughputRequirements {
+                    read_throughput_mbps: 500.0,
+                    write_throughput_mbps: 300.0,
+                    mixed_throughput_mbps: 400.0,
+                    sustained_duration_seconds: 3600,
+                },
+            },
+            budget_constraints: BudgetConstraints {
+                max_hourly_cost: 10.0,
+                max_daily_cost: 200.0,
+                max_monthly_cost: 5000.0,
+                cost_optimization_level: CostOptimizationLevel::Moderate,
+            },
+        }
+    }
 }
 
 /// Cpu Constraints
@@ -273,6 +335,17 @@ pub struct BudgetConstraints {
     pub max_monthly_cost: f32,
     /// Cost optimization level
     pub cost_optimization_level: CostOptimizationLevel,
+}
+
+impl Default for BudgetConstraints {
+    fn default() -> Self {
+        Self {
+            max_hourly_cost: 10.0,
+            max_daily_cost: 200.0,
+            max_monthly_cost: 5000.0,
+            cost_optimization_level: CostOptimizationLevel::Moderate,
+        }
+    }
 }
 
 /// Cost Optimization Level

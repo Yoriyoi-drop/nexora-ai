@@ -344,6 +344,7 @@ impl BaseAgent for ArtisticWeaverAgent {
         let quality_scores = self.calculate_quality_scores(&input, &artistic_content).await?;
         
         // Build output
+        let success_score = quality_scores.overall_quality;
         let output = ArtisticTaskOutput {
             content: artistic_content,
             applied_style: input.target_style.clone(),
@@ -355,7 +356,7 @@ impl BaseAgent for ArtisticWeaverAgent {
                     target_style: input.target_style.unwrap(),
                     adaptation_method: "contextual_adaptation".to_string(),
                     adaptation_strength: self.config.adaptation_strength,
-                    success_score: quality_scores.overall_quality,
+                    success_score,
                 })
             } else {
                 None

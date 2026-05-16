@@ -15,6 +15,7 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    safety_gate::{global_safety, ConsentToken, ConsentScope},
 };
 
 // Include all Aether modules
@@ -237,37 +238,40 @@ impl NxrAetherModel {
         Ok(format!(
             "Emotional Analysis:\nTone: {}\nIntensity: {:.2}\nEmpathy Response: {}\nDL Processing: {}",
             emotional_tone.primary_emotion,
-            emotional_tone.intensity,
+            emotional_tone.emotional_intensity,
             empathy_response,
             dl_result
         ))
     }
 
     fn detect_emotional_tone(&self, text: &str) -> NxrModelResult<EmotionalState> {
-        let words: Vec<&str> = text.to_lowercase().split_whitespace().collect();
+        let lower_text = text.to_lowercase();
+        let words: Vec<&str> = lower_text.split_whitespace().collect();
         let mut emotional_scores = HashMap::new();
         
         // Simple emotional keyword detection
         if words.iter().any(|w| w.contains("sad") || w.contains("unhappy")) {
-            emotional_scores.insert("sadness".to_string(), 0.8);
+            emotional_scores.insert("sadness".to_string(), 0.8f32);
         }
         if words.iter().any(|w| w.contains("happy") || w.contains("joy")) {
-            emotional_scores.insert("joy".to_string(), 0.9);
+            emotional_scores.insert("joy".to_string(), 0.9f32);
         }
         if words.iter().any(|w| w.contains("angry") || w.contains("mad")) {
-            emotional_scores.insert("anger".to_string(), 0.7);
+            emotional_scores.insert("anger".to_string(), 0.7f32);
         }
         
         let (primary_emotion, intensity) = emotional_scores
             .iter()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(emotion, score)| (emotion.clone(), *score))
-            .unwrap_or(("neutral".to_string(), 0.5));
+            .unwrap_or(("neutral".to_string(), 0.5f32));
+
+        let valence = if primary_emotion == "joy" { 0.8f32 } else if primary_emotion == "sadness" { -0.6f32 } else { 0.0f32 };
 
         Ok(EmotionalState {
             primary_emotion,
             emotional_intensity: intensity,
-            valence: if primary_emotion == "joy" { 0.8 } else if primary_emotion == "sadness" { -0.6 } else { 0.0 },
+            valence,
             arousal: intensity,
         })
     }
@@ -298,8 +302,8 @@ impl NxrModel for NxrAetherModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: AetherConfig = AetherConfig::default();
-        &DEFAULT_CONFIG
+        static DEFAULT_CONFIG: std::sync::OnceLock<AetherConfig> = std::sync::OnceLock::new();
+        DEFAULT_CONFIG.get_or_init(AetherConfig::default)
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -335,6 +339,14 @@ impl NxrModel for NxrAetherModel {
             ));
         }
 
+        let safety = global_safety();
+        let consent_token = input.metadata.get("consent_token").and_then(|v| v.as_str());
+        safety.pre_inference_check(NxrModelId::Aether, consent_token).await?;
+
+        if self.config().psychological.enable_profiling {
+            safety.gate.check_consent(consent_token)?;
+        }
+
         let start_time = std::time::Instant::now();
         
         let input_text = match &input.data {
@@ -346,6 +358,7 @@ impl NxrModel for NxrAetherModel {
 
         let result = self.analyze_emotional_content(&input_text).await?;
         let generation_time_ms = start_time.elapsed().as_millis() as u64;
+        let total_tokens = result.split_whitespace().count();
 
         Ok(NxrOutput {
             id: uuid::Uuid::new_v4(),
@@ -354,13 +367,13 @@ impl NxrModel for NxrAetherModel {
             data: crate::shared::base_model::OutputData::Text(result),
             metadata: crate::shared::base_model::GenerationMetadata {
                 finish_reason: crate::shared::base_model::FinishReason::EndOfSequence,
-                total_tokens: result.split_whitespace().count(),
+                total_tokens,
                 generation_time_ms,
                 model_version: self.identity.meta().version.clone(),
                 seed: None,
             },
             performance: crate::shared::base_model::PerformanceMetrics {
-                tokens_per_second: result.split_whitespace().count() as f32 / (generation_time_ms as f32 / 1000.0),
+                tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
                 memory_usage_gb: 16.0,
                 gpu_utilization: Some(0.65),
                 cpu_utilization: 0.55,

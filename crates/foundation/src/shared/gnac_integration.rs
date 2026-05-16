@@ -40,20 +40,25 @@ pub enum GnacMode {
 }
 
 /// Konfigurasi GNAC untuk NXR models
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GnacIntegrationConfig {
     /// Mode operasi GNAC
     pub mode: GnacMode,
     /// Konfigurasi dasar GNAC
+    #[serde(skip)]
     pub gnac_config: GnacConfig,
     /// Konfigurasi Swarm Agent (jika mode ArchitectureSearch)
+    #[serde(skip)]
     pub swarm_config: Option<SwarmConfig>,
     /// Search space untuk NAS (jika mode ArchitectureSearch)
+    #[serde(skip)]
     pub search_space: Option<SearchSpace>,
     /// Target hardware untuk deployment
-    pub target_hardware: HardwareTarget,
+    #[serde(skip)]
+    pub target_hardware: Option<HardwareTarget>,
     /// Resource constraints
-    pub resource_constraints: ResourceConstraints,
+    #[serde(skip)]
+    pub resource_constraints: Option<ResourceConstraints>,
     /// Enable graph lensing
     pub enable_lensing: bool,
     /// Enable anomaly detection
@@ -71,8 +76,8 @@ impl Default for GnacIntegrationConfig {
             gnac_config: GnacConfig::default(),
             swarm_config: None,
             search_space: None,
-            target_hardware: HardwareTarget::CloudGPU,
-            resource_constraints: ResourceConstraints::cloud_gpu(),
+            target_hardware: Some(HardwareTarget::CloudGPU),
+            resource_constraints: Some(ResourceConstraints::cloud_gpu()),
             enable_lensing: true,
             enable_anomaly_detection: true,
             enable_elastic: false,
@@ -121,8 +126,8 @@ impl GnacIntegrationConfig {
 
         Self {
             mode: GnacMode::ElasticInference,
-            target_hardware: target,
-            resource_constraints: constraints,
+            target_hardware: Some(target),
+            resource_constraints: Some(constraints),
             enable_elastic: true,
             ..Default::default()
         }
@@ -161,7 +166,7 @@ impl GnacEngine {
     /// Buat engine baru dengan graf default
     pub fn new(cfg: GnacIntegrationConfig) -> Self {
         let graph = NeuralGraph::new("nxr_model_graph");
-        let max_vram = cfg.resource_constraints.max_vram_mb;
+        let max_vram = cfg.resource_constraints.as_ref().map(|c| c.max_vram_mb).unwrap_or(4096.0);
 
         Self {
             config: cfg,
@@ -210,10 +215,12 @@ impl GnacEngine {
     /// Validate terhadap constraints
     pub async fn validate_constraints(&self) -> Result<(), String> {
         let report = self.estimate_resources().await;
-        self.config
-            .resource_constraints
-            .validate(report.total_vram_mb, report.inference_latency_ms)
-            .map_err(|e| e.to_string())
+        match &self.config.resource_constraints {
+            Some(constraints) => constraints
+                .validate(report.total_vram_mb, report.inference_latency_ms)
+                .map_err(|e| e.to_string()),
+            None => Err("Resource constraints not configured".to_string()),
+        }
     }
 
     /// Run Swarm Agent NAS

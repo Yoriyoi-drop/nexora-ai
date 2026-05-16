@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::models::omnis::{Hypothesis, MetaReasoningState, ReasoningStep, ReasoningStepType, ResolutionStatus, TruthArbitrationState};
 use crate::shared::base_model::NxrModelResult;
 
 #[derive(Debug, Clone, Default)]
@@ -21,28 +22,28 @@ impl MetaReasonerRuntimeAgent {
         ))
     }
 
-    pub async fn analyze_problem(&self, problem: &str) -> NxrModelResult<super::MetaReasoningState> {
-        Ok(super::MetaReasoningState {
-            reasoning_chain: vec![super::ReasoningStep {
+    pub async fn analyze_problem(&self, problem: &str) -> NxrModelResult<MetaReasoningState> {
+        Ok(MetaReasoningState {
+            reasoning_chain: vec![ReasoningStep {
                 id: uuid::Uuid::new_v4(),
-                step_type: super::ReasoningStepType::MetaReasoning,
+                step_type: ReasoningStepType::MetaReasoning,
                 content: format!("Meta-reasoning analysis of: {}", problem),
                 confidence: 0.9,
                 dependencies: Vec::new(),
                 timestamp: chrono::Utc::now(),
             }],
             confidence_scores: vec![0.9],
-            hypothesis_space: vec![super::Hypothesis {
+            hypothesis_space: vec![Hypothesis {
                 id: uuid::Uuid::new_v4(),
                 content: problem.to_string(),
                 evidence_support: 0.8,
                 plausibility: 0.9,
                 testability: 0.7,
             }],
-            truth_arbitration: super::TruthArbitrationState {
+            truth_arbitration: TruthArbitrationState {
                 truth_claims: Vec::new(),
                 contradiction_matrix: HashMap::new(),
-                resolution_status: super::ResolutionStatus::Pending,
+                resolution_status: ResolutionStatus::Pending,
             },
         })
     }

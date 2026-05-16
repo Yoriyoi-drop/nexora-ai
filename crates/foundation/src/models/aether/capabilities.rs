@@ -10,6 +10,7 @@ use crate::shared::{
 };
 
 /// NXR-ÆTHER Capabilities Manager
+#[derive(Clone)]
 pub struct AetherCapabilities {
     /// Capability vector
     vector: CapabilityVector,
@@ -479,7 +480,7 @@ impl AetherCapabilities {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
-                let new_score = (current_score + improvement).min(1.0);
+                let new_score = (current_score + improvement).min(1.0_f32);
                 
                 // Update capability metrics
                 capability.metrics.insert("simulated_score".to_string(), new_score);
@@ -497,7 +498,7 @@ impl AetherCapabilities {
             psychological_analysis: self.performance_metrics.psychological_analysis_accuracy,
             cultural_adaptation: self.performance_metrics.cultural_adaptation_accuracy,
             support_generation: self.performance_metrics.support_generation_quality,
-            response_efficiency: (1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0),
+            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0)) as f32,
         }
     }
 

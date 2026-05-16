@@ -261,6 +261,8 @@ pub struct EventHandling {
     pub event_sources: Vec<EventSource>,
     /// Event processing
     pub event_processing: EventProcessing,
+    /// Batch size for batch processing
+    pub batch_size: u32,
 }
 
 /// EventSource
@@ -488,6 +490,7 @@ impl Default for WorkflowIntegrationConfig {
             event_handling: EventHandling {
                 event_sources: vec![],
                 event_processing: EventProcessing::Asynchronous,
+                batch_size: 32,
             },
         }
     }

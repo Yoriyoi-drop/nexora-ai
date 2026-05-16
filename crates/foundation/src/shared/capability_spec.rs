@@ -56,6 +56,18 @@ pub enum CapabilityDomain {
     Decision,
     /// Monitoring
     Monitoring,
+    /// Psychological analysis
+    Psychological,
+    /// Social interaction
+    Social,
+    /// Cultural understanding
+    Cultural,
+    /// Multimedia processing
+    Multimedia,
+    /// Style adaptation
+    Style,
+    /// Innovation generation
+    Innovation,
 }
 
 /// Capability Level
@@ -185,12 +197,22 @@ pub struct CapabilityVector {
 impl CapabilityVector {
     /// Create new capability vector
     pub fn new(model_id: crate::shared::model_identity::NxrModelId) -> Self {
-        Self {
+        let mut vector = Self {
             model_id,
             capabilities: HashMap::new(),
             overall_score: 0.0,
             specializations: Vec::new(),
-        }
+        };
+        // Lock safety capabilities as default
+        vector.capabilities.insert(
+            CapabilityDomain::Alignment,
+            CapabilitySpec::new(CapabilityDomain::Alignment, CapabilityLevel::Basic),
+        );
+        vector.capabilities.insert(
+            CapabilityDomain::Security,
+            CapabilitySpec::new(CapabilityDomain::Security, CapabilityLevel::Basic),
+        );
+        vector
     }
 
     /// Add capability

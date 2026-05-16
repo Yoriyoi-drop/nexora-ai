@@ -2,6 +2,7 @@
 //! 
 //! Model-specific configuration for NXR-NEXUM
 
+use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use crate::shared::model_config::NxrModelConfig;
 
@@ -38,7 +39,7 @@ pub struct OrchestrationConfig {
 }
 
 /// Orchestration Mode
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OrchestrationMode {
     /// Centralized orchestration
     Centralized,
@@ -52,6 +53,8 @@ pub enum OrchestrationMode {
     Adaptive,
     /// Swarm orchestration
     Swarm,
+    /// Synchronous orchestration
+    Synchronous,
 }
 
 /// Agent Coordination Strategy
@@ -240,7 +243,7 @@ pub struct ConflictResolutionConfig {
 }
 
 /// Resolution Method
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ResolutionMethod {
     /// Negotiation method
     Negotiation,
@@ -291,7 +294,7 @@ pub enum AllocationStrategy {
 }
 
 /// Resource Type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ResourceType {
     /// CPU resources
     CPU,
@@ -554,7 +557,7 @@ impl NexumConfig {
                 self.resource_allocation = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(serde_json::Error::syntax(serde_json::error::ErrorCode::ExpectedColon, 0, 0));
+                return Err(SerdeError::custom(format!("unknown component: {}", component)));
             }
         }
 
@@ -834,7 +837,7 @@ impl NexumConfig {
 
     /// Calculate orchestration efficiency score
     pub fn calculate_orchestration_efficiency_score(&self) -> f32 {
-        let mut score = 0.0;
+        let mut score: f32 = 0.0;
         
         // Orchestration mode contribution
         match self.orchestration.orchestration_mode {
@@ -844,6 +847,7 @@ impl NexumConfig {
             OrchestrationMode::Hierarchical => score += 0.12,
             OrchestrationMode::Centralized => score += 0.1,
             OrchestrationMode::Swarm => score += 0.16,
+            OrchestrationMode::Synchronous => score += 0.17,
         }
         
         // Coordination strategy contribution
@@ -905,7 +909,7 @@ impl NexumConfig {
             score += 0.05;
         }
         
-        score.min(1.0)
+        score.min(1.0f32)
     }
 
     /// Get recommended configuration for agent count
@@ -980,7 +984,7 @@ impl NexumConfig {
     }
 
     /// Get resource requirements for agent count
-    pub fn get_resource_requirements_for_agent_count(&self, agent_count: usize) -> ResourceRequirements {
+    pub fn get_resource_requirements_for_agent_count(&self, agent_count: usize) -> super::architecture::ResourceRequirements {
         let base_memory = 16.0; // Base memory in GB
         let base_compute = 32; // Base compute units
         
@@ -990,13 +994,12 @@ impl NexumConfig {
         let total_memory = base_memory + (agent_count as f64 * memory_per_agent);
         let total_compute = base_compute + (agent_count * compute_per_agent);
         
-        ResourceRequirements {
-            min_memory_gb: total_memory,
-            min_compute_units: total_compute,
-            requires_gpu: agent_count > 100,
-            min_gpu_memory_gb: if agent_count > 100 { Some(16.0) } else { None },
-            requires_network: agent_count > 1,
-            max_latency_ms: Some(if agent_count < 10 { 500 } else if agent_count < 100 { 1000 } else { 2000 }),
+        super::architecture::ResourceRequirements {
+            cpu_requirement: total_compute as f32,
+            memory_requirement: total_memory as f32,
+            network_requirement: if agent_count > 1 { 1.0 } else { 0.0 },
+            storage_requirement: total_memory * 2.0,
+            gpu_requirement: if agent_count > 100 { 16.0 } else { 0.0 },
         }
     }
 
@@ -1005,14 +1008,14 @@ impl NexumConfig {
         let mut optimized_config = self.clone();
         
         // Optimize orchestration mode based on workload
-        optimized_config.orchestration.orchestration_mode = match (workload.agent_count, workload.task_complexity, workload.communication_frequency) {
-            (count, complexity, frequency) if count < 20 && complexity == TaskComplexity::Low && frequency == CommunicationFrequency::Low => {
+        optimized_config.orchestration.orchestration_mode = match (workload.agent_count, &workload.task_complexity, &workload.communication_frequency) {
+            (count, complexity, frequency) if count < 20 && *complexity == TaskComplexity::Low && *frequency == CommunicationFrequency::Low => {
                 OrchestrationMode::Centralized
             }
-            (count, complexity, frequency) if count < 100 && complexity == TaskComplexity::Medium => {
+            (count, complexity, frequency) if count < 100 && *complexity == TaskComplexity::Medium => {
                 OrchestrationMode::Hierarchical
             }
-            (count, complexity, frequency) if complexity == TaskComplexity::High || frequency == CommunicationFrequency::High => {
+            (count, complexity, frequency) if *complexity == TaskComplexity::High || *frequency == CommunicationFrequency::High => {
                 OrchestrationMode::Distributed
             }
             (count, _, _) if count > 500 => {
@@ -1088,7 +1091,7 @@ pub struct WorkloadCharacteristics {
 }
 
 /// Task complexity
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TaskComplexity {
     Low,
     Medium,
@@ -1097,7 +1100,7 @@ pub enum TaskComplexity {
 }
 
 /// Communication frequency
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CommunicationFrequency {
     Low,
     Medium,

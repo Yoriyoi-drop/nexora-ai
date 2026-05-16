@@ -26,15 +26,17 @@ pub enum DLArchitecture {
 }
 
 /// Konfigurasi deep learning untuk NXR models
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeepLearningConfig {
     /// Tipe arsitektur yang digunakan
     pub architecture: DLArchitecture,
     
     /// Konfigurasi STAR-X (jika digunakan)
+    #[serde(skip)]
     pub star_x_config: Option<StarXConfig>,
     
     /// Konfigurasi ECHO-Net (jika digunakan)
+    #[serde(skip)]
     pub echo_net_config: Option<EchoNetConfig>,
     
     /// Enable training mode

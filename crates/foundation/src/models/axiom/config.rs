@@ -892,6 +892,21 @@ pub enum ErrorDetailLevel {
     Debug,
 }
 
+/// Search Algorithm
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SearchAlgorithm {
+    DepthFirst,
+    BreadthFirst,
+    AStar,
+    BestFirst,
+    BeamSearch,
+    HillClimbing,
+    GeneticSearch,
+    IterativeDeepening,
+    UniformCost,
+    Bidirectional,
+}
+
 /// Inference Engine Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceEngineConfig {

@@ -10,6 +10,7 @@ use crate::shared::{
 };
 
 /// NXR-SPECTRA Capabilities Manager
+#[derive(Clone)]
 pub struct SpectraCapabilities {
     /// Capability vector
     vector: CapabilityVector,
@@ -460,7 +461,7 @@ impl SpectraCapabilities {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
-                let new_score = (current_score + improvement).min(1.0);
+                let new_score = (current_score + improvement).min(1.0_f32);
                 
                 // Update capability metrics
                 capability.metrics.insert("simulated_score".to_string(), new_score);
@@ -478,7 +479,7 @@ impl SpectraCapabilities {
             multimodal_synthesis: self.performance_metrics.multimodal_synthesis_quality,
             innovation_generation: self.performance_metrics.innovation_generation_quality,
             artistic_quality: self.performance_metrics.artistic_quality_score,
-            response_efficiency: (1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0),
+            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0)) as f32,
         }
     }
 

@@ -404,9 +404,9 @@ impl SpectralAnalyzerAgent {
         }
         
         // Simple periodicity check using autocorrelation
-        let mut max_correlation = 0.0;
+        let mut max_correlation = 0.0f32;
         for lag in 1..(signal.len() / 2) {
-            let mut correlation = 0.0;
+            let mut correlation = 0.0f32;
             for i in 0..(signal.len() - lag) {
                 correlation += signal[i] * signal[i + lag];
             }

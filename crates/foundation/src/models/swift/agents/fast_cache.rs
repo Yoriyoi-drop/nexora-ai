@@ -340,7 +340,7 @@ impl FastCacheAgent {
             if i < embedding.len() {
                 // Simple hash-based embedding
                 let hash = word.chars().map(|c| c as u32).sum::<u32>() as f32;
-                embedding[i] = (hash % 1000) as f32 / 1000.0;
+                embedding[i] = (hash as u32 % 1000) as f32 / 1000.0;
             }
         }
 
@@ -458,8 +458,8 @@ impl FastCacheAgent {
         }
 
         let total_entries = similarities.len();
-        let best_match_score = similarities.iter().fold(0.0, |a, &b| a.max(b));
-        let average_similarity = if total_entries > 0 {
+        let best_match_score = similarities.iter().fold(0.0f32, |a, &b| a.max(b));
+        let average_similarity: f32 = if total_entries > 0 {
             similarities.iter().sum::<f32>() / total_entries as f32
         } else {
             0.0

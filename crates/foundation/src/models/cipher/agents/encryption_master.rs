@@ -290,9 +290,9 @@ impl EncryptionMasterAgent {
     }
 
     async fn calculate_protection_level(&self, input: &EncryptionMasterTaskInput) -> AgentResult<f32> {
-        let base_protection = 0.85;
-        let parameter_bonus = if input.encryption_parameters.len() > 0 { 0.1 } else { 0.0 };
-        let data_size_factor = if input.data_to_protect.len() > 100 { 0.05 } else { 0.0 };
+        let base_protection: f32 = 0.85;
+        let parameter_bonus: f32 = if input.encryption_parameters.len() > 0 { 0.1 } else { 0.0 };
+        let data_size_factor: f32 = if input.data_to_protect.len() > 100 { 0.05 } else { 0.0 };
         
         Ok((base_protection + parameter_bonus + data_size_factor).min(1.0))
     }

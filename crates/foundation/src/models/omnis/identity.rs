@@ -110,11 +110,11 @@ impl OmnisIdentity {
             reasoning_depth: "Unlimited",
             agents_count: 6,
             specializations: vec![
-                "Long-chain reasoning",
-                "World modeling",
-                "Meta-cognition",
-                "Truth arbitration",
-                "Multi-agent coordination",
+                "Long-chain reasoning".to_string(),
+                "World modeling".to_string(),
+                "Meta-cognition".to_string(),
+                "Truth arbitration".to_string(),
+                "Multi-agent coordination".to_string(),
             ],
         }
     }

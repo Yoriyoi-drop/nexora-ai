@@ -30,6 +30,7 @@ pub use cache::{LRUCache, MemoryCache};
 pub use compression::{ContextCompressor, CompressedContext};
 pub use memory_model::{
     HebbianMemory, MemoryEntry, MemoryType, HebbianMemoryConfig,
+    NeuralAttentionMemory, NeuralAttentionMemoryConfig, NeuralMemoryEntry,
 };
 pub use types::*;
 pub use optimizer::{
