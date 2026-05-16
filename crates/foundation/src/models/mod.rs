@@ -23,6 +23,8 @@ pub mod kronos;
 #[path = "foundation.rs"]
 pub mod genesis;
 
+pub mod transformer;
+
 // Re-export all models
 pub use omnis::*;
 #[allow(unused_imports)]
@@ -43,6 +45,9 @@ pub use swift::*;
 pub use kronos::*;
 #[allow(unused_imports)]
 pub use genesis::*;
+pub use transformer::{
+    TransformerConfig, CausalLM, KVCacheEntry, RMSNorm, RoPE,
+};
 
 use crate::shared::model_identity::NxrModelId;
 use serde::{Serialize, Deserialize};

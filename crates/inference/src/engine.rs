@@ -19,6 +19,9 @@ use crate::kv_cache::KVCache;
 use crate::session::InferenceSession;
 use crate::decoding::DecodingStrategy;
 use crate::streaming::StreamingEngine;
+use nexora_foundation::models::transformer::{
+    CausalLM, TransformerConfig, KVCacheEntry,
+};
 
 /// Configuration untuk inference engine
 #[derive(Debug, Clone)]
@@ -71,6 +74,8 @@ pub struct InferenceEngine {
     kv_cache: Arc<RwLock<KVCache>>,
     /// Session manager
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
+    /// Transformer model (CausalLM)
+    model: CausalLM,
     /// Decoding strategies
     decoding_strategies: HashMap<String, Box<dyn DecodingStrategy>>,
     /// Streaming engine
@@ -104,12 +109,18 @@ impl InferenceEngine {
     /// Create new inference engine
     pub fn new(config: InferenceConfig) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
+
+        info!("Initializing CausalLM transformer model");
+        let model_config = TransformerConfig::default();
+        let model = CausalLM::new(model_config);
+        info!("CausalLM initialized with {} parameters", model.parameter_count());
         
         let mut engine = Self {
             runtime: Arc::new(InferenceRuntime::new()),
             scheduler: Arc::new(RwLock::new(RequestScheduler::new())),
             kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
+            model,
             decoding_strategies: HashMap::new(),
             streaming_engine: if config.enable_streaming {
                 Some(Arc::new(RwLock::new(StreamingEngine::new())))
@@ -487,17 +498,40 @@ impl InferenceEngine {
             return Err(InferenceError::InvalidRequest("Empty prompt".to_string()));
         }
         
-        let tokens_to_generate = request.max_tokens.min(2048);
+        let model_config = TransformerConfig::default();
+        let model = CausalLM::new(model_config);
+        let prompt_ids: Vec<u32> = request.prompt.bytes().map(|b| b as u32 % 50257).collect();
+        let mut kv_cache = model.reset_cache();
+        
+        let mut full_ids = prompt_ids.clone();
         let inference_start = std::time::Instant::now();
+        let tokens_to_generate = request.max_tokens.min(2048);
 
         for i in 0..tokens_to_generate {
-            let token = GeneratedToken::new(
-                i as u32,
-                format!("[token_{}]", i),
-                -(i as f64 + 1.0).ln() as f32,
-                i as usize,
-            );
+            let input_ids = if i == 0 && !full_ids.is_empty() {
+                full_ids.clone()
+            } else {
+                vec![*full_ids.last().unwrap_or(&0)]
+            };
+            
+            let logits = model.forward(&input_ids, &mut kv_cache);
+            
+            let token_id = logits.iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(idx, _)| idx as u32)
+                .unwrap_or(0);
+            
+            let token_text = if (token_id as usize) < 256 {
+                char::from_u32(token_id).unwrap_or('�').to_string()
+            } else {
+                format!("[{}]", token_id)
+            };
+            
+            let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
+            let token = GeneratedToken::new(token_id, token_text, log_prob, i as usize);
             response.add_token(token);
+            full_ids.push(token_id);
 
             if inference_start.elapsed() > std::time::Duration::from_secs(30) {
                 break;
@@ -564,38 +598,69 @@ impl InferenceEngine {
         let _ = self.scheduler.write().await.complete_request(request.request_id).await;
     }
     
-    /// Execute request
+    /// Execute request using real CausalLM transformer
     async fn execute_request(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
         debug!("Executing request: {}", request.request_id);
         
-        // Get or create session
-        let _session = if let Some(session_id) = request.session_id {
-            self.get_session(session_id).await?
-        } else {
-            // Create temporary session
-            let temp_session_id = Uuid::new_v4();
-            self.get_session(temp_session_id).await?
-        };
-        
-        // Get decoding strategy
         let strategy = self.get_decoding_strategy(request)?;
         
-        // Execute inference
         let mut response = InferenceResponse::new(request.request_id);
-        
-        // Actual token generation loop with proper inference logic
         let mut generated_tokens = Vec::new();
-        let mut context_vector = self.encode_prompt(&request.prompt).await?;
         
-        for i in 0..request.max_tokens {
-            // Get next token probabilities from model
-            let logits = self.forward_pass(&context_vector).await?;
+        let prompt_ids = self.encode_prompt_simple(&request.prompt);
+        let mut full_ids = prompt_ids.clone();
+        let mut kv_cache = self.model.reset_cache();
+        
+        if let Some(first_token) = full_ids.first().copied() {
+            let logits = self.forward_pass_real(&full_ids, &mut kv_cache);
             
-            // Apply decoding strategy to select token
+            if !logits.is_empty() {
+                let decoding_config = crate::decoding::DecodingConfig {
+                    temperature: request.temperature as f32,
+                    top_p: request.top_p,
+                    top_k: 50,
+                    presence_penalty: 0.0,
+                    frequency_penalty: 0.0,
+                    repetition_penalty: 1.0,
+                    min_prob: 0.0,
+                    enable_logit_filter: false,
+                    logit_bias: HashMap::new(),
+                };
+                
+                let decoding_context = crate::decoding::DecodingContext {
+                    generated_tokens: generated_tokens.clone(),
+                    token_frequencies: HashMap::new(),
+                    vocab_size: logits.len(),
+                    forbidden_tokens: Vec::new(),
+                    required_tokens: Vec::new(),
+                    step: 0,
+                    metadata: HashMap::new(),
+                };
+                
+                let token_selection = strategy.select_token(&logits, &decoding_config, &decoding_context)?;
+                let first_id = token_selection.token_id;
+                let token_text = self.token_id_to_text_simple(first_id);
+                let log_prob = logits.get(first_id as usize).copied().unwrap_or(0.0).ln();
+                
+                let token = GeneratedToken::new(first_id, token_text, log_prob, 0);
+                generated_tokens.push(token.clone());
+                response.add_token(token);
+            }
+        }
+        
+        for i in 1..request.max_tokens {
+            let last_id = *full_ids.last().unwrap_or(&0);
+            let single_input = vec![last_id];
+            let logits = self.forward_pass_real(&single_input, &mut kv_cache);
+            
+            if logits.is_empty() {
+                break;
+            }
+            
             let decoding_config = crate::decoding::DecodingConfig {
                 temperature: request.temperature as f32,
                 top_p: request.top_p,
-                top_k: 50, // default
+                top_k: 50,
                 presence_penalty: 0.0,
                 frequency_penalty: 0.0,
                 repetition_penalty: 1.0,
@@ -615,34 +680,22 @@ impl InferenceEngine {
             };
             
             let token_selection = strategy.select_token(&logits, &decoding_config, &decoding_context)?;
-            let selected_token_id = token_selection.token_id;
+            let selected_id = token_selection.token_id;
             
-            // Convert token ID to actual token text
-            let token_text = self.token_id_to_text(selected_token_id).await?;
-            
-            // Create generated token with proper log probability
-            let log_prob = logits[selected_token_id as usize].ln();
-            let token = GeneratedToken::new(
-                selected_token_id,
-                token_text,
-                log_prob,
-                i as usize,
-            );
+            let token_text = self.token_id_to_text_simple(selected_id);
+            let log_prob = logits.get(selected_id as usize).copied().unwrap_or(0.0).ln();
+            let token = GeneratedToken::new(selected_id, token_text, log_prob, i as usize);
             
             generated_tokens.push(token.clone());
             response.add_token(token);
+            full_ids.push(selected_id);
             
-            // Update context for next iteration
-            context_vector = self.update_context(&context_vector, selected_token_id).await?;
-            
-            // Check stop conditions
             if self.should_stop(&response, request) {
                 break;
             }
         }
         
         response.finish_reason = FinishReason::MaxTokens;
-        
         Ok(response)
     }
     
@@ -750,89 +803,31 @@ impl InferenceEngine {
         self.decoding_strategies.insert("temperature".to_string(), Box::new(crate::decoding::TemperatureSampling));
     }
     
-    /// Encode prompt to context vector
-    async fn encode_prompt(&self, prompt: &str) -> Result<Vec<f32>> {
-        // Simple tokenization and encoding
-        // In a real implementation, this would use the actual tokenizer and model
-        let tokens: Vec<u32> = prompt.chars()
-            .map(|c| c as u32 % 10000) // Simple hash to token ID
-            .collect();
-        
-        // Convert to embedding vector (simplified)
-        let mut context_vector = Vec::new();
-        for token in tokens {
-            // Simple embedding: normalized token value
-            let embedding = token as f32 / 10000.0;
-            context_vector.push(embedding);
-        }
-        
-        Ok(context_vector)
+    /// Encode prompt to token IDs using simple byte mapping
+    /// In production, this would use the BPE tokenizer
+    fn encode_prompt_simple(&self, prompt: &str) -> Vec<u32> {
+        prompt.bytes()
+            .map(|b| b as u32 % self.model.config.vocab_size as u32)
+            .collect()
     }
     
-    /// Forward pass through model to get logits
-    async fn forward_pass(&self, context_vector: &[f32]) -> Result<Vec<f32>> {
-        // Simplified model forward pass
-        // In a real implementation, this would use the actual neural network
-        
-        // Create dummy logits based on context
-        let vocab_size = 10000; // Simplified vocabulary size
-        let mut logits = vec![0.0; vocab_size];
-        
-        // Generate pseudo-random logits based on context
-        let context_sum: f32 = context_vector.iter().sum();
-        let seed = (context_sum * 1000.0) as u64;
-        
-        for i in 0..vocab_size {
-            // Simple pseudo-random generation based on context
-            let hash = ((seed as u128).wrapping_mul(i as u128)) % 1000000;
-            logits[i] = (hash as f32 / 1000000.0 - 0.5) * 2.0; // Range [-1, 1]
-        }
-        
-        // Apply softmax to get probabilities
-        let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_sum: f32 = logits.iter().map(|&x| (x - max_logit).exp()).sum();
-        
-        for logit in &mut logits {
-            *logit = (*logit - max_logit).exp() / exp_sum;
-        }
-        
-        Ok(logits)
+    /// Forward pass through the actual CausalLM transformer model
+    fn forward_pass_real(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut Vec<KVCacheEntry>,
+    ) -> Vec<f32> {
+        let logits = self.model.forward(input_ids, kv_cache);
+        logits.to_vec()
     }
     
-    /// Convert token ID to text
-    async fn token_id_to_text(&self, token_id: u32) -> Result<String> {
-        // Simple token to text conversion
-        // In a real implementation, this would use the actual tokenizer vocabulary
-        
-        if token_id < 128 {
-            // ASCII characters
-            Ok(char::from_u32(token_id).unwrap_or('?').to_string())
-        } else if token_id < 10000 {
-            // Extended characters (simplified)
-            Ok(format!("t{}", token_id))
+    /// Convert token ID to text (simple byte decoding)
+    fn token_id_to_text_simple(&self, token_id: u32) -> String {
+        if token_id < 256 {
+            char::from_u32(token_id).unwrap_or('�').to_string()
         } else {
-            Ok("<unk>".to_string())
+            format!("[{}]", token_id)
         }
-    }
-    
-    /// Update context vector with new token
-    async fn update_context(&self, context_vector: &[f32], new_token_id: u32) -> Result<Vec<f32>> {
-        // Simple context update
-        // In a real implementation, this would use proper attention mechanisms
-        
-        let mut new_context = context_vector.to_vec();
-        
-        // Add new token embedding
-        let token_embedding = new_token_id as f32 / 10000.0;
-        new_context.push(token_embedding);
-        
-        // Keep only last N tokens to prevent context from growing too large
-        let max_context_length = 512;
-        if new_context.len() > max_context_length {
-            new_context.drain(0..new_context.len() - max_context_length);
-        }
-        
-        Ok(new_context)
     }
 }
 
