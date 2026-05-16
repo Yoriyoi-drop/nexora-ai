@@ -672,23 +672,19 @@ impl CodeMetrics {
         
         match self.language.as_str() {
             "python" => {
-                let regex = Regex::new(r"def\s+\w+\s*\(")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                let regex = Regex::new(r"def\s+\w+\s*\(").expect("valid regex");
                 count = regex.find_iter(code).count();
             },
             "javascript" | "js" => {
-                let regex = Regex::new(r"function\s+\w+\s*\(")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                let regex = Regex::new(r"function\s+\w+\s*\(").expect("valid regex");
                 count = regex.find_iter(code).count();
             },
             "java" => {
-                let regex = Regex::new(r"\w+\s+\w+\s*\(")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                let regex = Regex::new(r"\w+\s+\w+\s*\(").expect("valid regex");
                 count = regex.find_iter(code).count();
             },
             "cpp" | "c++" | "c" => {
-                let regex = Regex::new(r"\w+\s+\w+\s*\(")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                let regex = Regex::new(r"\w+\s+\w+\s*\(").expect("valid regex");
                 count = regex.find_iter(code).count();
             },
             _ => {}
@@ -703,13 +699,11 @@ impl CodeMetrics {
         
         match self.language.as_str() {
             "python" => {
-                let regex = Regex::new(r"class\s+\w+")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                let regex = Regex::new(r"class\s+\w+").expect("valid regex");
                 count = regex.find_iter(code).count();
             },
             "javascript" | "js" | "java" | "cpp" | "c++" => {
-                let regex = Regex::new(r"class\s+\w+")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                let regex = Regex::new(r"class\s+\w+").expect("valid regex");
                 count = regex.find_iter(code).count();
             },
             _ => {}
@@ -729,7 +723,7 @@ impl CodeMetrics {
         
         for pattern in decision_patterns {
             let regex = Regex::new(pattern)
-                .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                .unwrap_or_else(|_| Regex::new("").expect("empty regex is always valid"));
             complexity += regex.find_iter(code).count() as f32;
         }
         
@@ -803,7 +797,7 @@ pub mod utils {
         match language {
             "python" => {
                 let regex = Regex::new(r"(?:import|from)\s+([^\s\n]+)")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                    .unwrap_or_else(|_| Regex::new("").expect("empty regex is always valid"));
                 for cap in regex.captures_iter(code) {
                     if let Some(import) = cap.get(1) {
                         imports.push(import.as_str().to_string());
@@ -812,7 +806,7 @@ pub mod utils {
             },
             "javascript" => {
                 let regex = Regex::new(r"(?:import|require)\s+([^\s\n;]+)")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                    .unwrap_or_else(|_| Regex::new("").expect("empty regex is always valid"));
                 for cap in regex.captures_iter(code) {
                     if let Some(import) = cap.get(1) {
                         imports.push(import.as_str().to_string());
@@ -821,7 +815,7 @@ pub mod utils {
             },
             "java" => {
                 let regex = Regex::new(r"import\s+([^\s\n;]+)")
-                    .unwrap_or_else(|_| Regex::new(r"").unwrap());
+                    .unwrap_or_else(|_| Regex::new("").expect("empty regex is always valid"));
                 for cap in regex.captures_iter(code) {
                     if let Some(import) = cap.get(1) {
                         imports.push(import.as_str().to_string());

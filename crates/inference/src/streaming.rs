@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
+use uuid::Uuid;
+use tracing::{debug, warn};
+
+use crate::GeneratedToken;
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
@@ -11,17 +15,17 @@ pub struct StreamInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug)]
 struct ActiveStream {
-    sender: mpsc::UnboundedSender<crate::GeneratedToken>,
+    sender: mpsc::UnboundedSender<GeneratedToken>,
     token_count: usize,
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_at: Instant,
+    last_token_at: Instant,
 }
 
-#[derive(Debug)]
 pub struct StreamingEngine {
     active_streams: Arc<RwLock<HashMap<Uuid, ActiveStream>>>,
     max_concurrent_streams: usize,
+    stream_timeout: Duration,
 }
 
 impl StreamingEngine {
@@ -29,6 +33,7 @@ impl StreamingEngine {
         Self {
             active_streams: Arc::new(RwLock::new(HashMap::new())),
             max_concurrent_streams: 100,
+            stream_timeout: Duration::from_secs(300),
         }
     }
 
@@ -37,76 +42,93 @@ impl StreamingEngine {
         self
     }
 
-    pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
+    pub fn with_stream_timeout(mut self, timeout: Duration) -> Self {
+        self.stream_timeout = timeout;
+        self
+    }
+
+    pub async fn initialize(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 
-    pub async fn submit_request(&self, request: crate::InferenceRequest) -> Result<mpsc::UnboundedReceiver<crate::GeneratedToken>, anyhow::Error> {
-        let stream_info = self.create_stream(&request).await?;
-        let (tx, rx) = mpsc::unbounded_channel();
+    pub async fn create_stream(
+        &self,
+    ) -> Result<(Uuid, mpsc::UnboundedReceiver<GeneratedToken>), anyhow::Error> {
+        let stream_id = Uuid::new_v4();
 
         {
             let mut streams = self.active_streams.write().await;
             if streams.len() >= self.max_concurrent_streams {
-                return Err(anyhow::anyhow!("Max concurrent streams reached ({})", self.max_concurrent_streams));
+                self.evict_stale_locked(&mut streams);
             }
-            streams.insert(stream_info.stream_id, ActiveStream {
-                sender: tx,
-                token_count: 0,
-                created_at: chrono::Utc::now(),
-            });
+            if streams.len() >= self.max_concurrent_streams {
+                return Err(anyhow::anyhow!(
+                    "Max concurrent streams reached ({})",
+                    self.max_concurrent_streams
+                ));
+            }
         }
 
-        let stream_id = stream_info.stream_id;
-        let streams = self.active_streams.clone();
-        tokio::spawn(async move {
-            let tokens = generate_tokens_from_prompt(&request);
-            for token in tokens {
-                let streams_read = streams.read().await;
-                if let Some(active) = streams_read.get(&stream_id) {
-                    let _ = active.sender.send(token);
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-            let mut streams_write = streams.write().await;
-            streams_write.remove(&stream_id);
-        });
+        let (tx, rx) = mpsc::unbounded_channel();
+        {
+            let mut streams = self.active_streams.write().await;
+            streams.insert(
+                stream_id,
+                ActiveStream {
+                    sender: tx,
+                    token_count: 0,
+                    created_at: Instant::now(),
+                    last_token_at: Instant::now(),
+                },
+            );
+        }
 
-        Ok(rx)
+        Ok((stream_id, rx))
     }
 
-    pub async fn create_stream(&self, _request: &crate::InferenceRequest) -> Result<StreamInfo, anyhow::Error> {
-        let stream_id = Uuid::new_v4();
-        Ok(StreamInfo {
-            stream_id,
-            token_count: 0,
-            is_active: true,
-            created_at: chrono::Utc::now(),
-        })
-    }
-
-    pub async fn get_stream_status(&self, stream_id: Uuid) -> Result<Option<StreamInfo>, anyhow::Error> {
+    pub async fn send_token(
+        &self,
+        stream_id: Uuid,
+        token: GeneratedToken,
+    ) -> Result<(), anyhow::Error> {
         let streams = self.active_streams.read().await;
-        Ok(streams.get(&stream_id).map(|s| StreamInfo {
-            stream_id,
-            token_count: s.token_count,
-            is_active: true,
-            created_at: s.created_at,
-        }))
-    }
-
-    pub async fn send_token(&self, stream_id: Uuid, token: crate::GeneratedToken, is_last: bool) -> Result<(), anyhow::Error> {
-        let streams = self.active_streams.read().await;
-        if let Some(active) = streams.get(&stream_id) {
-            active.sender.send(token).map_err(|e| anyhow::anyhow!("Failed to send token: {}", e))?;
-            if is_last {
-                drop(active);
+        match streams.get(&stream_id) {
+            Some(active) => {
+                active
+                    .sender
+                    .send(token)
+                    .map_err(|_| anyhow::anyhow!("Stream {} receiver dropped", stream_id))?;
                 drop(streams);
+                // update token_count outside read lock
                 let mut streams = self.active_streams.write().await;
-                streams.remove(&stream_id);
+                if let Some(entry) = streams.get_mut(&stream_id) {
+                    entry.token_count += 1;
+                    entry.last_token_at = Instant::now();
+                }
+                Ok(())
             }
+            None => Err(anyhow::anyhow!("Stream {} not found", stream_id)),
+        }
+    }
+
+    pub async fn push_tokens(
+        &self,
+        stream_id: Uuid,
+        tokens: Vec<GeneratedToken>,
+        is_last: bool,
+    ) -> Result<(), anyhow::Error> {
+        for token in tokens {
+            self.send_token(stream_id, token).await?;
+        }
+        if is_last {
+            self.close_stream(stream_id).await;
         }
         Ok(())
+    }
+
+    pub async fn close_stream(&self, stream_id: Uuid) {
+        let mut streams = self.active_streams.write().await;
+        streams.remove(&stream_id);
     }
 
     pub async fn cancel_stream(&self, stream_id: Uuid) -> Result<bool, anyhow::Error> {
@@ -116,6 +138,37 @@ impl StreamingEngine {
 
     pub async fn active_stream_count(&self) -> usize {
         self.active_streams.read().await.len()
+    }
+
+    pub async fn get_stream_status(&self, stream_id: Uuid) -> Option<StreamInfo> {
+        let streams = self.active_streams.read().await;
+        streams.get(&stream_id).map(|s| StreamInfo {
+            stream_id,
+            token_count: s.token_count,
+            is_active: true,
+            created_at: chrono::DateTime::from(
+                std::time::SystemTime::now()
+                    - std::time::SystemTime::UNIX_EPOCH
+                          .elapsed()
+                          .unwrap_or_default()
+                          .saturating_sub(s.created_at.elapsed()),
+            ),
+        })
+    }
+
+    pub async fn evict_stale(&self) -> usize {
+        let mut streams = self.active_streams.write().await;
+        self.evict_stale_locked(&mut streams)
+    }
+
+    fn evict_stale_locked(&self, streams: &mut HashMap<Uuid, ActiveStream>) -> usize {
+        let before = streams.len();
+        streams.retain(|_, s| s.last_token_at.elapsed() < self.stream_timeout);
+        let evicted = before - streams.len();
+        if evicted > 0 {
+            debug!("Evicted {} stale streams", evicted);
+        }
+        evicted
     }
 
     pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
@@ -131,38 +184,61 @@ impl Default for StreamingEngine {
     }
 }
 
-fn generate_tokens_from_prompt(request: &crate::InferenceRequest) -> Vec<crate::GeneratedToken> {
-    let text = &request.prompt;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let pieces: Vec<String> = match nexora_tokenizer::pretokenizer::pretokenize(text) {
-        Ok(pt) => pt.pieces.iter()
-            .filter(|p| {
-                match p.piece_type {
-                    nexora_tokenizer::pretokenizer::PieceType::Whitespace => false,
-                    _ => true,
-                }
-            })
-            .map(|p| p.text.clone())
-            .collect(),
-        Err(_) => {
-            text.chars().map(|c| c.to_string()).collect()
-        }
-    };
-
-    if pieces.is_empty() {
-        return Vec::new();
+    #[tokio::test]
+    async fn test_create_and_close_stream() {
+        let engine = StreamingEngine::new();
+        let (stream_id, _rx) = engine.create_stream().await.unwrap();
+        assert_eq!(engine.active_stream_count().await, 1);
+        engine.close_stream(stream_id).await;
+        assert_eq!(engine.active_stream_count().await, 0);
     }
 
-    let n = pieces.len() as f64;
-    let base: f64 = n.ln();
+    #[tokio::test]
+    async fn test_send_and_receive_token() {
+        let engine = StreamingEngine::new();
+        let (stream_id, mut rx) = engine.create_stream().await.unwrap();
 
-    pieces.iter().enumerate().map(|(i, piece)| {
-        let raw_lp = -(base * (i as f64 + 1.0) / n.max(1.0));
-        crate::GeneratedToken::new(
-            i as u32,
-            piece.to_string(),
-            raw_lp as f32,
-            i,
-        )
-    }).collect()
+        let token = GeneratedToken::new(1, "hello".to_string(), -0.5, 0);
+        engine.send_token(stream_id, token).await.unwrap();
+
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received.token_id, 1);
+        assert_eq!(received.token_text, "hello");
+
+        engine.close_stream(stream_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_cancel_stream() {
+        let engine = StreamingEngine::new();
+        let (stream_id, _rx) = engine.create_stream().await.unwrap();
+        assert!(engine.cancel_stream(stream_id).await.unwrap());
+        assert!(!engine.cancel_stream(stream_id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_max_concurrent_streams() {
+        let engine = StreamingEngine::new().with_max_streams(2);
+        let (sid1, _) = engine.create_stream().await.unwrap();
+        let (sid2, _) = engine.create_stream().await.unwrap();
+        let result = engine.create_stream().await;
+        assert!(result.is_err());
+        engine.close_stream(sid1).await;
+        engine.close_stream(sid2).await;
+    }
+
+    #[tokio::test]
+    async fn test_stream_status() {
+        let engine = StreamingEngine::new();
+        let (stream_id, _rx) = engine.create_stream().await.unwrap();
+        let status = engine.get_stream_status(stream_id).await;
+        assert!(status.is_some());
+        assert_eq!(status.unwrap().stream_id, stream_id);
+        engine.close_stream(stream_id).await;
+        assert!(engine.get_stream_status(stream_id).await.is_none());
+    }
 }

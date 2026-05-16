@@ -1,5 +1,4 @@
 use crate::gnac::TensorDesc;
-use crate::gnac::canvas::CanvasPosition;
 use uuid::Uuid;
 
 /// Status gradient pada SmartTensor edge

@@ -65,14 +65,19 @@ impl GQA {
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim)).unwrap();
-        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim)).unwrap();
-        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim)).unwrap();
+        let q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+            .expect("GQA: q shape mismatch");
+        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .expect("GQA: k shape mismatch");
+        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .expect("GQA: v shape mismatch");
 
         for b in 0..batch_size {
-            let k_row = k.slice(ndarray::s![b, .., ..]).to_owned().into_shape(self.num_kv_heads * self.head_dim).unwrap();
+            let k_row = k.slice(ndarray::s![b, .., ..]).to_owned()
+                .into_shape(self.num_kv_heads * self.head_dim).expect("GQA: k_row flatten");
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated_k = rotated_k.into_shape((self.num_kv_heads, self.head_dim)).unwrap();
+            let rotated_k = rotated_k.into_shape((self.num_kv_heads, self.head_dim))
+                .expect("GQA: rotated k reshape");
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
                     k[[b, h, d]] = rotated_k[[h, d]];
@@ -148,15 +153,19 @@ impl GQA {
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim)).unwrap();
-        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim)).unwrap();
-        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim)).unwrap();
+        let q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+            .expect("GQA forward_with_kv: q shape");
+        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .expect("GQA forward_with_kv: k shape");
+        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .expect("GQA forward_with_kv: v shape");
 
         for b in 0..batch_size {
             let k_row = k.slice(ndarray::s![b, .., ..]).to_owned()
-                .into_shape(self.num_kv_heads * self.head_dim).unwrap();
+                .into_shape(self.num_kv_heads * self.head_dim).expect("GQA: k_row flatten");
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated_k = rotated_k.into_shape((self.num_kv_heads, self.head_dim)).unwrap();
+            let rotated_k = rotated_k.into_shape((self.num_kv_heads, self.head_dim))
+                .expect("GQA: rotated k reshape");
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
                     k[[b, h, d]] = rotated_k[[h, d]];
@@ -166,9 +175,10 @@ impl GQA {
 
         for b in 0..batch_size {
             let q_row = q.slice(ndarray::s![b, .., ..]).to_owned()
-                .into_shape(self.num_heads * self.head_dim).unwrap();
+                .into_shape(self.num_heads * self.head_dim).expect("GQA: q_row flatten");
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            let rotated_q = rotated_q.into_shape((self.num_heads, self.head_dim)).unwrap();
+            let rotated_q = rotated_q.into_shape((self.num_heads, self.head_dim))
+                .expect("GQA: rotated q reshape");
         }
 
         let seq_len = if layer_idx < cache.len() {
@@ -180,15 +190,19 @@ impl GQA {
 
         if layer_idx < cache.len() {
             let entry = &mut cache[layer_idx];
-            let k_flat = k.into_shape(batch_size * self.num_kv_heads * self.head_dim).unwrap();
-            let v_flat = v.into_shape(batch_size * self.num_kv_heads * self.head_dim).unwrap();
+            let k_flat = k.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+                .expect("GQA: k_flat");
+            let v_flat = v.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+                .expect("GQA: v_flat");
             let new_k = ndarray::concatenate![Axis(0), entry.k.view(), k_flat.insert_axis(Axis(0))];
             let new_v = ndarray::concatenate![Axis(0), entry.v.view(), v_flat.insert_axis(Axis(0))];
             entry.k = new_k;
             entry.v = new_v;
         } else {
-            let k_flat = k.into_shape(batch_size * self.num_kv_heads * self.head_dim).unwrap();
-            let v_flat = v.into_shape(batch_size * self.num_kv_heads * self.head_dim).unwrap();
+            let k_flat = k.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+                .expect("GQA: k_flat new entry");
+            let v_flat = v.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+                .expect("GQA: v_flat new entry");
             cache.push(KVCacheEntry {
                 k: k_flat.insert_axis(Axis(0)).to_owned(),
                 v: v_flat.insert_axis(Axis(0)).to_owned(),

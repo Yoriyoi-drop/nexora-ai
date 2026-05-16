@@ -221,14 +221,14 @@ impl TokenLoop {
         // Create stream if streaming enabled
         let stream_id = if self.config.enable_streaming {
             if let Some(streaming_engine) = &self.streaming_engine {
-                let stream_info = streaming_engine.write().await.create_stream(request).await?;
+                let (sid, _rx) = streaming_engine.write().await.create_stream().await?;
                 {
                     let mut active_loops = self.active_loops.write().await;
                     if let Some(info) = active_loops.get_mut(&loop_id) {
-                        info.stream_id = Some(stream_info.stream_id);
+                        info.stream_id = Some(sid);
                     }
                 }
-                Some(stream_info.stream_id)
+                Some(sid)
             } else {
                 None
             }
@@ -353,8 +353,7 @@ impl TokenLoop {
             // Send to stream if streaming
             if let Some(stream_id) = stream_id {
                 if let Some(streaming_engine) = &self.streaming_engine {
-                    let is_last = tokens.len() >= request.max_tokens as usize;
-                    streaming_engine.write().await.send_token(stream_id, generated_token.clone(), is_last).await?;
+                    streaming_engine.write().await.send_token(stream_id, generated_token.clone()).await?;
                 }
             }
             

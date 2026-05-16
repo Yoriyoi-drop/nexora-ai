@@ -71,8 +71,8 @@ impl CoherenceField {
             return;
         }
 
-        let sum_real: f64 = self.phase_angles.iter().map(|θ| θ.cos()).sum();
-        let sum_imag: f64 = self.phase_angles.iter().map(|θ| θ.sin()).sum();
+        let sum_real: f64 = self.phase_angles.iter().map(|theta| theta.cos()).sum();
+        let sum_imag: f64 = self.phase_angles.iter().map(|theta| theta.sin()).sum();
         let magnitude = (sum_real * sum_real + sum_imag * sum_imag).sqrt();
 
         self.coherence = magnitude / n;

@@ -12,8 +12,6 @@ pub use memory::*;
 pub use async_exec::*;
 pub use paging::*;
 
-use crate::DLResult;
-use crate::gnac::canvas::NeuralGraph;
 
 /// Konfigurasi tensor scheduler
 #[derive(Debug, Clone)]

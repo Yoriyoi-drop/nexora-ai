@@ -20,9 +20,8 @@
 //! - Memory saturation turun drastis
 
 use crate::{DLResult, DeepLearningError};
-use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{ResonanceCalculator, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
+use crate::echo_net::HolographicWave;
+use ndarray::{ArrayD, Array2, Array1};
 use std::collections::HashMap;
 
 /// Memory entry with metadata
@@ -201,7 +200,7 @@ impl PersistentResonanceMemory {
         }
         
         // Sort by resonance strength
-        resonances.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        resonances.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         // Return top-k results
         Ok(resonances.into_iter().take(k).collect())
@@ -458,7 +457,7 @@ impl PersistentResonanceMemory {
         // Simplified phase extraction using arctan2
         let mut phase_info = Vec::new();
         
-        for i in (0..tensor.len()/2) {
+        for i in 0..tensor.len() / 2 {
             if i + 1 < tensor.len() {
                 let real_part = tensor[i];
                 let imag_part = tensor[i + 1];

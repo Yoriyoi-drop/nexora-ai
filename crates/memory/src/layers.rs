@@ -2,6 +2,7 @@
 //! 
 //! Implementasi memory layers: Short, Session, Long, Knowledge
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Serialize, Deserialize};
@@ -177,8 +178,8 @@ impl MemoryLayers {
                 // Need to drop the borrow before calling evict_entries
                 let _ = layer_map; // Drop the borrow before modifying shard
                 self.evict_entries(layer, 1).await?;
-                // Get a new mutable borrow
-                let layer_map = self.layers.get_mut(&layer).unwrap();
+                let layer_map = self.layers.get_mut(&layer)
+                    .ok_or_else(|| anyhow::anyhow!("Layer {:?} not found after eviction", layer))?;
                 layer_map.insert(entry.key.clone(), entry.clone());
             } else {
                 layer_map.insert(entry.key.clone(), entry.clone());
@@ -240,7 +241,7 @@ impl MemoryLayers {
             }
             
             // Sort by relevance
-            results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap());
+            results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(Ordering::Equal));
             
             return Ok(Some(results));
         }

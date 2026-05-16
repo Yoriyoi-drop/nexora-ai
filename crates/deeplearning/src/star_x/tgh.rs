@@ -99,7 +99,7 @@ impl TemporalGatingHierarchy {
         // Pool chunk - simple average pooling
         let mut pooled = Array1::zeros(self.hidden_size);
         for state in chunk {
-            let flat = state.as_slice().unwrap();
+            let flat = state.as_slice().expect("tensor should be contiguous");
             for (i, &val) in flat.iter().enumerate().take(self.hidden_size) {
                 pooled[i] += val;
             }
@@ -135,8 +135,8 @@ impl TemporalGatingHierarchy {
     
     /// Concatenate input dan hidden state
     fn concatenate(&self, input: &ArrayD<f32>, hidden: &ArrayD<f32>) -> ArrayD<f32> {
-        let input_flat = input.as_slice().unwrap();
-        let hidden_flat = hidden.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let hidden_flat = hidden.as_slice().expect("tensor should be contiguous");
         
         let mut concatenated = Vec::with_capacity(input_flat.len() + hidden_flat.len());
         concatenated.extend_from_slice(hidden_flat); // Hidden state first
@@ -147,7 +147,7 @@ impl TemporalGatingHierarchy {
     
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -167,7 +167,7 @@ impl TemporalGatingHierarchy {
     
     /// Add bias
     fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
-        let output_flat = output.as_slice_mut().unwrap();
+        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
         }
@@ -190,7 +190,7 @@ impl TemporalGatingHierarchy {
     
     /// Get current fusion weights
     pub fn get_fusion_weights(&self) -> (f32, f32, f32) {
-        let weights = self.fusion_weights.as_slice().unwrap();
+        let weights = self.fusion_weights.as_slice().expect("tensor should be contiguous");
         (weights[0], weights[1], weights[2])
     }
 }
@@ -254,10 +254,10 @@ impl HierarchicalGating for TemporalGatingHierarchy {
         
         // Weighted combination
         let mut fused = ArrayD::zeros(micro.shape());
-        let micro_flat = micro.as_slice().unwrap();
-        let meso_flat = meso.as_slice().unwrap();
-        let macro_flat = macro_out.as_slice().unwrap();
-        let fused_flat = fused.as_slice_mut().unwrap();
+        let micro_flat = micro.as_slice().expect("tensor should be contiguous");
+        let meso_flat = meso.as_slice().expect("tensor should be contiguous");
+        let macro_flat = macro_out.as_slice().expect("tensor should be contiguous");
+        let fused_flat = fused.as_slice_mut().expect("tensor should be contiguous");
         
         for i in 0..fused_flat.len() {
             fused_flat[i] = alpha_norm * micro_flat[i] + 

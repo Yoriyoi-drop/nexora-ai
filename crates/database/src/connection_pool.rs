@@ -225,7 +225,7 @@ impl<T: Clone> GenericConnectionPool<T> {
 
                         // Decrement waiting requests counter
                         *self.waiting_requests.write().await -= 1;
-                        return Ok(connections.last_mut().unwrap().connection.clone());
+                        return Ok(connections.last_mut().expect("connection was just added").connection.clone());
                     }
                     Err(e) => {
                         let mut stats = self.statistics.write().await;

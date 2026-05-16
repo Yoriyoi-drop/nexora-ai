@@ -159,7 +159,7 @@ impl GradientUtils {
         
         for (idx, &_param) in parameters.indexed_iter() {
             // Create a mutable view instead of full clone for efficiency
-            let mut perturbed = unsafe { ArrayD::uninitialized(parameters.dim()) };
+            let mut perturbed = unsafe { ArrayD::uninit(parameters.dim()).assume_init() };
             perturbed.assign(parameters);
             perturbed[idx.clone()] += epsilon;
             

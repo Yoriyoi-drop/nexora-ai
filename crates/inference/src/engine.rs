@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -262,7 +263,7 @@ impl InferenceEngine {
                         logits
                             .iter()
                             .enumerate()
-                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                             .map(|(i, _)| i as u32)
                             .unwrap_or(0)
                     }
@@ -354,7 +355,7 @@ impl InferenceEngine {
                 Err(_) => logits
                     .iter()
                     .enumerate()
-                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                     .map(|(i, _)| i as u32)
                     .unwrap_or(0),
             };
@@ -401,7 +402,10 @@ impl InferenceEngine {
                 .unwrap_or(false)
         };
         let stream = if let Some(se) = &self.streaming_engine {
-            se.write().await.cancel_stream(request_id).await.unwrap_or(false)
+            se.write().await.cancel_stream(request_id).await.unwrap_or_else(|e| {
+                warn!("Failed to cancel stream {}: {}", request_id, e);
+                false
+            })
         } else {
             false
         };
@@ -716,7 +720,7 @@ impl InferenceEngineHandle {
                 Err(_) => logits
                     .iter()
                     .enumerate()
-                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                     .map(|(i, _)| i as u32)
                     .unwrap_or(0),
             };
@@ -808,7 +812,7 @@ impl InferenceEngineHandle {
                     Err(_) => logits
                         .iter()
                         .enumerate()
-                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                         .map(|(i, _)| i as u32)
                         .unwrap_or(0),
                 };

@@ -22,10 +22,10 @@ impl Default for RegexFilter {
     fn default() -> Self {
         Self {
             block_patterns: vec![
-                Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b").unwrap(),
-                Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+").unwrap(),
-                Regex::new(r"(?m)^>{10,}").unwrap(),
-                Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b").unwrap(),
+                Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b").expect("valid regex pattern"),
+                Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+").expect("valid regex pattern"),
+                Regex::new(r"(?m)^>{10,}").expect("valid regex pattern"),
+                Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b").expect("valid regex pattern"),
             ],
             require_patterns: vec![],
         }

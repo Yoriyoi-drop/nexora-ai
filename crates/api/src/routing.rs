@@ -542,12 +542,12 @@ pub fn create_health_routes() -> Vec<Route> {
             .description("Basic health check".to_string())
             .tag("health".to_string())
             .build()
-            .unwrap(),
+            .expect("valid route configuration"),
         RouteBuilder::new(HttpMethod::GET, "/health/detailed".to_string())
             .description("Detailed health check with system metrics".to_string())
             .tag("health".to_string())
             .build()
-            .unwrap(),
+            .expect("valid route configuration"),
     ]
 }
 
@@ -557,12 +557,12 @@ pub fn create_metrics_routes() -> Vec<Route> {
             .description("Get current metrics".to_string())
             .tag("metrics".to_string())
             .build()
-            .unwrap(),
+            .expect("valid route configuration"),
         RouteBuilder::new(HttpMethod::GET, "/metrics/routes".to_string())
             .description("Get route-specific metrics".to_string())
             .tag("metrics".to_string())
             .build()
-            .unwrap(),
+            .expect("valid route configuration"),
     ]
 }
 
@@ -572,11 +572,11 @@ pub fn create_system_routes() -> Vec<Route> {
             .description("Get system information".to_string())
             .tag("system".to_string())
             .build()
-            .unwrap(),
+            .expect("valid route configuration"),
         RouteBuilder::new(HttpMethod::GET, "/system/stats".to_string())
             .description("Get system statistics".to_string())
             .tag("system".to_string())
             .build()
-            .unwrap(),
+            .expect("valid route configuration"),
     ]
 }

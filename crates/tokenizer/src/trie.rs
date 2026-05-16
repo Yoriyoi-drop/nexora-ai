@@ -162,7 +162,7 @@ impl Trie {
                 self.size += 1;
             }
             
-            current = current.get_child_mut(token_id).unwrap();
+            current = current.get_child_mut(token_id).expect("child was just inserted");
         }
         
         // Set as leaf with result

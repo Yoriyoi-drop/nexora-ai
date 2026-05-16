@@ -10,7 +10,6 @@ pub mod diff;
 pub use snapshot::*;
 pub use diff::*;
 
-use crate::DLResult;
 use crate::gnac::canvas::NeuralGraph;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;

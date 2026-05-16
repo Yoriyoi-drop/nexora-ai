@@ -7,11 +7,9 @@
 //! - Dynamic quantization runtime
 //! - Mixed precision inference
 
-use crate::{DLResult, DeepLearningError};
-use crate::star_x::blas_backend::{BlasOperations, ActivationType};
-use crate::star_x::tensor_pool::PooledTensor2D;
-use ndarray::{ArrayD, Array2, Array1, ArrayView, ArrayViewMut, s};
-use std::arch::x86_64::*;
+use crate::DLResult;
+use crate::star_x::blas_backend::BlasOperations;
+use ndarray::Array2;
 
 /// Quantization precision types
 #[derive(Debug, Clone, Copy)]
@@ -585,11 +583,11 @@ fn f32_to_f16(value: f32) -> u16 {
         // Normalized number
         let new_exponent = (exponent as i16 - 127 + 15) as u16;
         if new_exponent <= 0 {
-            ((sign as u16) << 15)
+            (sign as u16) << 15
         } else if new_exponent >= 0x1F {
-            ((sign as u16) << 15) | 0x7C00
+            (sign as u16) << 15 | 0x7C00
         } else {
-            ((sign as u16) << 15) | (new_exponent << 10) | ((mantissa >> 13) as u16)
+            (sign as u16) << 15 | (new_exponent << 10) | (mantissa >> 13) as u16
         }
     }
 }

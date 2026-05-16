@@ -7,10 +7,10 @@
 //! - Entropy regularization
 
 use crate::{DLResult, DeepLearningError};
-use crate::star_x::core::{SparseAttention, utils};
+use crate::star_x::core::{SparseAttention, core_utils};
 use crate::star_x::kv_cache::{KVCache, StreamingKVCache};
 use crate::star_x::fused_ops::{FusedAttentionSoftmax, FusedElementWise, ElementWiseOp};
-use crate::star_x::blas_backend::{BlasOperations, ActivationType};
+use crate::star_x::blas_backend::BlasOperations;
 use crate::traits::Forward;
 use ndarray::{ArrayD, Array2, Array1};
 use rand;
@@ -124,7 +124,7 @@ impl SparseCausalAttention {
     
     /// Split input menjadi multi-head
     fn split_heads(&self, input: &ArrayD<f32>) -> DLResult<Vec<ArrayD<f32>>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != self.hidden_dim {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![self.hidden_dim],
@@ -148,7 +148,7 @@ impl SparseCausalAttention {
         let mut combined = Vec::with_capacity(self.hidden_dim);
         
         for head in heads {
-            let head_flat = head.as_slice().unwrap();
+            let head_flat = head.as_slice().expect("tensor should be contiguous");
             combined.extend_from_slice(head_flat);
         }
         
@@ -157,7 +157,7 @@ impl SparseCausalAttention {
     
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -182,11 +182,11 @@ impl SparseCausalAttention {
         temporal_positions: &[usize],
         temporal_encoding: &ArrayD<f32>
     ) -> DLResult<Vec<f32>> {
-        let query_flat = query.as_slice().unwrap();
+        let query_flat = query.as_slice().expect("tensor should be contiguous");
         let mut scores = Vec::with_capacity(keys.len());
         
         for (i, key) in keys.iter().enumerate() {
-            let key_flat = key.as_slice().unwrap();
+            let key_flat = key.as_slice().expect("tensor should be contiguous");
             
             // Dot product
             let mut dot_product = 0.0;
@@ -203,7 +203,7 @@ impl SparseCausalAttention {
             let temporal_bias = -self.temporal_distance_weight * temporal_distance;
             
             // Add harmonic temporal encoding contribution
-            let temp_enc_flat = temporal_encoding.as_slice().unwrap();
+            let temp_enc_flat = temporal_encoding.as_slice().expect("tensor should be contiguous");
             let harmonic_contribution = if i < temp_enc_flat.len() {
                 temp_enc_flat[i] * 0.1
             } else {
@@ -230,7 +230,7 @@ impl SparseCausalAttention {
             .collect();
         
         // Sort by score (descending)
-        indexed_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         // Take top-k
         let selected_indices: Vec<usize> = indexed_scores
@@ -264,7 +264,7 @@ impl SparseCausalAttention {
             .collect();
         
         // Compute entropy
-        let entropy = utils::compute_entropy(&softmax_probs);
+        let entropy = core_utils::compute_entropy(&softmax_probs);
         
         Ok((softmax_probs, entropy))
     }
@@ -276,11 +276,11 @@ impl SparseCausalAttention {
         values: &[ArrayD<f32>]
     ) -> DLResult<ArrayD<f32>> {
         let mut output = Array1::zeros(self.head_dim);
-        let output_flat = output.as_slice_mut().unwrap();
+        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
         
         for (&weight, &idx) in weights.iter().zip(selected_indices.iter()) {
             if idx < values.len() {
-                let value_flat = values[idx].as_slice().unwrap();
+                let value_flat = values[idx].as_slice().expect("tensor should be contiguous");
                 for (i, &val) in value_flat.iter().enumerate().take(self.head_dim) {
                     output_flat[i] += weight * val;
                 }
@@ -356,7 +356,7 @@ impl SparseAttention for SparseCausalAttention {
         
         // Create sparse mask
         let mut mask = ArrayD::zeros(vec![self.num_heads, self.max_sparse_connections]);
-        let mask_flat = mask.as_slice_mut().unwrap();
+        let mask_flat = mask.as_slice_mut().expect("tensor should be contiguous");
         for (h, connections) in head_outputs.iter().enumerate() {
             let start = h * self.max_sparse_connections;
             let end = (start + connections.len()).min(mask_flat.len());
@@ -447,24 +447,24 @@ impl SparseCausalAttention {
         let attention_output = if let Some(cache) = &mut self.kv_cache {
             // Add to cache
             cache.append(
-                key.as_slice().unwrap().to_vec().into(),
-                value.as_slice().unwrap().to_vec().into()
+                key.as_slice().expect("tensor should be contiguous").to_vec().into(),
+                value.as_slice().expect("tensor should be contiguous").to_vec().into()
             )?;
             
             // Compute attention with cache
             cache.compute_attention(
-                &query.as_slice().unwrap().to_vec().into()
+                &query.as_slice().expect("tensor should be contiguous").to_vec().into()
             )?.into_dyn()
         } else if let Some(streaming_cache) = &mut self.streaming_cache {
             // Add to streaming cache
             streaming_cache.append(
-                key.as_slice().unwrap().to_vec().into(),
-                value.as_slice().unwrap().to_vec().into()
+                key.as_slice().expect("tensor should be contiguous").to_vec().into(),
+                value.as_slice().expect("tensor should be contiguous").to_vec().into()
             )?;
             
             // Compute attention with streaming cache
             streaming_cache.compute_attention(
-                &query.as_slice().unwrap().to_vec().into()
+                &query.as_slice().expect("tensor should be contiguous").to_vec().into()
             )?.into_dyn()
         } else {
             // Fallback to regular attention

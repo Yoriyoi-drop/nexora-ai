@@ -892,7 +892,7 @@ impl OmnisArchitecture {
         
         // For now, return the most confident claim
         // In a real implementation, this would be much more sophisticated
-        Ok(claims.first().unwrap().clone())
+        Ok(claims.first().expect("claims is non-empty here").clone())
     }
 
     /// Execute reasoning chain

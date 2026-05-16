@@ -18,8 +18,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{DeepLearningModel, HasComponents},
+    gnac_integration::GnacModel,
     foundation_components::FoundationComponents,
 };
 
@@ -37,8 +37,6 @@ pub struct NxrKronosModel {
     architecture: KronosArchitecture,
     agents: KronosAgents,
     capabilities: KronosCapabilities,
-    dl_engine: DeepLearningEngine,
-    gnac_engine: GnacEngine,
     components: FoundationComponents,
 }
 
@@ -124,11 +122,6 @@ impl NxrKronosModel {
         let initial_state = KronosState::default();
         let initial_metrics = KronosMetrics::default();
 
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -141,8 +134,6 @@ impl NxrKronosModel {
             architecture: KronosArchitecture::new(&config),
             agents: KronosAgents::new(&config),
             capabilities,
-            dl_engine,
-            gnac_engine,
             components: FoundationComponents::new(),
         }
     }
@@ -427,25 +418,15 @@ impl NxrModel for NxrKronosModel {
     }
 }
 
-impl DeepLearningModel for NxrKronosModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrKronosModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrKronosModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrKronosModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrKronosModel {}
 
 impl Default for NxrKronosModel {
     fn default() -> Self {

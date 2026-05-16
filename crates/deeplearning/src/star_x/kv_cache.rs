@@ -229,7 +229,7 @@ impl StreamingKVCache {
     /// Append new key-value pair
     pub fn append(&mut self, key: Array1<f32>, value: Array1<f32>) -> DLResult<()> {
         // Get or create current chunk
-        if self.chunks.is_empty() || self.chunks.back().unwrap().is_full() {
+        if self.chunks.is_empty() || self.chunks.back().expect("non-empty chunks").is_full() {
             if self.chunks.len() >= self.max_chunks {
                 self.chunks.pop_front(); // Remove oldest chunk
             }

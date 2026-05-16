@@ -22,10 +22,8 @@
 
 use crate::{DLResult, DeepLearningError};
 use crate::autograd::Tensor;
-use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{ResonanceCalculator, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
-use std::collections::HashMap;
+use crate::echo_net::utils::ResonanceCalculator;
+use ndarray::{ArrayD, Array2, Array1};
 
 /// Reasoning step result
 #[derive(Debug, Clone)]
@@ -200,13 +198,13 @@ impl IterativeResonanceReasoner {
     
     /// Initialize query from input
     fn initialize_query(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_view: Array2<f32> = input.view().into_dimensionality().unwrap().to_owned();
+        let input_view: Array2<f32> = input.view().into_dimensionality().expect("input is 2D").to_owned();
         let query = input_view.dot(&self.query_weights.t());
         
         // Apply non-linearity
         let activated_query = query.mapv(|x| x.tanh());
         
-        Ok(activated_query.into_dimensionality().unwrap())
+        Ok(activated_query.into_dimensionality().expect("query is 2D"))
     }
     
     /// Compute resonance between query and holographic memory
@@ -272,7 +270,7 @@ impl IterativeResonanceReasoner {
     /// Refine query for next reasoning step
     fn refine_query(&self, current_query: &ArrayD<f32>, resonance: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
         // Apply refinement transformation
-        let resonance_view: Array2<f32> = resonance.view().into_dimensionality().unwrap().to_owned();
+        let resonance_view: Array2<f32> = resonance.view().into_dimensionality().expect("resonance is 2D").to_owned();
         let refined = resonance_view.dot(&self.refinement_weights.t());
         
         // Apply tanh activation
@@ -391,11 +389,11 @@ impl IterativeResonanceReasoner {
         }
         
         // Apply final transformation
-        let output_view: Array2<f32> = final_output.view().into_dimensionality().unwrap().to_owned();
+        let output_view: Array2<f32> = final_output.view().into_dimensionality().expect("output is 2D").to_owned();
         let transformed = output_view.dot(&self.output_weights.t());
         let activated = transformed.mapv(|x| x.tanh());
         
-        Ok(activated.into_dimensionality().unwrap())
+        Ok(activated.into_dimensionality().expect("activated is 2D"))
     }
     
     /// Update performance metrics
@@ -434,7 +432,7 @@ impl IterativeResonanceReasoner {
     fn to_original_shape(&self, array_1d: &Array1<f32>, original_shape: &[usize]) -> DLResult<ArrayD<f32>> {
         let total_size = original_shape.iter().product();
         let vec: Vec<f32> = array_1d.iter().take(total_size).cloned().collect();
-        Ok(ArrayD::from_shape_vec(original_shape.to_vec(), vec).unwrap())
+        Ok(ArrayD::from_shape_vec(original_shape.to_vec(), vec).expect("data length matches shape"))
     }
     
     /// Utility: Cosine similarity
@@ -477,21 +475,21 @@ impl IterativeResonanceReasoner {
         let data = ArrayD::from_shape_vec(
             vec![self.query_weights.shape()[0], self.query_weights.shape()[1]],
             self.query_weights.iter().copied().collect(),
-        ).unwrap();
+        ).expect("data length matches shape");
         Tensor::new(data)
     }
     pub fn get_refinement_weights(&self) -> Tensor {
         let data = ArrayD::from_shape_vec(
             vec![self.refinement_weights.shape()[0], self.refinement_weights.shape()[1]],
             self.refinement_weights.iter().copied().collect(),
-        ).unwrap();
+        ).expect("data length matches shape");
         Tensor::new(data)
     }
     pub fn get_output_weights(&self) -> Tensor {
         let data = ArrayD::from_shape_vec(
             vec![self.output_weights.shape()[0], self.output_weights.shape()[1]],
             self.output_weights.iter().copied().collect(),
-        ).unwrap();
+        ).expect("data length matches shape");
         Tensor::new(data)
     }
     pub fn set_query_weights(&mut self, t: &Tensor) {

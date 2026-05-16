@@ -1,6 +1,6 @@
 use crate::DLResult;
 use crate::gnac::canvas::NeuralGraph;
-use crate::gnac::execution::{GraphIR, ExecutionBackend, ExecutionMode};
+use crate::gnac::execution::{GraphIR, ExecutionBackend};
 use crate::gnac::execution::optimizer::GraphOptimizer;
 
 /// Compiled Graph Execution — untuk training final

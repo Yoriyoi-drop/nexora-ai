@@ -1,6 +1,5 @@
 use crate::DLResult;
 use crate::gnac::canvas::NeuralGraph;
-use crate::gnac::execution::{GraphIR, ExecutionBackend};
 
 /// Eager Execution — untuk editing visual responsif
 /// Setiap operasi dijalankan segera begitu ditambahkan ke graf
@@ -45,7 +44,7 @@ impl EagerExecutor {
         }
 
         for node_id in order {
-            let node = graph.get_node(&node_id).unwrap();
+            let node = graph.get_node(&node_id).expect("node exists during execution");
             if !node.params.enabled {
                 continue;
             }

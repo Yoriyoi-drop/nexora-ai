@@ -73,6 +73,118 @@ pub mod defaults {
     pub const DEFAULT_MODEL: &str = "blaa-small";
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_values() {
+        let cfg = DefaultConfig::default();
+        assert_eq!(cfg.timeout, 30);
+        assert_eq!(cfg.max_retries, 3);
+    }
+
+    #[test]
+    fn test_defaults_constants() {
+        assert_eq!(defaults::DEFAULT_TIMEOUT_SECS, 30);
+        assert_eq!(defaults::DEFAULT_MODEL, "blaa-small");
+    }
+
+    #[test]
+    fn test_blaa_error_display() {
+        let err = BlaaError::Authentication("bad key".into());
+        assert_eq!(format!("{}", err), "Authentication failed: bad key");
+
+        let err = BlaaError::InvalidConfiguration("missing field".into());
+        assert_eq!(format!("{}", err), "Invalid configuration: missing field");
+    }
+
+    #[test]
+    fn test_api_constants() {
+        assert_eq!(BLAA_API_VERSION, "v1");
+        assert!(!BLAA_BASE_URL.is_empty());
+    }
+
+    #[test]
+    fn test_chat_message_serde_roundtrip() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: "hello".into(),
+            name: None,
+            function_call: None,
+            tool_calls: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: ChatMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.content, "hello");
+        assert!(matches!(deserialized.role, MessageRole::User));
+    }
+
+    #[test]
+    fn test_chat_completion_request_builder() {
+        let req = ChatCompletionRequest {
+            model: "test-model".into(),
+            messages: vec![ChatMessage {
+                role: MessageRole::System,
+                content: "be helpful".into(),
+                name: None,
+                function_call: None,
+                tool_calls: None,
+            }],
+            max_tokens: Some(100),
+            temperature: Some(0.7),
+            top_p: None,
+            n: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            logit_bias: None,
+            user: None,
+            system: None,
+        };
+        let json = serde_json::to_string_pretty(&req).unwrap();
+        assert!(json.contains("test-model"));
+        assert!(json.contains("be helpful"));
+    }
+
+    #[test]
+    fn test_embedding_input_serde() {
+        let single = EmbeddingInput::Single("hello".into());
+        let json = serde_json::to_string(&single).unwrap();
+        assert_eq!(json, "\"hello\"");
+
+        let multiple = EmbeddingInput::Multiple(vec!["a".into(), "b".into()]);
+        let json = serde_json::to_string(&multiple).unwrap();
+        assert!(json.contains("a"));
+    }
+
+    #[test]
+    fn test_model_info_deserialization() {
+        let json = r#"{
+            "id": "blaa-small",
+            "object": "model",
+            "object_type": "language",
+            "created": 1700000000,
+            "owned_by": "blaa"
+        }"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.id, "blaa-small");
+        assert_eq!(info.owned_by, "blaa");
+    }
+
+    #[test]
+    fn test_stop_sequence_serde() {
+        let single = StopSequence::Single("STOP".into());
+        let json = serde_json::to_string(&single).unwrap();
+        assert_eq!(json, "\"STOP\"");
+
+        let multi = StopSequence::Multiple(vec!["STOP".into(), "END".into()]);
+        let json = serde_json::to_string(&multi).unwrap();
+        assert!(json.contains("END"));
+    }
+}
+
 /// API models
 pub mod models {
     use serde::{Deserialize, Serialize};

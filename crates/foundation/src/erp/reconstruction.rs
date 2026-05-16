@@ -293,7 +293,7 @@ impl GateNetwork {
         let context_signal = context_embedding.dot(&self.gate_weights) + self.gate_bias[0];
         
         // Apply sigmoid activation
-        let gate_score = 1.0 / (1.0 + (-context_signal).mapv(|x| x.exp()).scalar_sum());
+        let gate_score = 1.0 / (1.0 + (-context_signal).mapv(|x| x.exp()).sum());
         
         // Modulate dengan importance coefficients
         let avg_importance = resonance_rep.importance_coeffs.mean().unwrap_or(0.0);

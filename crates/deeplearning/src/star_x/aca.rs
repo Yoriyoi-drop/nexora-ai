@@ -148,8 +148,8 @@ impl AdaptiveComputeAllocation {
     
     /// Concatenate input dan hidden state
     fn concatenate(&self, input: &ArrayD<f32>, hidden_state: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
-        let hidden_flat = hidden_state.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let hidden_flat = hidden_state.as_slice().expect("tensor should be contiguous");
         
         let mut concatenated = Vec::with_capacity(input_flat.len() + hidden_flat.len());
         concatenated.extend_from_slice(input_flat);
@@ -160,7 +160,7 @@ impl AdaptiveComputeAllocation {
     
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -180,7 +180,7 @@ impl AdaptiveComputeAllocation {
     
     /// Add bias
     fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
-        let output_flat = output.as_slice_mut().unwrap();
+        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
         }
@@ -195,7 +195,7 @@ impl AdaptiveComputeAllocation {
         
         // Apply sigmoid
         let complexity_prob = self.sigmoid_array(complexity_output);
-        let complexity_flat = complexity_prob.as_slice().unwrap();
+        let complexity_flat = complexity_prob.as_slice().expect("tensor should be contiguous");
         
         Ok(complexity_flat[0])
     }
@@ -211,7 +211,7 @@ impl AdaptiveComputeAllocation {
         
         // Apply softmax
         let routing_probs = self.softmax_array(&routing_output)?;
-        let routing_flat = routing_probs.as_slice().unwrap();
+        let routing_flat = routing_probs.as_slice().expect("tensor should be contiguous");
         
         // Importance = weighted sum of compute levels
         let importance = routing_flat[0] * 0.0 + routing_flat[1] * 0.5 + routing_flat[2] * 1.0;
@@ -220,7 +220,7 @@ impl AdaptiveComputeAllocation {
     
     /// Softmax untuk routing probabilities
     fn softmax_array(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         
         // Find max for numerical stability
         let max_val = input_flat.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));

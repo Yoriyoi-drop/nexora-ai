@@ -11,8 +11,6 @@ pub mod export;
 pub use teacher_student::*;
 pub use export::*;
 
-use crate::DLResult;
-use crate::gnac::canvas::NeuralGraph;
 
 /// Konfigurasi knowledge distillation
 #[derive(Debug, Clone)]

@@ -31,7 +31,7 @@ impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> LRUCache<K, V> {
         if let Some((value, _)) = self.map.get(key) {
             let key_clone = key.clone();
             // Update access order after getting value
-            drop(value); // Release the borrow
+            let _ = value;
             self.update_access_order(key_clone);
             // Get value again after updating order
             if let Some((value, _)) = self.map.get(key) {

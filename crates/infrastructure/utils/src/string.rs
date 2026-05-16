@@ -32,7 +32,7 @@ impl StringUtils {
     
     /// Remove extra whitespace
     pub fn normalize_whitespace(s: &str) -> String {
-        let re = Regex::new(r"\s+").unwrap();
+        let re = Regex::new(r"\s+").expect("valid regex pattern");
         re.replace_all(s.trim(), " ").to_string()
     }
     
@@ -108,7 +108,7 @@ impl StringUtils {
     
     /// Extract keywords from string
     pub fn extract_keywords(text: &str, min_length: usize) -> Vec<String> {
-        let re = Regex::new(r"\b[a-zA-Z]+\b").unwrap();
+        let re = Regex::new(r"\b[a-zA-Z]+\b").expect("valid regex pattern");
         re.find_iter(text)
             .map(|m| m.as_str().to_lowercase())
             .filter(|word| word.len() >= min_length)
@@ -166,14 +166,14 @@ impl StringUtils {
     
     /// Count sentences (simple heuristic)
     pub fn count_sentences(s: &str) -> usize {
-        let re = Regex::new(r"[.!?]+").unwrap();
+        let re = Regex::new(r"[.!?]+").expect("valid regex pattern");
         re.find_iter(s).count()
     }
     
     /// Generate slug from string
     pub fn slugify(s: &str) -> String {
         let cleaned = Self::clean(s);
-        let re = Regex::new(r"\s+").unwrap();
+        let re = Regex::new(r"\s+").expect("valid regex pattern");
         let slug = re.replace_all(&cleaned, "-");
         slug.trim_matches('-').to_string()
     }
@@ -197,19 +197,19 @@ impl StringUtils {
     
     /// Validate email format
     pub fn is_valid_email(email: &str) -> bool {
-        let re = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+        let re = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").expect("valid regex pattern");
         re.is_match(email)
     }
     
     /// Validate URL format
     pub fn is_valid_url(url: &str) -> bool {
-        let re = Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap();
+        let re = Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").expect("valid regex pattern");
         re.is_match(url)
     }
     
     /// Extract domain from URL
     pub fn extract_domain(url: &str) -> Option<String> {
-        let re = Regex::new(r"https?://([^/]+)").unwrap();
+        let re = Regex::new(r"https?://([^/]+)").expect("valid regex pattern");
         re.captures(url).map(|caps| caps[1].to_string())
     }
     
@@ -274,7 +274,7 @@ impl StringUtils {
     
     /// Convert to safe filename
     pub fn to_safe_filename(s: &str) -> String {
-        let re = Regex::new(r"[^a-zA-Z0-9._-]").unwrap();
+        let re = Regex::new(r"[^a-zA-Z0-9._-]").expect("valid regex pattern");
         let safe = re.replace_all(s, "_");
         safe.trim_matches('_').to_string()
     }
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(StringUtils::clean("  Hello, World!  "), "hello world");
         
         // Test similarity
-        let sim = StringUtils::calculate_similarity("hello world", "hello there").unwrap();
+        let sim = StringUtils::calculate_similarity("hello world", "hello there").expect("valid regex pattern");
         assert!(sim > 0.0 && sim < 1.0);
         
         // Test levenshtein

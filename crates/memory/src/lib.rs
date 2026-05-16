@@ -4,7 +4,7 @@
 //!
 //! Cognitive Dynamics Extension — mengubah memory system menjadi unified cognitive
 
-#![allow(dead_code, unused_imports, unused_variables, dropping_references, confusable_idents, mixed_script_confusables)]
+#![allow(dead_code, unused_variables)]
 //! dynamical system dengan conservation law, phase coherence, attention curvature,
 //! meta-learning, dan identity persistence.
 

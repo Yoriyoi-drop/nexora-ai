@@ -114,7 +114,7 @@ impl LruCache {
             if entry.is_expired() {
                 // Remove expired entry
                 let size_bytes = entry.size_bytes;
-                drop(entry); // Release the borrow
+                let _ = entry;
                 entries.remove(key);
                 self.remove_from_access_order(key);
                 self.update_size_bytes(-(size_bytes as isize));
@@ -129,7 +129,7 @@ impl LruCache {
             // Update access
             entry.touch();
             let entry_clone = entry.clone();
-            drop(entry); // Release the borrow before calling other methods
+            let _ = entry;
             self.move_to_back(key);
             
             let mut stats = self.stats.write();

@@ -14,8 +14,8 @@
 
 use crate::{DLResult, DeepLearningError};
 use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{HolographicFFT, SpectralAnalyzer, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
+use crate::echo_net::utils::Complex;
+use ndarray::{Array2, Array1};
 use std::f32::consts::PI;
 
 /// Frequency band configuration

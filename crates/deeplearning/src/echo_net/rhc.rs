@@ -18,9 +18,8 @@
 //! - Abstraction reasoning
 
 use crate::{DLResult, DeepLearningError};
-use crate::echo_net::utils::{HolographicFFT, SpectralAnalyzer, MemoryCompressor, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
-use std::collections::HashMap;
+use crate::echo_net::utils::{HolographicFFT, MemoryCompressor, Complex};
+use ndarray::{Array2, Array1};
 
 /// Compression level configuration
 #[derive(Debug, Clone)]
@@ -274,7 +273,7 @@ impl RecursiveHolographicCompression {
         
         // Sort by importance
         let mut indexed_importance: Vec<(usize, f32)> = importance.iter().enumerate().map(|(i, &score)| (i, score)).collect();
-        indexed_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         // Keep most important rows
         for i in 0..target_size.min(indexed_importance.len()) {

@@ -13,8 +13,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{DeepLearningModel, HasComponents},
+    gnac_integration::GnacModel,
     safety_gate::{global_safety, ConsentToken, ConsentScope},
     foundation_components::FoundationComponents,
 };
@@ -41,8 +41,7 @@ pub struct NxrAetherModel {
     base: crate::shared::base_model::BaseNxrModel<AetherConfig, AetherMetrics, AetherState>,
     identity: AetherIdentity,
     capabilities: AetherCapabilities,
-    dl_engine: DeepLearningEngine,
-    gnac_engine: GnacEngine,
+    /// Foundation components (ERP, VOGP, ATQS, MoE, DL, GNAC, Tokenizer)
     components: FoundationComponents,
 }
 
@@ -151,57 +150,6 @@ impl AetherCapabilities {
     }
 }
 
-/// NXR-ÆTHER Configuration
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AetherConfig {
-    pub base: NxrModelConfig,
-    pub emotional: EmotionalConfig,
-    pub psychological: PsychologicalConfig,
-    pub deep_learning: DeepLearningConfig,
-    pub gnac: GnacIntegrationConfig,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct EmotionalConfig {
-    pub empathy_depth: u8,
-    pub emotional_sensitivity: f32,
-    pub enable_tone_analysis: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PsychologicalConfig {
-    pub enable_profiling: bool,
-    pub analysis_depth: u8,
-    pub cultural_sensitivity: f32,
-}
-
-impl Default for AetherConfig {
-    fn default() -> Self {
-        Self {
-            base: NxrModelConfig::for_model(NxrModelId::Aether),
-            emotional: EmotionalConfig {
-                empathy_depth: 8,
-                emotional_sensitivity: 0.9,
-                enable_tone_analysis: true,
-            },
-            psychological: PsychologicalConfig {
-                enable_profiling: true,
-                analysis_depth: 6,
-                cultural_sensitivity: 0.85,
-            },
-            deep_learning: DeepLearningConfig::star_x(),
-            gnac: GnacIntegrationConfig::default(),
-        }
-    }
-}
-
-impl AetherConfig {
-    pub fn validate(&self) -> Result<(), String> {
-        self.base.validate()?;
-        Ok(())
-    }
-}
-
 impl NxrAetherModel {
     pub fn new() -> Self {
         let identity = AetherIdentity::new();
@@ -209,11 +157,6 @@ impl NxrAetherModel {
         let config = AetherConfig::default();
         let initial_state = AetherState::default();
         let initial_metrics = AetherMetrics::default();
-
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
 
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
@@ -225,8 +168,6 @@ impl NxrAetherModel {
             ),
             identity,
             capabilities,
-            dl_engine,
-            gnac_engine,
             components: FoundationComponents::new(),
         }
     }
@@ -471,25 +412,15 @@ impl NxrModel for NxrAetherModel {
     }
 }
 
-impl DeepLearningModel for NxrAetherModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrAetherModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrAetherModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrAetherModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrAetherModel {}
 
 impl Default for NxrAetherModel {
     fn default() -> Self {

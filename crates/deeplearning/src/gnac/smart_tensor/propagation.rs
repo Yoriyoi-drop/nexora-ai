@@ -1,7 +1,6 @@
 use crate::DLResult;
-use crate::gnac::TensorDesc;
 use crate::gnac::smart_tensor::ShapePropEntry;
-use crate::gnac::canvas::{NeuralGraph, GraphNode};
+use crate::gnac::canvas::GraphNode;
 use crate::NodeType;
 use std::collections::HashMap;
 

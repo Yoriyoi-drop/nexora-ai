@@ -310,12 +310,11 @@ impl GnacEngine {
 
 /// Trait untuk NXR models yang menggunakan GNAC
 #[async_trait::async_trait]
-pub trait GnacModel {
+pub trait GnacModel: super::deeplearning_integration::HasComponents {
     /// Get GNAC engine
-    fn gnac_engine(&self) -> &GnacEngine;
-
-    /// Get GNAC engine mutable
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine;
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.components().gnac_engine
+    }
 
     /// Process input dengan GNAC graph
     async fn gnac_process(&self, input: &[f32]) -> Result<Vec<f32>, String> {

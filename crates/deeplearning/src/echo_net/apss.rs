@@ -108,8 +108,8 @@ impl AdaptivePhaseSeparationStabilizer {
                 if i == j {
                     similarity_matrix[[i, j]] = 1.0;
                 } else {
-                    let emb_i = embeddings.slice(s![i, ..]).to_owned().into_dimensionality().unwrap();
-                    let emb_j = embeddings.slice(s![j, ..]).to_owned().into_dimensionality().unwrap();
+                    let emb_i = embeddings.slice(s![i, ..]).to_owned().into_dimensionality().expect("dimensions match");
+                    let emb_j = embeddings.slice(s![j, ..]).to_owned().into_dimensionality().expect("dimensions match");
                     
                     let similarity = self.cosine_similarity(&emb_i, &emb_j);
                     similarity_matrix[[i, j]] = similarity;

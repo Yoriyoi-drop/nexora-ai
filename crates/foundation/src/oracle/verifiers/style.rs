@@ -30,64 +30,56 @@ impl StyleVerifier {
             style_patterns: vec![
                 StylePattern {
                     name: "Long Line".to_string(),
-                    pattern: Regex::new(r".{81,}")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r".{81,}").expect("valid regex"),
                     severity: IssueSeverity::Style,
                     description: "Line exceeds 80 characters".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Trailing Whitespace".to_string(),
-                    pattern: Regex::new(r"[ \t]+$")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"[ \t]+$").expect("valid regex"),
                     severity: IssueSeverity::Style,
                     description: "Trailing whitespace detected".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Tab Character".to_string(),
-                    pattern: Regex::new(r"\t")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"\t").expect("valid regex"),
                     severity: IssueSeverity::Style,
                     description: "Tab character detected - use spaces".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Missing Documentation".to_string(),
-                    pattern: Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]*//")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]*//").expect("valid regex"),
                     severity: IssueSeverity::Info,
                     description: "Function missing documentation".to_string(),
                     language: "rust".to_string(),
                 },
                 StylePattern {
                     name: "Camel Case Variable".to_string(),
-                    pattern: Regex::new(r"(let|const|var)\s+[a-z][a-zA-Z0-9]*[A-Z]")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"(let|const|var)\s+[a-z][a-zA-Z0-9]*[A-Z]").expect("valid regex"),
                     severity: IssueSeverity::Style,
                     description: "Variable should use snake_case".to_string(),
                     language: "rust".to_string(),
                 },
                 StylePattern {
                     name: "Magic Number".to_string(),
-                    pattern: Regex::new(r"(?<!const\s+)(\b(10|100|1000|24|60|3600)\b)")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"(?<!const\s+)(\b(10|100|1000|24|60|3600)\b)").expect("valid regex"),
                     severity: IssueSeverity::Info,
                     description: "Magic number detected - use named constant".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Deep Nesting".to_string(),
-                    pattern: Regex::new(r"^\s{16,}")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"^\s{16,}").expect("valid regex"),
                     severity: IssueSeverity::Warning,
                     description: "Deep nesting detected - consider refactoring".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Large Function".to_string(),
-                    pattern: Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]{500,}")
-                        .unwrap_or_else(|_| Regex::new(r"").unwrap()),
+                    pattern: Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]{500,}").expect("valid regex"),
                     severity: IssueSeverity::Warning,
                     description: "Large function detected - consider splitting".to_string(),
                     language: "all".to_string(),

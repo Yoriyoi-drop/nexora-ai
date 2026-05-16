@@ -29,26 +29,26 @@ struct CorrectnessPattern {
 
 /// Regex patterns
 static DIV_ZERO_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"/\s*0+(\.0+)?\b").unwrap()
+    Regex::new(r"/\s*0+(\.0+)?\b").expect("valid regex")
 });
 
 static INFINITE_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"while\s*\(\s*(true|1)\s*\)").unwrap()
+    Regex::new(r"while\s*\(\s*(true|1)\s*\)").expect("valid regex")
 });
 
 static C_UNINIT_VAR_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;"
     )
-    .unwrap()
+    .expect("valid regex")
 });
 
 static JS_LOOSE_EQUALITY_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?<![=!])==(?!=)").unwrap()
+    Regex::new(r"(?<![=!])==(?!=)").expect("valid regex")
 });
 
 static PY_BARE_EXCEPT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"except\s*:").unwrap()
+    Regex::new(r"except\s*:").expect("valid regex")
 });
 
 /// Correctness verifier

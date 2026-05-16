@@ -1,6 +1,9 @@
 use std::collections::{HashMap, VecDeque};
-use uuid::Uuid;
+use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::batching::{Batch, BatchCollector, BatchKey};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RequestStatus {
@@ -19,6 +22,8 @@ pub struct SchedulerStats {
     pub queued_requests: usize,
     pub completed_requests: usize,
     pub failed_requests: usize,
+    pub pending_batches: usize,
+    pub pending_batch_requests: usize,
 }
 
 struct ScheduledRequest {
@@ -26,13 +31,16 @@ struct ScheduledRequest {
     response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
     status: RequestStatus,
     submitted_at: chrono::DateTime<chrono::Utc>,
+    batch_key: Option<BatchKey>,
 }
 
 pub struct RequestScheduler {
     queue: RwLock<VecDeque<Uuid>>,
     requests: RwLock<HashMap<Uuid, ScheduledRequest>>,
     max_concurrent: usize,
+    max_batch_size: usize,
     active_count: RwLock<usize>,
+    batch_collector: Arc<RwLock<BatchCollector>>,
 }
 
 impl RequestScheduler {
@@ -41,12 +49,19 @@ impl RequestScheduler {
             queue: RwLock::new(VecDeque::new()),
             requests: RwLock::new(HashMap::new()),
             max_concurrent: 4,
+            max_batch_size: 8,
             active_count: RwLock::new(0),
+            batch_collector: Arc::new(RwLock::new(BatchCollector::new(8, 50))),
         }
     }
 
     pub fn with_max_concurrent(mut self, max: usize) -> Self {
         self.max_concurrent = max;
+        self
+    }
+
+    pub fn with_max_batch_size(mut self, size: usize) -> Self {
+        self.max_batch_size = size;
         self
     }
 
@@ -67,32 +82,56 @@ impl RequestScheduler {
             response_tx,
             status: RequestStatus::Queued,
             submitted_at: chrono::Utc::now(),
+            batch_key: None,
         });
         queue.push_back(request_id);
-
-        self.try_process_next().await;
         Ok(())
     }
 
-    async fn try_process_next(&self) {
+    /// Submit a request and register it in the batch collector for potential batching.
+    /// Returns the batch collector grouping key.
+    pub async fn submit_request_batched(
+        &self,
+        request: &crate::InferenceRequest,
+        response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
+    ) -> Result<BatchKey, anyhow::Error> {
+        let mut requests = self.requests.write().await;
+        let mut queue = self.queue.write().await;
+
+        let key = BatchKey::from_request(request);
+        requests.insert(request.request_id, ScheduledRequest {
+            request_id: request.request_id,
+            response_tx,
+            status: RequestStatus::Queued,
+            submitted_at: chrono::Utc::now(),
+            batch_key: Some(key.clone()),
+        });
+        queue.push_back(request.request_id);
+        Ok(key)
+    }
+
+    /// Pop the next ready batch from the collector.
+    /// Returns None if no batch is ready or max_concurrent is saturated.
+    pub async fn pop_batch(&self) -> Option<Batch> {
         let active = *self.active_count.read().await;
         if active >= self.max_concurrent {
-            return;
+            return None;
         }
-
-        let mut queue = self.queue.write().await;
-        if let Some(request_id) = queue.pop_front() {
-            let requests = self.requests.read().await;
-            if let Some(req) = requests.get(&request_id) {
-                if req.status == RequestStatus::Queued {
-                    drop(requests);
-                    drop(queue);
-                    let mut active = self.active_count.write().await;
-                    *active += 1;
-                    self.update_status(request_id, RequestStatus::Processing).await;
-                }
-            }
+        let mut collector = self.batch_collector.write().await;
+        let mut batches = collector.drain_ready();
+        if batches.is_empty() {
+            return None;
         }
+        let batch = batches.remove(0);
+        // claim a concurrent slot for the whole batch
+        {
+            let mut active = self.active_count.write().await;
+            *active += 1;
+        }
+        for breq in &batch.requests {
+            self.update_status(breq.request_id, RequestStatus::Processing).await;
+        }
+        Some(batch)
     }
 
     async fn update_status(&self, request_id: Uuid, status: RequestStatus) {
@@ -128,12 +167,15 @@ impl RequestScheduler {
 
     pub async fn get_stats(&self) -> SchedulerStats {
         let requests = self.requests.read().await;
+        let batching = self.batch_collector.read().await;
         let mut stats = SchedulerStats {
             total_requests: requests.len(),
             active_requests: 0,
             queued_requests: 0,
             completed_requests: 0,
             failed_requests: 0,
+            pending_batches: batching.batch_count(),
+            pending_batch_requests: batching.pending_count(),
         };
         for req in requests.values() {
             match req.status {
@@ -145,6 +187,28 @@ impl RequestScheduler {
             }
         }
         stats
+    }
+
+    /// Register a submitted request with the batch collector for batching.
+    /// Call this in the request loop after receiving the request from the channel.
+    pub async fn add_to_batch_collector(&self, request: &crate::InferenceRequest) {
+        let requests = self.requests.read().await;
+        if let Some(req) = requests.get(&request.request_id) {
+            if req.status != RequestStatus::Queued {
+                return;
+            }
+            let key = BatchKey::from_request(request);
+            let response_tx = req.response_tx.clone();
+            drop(requests);
+            let mut collector = self.batch_collector.write().await;
+            collector.add_request(request.clone(), response_tx);
+            // update the stored batch_key
+            drop(collector);
+            let mut requests = self.requests.write().await;
+            if let Some(sreq) = requests.get_mut(&request.request_id) {
+                sreq.batch_key = Some(key);
+            }
+        }
     }
 
     pub async fn send_response(&self, request_id: Uuid, response: crate::InferenceResponse) -> Result<(), anyhow::Error> {
@@ -161,8 +225,18 @@ impl RequestScheduler {
         if *active > 0 {
             *active -= 1;
         }
-        drop(active);
-        self.try_process_next().await;
+        Ok(())
+    }
+
+    /// Mark all requests in a batch as completed and release the concurrent slot.
+    pub async fn complete_batch(&self, batch: &Batch) -> Result<(), anyhow::Error> {
+        for breq in &batch.requests {
+            self.update_status(breq.request_id, RequestStatus::Completed).await;
+        }
+        let mut active = self.active_count.write().await;
+        if *active > 0 {
+            *active -= 1;
+        }
         Ok(())
     }
 }

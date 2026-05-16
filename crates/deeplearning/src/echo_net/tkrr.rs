@@ -12,12 +12,12 @@
 //! bukan O(T) atau O(T²).
 
 use crate::{DLResult, DeepLearningError};
-use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{ResonanceCalculator, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
+use crate::echo_net::HolographicWave;
+use crate::echo_net::utils::ResonanceCalculator;
+use ndarray::{ArrayD, Array1};
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
-use std::hash::{Hasher, DefaultHasher};
+use std::hash::Hasher;
 
 /// Resonance routing candidate
 #[derive(Debug, Clone)]
@@ -335,7 +335,7 @@ impl TopKResonanceRouting {
         for candidate in candidates.drain(..) {
             if heap.len() < effective_k {
                 heap.push(candidate);
-            } else if candidate.resonance_score > heap.peek().unwrap().resonance_score {
+            } else if candidate.resonance_score > heap.peek().expect("heap is non-empty").resonance_score {
                 heap.pop();
                 heap.push(candidate);
             }
@@ -343,7 +343,7 @@ impl TopKResonanceRouting {
         
         // Convert heap to sorted vector
         let mut selected: Vec<ResonanceCandidate> = heap.into_iter().collect();
-        selected.sort_by(|a, b| b.resonance_score.partial_cmp(&a.resonance_score).unwrap());
+        selected.sort_by(|a, b| b.resonance_score.partial_cmp(&a.resonance_score).unwrap_or(std::cmp::Ordering::Equal));
         
         Ok(selected)
     }
@@ -577,7 +577,7 @@ impl TopKResonanceRouting {
         let event = RoutingEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("system time after epoch")
                 .as_secs(),
             total_candidates: all_candidates.len(),
             selected_candidates: selected_candidates.len(),
@@ -609,7 +609,7 @@ impl TopKResonanceRouting {
         if self.routing_history.is_empty() {
             self.average_routing_time = routing_time;
         } else {
-            self.average_routing_time = (self.average_routing_time * 0.9 + routing_time * 0.1);
+            self.average_routing_time = self.average_routing_time * 0.9 + routing_time * 0.1;
         }
         
         // Update cache hit rate

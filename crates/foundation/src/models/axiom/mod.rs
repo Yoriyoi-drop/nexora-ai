@@ -18,8 +18,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{HasComponents, DeepLearningModel},
+    gnac_integration::{GnacModel},
     foundation_components::FoundationComponents,
 };
 
@@ -37,8 +37,6 @@ pub struct NxrAxiomModel {
     architecture: AxiomArchitecture,
     agents: AxiomAgents,
     capabilities: AxiomCapabilities,
-    dl_engine: DeepLearningEngine,
-    gnac_engine: GnacEngine,
     components: FoundationComponents,
 }
 
@@ -133,11 +131,6 @@ impl NxrAxiomModel {
         let initial_state = AxiomState::default();
         let initial_metrics = AxiomMetrics::default();
 
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -150,8 +143,6 @@ impl NxrAxiomModel {
             architecture: AxiomArchitecture::new(&config),
             agents: AxiomAgents::new(&config),
             capabilities,
-            dl_engine,
-            gnac_engine,
             components: FoundationComponents::new(),
         }
     }
@@ -419,25 +410,15 @@ impl NxrModel for NxrAxiomModel {
     }
 }
 
-impl DeepLearningModel for NxrAxiomModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrAxiomModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrAxiomModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrAxiomModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrAxiomModel {}
 
 impl Default for NxrAxiomModel {
     fn default() -> Self {

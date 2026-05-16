@@ -19,8 +19,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{DeepLearningModel, HasComponents},
+    gnac_integration::GnacModel,
     foundation_components::FoundationComponents,
 };
 use crate::erp::{ERPEngine, ERPConfig, CompressionMode};
@@ -47,11 +47,7 @@ pub struct NxrOmnisModel {
     agents: OmnisAgents,
     /// Capabilities
     capabilities: OmnisCapabilities,
-    /// Deep learning engine
-    dl_engine: DeepLearningEngine,
-    /// GNAC engine
-    gnac_engine: GnacEngine,
-    /// Foundation components (ERP, VOGP, ATQS, MoE, Tokenizer, Autograd)
+    /// Foundation components (ERP, VOGP, ATQS, MoE, DL, GNAC, Tokenizer)
     components: FoundationComponents,
 }
 
@@ -236,11 +232,6 @@ impl NxrOmnisModel {
         let initial_state = OmnisState::default();
         let initial_metrics = OmnisMetrics::default();
 
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         let components = FoundationComponents::new()
             .with_moe_config(HasMoeFFNConfig {
                 num_experts: 16,
@@ -264,8 +255,6 @@ impl NxrOmnisModel {
             architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
-            dl_engine,
-            gnac_engine,
             components,
         }
     }
@@ -277,8 +266,6 @@ impl NxrOmnisModel {
         let initial_state = OmnisState::default();
         let initial_metrics = OmnisMetrics::default();
 
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         let components = FoundationComponents::new()
             .with_moe_config(HasMoeFFNConfig {
                 num_experts: 16,
@@ -288,7 +275,9 @@ impl NxrOmnisModel {
             .with_erp_config(ERPConfig {
                 compression_mode: CompressionMode::Aggressive,
                 ..Default::default()
-            });
+            })
+            .with_dl_config(config.deep_learning.clone())
+            .with_gnac_config(config.gnac.clone());
 
         let mut model = Self {
             base: crate::shared::base_model::BaseNxrModel::new(
@@ -302,9 +291,6 @@ impl NxrOmnisModel {
             architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
-            dl_engine: DeepLearningEngine::new(config.deep_learning.clone())
-                .expect("Failed to initialize deep learning engine"),
-            gnac_engine,
             components,
         };
 
@@ -610,25 +596,15 @@ impl NxrModel for NxrOmnisModel {
     }
 }
 
-impl DeepLearningModel for NxrOmnisModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrOmnisModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrOmnisModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrOmnisModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrOmnisModel {}
 
 impl Default for NxrOmnisModel {
     fn default() -> Self {

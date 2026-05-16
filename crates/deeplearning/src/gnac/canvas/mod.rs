@@ -12,7 +12,6 @@ pub mod edge;
 pub mod graph;
 pub mod metanode;
 
-use crate::DLResult;
 
 pub use node::*;
 pub use port::*;

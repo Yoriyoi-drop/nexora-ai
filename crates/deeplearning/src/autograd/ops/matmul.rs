@@ -1,4 +1,3 @@
-use ndarray::ArrayD;
 
 use super::super::tensor::Tensor;
 

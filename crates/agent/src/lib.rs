@@ -79,3 +79,67 @@ impl From<std::io::Error> for AgentError {
 }
 
 pub type Result<T> = std::result::Result<T, AgentError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_error_display() {
+        let err = AgentError::AgentNotFound("test-agent".into());
+        assert_eq!(format!("{}", err), "Agent not found: test-agent");
+    }
+
+    #[test]
+    fn test_agent_error_from_serde() {
+        let invalid = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
+        let err: AgentError = invalid.into();
+        assert!(matches!(err, AgentError::ProcessingError(_)));
+    }
+
+    #[test]
+    fn test_agent_error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err: AgentError = io_err.into();
+        assert!(matches!(err, AgentError::ProcessingError(_)));
+    }
+
+    #[test]
+    fn test_agent_message_creation() {
+        let msg = AgentMessage::new("test-type", serde_json::json!("payload"));
+        assert_eq!(msg.message_type(), "test-type");
+    }
+
+    #[test]
+    fn test_agent_message_with_priority() {
+        let msg = AgentMessage::new("test", serde_json::json!({}))
+            .with_priority(MessagePriority::High);
+        assert_eq!(msg.priority(), MessagePriority::High);
+    }
+
+    #[test]
+    fn test_agent_response_success() {
+        let req_id = uuid::Uuid::new_v4();
+        let resp = AgentResponse::success(req_id, serde_json::json!("ok"), 10);
+        assert!(resp.is_success());
+    }
+
+    #[test]
+    fn test_agent_response_error() {
+        let req_id = uuid::Uuid::new_v4();
+        let resp = AgentResponse::error(req_id, "fail", 5);
+        assert!(!resp.is_success());
+    }
+
+    #[test]
+    fn test_version_constant() {
+        assert!(!VERSION.is_empty());
+    }
+
+    #[test]
+    fn test_agent_stats_default() {
+        let stats = AgentStats::default();
+        assert_eq!(stats.messages_processed, 0);
+        assert_eq!(stats.errors, 0);
+    }
+}

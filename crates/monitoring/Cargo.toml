@@ -5,19 +5,8 @@ edition = "2021"
 description = "Monitoring system for Nexora AI"
 
 [dependencies]
-nexora-common = { path = "../infrastructure/common" }
-nexora-core = { path = "../core" }
 tokio.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-anyhow.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
-uuid.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 prometheus = "0.13"
-metrics = "0.21"
-axum.workspace = true
-
-[dev-dependencies]
-mockall.workspace = true
-tokio-test = "0.4"

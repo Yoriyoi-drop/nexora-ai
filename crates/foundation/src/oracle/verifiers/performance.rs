@@ -381,7 +381,7 @@ impl CodeVerifier for PerformanceVerifier {
     
     /// Count clones efficiently using regex
     fn count_clones_efficiently(&self, code: &str) -> usize {
-        let clone_regex = regex::Regex::new(r"\.clone\(\)").unwrap_or_else(|_| regex::Regex::new(r"").unwrap());
+        let Ok(clone_regex) = regex::Regex::new(r"\.clone\(\)") else { return 0 };
         clone_regex.find_iter(code).count()
     }
     

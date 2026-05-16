@@ -15,9 +15,8 @@
 
 use crate::{DLResult, DeepLearningError};
 use crate::autograd::Tensor;
-use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{HolographicFFT, SpectralAnalyzer, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
+use crate::echo_net::utils::Complex;
+use ndarray::{ArrayD, Array2, Array1};
 use std::f32::consts::PI;
 
 /// Spectral collapse configuration
@@ -490,7 +489,7 @@ impl InverseSpectralCollapse {
         
         // Adaptive strength: increase for low coherence
         if self.adaptive_strength {
-            let coherence = self.calculate_phase_coherence(&output.view().into_dimensionality().unwrap().to_owned())?;
+            let coherence = self.calculate_phase_coherence(&output.view().into_dimensionality().expect("dimensions match").to_owned())?;
             if coherence < 0.5 {
                 self.config.collapse_strength *= self.strength_growth;
             } else if coherence > 0.8 {
@@ -512,7 +511,7 @@ impl InverseSpectralCollapse {
         self.output_quality = self.output_quality * 0.9 + (1.0 / (1.0 + output_entropy)) * 0.1;
         
         // Update spectral fidelity (based on phase coherence)
-        let coherence = self.calculate_phase_coherence(&output.to_owned().into_dimensionality().unwrap())?;
+        let coherence = self.calculate_phase_coherence(&output.to_owned().into_dimensionality().expect("dimensions match"))?;
         self.spectral_fidelity = self.spectral_fidelity * 0.9 + coherence * 0.1;
         
         // Update collapse efficiency
@@ -580,14 +579,14 @@ impl InverseSpectralCollapse {
         let data = ArrayD::from_shape_vec(
             vec![self.output_weights.shape()[0], self.output_weights.shape()[1]],
             self.output_weights.iter().copied().collect(),
-        ).unwrap();
+        ).expect("data length matches shape");
         Tensor::new(data)
     }
     pub fn get_output_bias(&self) -> Tensor {
         let data = ArrayD::from_shape_vec(
             vec![self.output_bias.len()],
             self.output_bias.iter().copied().collect(),
-        ).unwrap();
+        ).expect("data length matches shape");
         Tensor::new(data)
     }
     pub fn set_output_weights(&mut self, t: &Tensor) {

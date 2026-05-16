@@ -21,8 +21,8 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
         result,
         vec![a.clone(), b.clone()],
         vec![
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap(),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap(),
+            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -52,8 +52,8 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
         result,
         vec![a.clone(), b.clone()],
         vec![
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap(),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap(),
+            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -85,8 +85,8 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
         vec![
             a_bc.clone(),
             b_bc.clone(),
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap(),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap(),
+            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_val = &saved[0];
@@ -120,8 +120,8 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
         vec![
             a_bc.clone(),
             b_bc.clone(),
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap(),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap(),
+            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_val = &saved[0];

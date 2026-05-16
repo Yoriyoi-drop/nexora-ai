@@ -75,8 +75,14 @@ impl AdaptiveGradientResonance {
     
     /// Compute cosine similarity between two tensors
     fn compute_cosine_similarity(&self, a: &ArrayD<f32>, b: &ArrayD<f32>) -> DLResult<f32> {
-        let a_flat = a.as_slice().unwrap();
-        let b_flat = b.as_slice().unwrap();
+        let a_flat = a.as_slice().ok_or_else(|| DeepLearningError::ShapeMismatch {
+            expected: vec![a.len()],
+            actual: vec![a.len()],
+        })?;
+        let b_flat = b.as_slice().ok_or_else(|| DeepLearningError::ShapeMismatch {
+            expected: vec![b.len()],
+            actual: vec![b.len()],
+        })?;
         
         if a_flat.len() != b_flat.len() {
             return Err(DeepLearningError::ShapeMismatch {
@@ -278,8 +284,14 @@ impl GradientResonance for AdaptiveGradientResonance {
         resonance_factor: f32
     ) -> DLResult<ArrayD<f32>> {
         
-        let cand_flat = candidate_state.as_slice().unwrap();
-        let prev_flat = previous_state.as_slice().unwrap();
+        let cand_flat = candidate_state.as_slice().ok_or_else(|| DeepLearningError::ShapeMismatch {
+            expected: vec![candidate_state.len()],
+            actual: vec![candidate_state.len()],
+        })?;
+        let prev_flat = previous_state.as_slice().ok_or_else(|| DeepLearningError::ShapeMismatch {
+            expected: vec![previous_state.len()],
+            actual: vec![previous_state.len()],
+        })?;
         
         if cand_flat.len() != prev_flat.len() {
             return Err(DeepLearningError::ShapeMismatch {
@@ -358,14 +370,21 @@ impl AdaptiveGradientResonance {
         }
         
         let mut multi_scale_resonated = current_state.clone();
-        let current_flat = multi_scale_resonated.as_slice_mut().unwrap();
+        let m_len = multi_scale_resonated.len();
+        let current_flat = multi_scale_resonated.as_slice_mut().ok_or_else(|| DeepLearningError::ShapeMismatch {
+            expected: vec![m_len],
+            actual: vec![m_len],
+        })?;
         
         // Apply resonance at different time scales
         for (scale, prev_state) in previous_states.iter().enumerate() {
             let scale_factor = 1.0 / (scale + 1) as f32; // Decreasing influence for older states
             let scale_resonance = self.resonance_factor * scale_factor;
             
-            let prev_flat = prev_state.as_slice().unwrap();
+            let prev_flat = prev_state.as_slice().ok_or_else(|| DeepLearningError::ShapeMismatch {
+                expected: vec![prev_state.len()],
+                actual: vec![prev_state.len()],
+            })?;
             for (i, &prev_val) in prev_flat.iter().enumerate().take(current_flat.len()) {
                 current_flat[i] += scale_resonance * prev_val;
             }

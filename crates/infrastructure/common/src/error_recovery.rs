@@ -189,7 +189,7 @@ impl ErrorRecovery {
         
         // Check if circuit is open
         if current_failures >= failure_threshold {
-            if let Some(last_failure_time) = *self.last_failure.lock().unwrap() {
+            if let Some(last_failure_time) = *self.last_failure.lock().expect("mutex not poisoned") {
                 if last_failure_time.elapsed() < recovery_timeout {
                     error!(
                         failures = current_failures,
@@ -246,13 +246,13 @@ impl ErrorRecovery {
     /// Increment failure count
     fn increment_failure_count(&self) {
         self.failure_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        *self.last_failure.lock().unwrap() = Some(Instant::now());
+        *self.last_failure.lock().expect("mutex not poisoned") = Some(Instant::now());
     }
     
     /// Reset failure count
     fn reset_failure_count(&self) {
         self.failure_count.store(0, std::sync::atomic::Ordering::Relaxed);
-        *self.last_failure.lock().unwrap() = None;
+        *self.last_failure.lock().expect("mutex not poisoned") = None;
     }
     
     /// Get current failure count
@@ -266,7 +266,7 @@ impl ErrorRecovery {
             let current_failures = self.failure_count.load(std::sync::atomic::Ordering::Relaxed);
             
             if current_failures >= *failure_threshold {
-                if let Some(last_failure_time) = *self.last_failure.lock().unwrap() {
+                if let Some(last_failure_time) = *self.last_failure.lock().expect("mutex not poisoned") {
                     last_failure_time.elapsed() < *recovery_timeout
                 } else {
                     false

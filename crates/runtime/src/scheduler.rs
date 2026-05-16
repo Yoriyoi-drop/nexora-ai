@@ -394,3 +394,78 @@ impl RequestScheduler {
         (max_tokens * base_time_per_token * temperature_factor as u64).max(100)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    fn test_request(priority: u8) -> QueuedRequest {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        QueuedRequest {
+            request: InferenceRequest {
+                model_id: "test".into(),
+                inputs: vec![],
+                parameters: [("max_tokens".to_string(), serde_json::json!(100))]
+                    .into_iter().collect(),
+                request_id: Some(uuid::Uuid::new_v4().to_string()),
+                input_tokens: vec![],
+                target_tokens: None,
+                priority,
+                metadata: [].into_iter().collect(),
+            },
+            response_tx: tx,
+            queued_at: Utc::now(),
+            priority,
+            estimated_time_ms: 100,
+            metadata: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_insert_into_queue_fifo() {
+        let scheduler = RequestScheduler::new(10);
+        let mut queue = VecDeque::new();
+
+        scheduler.insert_into_queue(&mut queue, test_request(50));
+        scheduler.insert_into_queue(&mut queue, test_request(50));
+        scheduler.insert_into_queue(&mut queue, test_request(50));
+
+        assert_eq!(queue.len(), 3);
+    }
+
+    #[test]
+    fn test_insert_into_queue_priority() {
+        let scheduler = RequestScheduler::new(10)
+            .with_strategy(SchedulingStrategy::Priority);
+        let mut queue = VecDeque::new();
+
+        scheduler.insert_into_queue(&mut queue, test_request(10));
+        scheduler.insert_into_queue(&mut queue, test_request(90));
+        scheduler.insert_into_queue(&mut queue, test_request(50));
+
+        assert_eq!(queue.len(), 3);
+        assert_eq!(queue[0].priority, 90, "highest priority first");
+        assert_eq!(queue[1].priority, 50, "middle priority second");
+        assert_eq!(queue[2].priority, 10, "lowest priority last");
+    }
+
+    #[test]
+    fn test_insert_into_queue_sjf() {
+        let scheduler = RequestScheduler::new(10)
+            .with_strategy(SchedulingStrategy::SJF);
+
+        let mut queue = VecDeque::new();
+        let mut r1 = test_request(50); r1.estimated_time_ms = 200;
+        let mut r2 = test_request(50); r2.estimated_time_ms = 50;
+        let mut r3 = test_request(50); r3.estimated_time_ms = 100;
+
+        scheduler.insert_into_queue(&mut queue, r1);
+        scheduler.insert_into_queue(&mut queue, r2);
+        scheduler.insert_into_queue(&mut queue, r3);
+
+        assert_eq!(queue[0].estimated_time_ms, 50, "shortest first");
+        assert_eq!(queue[1].estimated_time_ms, 100, "middle");
+        assert_eq!(queue[2].estimated_time_ms, 200, "longest last");
+    }
+}

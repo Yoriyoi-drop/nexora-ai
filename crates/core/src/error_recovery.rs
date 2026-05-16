@@ -452,7 +452,7 @@ impl ErrorRecoveryManager {
         
         // Use std::thread::spawn to avoid blocking in async context
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async move {
                 let mut strategies_guard = strategies.write().await;
                 
@@ -520,7 +520,7 @@ impl ErrorRecoveryManager {
             breakers.insert(service_name.to_string(), breaker);
         }
         
-        breakers.get(service_name).unwrap().clone()
+        breakers.get(service_name).expect("breaker was just inserted").clone()
     }
     
     /// Handle error with recovery strategy
@@ -708,7 +708,7 @@ mod tests {
         let result = handler.execute_with_retry(|| {
             let call_count = call_count.clone();
             async move {
-                let mut count = call_count.lock().unwrap();
+                let mut count = call_count.lock().expect("Mutex not poisoned");
                 *count += 1;
                 let current_count = *count;
                 drop(count);

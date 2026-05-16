@@ -13,11 +13,10 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
+    gnac_integration::{GnacIntegrationConfig, GnacModel},
     foundation_components::FoundationComponents,
 };
-use crate::oracle::{OracleVortexIntegration, OracleVortexConfig};
 use crate::has_moe_ffn::HasMoeFFNConfig;
 
 // Include all Vortex modules
@@ -46,11 +45,7 @@ pub struct NxrVortexModel {
     agents: VortexAgents,
     /// Capabilities
     capabilities: VortexCapabilities,
-    /// Deep learning engine
-    dl_engine: DeepLearningEngine,
-    /// GNAC engine
-    gnac_engine: GnacEngine,
-    /// Foundation components (ERP, VOGP, ATQS, MoE, Tokenizer, Autograd)
+    /// Foundation components (ERP, VOGP, ATQS, MoE, DL, GNAC, Tokenizer)
     components: FoundationComponents,
 }
 
@@ -476,11 +471,6 @@ impl NxrVortexModel {
         let initial_state = VortexState::default();
         let initial_metrics = VortexMetrics::default();
 
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -493,8 +483,6 @@ impl NxrVortexModel {
             architecture: VortexArchitecture::new(),
             agents: VortexAgents::new(),
             capabilities,
-            dl_engine,
-            gnac_engine,
             components: FoundationComponents::new()
                 .with_moe_config(HasMoeFFNConfig {
                     num_experts: 8,
@@ -724,25 +712,15 @@ impl NxrModel for NxrVortexModel {
     }
 }
 
-impl DeepLearningModel for NxrVortexModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrVortexModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrVortexModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrVortexModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrVortexModel {}
 
 impl Default for NxrVortexModel {
     fn default() -> Self {

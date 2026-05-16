@@ -13,11 +13,9 @@
 //! - Mencegah resonance explosion
 //! - Normalisasi energi: R ← R / (1 + ||R||)
 
-use crate::{DLResult, DeepLearningError};
-use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
-use std::collections::HashMap;
+use crate::DLResult;
+use crate::echo_net::ComplexTensor;
+use ndarray::ArrayD;
 
 /// Gradient statistics for monitoring
 #[derive(Debug, Clone)]
@@ -453,10 +451,10 @@ impl ResonanceEnergyClipping {
             
             // Record clipping event
             let event = ClippingEvent {
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_secs(),
                 original_energy,
                 clipped_energy,
                 clipping_ratio,
@@ -486,7 +484,7 @@ impl ResonanceEnergyClipping {
         Ok(ClippingEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("system time after epoch")
                 .as_secs(),
             original_energy,
             clipped_energy,
@@ -621,10 +619,10 @@ impl ResonanceEnergyClipping {
         // Adjust threshold based on clipping frequency
         if clipping_frequency > 0.2 {
             // Too much clipping, increase threshold
-            self.energy_clip_threshold *= (1.0 + self.threshold_adjustment_rate);
+            self.energy_clip_threshold *= 1.0 + self.threshold_adjustment_rate;
         } else if clipping_frequency < 0.05 {
             // Too little clipping, decrease threshold
-            self.energy_clip_threshold *= (1.0 - self.threshold_adjustment_rate);
+            self.energy_clip_threshold *= 1.0 - self.threshold_adjustment_rate;
         }
         
         // Clamp threshold
@@ -749,11 +747,11 @@ impl TrainingStabilizer {
         let clipping_event = self.rec.apply_rec(resonance_data)?;
         
         // Record stabilization event
-        let gradient_stats = self.pgn.get_gradient_statistics().unwrap();
+        let gradient_stats = self.pgn.get_gradient_statistics().expect("gradient statistics available");
         let event = StabilizationEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("system time after epoch")
                 .as_secs(),
             training_step: self.training_steps,
             gradient_norm: gradient_stats.gradient_norm,

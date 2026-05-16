@@ -794,7 +794,7 @@ impl Value {
             let seconds = unix_timestamp.trunc() as i64;
             let nanos = ((unix_timestamp.fract() * 1_000_000_000.0) as u32) * 1_000_000;
             if let Some(system_time) = std::time::SystemTime::UNIX_EPOCH
-                .checked_add(std::time::Duration::new(seconds.try_into().unwrap(), nanos))
+                .checked_add(std::time::Duration::new(seconds.try_into().expect("timestamp seconds fit into u64"), nanos))
             {
                 return Value::Timestamp(system_time);
             }
@@ -807,7 +807,7 @@ impl Value {
                 if let Some(nanos) = datetime.timestamp_nanos_opt() {
                     if let Some(system_time) =
                         std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
-                            (nanos / 1_000_000_000).try_into().unwrap(),
+                            (nanos / 1_000_000_000).try_into().expect("nanos fit into u64"),
                             (nanos % 1_000_000_000) as u32,
                         ))
                     {

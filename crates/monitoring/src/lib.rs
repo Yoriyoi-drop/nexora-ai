@@ -1,505 +1,182 @@
-//! Nexora Monitoring - System monitoring and metrics
-//! 
-//! Module ini menyediakan monitoring system untuk Nexora AI
+pub mod health;
+pub mod metrics;
+pub mod profiling;
+pub mod tracing;
 
+pub use health::{HealthChecker, HealthReport, HealthStatus, SystemMetrics};
+pub use metrics::MetricsCollector;
+pub use profiling::{Profiler, ProfilingConfig};
+pub use tracing::{init_tracing, TracingConfig, TracingFormat, TracingLevel};
 
-
-pub use metrics::{MetricsCollector, MetricType, MetricValue};
-pub use alerts::{AlertManager, Alert, AlertSeverity};
-pub use dashboard::{Dashboard, DashboardConfig};
-pub use collector::{DataCollector, CollectionConfig};
-
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
-use anyhow::Result;
-use tracing::{debug, info, warn};
+use serde::{Deserialize, Serialize};
 
-/// Main monitoring system
-pub struct MonitoringSystem {
-    metrics: Arc<MetricsCollector>,
-    alerts: Arc<AlertManager>,
-    dashboard: Arc<Dashboard>,
-    collector: Arc<DataCollector>,
-    config: MonitoringConfig,
-    start_time: Instant,
-}
-
-/// Monitoring configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoringConfig {
     pub enable_metrics: bool,
-    pub enable_alerts: bool,
-    pub enable_dashboard: bool,
+    pub enable_health: bool,
+    pub enable_profiling: bool,
     pub metrics_retention_hours: u64,
-    pub alert_check_interval_seconds: u64,
-    pub dashboard_port: u16,
+    pub health_check_interval_seconds: u64,
+    pub tracing: TracingConfig,
+    pub profiling: ProfilingConfig,
 }
 
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
             enable_metrics: true,
-            enable_alerts: true,
-            enable_dashboard: true,
+            enable_health: true,
+            enable_profiling: false,
             metrics_retention_hours: 24,
-            alert_check_interval_seconds: 30,
-            dashboard_port: 8080,
+            health_check_interval_seconds: 30,
+            tracing: TracingConfig::default(),
+            profiling: ProfilingConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStatus {
+    pub metrics: String,
+    pub health: String,
+    pub uptime_seconds: u64,
+}
+
+pub struct MonitoringSystem {
+    config: MonitoringConfig,
+    metrics: Option<Arc<MetricsCollector>>,
+    health: Option<Arc<RwLock<HealthChecker>>>,
+    profiler: Option<Arc<RwLock<Profiler>>>,
+    start_time: Instant,
 }
 
 impl MonitoringSystem {
     pub fn new(config: MonitoringConfig) -> Self {
+        let metrics = if config.enable_metrics {
+            Some(Arc::new(MetricsCollector::new()))
+        } else {
+            None
+        };
+
+        let health = if config.enable_health {
+            Some(Arc::new(RwLock::new(HealthChecker::new())))
+        } else {
+            None
+        };
+
+        let profiler = if config.enable_profiling {
+            let mut p = Profiler::new(config.profiling.clone());
+            p.start();
+            Some(Arc::new(RwLock::new(p)))
+        } else {
+            None
+        };
+
         Self {
-            metrics: Arc::new(MetricsCollector::new()),
-            alerts: Arc::new(AlertManager::new()),
-            dashboard: Arc::new(Dashboard::new()),
-            collector: Arc::new(DataCollector::new()),
-            start_time: Instant::now(),
             config,
+            metrics,
+            health,
+            profiler,
+            start_time: Instant::now(),
         }
     }
-    
-    /// Initialize monitoring system
-    pub async fn initialize(&self) -> Result<()> {
-        info!("Initializing monitoring system");
-        
-        if self.config.enable_metrics {
-            self.metrics.initialize().await?;
-        }
-        
-        if self.config.enable_alerts {
-            self.alerts.initialize().await?;
-        }
-        
-        if self.config.enable_dashboard {
-            let dashboard_config = DashboardConfig {
-                port: self.config.dashboard_port,
-                refresh_interval_seconds: 5,
-                enable_history: true,
-            };
-            self.dashboard.initialize(dashboard_config).await?;
-        }
-        
-        self.collector.initialize().await?;
-        
-        info!("Monitoring system initialized successfully");
-        Ok(())
+
+    pub fn metrics(&self) -> Option<&Arc<MetricsCollector>> {
+        self.metrics.as_ref()
     }
-    
-    /// Start monitoring
-    pub async fn start(&self) -> Result<()> {
-        info!("Starting monitoring system");
-        
-        // Start metrics collection
-        if self.config.enable_metrics {
-            let metrics = Arc::clone(&self.metrics);
-            tokio::spawn(async move {
-                metrics.start_collection().await;
-            });
-        }
-        
-        // Start alert monitoring
-        if self.config.enable_alerts {
-            let alerts = Arc::clone(&self.alerts);
-            let interval = self.config.alert_check_interval_seconds;
-            tokio::spawn(async move {
-                alerts.start_monitoring(interval).await;
-            });
-        }
-        
-        // Start dashboard
-        if self.config.enable_dashboard {
-            let dashboard = Arc::clone(&self.dashboard);
-            tokio::spawn(async move {
-                dashboard.start_server().await;
-            });
-        }
-        
-        // Start data collection
-        let collector = Arc::clone(&self.collector);
-        tokio::spawn(async move {
-            collector.start_collection().await;
-        });
-        
-        info!("Monitoring system started successfully");
-        Ok(())
+
+    pub fn health_checker(&self) -> Option<&Arc<RwLock<HealthChecker>>> {
+        self.health.as_ref()
     }
-    
-    /// Record metric
-    pub async fn record_metric(&self, metric_type: MetricType, value: MetricValue) -> Result<()> {
-        if self.config.enable_metrics {
-            self.metrics.record(metric_type, value).await
-        } else {
-            Ok(())
-        }
+
+    pub fn profiler(&self) -> Option<&Arc<RwLock<Profiler>>> {
+        self.profiler.as_ref()
     }
-    
-    /// Create alert
-    pub async fn create_alert(&self, alert: Alert) -> Result<()> {
-        if self.config.enable_alerts {
-            self.alerts.create_alert(alert).await
-        } else {
-            Ok(())
-        }
-    }
-    
-    /// Get system status
+
     pub async fn get_system_status(&self) -> SystemStatus {
-        let metrics_status = if self.config.enable_metrics {
-            self.metrics.get_status().await
-        } else {
-            "disabled".to_string()
-        };
-        
-        let alerts_status = if self.config.enable_alerts {
-            self.alerts.get_status().await
-        } else {
-            "disabled".to_string()
-        };
-        
-        let dashboard_status = if self.config.enable_dashboard {
-            self.dashboard.get_status().await
-        } else {
-            "disabled".to_string()
-        };
-        
+        let metrics_status = self.metrics.as_ref().map_or("disabled".to_string(), |_| "running".to_string());
+        let health_status = self.health.as_ref().map_or("disabled".to_string(), |_| "running".to_string());
+
         SystemStatus {
             metrics: metrics_status,
-            alerts: alerts_status,
-            dashboard: dashboard_status,
-            uptime: self.get_uptime().await,
+            health: health_status,
+            uptime_seconds: self.start_time.elapsed().as_secs(),
         }
     }
-    
-    /// Get uptime
-    async fn get_uptime(&self) -> u64 {
+
+    pub fn elapsed_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
     }
-    
-    /// Shutdown monitoring system
-    pub async fn shutdown(&self) -> Result<()> {
-        info!("Shutting down monitoring system");
-        
-        if self.config.enable_metrics {
-            self.metrics.shutdown().await?;
-        }
-        
-        if self.config.enable_alerts {
-            self.alerts.shutdown().await?;
-        }
-        
-        if self.config.enable_dashboard {
-            self.dashboard.shutdown().await?;
-        }
-        
-        self.collector.shutdown().await?;
-        
-        info!("Monitoring system shutdown complete");
-        Ok(())
-    }
 }
 
-/// System status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemStatus {
-    pub metrics: String,
-    pub alerts: String,
-    pub dashboard: String,
-    pub uptime: u64,
-}
-
-/// Metrics collection
-pub mod metrics {
-    use super::*;
-    
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum MetricType {
-        RequestCount,
-        ResponseTime,
-        ErrorRate,
-        CpuUsage,
-        MemoryUsage,
-        Custom(String),
-    }
-    
-    #[derive(Debug, Clone)]
-    pub enum MetricValue {
-        Counter(u64),
-        Gauge(f64),
-        Histogram(Vec<f64>),
-        Text(String),
-    }
-    
-    pub struct MetricsCollector {
-        metrics: Arc<RwLock<HashMap<String, (MetricType, MetricValue, std::time::SystemTime)>>>,
-    }
-    
-    impl MetricsCollector {
-        pub fn new() -> Self {
-            Self {
-                metrics: Arc::new(RwLock::new(HashMap::new())),
-            }
-        }
-        
-        pub async fn initialize(&self) -> Result<()> {
-            info!("Initializing metrics collector");
-            Ok(())
-        }
-        
-        pub async fn record(&self, metric_type: MetricType, value: MetricValue) -> Result<()> {
-            let mut metrics = self.metrics.write().await;
-            let key = match &metric_type {
-                MetricType::RequestCount => "requests".to_string(),
-                MetricType::ResponseTime => "response_time".to_string(),
-                MetricType::ErrorRate => "error_rate".to_string(),
-                MetricType::CpuUsage => "cpu_usage".to_string(),
-                MetricType::MemoryUsage => "memory_usage".to_string(),
-                MetricType::Custom(name) => name.clone(),
-            };
-            
-            metrics.insert(key, (metric_type, value, std::time::SystemTime::now()));
-            Ok(())
-        }
-        
-        pub async fn start_collection(&self) {
-            info!("Starting metrics collection");
-            let metrics = Arc::clone(&self.metrics);
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
-                loop {
-                    interval.tick().await;
-                    let count = {
-                        let m = metrics.read().await;
-                        m.len()
-                    };
-                    debug!("Metrics collection tick: {} active metrics", count);
-                }
-            });
-        }
-        
-        pub async fn get_status(&self) -> String {
-            let metrics = self.metrics.read().await;
-            format!("active_metrics: {}", metrics.len())
-        }
-        
-        pub async fn shutdown(&self) -> Result<()> {
-            info!("Shutting down metrics collector");
-            Ok(())
-        }
-    }
-}
-
-/// Alert management
-pub mod alerts {
-    use super::*;
-    
-    #[derive(Debug, Clone)]
-    pub struct Alert {
-        pub id: String,
-        pub severity: AlertSeverity,
-        pub message: String,
-        pub timestamp: std::time::SystemTime,
-        pub metadata: HashMap<String, String>,
-    }
-    
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum AlertSeverity {
-        Info,
-        Warning,
-        Error,
-        Critical,
-    }
-    
-    pub struct AlertManager {
-        alerts: Arc<RwLock<Vec<Alert>>>,
-    }
-    
-    impl AlertManager {
-        pub fn new() -> Self {
-            Self {
-                alerts: Arc::new(RwLock::new(Vec::new())),
-            }
-        }
-        
-        pub async fn initialize(&self) -> Result<()> {
-            info!("Initializing alert manager");
-            Ok(())
-        }
-        
-        pub async fn create_alert(&self, alert: Alert) -> Result<()> {
-            debug!("Creating alert: {}", alert.message);
-            
-            let mut alerts = self.alerts.write().await;
-            alerts.push(alert);
-            
-            // Keep only last 1000 alerts
-            if alerts.len() > 1000 {
-                alerts.remove(0);
-            }
-            
-            Ok(())
-        }
-        
-        pub async fn start_monitoring(&self, interval_seconds: u64) {
-            info!("Starting alert monitoring with interval: {}s", interval_seconds);
-            let alerts = Arc::clone(&self.alerts);
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_seconds));
-                loop {
-                    interval.tick().await;
-                    let count = {
-                        let a = alerts.read().await;
-                        a.len()
-                    };
-                    debug!("Alert monitoring tick: {} unresolved alerts", count);
-                }
-            });
-        }
-        
-        pub async fn get_status(&self) -> String {
-            let alerts = self.alerts.read().await;
-            format!("active_alerts: {}", alerts.len())
-        }
-        
-        pub async fn shutdown(&self) -> Result<()> {
-            info!("Shutting down alert manager");
-            Ok(())
-        }
-    }
-}
-
-/// Dashboard management
-pub mod dashboard {
-    use super::*;
-    
-    #[derive(Debug, Clone)]
-    pub struct DashboardConfig {
-        pub port: u16,
-        pub refresh_interval_seconds: u64,
-        pub enable_history: bool,
-    }
-    
-    pub struct Dashboard {
-        config: RwLock<Option<DashboardConfig>>,
-    }
-    
-    impl Dashboard {
-        pub fn new() -> Self {
-            Self { config: RwLock::new(None) }
-        }
-        
-        pub async fn initialize(&self, config: DashboardConfig) -> Result<()> {
-            info!("Initializing dashboard on port {}", config.port);
-            *self.config.write().await = Some(config);
-            Ok(())
-        }
-        
-        pub async fn start_server(&self) {
-            let port = self.config.read().await.as_ref().map(|c| c.port).unwrap_or(8080);
-            info!("Starting dashboard server on port {}", port);
-            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-            let app = axum::Router::new()
-                .route("/health", axum::routing::get(|| async { "OK" }));
-            if let Err(e) = axum::serve(
-                tokio::net::TcpListener::bind(addr).await.unwrap(),
-                app,
-            ).await {
-                warn!("Dashboard server stopped: {}", e);
-            }
-        }
-        
-        pub async fn get_status(&self) -> String {
-            "running".to_string()
-        }
-        
-        pub async fn shutdown(&self) -> Result<()> {
-            info!("Shutting down dashboard");
-            Ok(())
-        }
-    }
-}
-
-/// Data collection
-pub mod collector {
-    use super::*;
-    
-    #[derive(Debug, Clone)]
-    pub struct CollectionConfig {
-        pub interval_seconds: u64,
-        pub enable_system_metrics: bool,
-        pub enable_application_metrics: bool,
-    }
-    
-    pub struct DataCollector {
-        config: Option<CollectionConfig>,
-    }
-    
-    impl DataCollector {
-        pub fn new() -> Self {
-            Self { config: None }
-        }
-        
-        pub async fn initialize(&self) -> Result<()> {
-            info!("Initializing data collector");
-            Ok(())
-        }
-        
-        pub async fn start_collection(&self) {
-            info!("Starting data collection");
-            // Implementation would start periodic data collection
-        }
-        
-        pub async fn shutdown(&self) -> Result<()> {
-            info!("Shutting down data collector");
-            Ok(())
-        }
+impl std::fmt::Debug for MonitoringSystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MonitoringSystem")
+            .field("config", &self.config)
+            .field("start_time", &self.start_time)
+            .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
-    async fn test_monitoring_system() {
+    async fn test_monitoring_system_create() {
         let config = MonitoringConfig::default();
         let system = MonitoringSystem::new(config);
-        
-        system.initialize().await.unwrap();
-        system.start().await.unwrap();
-        
-        // Test metric recording
-        system.record_metric(
-            MetricType::RequestCount,
-            MetricValue::Counter(1)
-        ).await.unwrap();
-        
         let status = system.get_system_status().await;
-        assert!(!status.metrics.is_empty());
-        
-        system.shutdown().await.unwrap();
+        assert_eq!(status.metrics, "running");
+        assert_eq!(status.health, "running");
     }
-    
+
     #[tokio::test]
-    async fn test_alert_creation() {
+    async fn test_health_check() {
         let config = MonitoringConfig::default();
         let system = MonitoringSystem::new(config);
-        
-        system.initialize().await.unwrap();
-        
-        let alert = Alert {
-            id: "test-1".to_string(),
-            severity: AlertSeverity::Warning,
-            message: "Test alert".to_string(),
-            timestamp: std::time::SystemTime::now(),
-            metadata: HashMap::new(),
+        let health = system.health_checker().unwrap();
+        let report = {
+            let checker = health.read().await;
+            checker.check_health()
         };
-        
-        system.create_alert(alert).await.unwrap();
-        system.shutdown().await.unwrap();
+        assert_eq!(report.status, HealthStatus::Healthy);
+    }
+
+    #[tokio::test]
+    async fn test_metrics_collector() {
+        let config = MonitoringConfig::default();
+        let system = MonitoringSystem::new(config);
+        let metrics = system.metrics().unwrap();
+        metrics.record_request(true, 0.05);
+        metrics.record_request(false, 0.10);
+        let prom = metrics.gather_prometheus();
+        assert!(prom.contains("nexora_requests_total"));
+        assert!(prom.contains("nexora_request_failures_total"));
+    }
+
+    #[tokio::test]
+    async fn test_profiler() {
+        let config = MonitoringConfig {
+            enable_profiling: true,
+            profiling: ProfilingConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let system = MonitoringSystem::new(config);
+        let profiler = system.profiler().unwrap();
+        {
+            let mut p = profiler.write().await;
+            p.record_cpu(0.5);
+            p.record_memory(1024.0 * 1024.0 * 256.0);
+        }
+        let p = profiler.read().await;
+        assert!(!p.cpu_samples().is_empty());
+        assert!(!p.memory_samples().is_empty());
     }
 }

@@ -1,4 +1,4 @@
-use crate::gnac::execution::{GraphIR, IROperation, IROpType};
+use crate::gnac::execution::{GraphIR, IROpType};
 use std::collections::HashSet;
 
 /// Graph Optimizer — melakukan operator fusion, dead node elimination,

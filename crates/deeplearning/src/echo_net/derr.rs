@@ -16,10 +16,8 @@
 //! Ini jauh lebih stabil dibanding entropy-only gating.
 
 use crate::{DLResult, DeepLearningError};
-use crate::echo_net::{HolographicWave, ComplexTensor};
-use crate::echo_net::utils::{SpectralAnalyzer, Complex};
-use ndarray::{ArrayD, Array2, Array1, s};
-use std::collections::HashMap;
+use crate::echo_net::HolographicWave;
+use ndarray::ArrayD;
 
 /// Retrieval candidate with dual metrics
 #[derive(Debug, Clone)]
@@ -171,7 +169,7 @@ impl DualEntropicResonanceRetrieval {
             let mut sorted_candidates: Vec<&RetrievalCandidate> = processed_candidates
                 .iter()
                 .collect();
-            sorted_candidates.sort_by(|a, b| b.gate_score.partial_cmp(&a.gate_score).unwrap());
+            sorted_candidates.sort_by(|a, b| b.gate_score.partial_cmp(&a.gate_score).unwrap_or(std::cmp::Ordering::Equal));
             sorted_candidates.into_iter().take(5).collect()
         } else {
             filtered_candidates
@@ -451,7 +449,7 @@ impl DualEntropicResonanceRetrieval {
         let event = RetrievalEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("system time after epoch")
                 .as_secs(),
             total_candidates: all_candidates.len(),
             retrieved_candidates: filtered_candidates.len(),
@@ -520,7 +518,7 @@ impl DualEntropicResonanceRetrieval {
         // Maintain memory size limit
         if self.retrieval_memory.len() > self.max_memory_size {
             // Remove least important candidates
-            self.retrieval_memory.sort_by(|a, b| a.resonance_strength.partial_cmp(&b.resonance_strength).unwrap());
+            self.retrieval_memory.sort_by(|a, b| a.resonance_strength.partial_cmp(&b.resonance_strength).unwrap_or(std::cmp::Ordering::Equal));
             self.retrieval_memory.drain(0..self.retrieval_memory.len() - self.max_memory_size);
         }
         

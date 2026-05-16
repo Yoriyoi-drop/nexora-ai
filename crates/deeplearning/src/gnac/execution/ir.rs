@@ -1,6 +1,5 @@
-use crate::gnac::canvas::{NeuralGraph, GraphNode, GraphEdge};
+use crate::gnac::canvas::{NeuralGraph, GraphNode};
 use crate::gnac::execution::ExecutionBackend;
-use crate::gnac::TensorDesc;
 use uuid::Uuid;
 
 /// Intermediate Representation — jembatan antara graf visual dan backend compiler

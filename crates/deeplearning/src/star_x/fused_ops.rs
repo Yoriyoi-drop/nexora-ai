@@ -77,10 +77,10 @@ impl FusedLinearActivation {
         input: ArrayView<f32, ndarray::Ix1>,
         mut output: ArrayViewMut<f32, ndarray::Ix1>,
     ) -> DLResult<()> {
-        let input_slice = input.as_slice().unwrap();
-        let output_slice = output.as_slice_mut().unwrap();
-        let weights_slice = self.weights.as_slice().unwrap();
-        let bias_slice = self.bias.as_slice().unwrap();
+        let input_slice = input.as_slice().expect("tensor should be contiguous");
+        let output_slice = output.as_slice_mut().expect("tensor should be contiguous");
+        let weights_slice = self.weights.as_slice().expect("tensor should be contiguous");
+        let bias_slice = self.bias.as_slice().expect("tensor should be contiguous");
 
         let output_dim = self.weights.shape()[1];
         let input_dim = self.weights.shape()[0];
@@ -362,7 +362,7 @@ impl FusedElementWise {
                 ElementWiseOp::Add(val) => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -372,7 +372,7 @@ impl FusedElementWise {
                 ElementWiseOp::Mul(val) => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -382,7 +382,7 @@ impl FusedElementWise {
                 ElementWiseOp::Relu => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -392,7 +392,7 @@ impl FusedElementWise {
                 ElementWiseOp::Gelu => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -407,7 +407,7 @@ impl FusedElementWise {
                 ElementWiseOp::Sigmoid => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -417,7 +417,7 @@ impl FusedElementWise {
                 ElementWiseOp::Tanh => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -427,7 +427,7 @@ impl FusedElementWise {
                 ElementWiseOp::Swish => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())
@@ -440,7 +440,7 @@ impl FusedElementWise {
                 ElementWiseOp::Pow(exp) => {
                     let mut pooled = PooledTensor1D::new(result.len())?;
                     let output = pooled.get_mut();
-                    let result_flat = result.as_slice().unwrap();
+                    let result_flat = result.as_slice().expect("tensor should be contiguous");
                     let result_array = Array1::from_vec(result_flat.to_vec());
                     Zip::from(&mut output.view_mut())
                         .and(&result_array.view())

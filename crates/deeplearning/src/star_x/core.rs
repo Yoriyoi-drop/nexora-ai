@@ -199,7 +199,7 @@ impl Default for StarXParameters {
 }
 
 /// Utility functions untuk STAR-X
-pub mod utils {
+pub mod core_utils {
     use super::*;
     use ndarray::Array1;
     
@@ -223,7 +223,7 @@ pub mod utils {
     /// Top-K sparse selection
     pub fn top_k_sparse(scores: &ArrayD<f32>, k: usize) -> ArrayD<f32> {
         let mut mask = ArrayD::zeros(scores.shape());
-        let flat_scores = scores.as_slice().unwrap();
+        let flat_scores = scores.as_slice().expect("tensor should be contiguous");
         
         let mut indexed_scores: Vec<(usize, f32)> = flat_scores
             .iter()
@@ -231,7 +231,7 @@ pub mod utils {
             .map(|(i, &v)| (i, v))
             .collect();
         
-        indexed_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         for (i, _) in indexed_scores.iter().take(k) {
             let mut indices = vec![0; scores.ndim()];

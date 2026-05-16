@@ -12,8 +12,6 @@ pub use router::*;
 pub use precision::*;
 pub use depth::*;
 
-use crate::DLResult;
-use crate::gnac::canvas::NeuralGraph;
 
 /// Strategi adaptasi elastis
 #[derive(Debug, Clone, Copy, PartialEq)]

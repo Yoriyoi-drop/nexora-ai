@@ -1,8 +1,7 @@
 use crate::DLResult;
-use crate::gnac::canvas::{NeuralGraph, GraphNode, GraphEdge};
+use crate::gnac::canvas::{NeuralGraph, GraphNode};
 use crate::gnac::swarm::{SwarmConfig, objective};
 use crate::NodeType;
-use std::collections::HashMap;
 use uuid::Uuid;
 use rand::Rng;
 
@@ -135,7 +134,7 @@ impl SwarmAgent {
         let best_idx = self.fitness_scores
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i)
             .unwrap_or(0);
 
@@ -144,7 +143,7 @@ impl SwarmAgent {
 
     fn selection(&self) -> Vec<NeuralGraph> {
         let mut indexed: Vec<_> = self.population.iter().zip(self.fitness_scores.iter()).collect();
-        indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
+        indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
         let keep = (self.config.population_size as f32 * 0.3) as usize;
         indexed.into_iter().take(keep).map(|(g, _)| (*g).clone()).collect()

@@ -12,8 +12,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
+    gnac_integration::{GnacIntegrationConfig, GnacModel},
     safety_gate::global_safety,
     foundation_components::FoundationComponents,
 };
@@ -37,8 +37,6 @@ pub struct NxrNexumModel {
     base: crate::shared::base_model::BaseNxrModel<NexumConfig, NexumMetrics, NexumState>,
     identity: NexumIdentity,
     capabilities: NexumCapabilities,
-    dl_engine: DeepLearningEngine,
-    gnac_engine: GnacEngine,
     components: FoundationComponents,
 }
 
@@ -179,11 +177,6 @@ impl NxrNexumModel {
         let initial_state = NexumState::default();
         let initial_metrics = NexumMetrics::default();
 
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -194,8 +187,6 @@ impl NxrNexumModel {
             ),
             identity,
             capabilities,
-            dl_engine,
-            gnac_engine,
             components: FoundationComponents::new(),
         }
     }
@@ -452,25 +443,15 @@ impl NxrModel for NxrNexumModel {
     }
 }
 
-impl DeepLearningModel for NxrNexumModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrNexumModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrNexumModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrNexumModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrNexumModel {}
 
 impl Default for NxrNexumModel {
     fn default() -> Self {

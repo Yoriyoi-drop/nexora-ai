@@ -22,19 +22,19 @@ impl TextProcessor {
     
     /// Normalize whitespace
     pub fn normalize_whitespace(text: &str) -> String {
-        let re = Regex::new(r"\s+").unwrap();
+        let re = Regex::new(r"\s+").expect("valid regex pattern");
         re.replace_all(text.trim(), " ").to_string()
     }
     
     /// Remove punctuation
     pub fn remove_punctuation(text: &str) -> String {
-        let re = Regex::new(r"[^\w\s]").unwrap();
+        let re = Regex::new(r"[^\w\s]").expect("valid regex pattern");
         re.replace_all(text, "").to_string()
     }
     
     /// Remove numbers
     pub fn remove_numbers(text: &str) -> String {
-        let re = Regex::new(r"\d+").unwrap();
+        let re = Regex::new(r"\d+").expect("valid regex pattern");
         re.replace_all(text, "").to_string()
     }
     
@@ -79,7 +79,7 @@ impl TextProcessor {
     
     /// Tokenize by sentence
     pub fn tokenize_sentences(text: &str) -> Vec<String> {
-        let re = Regex::new(r"[.!?]+").unwrap();
+        let re = Regex::new(r"[.!?]+").expect("valid regex pattern");
         let sentences: Vec<&str> = re.split(text).collect();
         sentences.into_iter()
             .map(|s| s.trim().to_string())
@@ -303,7 +303,7 @@ impl TextProcessor {
             .collect();
         
         // Sort by TF-IDF score and take top k
-        tfidf_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        tfidf_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("non-NaN float values"));
         tfidf_scores.into_iter().take(top_k).collect()
     }
     
@@ -379,7 +379,7 @@ impl TextProcessor {
             .collect();
         
         // Sort by score and take top sentences
-        sentence_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        sentence_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("non-NaN float values"));
         let top_indices: Vec<usize> = sentence_scores.into_iter()
             .take(max_sentences)
             .map(|(i, _)| i)
@@ -445,19 +445,19 @@ impl TextProcessor {
         let mut entities = Vec::new();
         
         // Extract capitalized words (potential proper nouns)
-        let re = Regex::new(r"\b[A-Z][a-z]+\b").unwrap();
+        let re = Regex::new(r"\b[A-Z][a-z]+\b").expect("valid regex pattern");
         for cap in re.find_iter(text) {
             entities.push(cap.as_str().to_string());
         }
         
         // Extract email addresses
-        let email_re = Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").unwrap();
+        let email_re = Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").expect("valid regex pattern");
         for cap in email_re.find_iter(text) {
             entities.push(cap.as_str().to_string());
         }
         
         // Extract URLs
-        let url_re = Regex::new(r"https?://[^\s]+").unwrap();
+        let url_re = Regex::new(r"https?://[^\s]+").expect("valid regex pattern");
         for cap in url_re.find_iter(text) {
             entities.push(cap.as_str().to_string());
         }

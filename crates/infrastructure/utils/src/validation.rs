@@ -232,7 +232,7 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("Domain must have at least two parts (e.g., example.com)"));
         }
         
-        let tld = parts.last().unwrap();
+        let tld = parts.last().expect("domain has at least two parts");
         if tld.len() < 2 {
             return Err(anyhow::anyhow!("Top-level domain too short"));
         }
@@ -407,7 +407,7 @@ impl ValidationUtils {
         let mut double = false;
         
         for c in clean_number.chars().rev() {
-            let mut digit = c.to_digit(10).unwrap() as u32;
+            let mut digit = c.to_digit(10).expect("valid digit character") as u32;
             
             if double {
                 digit *= 2;

@@ -21,7 +21,7 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
     let saved_sizes = ArrayD::from_shape_vec(
         vec![dim_sizes.len()],
         dim_sizes.iter().map(|&x| x as f32).collect(),
-    ).unwrap();
+    ).expect("shape data fits vector");
 
     Tensor::with_grad_fn(
         result,

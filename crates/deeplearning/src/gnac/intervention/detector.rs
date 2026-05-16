@@ -1,5 +1,4 @@
-use crate::gnac::canvas::{NeuralGraph, GradientStatus, ActivationStats};
-use crate::gnac::intervention::assistant::InterventionAdvice;
+use crate::gnac::canvas::{NeuralGraph, GradientStatus};
 
 /// Deteksi anomali pada graf neural
 pub struct AnomalyDetector;

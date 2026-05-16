@@ -19,7 +19,7 @@
 use crate::{DLResult, DeepLearningError};
 use crate::autograd::Tensor;
 use crate::echo_net::{HolographicWave, ComplexTensor};
-use ndarray::{ArrayD, Array2, Array1, ArrayView1, s};
+use ndarray::{ArrayD, Array2, Array1, ArrayView1};
 use rand::Rng;
 
 /// Semantic Spectral Embedding implementation
@@ -118,7 +118,7 @@ impl SemanticSpectralEmbedding {
             }
             
             // Transform to spectral components
-            let embedding_view: ArrayView1<f32> = embedding.view().into_dimensionality().unwrap();
+            let embedding_view: ArrayView1<f32> = embedding.view().into_dimensionality().expect("dimensions match");
             
             // Amplitude spectrum
             let amp_result: Array1<f32> = {

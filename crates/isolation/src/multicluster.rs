@@ -185,7 +185,7 @@ impl MultiClusterSystem {
             capacity_pct: 100.0,
         };
         self.regions.insert(name.to_string(), cluster);
-        self.regions.get(name).unwrap().clone()
+        self.regions.get(name).expect("region was just inserted").clone()
     }
 
     pub fn add_mode_to_region(
@@ -210,7 +210,7 @@ impl MultiClusterSystem {
             isolation_policy: format!("strict-{}", mode_id.0),
         };
         region.mode_clusters.insert(mode_id.0.clone(), cluster);
-        Ok(region.mode_clusters.get(&mode_id.0).unwrap().clone())
+        Ok(region.mode_clusters.get(&mode_id.0).expect("mode cluster was just inserted").clone())
     }
 
     pub fn spawn_agent_cluster(
@@ -237,7 +237,7 @@ impl MultiClusterSystem {
             scaling_policy: scaling,
         };
         mode.agent_clusters.insert(name.to_string(), cluster);
-        let cluster = mode.agent_clusters.get(name).unwrap().clone();
+        let cluster = mode.agent_clusters.get(name).expect("agent cluster was just inserted").clone();
         Ok(cluster)
     }
 
@@ -274,7 +274,7 @@ impl MultiClusterSystem {
             },
         };
         cluster.micro_vms.push(vm);
-        Ok(cluster.micro_vms.last().unwrap().clone())
+        Ok(cluster.micro_vms.last().expect("micro vm was just added").clone())
     }
 
     pub fn spawn_execution_thread(
@@ -309,7 +309,7 @@ impl MultiClusterSystem {
         }
 
         vm.execution_threads.push(thread);
-        Ok(vm.execution_threads.last().unwrap().clone())
+        Ok(vm.execution_threads.last().expect("execution thread was just added").clone())
     }
 
     pub fn get_region(&self, name: &str) -> Option<&RegionalCluster> {

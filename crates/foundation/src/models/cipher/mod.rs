@@ -18,8 +18,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
-    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    deeplearning_integration::{DeepLearningModel, HasComponents},
+    gnac_integration::GnacModel,
     safety_gate::{global_safety, SafetyGate, ConsentToken, ConsentScope},
     foundation_components::FoundationComponents,
 };
@@ -38,8 +38,6 @@ pub struct NxrCipherModel {
     architecture: CipherArchitecture,
     agents: CipherAgents,
     capabilities: CipherCapabilities,
-    dl_engine: DeepLearningEngine,
-    gnac_engine: GnacEngine,
     components: FoundationComponents,
 }
 
@@ -74,7 +72,6 @@ pub struct CipherMetrics {
     pub security_recommendation_success: f32,
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
-
 
 
 
@@ -113,11 +110,6 @@ impl NxrCipherModel {
         let initial_state = CipherState::default();
         let initial_metrics = CipherMetrics::default();
 
-        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
-            .expect("Failed to initialize deep learning engine");
-
-        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
-
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -130,8 +122,6 @@ impl NxrCipherModel {
             architecture: CipherArchitecture::new(&config),
             agents: CipherAgents::new(&config),
             capabilities,
-            dl_engine,
-            gnac_engine,
             components: FoundationComponents::new(),
         }
     }
@@ -390,25 +380,15 @@ impl NxrModel for NxrCipherModel {
     }
 }
 
-impl DeepLearningModel for NxrCipherModel {
-    fn dl_engine(&self) -> &DeepLearningEngine {
-        &self.dl_engine
-    }
-
-    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
-        &mut self.dl_engine
+impl HasComponents for NxrCipherModel {
+    fn components(&self) -> &FoundationComponents {
+        &self.components
     }
 }
 
-impl GnacModel for NxrCipherModel {
-    fn gnac_engine(&self) -> &GnacEngine {
-        &self.gnac_engine
-    }
+impl DeepLearningModel for NxrCipherModel {}
 
-    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
-        &mut self.gnac_engine
-    }
-}
+impl GnacModel for NxrCipherModel {}
 
 impl Default for NxrCipherModel {
     fn default() -> Self {

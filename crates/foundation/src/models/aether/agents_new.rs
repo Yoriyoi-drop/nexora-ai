@@ -102,7 +102,7 @@ pub struct SystemStatus {
 impl Default for AetherAgents {
     fn default() -> Self {
         let config = AetherConfig::default();
-        Self::new(config).unwrap()
+        Self::new(config).expect("AetherAgents::new with default config should succeed")
     }
 }
 

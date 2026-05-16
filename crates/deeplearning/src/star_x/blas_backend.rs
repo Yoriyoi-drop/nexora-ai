@@ -8,10 +8,9 @@
 //! - Auto-detection dan runtime selection
 
 use crate::{DLResult, DeepLearningError};
-use ndarray::{ArrayD, Array1, Array2, ArrayView, ArrayViewMut, ShapeBuilder};
+use crate::star_x::fused_ops::ActivationType;
+use ndarray::{ArrayView, ArrayViewMut};
 use std::arch::x86_64::*;
-use std::sync::Arc;
-use std::ptr;
 
 /// BLAS Backend types untuk runtime selection
 #[derive(Debug, Clone, Copy)]
@@ -347,9 +346,9 @@ impl BlasOperations {
         let (m, k) = a.dim();
         let (_, n) = b.dim();
         
-        let a_slice = a.as_slice().unwrap();
-        let b_slice = b.as_slice().unwrap();
-        let c_slice = c.as_slice_mut().unwrap();
+        let a_slice = a.as_slice().expect("tensor should be contiguous");
+        let b_slice = b.as_slice().expect("tensor should be contiguous");
+        let c_slice = c.as_slice_mut().expect("tensor should be contiguous");
         
         // AVX2 implementation
         for i in 0..m {
@@ -448,8 +447,8 @@ impl BlasOperations {
     #[target_feature(enable = "fma")]
     unsafe fn gemv_simd_avx2(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, x: ArrayView<f32, ndarray::Ix1>, beta: f32, mut y: ArrayViewMut<f32, ndarray::Ix1>) -> DLResult<()> {
         let (m, n) = a.dim();
-        let x_slice = x.as_slice().unwrap();
-        let y_slice = y.as_slice_mut().unwrap();
+        let x_slice = x.as_slice().expect("tensor should be contiguous");
+        let y_slice = y.as_slice_mut().expect("tensor should be contiguous");
         
         for i in 0..m {
             let mut sum = 0.0f32;
@@ -508,7 +507,7 @@ impl BlasOperations {
     #[target_feature(enable = "avx2")]
     unsafe fn relu_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
         let (m, n) = output.dim();
-        let slice = output.as_slice_mut().unwrap();
+        let slice = output.as_slice_mut().expect("tensor should be contiguous");
         
         for i in 0..(m * n) {
             slice[i] = slice[i].max(0.0);
@@ -568,16 +567,6 @@ pub struct BlasBackendInfo {
     pub features: BlasFeatures,
 }
 
-/// Activation types for fused operations
-#[derive(Debug, Clone, Copy)]
-pub enum ActivationType {
-    ReLU,
-    GELU,
-    Sigmoid,
-    Tanh,
-    Swish,
-}
-
 // Helper function for AVX2 horizontal sum
 #[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum_avx2(v: std::arch::x86_64::__m256) -> f32 {
@@ -595,24 +584,18 @@ unsafe fn horizontal_sum_avx2(v: std::arch::x86_64::__m256) -> f32 {
 }
 
 /// Global BLAS operations instance
-static mut GLOBAL_BLAS: Option<BlasOperations> = None;
-static BLAS_INIT: std::sync::Once = std::sync::Once::new();
+static GLOBAL_BLAS: std::sync::OnceLock<BlasOperations> = std::sync::OnceLock::new();
 
 /// Get global BLAS operations instance
 pub fn get_blas_operations() -> &'static BlasOperations {
-    unsafe {
-        BLAS_INIT.call_once(|| {
-            GLOBAL_BLAS = Some(BlasOperations::auto_detect().expect("Failed to initialize BLAS backend"));
-        });
-        GLOBAL_BLAS.as_ref().unwrap()
-    }
+    GLOBAL_BLAS.get_or_init(|| {
+        BlasOperations::auto_detect().expect("Failed to initialize BLAS backend")
+    })
 }
 
 /// Initialize BLAS with specific backend (for testing)
 pub fn init_blas_with_backend(backend: BlasBackend) -> DLResult<()> {
-    unsafe {
-        let ops = BlasOperations::with_backend(backend)?;
-        GLOBAL_BLAS = Some(ops);
-    }
+    let ops = BlasOperations::with_backend(backend)?;
+    let _ = GLOBAL_BLAS.set(ops);
     Ok(())
 }

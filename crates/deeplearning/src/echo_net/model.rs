@@ -3,12 +3,12 @@
 
 use ndarray::ArrayD;
 
-use crate::autograd::{Module, Tensor, TensorOps};
+use crate::autograd::Tensor;
 use crate::DLResult;
 
 use super::{
     AdaptivePhaseSeparationStabilizer, DualEntropicResonanceRetrieval,
-    EchoNetConfig, EchoNetMetrics, EchoNetState,
+    EchoNetConfig, EchoNetState,
     HolographicWave, InverseSpectralCollapse, IterativeResonanceReasoner,
     MultiBandHolographicWriter, PersistentResonanceMemory,
     RecursiveHolographicCompression, SemanticSpectralEmbedding,
@@ -114,7 +114,7 @@ impl EchoNetModel {
             irr.get_query_weights(),
             irr.get_refinement_weights(),
             irr.get_output_weights(),
-        ].into_iter().map(|mut t| {
+        ].into_iter().map(|t| {
             t.set_requires_grad(true);
             t
         }).collect();
@@ -123,7 +123,7 @@ impl EchoNetModel {
         let isc_params = vec![
             isc.get_output_weights(),
             isc.get_output_bias(),
-        ].into_iter().map(|mut t| { t.set_requires_grad(true); t }).collect();
+        ].into_iter().map(|t| { t.set_requires_grad(true); t }).collect();
 
         Ok(Self {
             state: EchoNetState::new(&config)?,
@@ -157,7 +157,7 @@ impl EchoNetModel {
         let wave = self.sse.forward(token_ids, &positions)?;
 
         // 2. APSS
-        let emb_flat = wave.amplitude.clone().into_shape(wave.amplitude.len()).unwrap().into_dyn();
+        let emb_flat = wave.amplitude.clone().into_shape(wave.amplitude.len()).expect("reshape to 1D").into_dyn();
         self.apss.forward(&mut HolographicWave {
             amplitude: wave.amplitude.clone(),
             phase: wave.phase.clone(),
@@ -207,7 +207,7 @@ impl EchoNetModel {
 
         // 9. ISC — returns Array1<f32> (sudah termasuk output_weights + bias + softmax)
         let logits_1d = self.isc.forward(&routed, timestamp)?;
-        let logits_arr = ArrayD::from_shape_vec(vec![1, logits_1d.len()], logits_1d.to_vec()).unwrap();
+        let logits_arr = ArrayD::from_shape_vec(vec![1, logits_1d.len()], logits_1d.to_vec()).expect("data length matches shape");
 
         // Bungkus di Tensor, dipecah dari computation graph via no_grad
         let out = Tensor::new(logits_arr);

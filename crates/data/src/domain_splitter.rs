@@ -663,7 +663,7 @@ impl DomainSplitter {
         }
         
         // Sort by confidence
-        classifications.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        classifications.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).expect("non-NaN float values"));
         
         // Limit number of domains if multi-domain is disabled
         if !self.config.enable_multi_domain && !classifications.is_empty() {

@@ -18,7 +18,7 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
     let shape_saved = ArrayD::from_shape_vec(
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
-    ).unwrap();
+    ).expect("shape data fits vector");
 
     Tensor::with_grad_fn(
         result,

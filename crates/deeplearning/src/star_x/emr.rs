@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 /// Episodic memory entry
 #[derive(Debug, Clone)]
-pub struct MemoryEntry {
+pub struct EmrMemoryEntry {
     pub id: usize,
     pub content: ArrayD<f32>,
     pub timestamp: usize,
@@ -23,7 +23,7 @@ pub struct MemoryEntry {
     pub relevance_score: f32,
 }
 
-impl MemoryEntry {
+impl EmrMemoryEntry {
     pub fn new(id: usize, content: ArrayD<f32>, timestamp: usize) -> Self {
         Self {
             id,
@@ -51,7 +51,7 @@ impl MemoryEntry {
 #[derive(Debug, Clone)]
 pub struct EpisodicMemoryRetention {
     // Memory storage
-    memory_entries: HashMap<usize, MemoryEntry>,
+    memory_entries: HashMap<usize, EmrMemoryEntry>,
     memory_matrix: Array2<f32>, // [max_size x hidden_size]
     
     // Memory management
@@ -146,7 +146,7 @@ impl EpisodicMemoryRetention {
     
     /// Compute entropy/complexity of state
     fn compute_state_entropy(&self, state: &ArrayD<f32>) -> f32 {
-        let state_flat = state.as_slice().unwrap();
+        let state_flat = state.as_slice().expect("tensor should be contiguous");
         
         // Normalize to probability distribution
         let mut sum = 0.0;
@@ -210,12 +210,12 @@ impl EpisodicMemoryRetention {
         self.next_id += 1;
         
         // Create new memory entry
-        let mut entry = MemoryEntry::new(entry_id, state.clone(), self.current_time);
+        let mut entry = EmrMemoryEntry::new(entry_id, state.clone(), self.current_time);
         entry.priority = priority;
         entry.relevance_score = priority;
         
         // Store in matrix
-        let state_flat = state.as_slice().unwrap();
+        let state_flat = state.as_slice().expect("tensor should be contiguous");
         if slot < self.max_size && state_flat.len() <= self.memory_matrix.shape()[1] {
             for (i, &val) in state_flat.iter().enumerate() {
                 self.memory_matrix[[slot, i]] = val;
@@ -253,8 +253,8 @@ impl EpisodicMemoryRetention {
     
     /// Compute cosine similarity
     fn compute_similarity(&self, query: &ArrayD<f32>, memory: &ArrayD<f32>) -> DLResult<f32> {
-        let query_flat = query.as_slice().unwrap();
-        let memory_flat = memory.as_slice().unwrap();
+        let query_flat = query.as_slice().expect("tensor should be contiguous");
+        let memory_flat = memory.as_slice().expect("tensor should be contiguous");
         
         if query_flat.len() != memory_flat.len() {
             return Ok(0.0);
@@ -292,7 +292,7 @@ impl EpisodicMemoryRetention {
         }
         
         // Sort by similarity (descending)
-        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         // Take top-k
         Ok(similarities.into_iter().take(self.retrieval_top_k).map(|(&id, sim, content)| (id, sim, content)).collect())
@@ -306,12 +306,12 @@ impl EpisodicMemoryRetention {
         
         let first_content = &retrieved[0].2;
         let mut aggregated = Array1::zeros(first_content.len());
-        let agg_flat = aggregated.as_slice_mut().unwrap();
+        let agg_flat = aggregated.as_slice_mut().expect("tensor should be contiguous");
         
         let mut total_weight = 0.0;
         
         for (_, similarity, content) in retrieved {
-            let content_flat = content.as_slice().unwrap();
+            let content_flat = content.as_slice().expect("tensor should be contiguous");
             let weight = similarity; // Use similarity as weight
             
             for (i, &val) in content_flat.iter().enumerate().take(agg_flat.len()) {
@@ -454,7 +454,7 @@ impl EpisodicMemoryRetention {
         }
         
         // Sort and aggregate
-        filtered_memories.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        filtered_memories.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         self.aggregate_memories(&filtered_memories.into_iter().take(self.retrieval_top_k).map(|(&id, sim, content)| (id, sim, content)).collect::<Vec<_>>())
     }
     
@@ -468,7 +468,7 @@ impl EpisodicMemoryRetention {
         }
         
         // Remove duplicates and re-sort
-        all_retrieved.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        all_retrieved.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         all_retrieved.dedup_by(|a, b| a.0 == b.0);
         
         self.aggregate_memories(&all_retrieved.into_iter().take(self.retrieval_top_k).collect::<Vec<_>>())

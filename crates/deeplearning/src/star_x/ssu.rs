@@ -9,7 +9,7 @@
 use crate::{DLResult, DeepLearningError};
 use crate::star_x::core::SelectiveUpdate;
 use crate::star_x::tensor_pool::PooledTensor1D;
-use crate::star_x::fused_ops::{FusedLinearActivation, FusedElementWise, ElementWiseOp, ActivationType};
+use crate::star_x::fused_ops::{FusedLinearActivation, FusedElementWise};
 use ndarray::{ArrayD, Array1, Array2};
 use rand;
 
@@ -150,14 +150,14 @@ impl SelectiveStateUpdate {
     
     /// Concatenate two tensors dengan efficient memory allocation
     fn concatenate(&self, tgh_output: &ArrayD<f32>, sca_output: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let tgh_flat = tgh_output.as_slice().unwrap();
-        let sca_flat = sca_output.as_slice().unwrap();
+        let tgh_flat = tgh_output.as_slice().expect("tensor should be contiguous");
+        let sca_flat = sca_output.as_slice().expect("tensor should be contiguous");
         let total_size = tgh_flat.len() + sca_flat.len();
         
         // Use pooled tensor untuk concatenated result
         let mut pooled_tensor = PooledTensor1D::new(total_size)?;
         let concatenated = pooled_tensor.get_mut();
-        let concat_flat = concatenated.as_slice_mut().unwrap();
+        let concat_flat = concatenated.as_slice_mut().expect("tensor should be contiguous");
         
         // Copy data dengan minimal allocation
         concat_flat[..tgh_flat.len()].copy_from_slice(tgh_flat);
@@ -168,7 +168,7 @@ impl SelectiveStateUpdate {
     
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -188,7 +188,7 @@ impl SelectiveStateUpdate {
     
     /// Add bias
     fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
-        let output_flat = output.as_slice_mut().unwrap();
+        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
         }
@@ -196,7 +196,7 @@ impl SelectiveStateUpdate {
     
     /// Compute element-wise importance
     fn compute_element_importance(&self, relevance: &ArrayD<f32>) -> DLResult<Vec<f32>> {
-        let relevance_flat = relevance.as_slice().unwrap();
+        let relevance_flat = relevance.as_slice().expect("tensor should be contiguous");
         let mut importance = Vec::with_capacity(relevance_flat.len());
         
         for &val in relevance_flat {
@@ -236,7 +236,7 @@ impl SelectiveStateUpdate {
         }
         
         // Update average relevance
-        let relevance_flat = relevance.as_slice().unwrap();
+        let relevance_flat = relevance.as_slice().expect("tensor should be contiguous");
         let relevance_sum: f32 = relevance_flat.iter().sum();
         let relevance_avg = relevance_sum / relevance_flat.len() as f32;
         
@@ -335,9 +335,9 @@ impl SelectiveUpdate for SelectiveStateUpdate {
         threshold: f32
     ) -> DLResult<ArrayD<f32>> {
         
-        let prev_flat = previous_state.as_slice().unwrap();
-        let cand_flat = candidate_state.as_slice().unwrap();
-        let rel_flat = relevance.as_slice().unwrap();
+        let prev_flat = previous_state.as_slice().expect("tensor should be contiguous");
+        let cand_flat = candidate_state.as_slice().expect("tensor should be contiguous");
+        let rel_flat = relevance.as_slice().expect("tensor should be contiguous");
         
         if prev_flat.len() != cand_flat.len() || prev_flat.len() != rel_flat.len() {
             return Err(DeepLearningError::ShapeMismatch {
@@ -349,7 +349,7 @@ impl SelectiveUpdate for SelectiveStateUpdate {
         // Use pooled tensor untuk updated state
         let mut pooled_tensor = PooledTensor1D::new(prev_flat.len())?;
         let updated_state = pooled_tensor.get_mut();
-        let updated_flat = updated_state.as_slice_mut().unwrap();
+        let updated_flat = updated_state.as_slice_mut().expect("tensor should be contiguous");
         let mut _performed_update = false;
         
         for i in 0..prev_flat.len() {
@@ -386,9 +386,9 @@ impl SelectiveStateUpdate {
         threshold: f32
     ) -> DLResult<ArrayD<f32>> {
         
-        let prev_flat = previous_state.as_slice().unwrap();
-        let cand_flat = candidate_state.as_slice().unwrap();
-        let rel_flat = relevance.as_slice().unwrap();
+        let prev_flat = previous_state.as_slice().expect("tensor should be contiguous");
+        let cand_flat = candidate_state.as_slice().expect("tensor should be contiguous");
+        let rel_flat = relevance.as_slice().expect("tensor should be contiguous");
         
         let mut updated_state = prev_flat.to_vec();
         let mut block_start = 0;
@@ -425,9 +425,9 @@ impl SelectiveStateUpdate {
         thresholds: &[f32]
     ) -> DLResult<ArrayD<f32>> {
         
-        let prev_flat = previous_state.as_slice().unwrap();
-        let cand_flat = candidate_state.as_slice().unwrap();
-        let rel_flat = relevance.as_slice().unwrap();
+        let prev_flat = previous_state.as_slice().expect("tensor should be contiguous");
+        let cand_flat = candidate_state.as_slice().expect("tensor should be contiguous");
+        let rel_flat = relevance.as_slice().expect("tensor should be contiguous");
         
         let mut updated_state = Vec::with_capacity(prev_flat.len());
         
@@ -460,9 +460,9 @@ impl SelectiveStateUpdate {
         threshold: f32
     ) -> DLResult<ArrayD<f32>> {
         
-        let prev_flat = previous_state.as_slice().unwrap();
-        let cand_flat = candidate_state.as_slice().unwrap();
-        let rel_flat = relevance.as_slice().unwrap();
+        let prev_flat = previous_state.as_slice().expect("tensor should be contiguous");
+        let cand_flat = candidate_state.as_slice().expect("tensor should be contiguous");
+        let rel_flat = relevance.as_slice().expect("tensor should be contiguous");
         
         let mut updated_state = Vec::with_capacity(prev_flat.len());
         

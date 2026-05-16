@@ -188,7 +188,7 @@ impl TokenPacker {
             packing_version: "1.0".to_string(),
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("system time after epoch")
                 .as_secs(),
         };
         

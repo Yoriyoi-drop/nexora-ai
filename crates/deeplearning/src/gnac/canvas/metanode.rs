@@ -1,4 +1,4 @@
-use crate::gnac::canvas::{NeuralGraph, GraphNode, CanvasPosition, ZoomLevel};
+use crate::gnac::canvas::{NeuralGraph, CanvasPosition};
 use crate::gnac::HealthStatus;
 use uuid::Uuid;
 

@@ -7,7 +7,7 @@
 //! - Resonance calculations
 
 use crate::{DLResult, DeepLearningError};
-use ndarray::{ArrayD, Array1, Array2, s};
+use ndarray::{Array1, Array2, s};
 use std::f32::consts::PI;
 
 /// FFT operations untuk holographic processing
@@ -233,7 +233,7 @@ impl SpectralAnalyzer {
             .map(|(i, &p)| (i, p))
             .collect();
         
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         indexed.into_iter().take(k).map(|(i, _)| i).collect()
     }
@@ -282,8 +282,8 @@ impl ResonanceCalculator {
     
     /// Calculate phase alignment
     fn phase_alignment(signal1: &Array1<f32>, signal2: &Array1<f32>) -> f32 {
-        let fft1 = HolographicFFT::fft_1d(signal1).unwrap();
-        let fft2 = HolographicFFT::fft_1d(signal2).unwrap();
+        let fft1 = HolographicFFT::fft_1d(signal1).expect("FFT computation succeeded");
+        let fft2 = HolographicFFT::fft_1d(signal2).expect("FFT computation succeeded");
         
         let phase1 = SpectralAnalyzer::phase_spectrum(&fft1);
         let phase2 = SpectralAnalyzer::phase_spectrum(&fft2);
@@ -367,7 +367,7 @@ impl MemoryCompressor {
         let mut summary = vec![0.0; 8]; // mean, std, min, max, median, entropy, sparsity, energy
         
         let mut values: Vec<f32> = input.iter().cloned().collect();
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         
         // Basic statistics
         let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;

@@ -37,7 +37,10 @@ pub use aca::*;
 pub use kv_cache::*;
 pub use tensor_pool::*;
 pub use fused_ops::*;
-pub use blas_backend::*;
+pub use blas_backend::{
+    BlasBackend, BlasOperations, BlasFeatures, BlasBackendInfo,
+    get_blas_operations, init_blas_with_backend,
+};
 pub use sliding_window::*;
 pub use quantization::*;
 

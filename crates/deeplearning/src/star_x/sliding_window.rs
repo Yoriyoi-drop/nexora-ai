@@ -7,10 +7,9 @@
 //! - Integration dengan existing BLAS backend
 
 use crate::{DLResult, DeepLearningError};
-use crate::star_x::blas_backend::{BlasOperations, ActivationType};
+use crate::star_x::blas_backend::BlasOperations;
 use crate::star_x::tensor_pool::PooledTensor2D;
-use ndarray::{ArrayD, Array2, Array1, ArrayView, ArrayViewMut, s};
-use std::arch::x86_64::*;
+use ndarray::{ArrayD, Array2, ArrayView, s};
 
 /// Sliding Window Attention implementation
 #[derive(Debug, Clone)]

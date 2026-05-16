@@ -7,6 +7,8 @@ use crate::atqs::compression::AtqsCompression;
 use crate::has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 
 use super::tokenizer_integration::NxrTokenizerRef;
+use super::deeplearning_integration::{DeepLearningEngine, DeepLearningConfig};
+use super::gnac_integration::{GnacEngine, GnacIntegrationConfig};
 
 pub struct FoundationComponents {
     pub tokenizer: NxrTokenizerRef,
@@ -14,6 +16,8 @@ pub struct FoundationComponents {
     pub vogp: PRwLock<VOGPPlus>,
     pub atqs: AtqsCompression,
     pub moe: HasMoeFFN,
+    pub dl_engine: DeepLearningEngine,
+    pub gnac_engine: GnacEngine,
 }
 
 impl FoundationComponents {
@@ -26,6 +30,9 @@ impl FoundationComponents {
             vogp: PRwLock::new(VOGPPlus::new()),
             atqs: AtqsCompression::new(),
             moe: HasMoeFFN::default(),
+            dl_engine: DeepLearningEngine::new(DeepLearningConfig::hybrid())
+                .expect("Failed to initialize DeepLearningEngine"),
+            gnac_engine: GnacEngine::new(GnacIntegrationConfig::default()),
         }
     }
 
@@ -46,6 +53,17 @@ impl FoundationComponents {
 
     pub fn with_tokenizer(mut self, tokenizer: NxrTokenizerRef) -> Self {
         self.tokenizer = tokenizer;
+        self
+    }
+
+    pub fn with_dl_config(mut self, dl_config: DeepLearningConfig) -> Self {
+        self.dl_engine = DeepLearningEngine::new(dl_config)
+            .expect("Failed to initialize DeepLearningEngine");
+        self
+    }
+
+    pub fn with_gnac_config(mut self, gnac_config: GnacIntegrationConfig) -> Self {
+        self.gnac_engine = GnacEngine::new(gnac_config);
         self
     }
 }

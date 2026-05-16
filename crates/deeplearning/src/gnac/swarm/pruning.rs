@@ -1,4 +1,4 @@
-use crate::gnac::canvas::{NeuralGraph, GraphEdge};
+use crate::gnac::canvas::NeuralGraph;
 use crate::gnac::swarm::SwarmConfig;
 use std::collections::HashSet;
 use uuid::Uuid;

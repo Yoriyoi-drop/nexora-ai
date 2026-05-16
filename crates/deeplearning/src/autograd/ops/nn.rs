@@ -2,7 +2,6 @@ use ndarray::ArrayD;
 
 use super::super::tensor::Tensor;
 use super::math;
-use super::activation;
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     let data = input.data();
@@ -32,7 +31,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
         }
     }
 
-    let result = ArrayD::from_shape_vec(soft_shape.clone(), result_data).unwrap();
+    let result = ArrayD::from_shape_vec(soft_shape.clone(), result_data).expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -67,7 +66,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                     dx_data[i] = s[i] * g[i] - s[i] * sum_sg[b];
                 }
             }
-            let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data).unwrap();
+            let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data).expect("data length matches shape");
             vec![dx]
         }),
     )
@@ -109,7 +108,7 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
     let mask: Vec<f32> = (0..data.len())
         .map(|_| if rand::Rng::gen::<f32>(&mut rng) >= rate { scale } else { 0.0 })
         .collect();
-    let mask_arr = ArrayD::from_shape_vec(data.shape().to_vec(), mask).unwrap();
+    let mask_arr = ArrayD::from_shape_vec(data.shape().to_vec(), mask).expect("data length matches shape");
     let result = &data * &mask_arr;
 
     if !input.requires_grad() {
@@ -148,7 +147,7 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
             result_data[i * last_dim + j] = (x - m) / s;
         }
     }
-    let mut normalized = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap();
+    let mut normalized = ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
 
     if let Some(w) = weight {
         let w_data = w.data();
@@ -172,8 +171,8 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
     if let Some(w) = weight { inputs.push(w.clone()); }
     if let Some(b) = bias { inputs.push(b.clone()); }
 
-    let mean_arr = ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).unwrap();
-    let std_arr = ArrayD::from_shape_vec(vec![shape[0]], std.clone()).unwrap();
+    let mean_arr = ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).expect("data length matches shape");
+    let std_arr = ArrayD::from_shape_vec(vec![shape[0]], std.clone()).expect("data length matches shape");
     let orig_data = data.clone();
 
     Tensor::with_grad_fn(
@@ -212,7 +211,7 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
                     let dx_val = inv_s * (gv - sum_dy / n - xhat * sum_dy_xhat / n);
                     // Multiply by weight gradient if weight exists
                     let mut inner = dx.clone();
-                    inner.as_slice_mut().unwrap()[idx] = dx_val;
+                    inner.as_slice_mut().expect("tensor should be contiguous")[idx] = dx_val;
                     dx = inner;
                 }
             }
@@ -231,7 +230,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         let p = x.clamp(1e-7, 1.0 - 1e-7);
         loss_data[i] = -(t * p.ln() + (1.0 - t) * (1.0 - p).ln());
     }
-    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data).unwrap();
+    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data).expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(loss);
@@ -251,7 +250,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                 let p = xv.clamp(1e-7, 1.0 - 1e-7);
                 dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
             }
-            vec![ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap()]
+            vec![ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).expect("data length matches shape")]
         }),
     )
 }
@@ -286,13 +285,13 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
         let t = tgt[b] as usize;
         loss_data[b] = -lsm_data[b * classes + t];
     }
-    let loss = ArrayD::from_shape_vec(vec![batch], loss_data).unwrap();
+    let loss = ArrayD::from_shape_vec(vec![batch], loss_data).expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(loss);
     }
 
-    let saved_lsm = ArrayD::from_shape_vec(vec![batch, classes], lsm_data).unwrap();
+    let saved_lsm = ArrayD::from_shape_vec(vec![batch, classes], lsm_data).expect("data length matches shape");
     let saved_tgt = tgt.clone();
 
     Tensor::with_grad_fn(
@@ -314,7 +313,7 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                     dx_data[b * classes + c] = g * d;
                 }
             }
-            vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data).unwrap()]
+            vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data).expect("data length matches shape")]
         }),
     )
 }
@@ -344,7 +343,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
             result_data.push(w[[idx, d]]);
         }
     }
-    let result = ArrayD::from_shape_vec(vec![seq_len, dim], result_data).unwrap();
+    let result = ArrayD::from_shape_vec(vec![seq_len, dim], result_data).expect("data length matches shape");
 
     if !weight.requires_grad() {
         return Tensor::new(result);
@@ -393,7 +392,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             result_data[i * shape[1] + j] = data[[i, j]] / rms * w[[j]];
         }
     }
-    let result = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap();
+    let result = ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
 
     let requires_grad = input.requires_grad() || weight.requires_grad();
     if !requires_grad {
@@ -446,8 +445,8 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             }
 
             vec![
-                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap(),
-                ArrayD::from_shape_vec(vec![dim], dw_data).unwrap(),
+                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).expect("data length matches shape"),
+                ArrayD::from_shape_vec(vec![dim], dw_data).expect("data length matches shape"),
             ]
         }),
     )
@@ -466,7 +465,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
 
     let scores = &q_data * &k_data.mapv(|x| x / scale);
     // causal mask: applied manually per position
-    let mut output_data = v_data.clone();
+    let output_data = v_data.clone();
 
     let requires_grad = q.requires_grad() || k.requires_grad() || v.requires_grad();
 
@@ -520,7 +519,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
             result_data[i * seq_len + j] = 0.0;
         }
     }
-    let result = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap();
+    let result = ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -545,7 +544,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                     dx_data[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                 }
             }
-            vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data).unwrap()]
+            vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data).expect("data length matches shape")]
         }),
     )
 }

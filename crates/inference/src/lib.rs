@@ -4,6 +4,7 @@
 
 
 
+pub mod batching;
 pub mod engine;
 pub mod runtime;
 pub mod session;
@@ -93,7 +94,7 @@ impl From<nexora_blaa::BlaaError> for InferenceError {
 }
 
 /// Token yang dihasilkan oleh inference
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GeneratedToken {
     /// Token ID
     pub token_id: u32,
@@ -108,7 +109,7 @@ pub struct GeneratedToken {
 }
 
 /// Inference request
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InferenceRequest {
     /// Unique request ID
     pub request_id: uuid::Uuid,
@@ -143,6 +144,7 @@ pub struct InferenceRequest {
     /// Request priority
     pub priority: u8,
     /// Request start time
+    #[serde(skip)]
     pub start_time: Option<std::time::Instant>,
 }
 
@@ -171,7 +173,7 @@ impl Default for InferenceRequest {
 }
 
 /// Inference response
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InferenceResponse {
     /// Request ID
     pub request_id: uuid::Uuid,
@@ -190,7 +192,7 @@ pub struct InferenceResponse {
 }
 
 /// Finish reason untuk inference
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FinishReason {
     /// Maximum tokens reached
     MaxTokens,

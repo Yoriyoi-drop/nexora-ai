@@ -106,28 +106,31 @@ impl TrainableCausalLM {
     }
 
     pub fn sync_to_inference(&self, model: &mut CausalLM) {
-        model.token_embedding = self.token_embedding.data().into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-        model.lm_head = self.lm_head.data().into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-        model.norm.weight = self.norm.weight.data().into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+        model.token_embedding = self.token_embedding.data()
+            .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: token_embedding must be 2D").to_owned();
+        model.lm_head = self.lm_head.data()
+            .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: lm_head must be 2D").to_owned();
+        model.norm.weight = self.norm.weight.data()
+            .into_dimensionality::<ndarray::Ix1>().expect("Internal invariant: norm must be 1D").to_owned();
         for (i, block) in self.blocks.iter().enumerate() {
             model.blocks[i].attention_norm.weight = block.attention_norm.weight.data()
-                .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix1>().expect("Internal invariant: attention norm must be 1D").to_owned();
             model.blocks[i].ffn_norm.weight = block.ffn_norm.weight.data()
-                .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix1>().expect("Internal invariant: ffn norm must be 1D").to_owned();
             model.blocks[i].attention.wq = block.attention.wq.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: attention wq must be 2D").to_owned();
             model.blocks[i].attention.wk = block.attention.wk.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: attention wk must be 2D").to_owned();
             model.blocks[i].attention.wv = block.attention.wv.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: attention wv must be 2D").to_owned();
             model.blocks[i].attention.wo = block.attention.wo.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: attention wo must be 2D").to_owned();
             model.blocks[i].ffn.w1 = block.ffn.w1.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: ffn w1 must be 2D").to_owned();
             model.blocks[i].ffn.w2 = block.ffn.w2.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: ffn w2 must be 2D").to_owned();
             model.blocks[i].ffn.w3 = block.ffn.w3.data()
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+                .into_dimensionality::<ndarray::Ix2>().expect("Internal invariant: ffn w3 must be 2D").to_owned();
         }
     }
 
@@ -271,33 +274,53 @@ impl TrainableCausalLM {
             })
         };
 
-        model.token_embedding = get_arr("token_embedding")?
-            .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-        model.lm_head = get_arr("lm_head")?
-            .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-        model.norm.weight = get_arr("norm.weight")?
-            .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+        fn to_fixed<D: ndarray::Dimension>(arr: ndarray::ArrayD<f32>, name: &str) -> crate::FoundationResult<ndarray::Array<f32, D>> {
+            arr.into_dimensionality::<D>()
+                .map_err(|e| crate::FoundationError::Implementation(format!("Shape mismatch for {}: {}", name, e)))
+        }
+
+        model.token_embedding = to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?.to_owned();
+        model.lm_head = to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?.to_owned();
+        model.norm.weight = to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned();
 
         for (i, block) in model.blocks.iter_mut().enumerate() {
             let prefix = format!("blocks.{}.", i);
-            block.attention_norm.weight = get_arr(&format!("{}attention_norm.weight", prefix))?
-                .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
-            block.ffn_norm.weight = get_arr(&format!("{}ffn_norm.weight", prefix))?
-                .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
-            block.attention.wq = get_arr(&format!("{}attention.wq", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-            block.attention.wk = get_arr(&format!("{}attention.wk", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-            block.attention.wv = get_arr(&format!("{}attention.wv", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-            block.attention.wo = get_arr(&format!("{}attention.wo", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-            block.ffn.w1 = get_arr(&format!("{}ffn.w1", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-            block.ffn.w2 = get_arr(&format!("{}ffn.w2", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
-            block.ffn.w3 = get_arr(&format!("{}ffn.w3", prefix))?
-                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.attention_norm.weight = to_fixed::<ndarray::Ix1>(
+                get_arr(&format!("{}attention_norm.weight", prefix))?,
+                &format!("{}attention_norm.weight", prefix),
+            )?.to_owned();
+            block.ffn_norm.weight = to_fixed::<ndarray::Ix1>(
+                get_arr(&format!("{}ffn_norm.weight", prefix))?,
+                &format!("{}ffn_norm.weight", prefix),
+            )?.to_owned();
+            block.attention.wq = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}attention.wq", prefix))?,
+                &format!("{}attention.wq", prefix),
+            )?.to_owned();
+            block.attention.wk = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}attention.wk", prefix))?,
+                &format!("{}attention.wk", prefix),
+            )?.to_owned();
+            block.attention.wv = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}attention.wv", prefix))?,
+                &format!("{}attention.wv", prefix),
+            )?.to_owned();
+            block.attention.wo = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}attention.wo", prefix))?,
+                &format!("{}attention.wo", prefix),
+            )?.to_owned();
+            block.ffn.w1 = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}ffn.w1", prefix))?,
+                &format!("{}ffn.w1", prefix),
+            )?.to_owned();
+            block.ffn.w2 = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}ffn.w2", prefix))?,
+                &format!("{}ffn.w2", prefix),
+            )?.to_owned();
+            block.ffn.w3 = to_fixed::<ndarray::Ix2>(
+                get_arr(&format!("{}ffn.w3", prefix))?,
+                &format!("{}ffn.w3", prefix),
+            )?.to_owned();
         }
 
         Ok(())

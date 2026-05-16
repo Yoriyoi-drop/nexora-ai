@@ -55,8 +55,8 @@ impl AssociativeOperator {
     
     /// Apply associative operation: A ⊗ B
     pub fn associative_operation(&self, a: &ArrayD<f32>, b: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let a_flat = a.as_slice().unwrap();
-        let b_flat = b.as_slice().unwrap();
+        let a_flat = a.as_slice().expect("tensor should be contiguous");
+        let b_flat = b.as_slice().expect("tensor should be contiguous");
         
         if a_flat.len() != self.hidden_size || b_flat.len() != self.hidden_size {
             return Err(DeepLearningError::ShapeMismatch {
@@ -71,10 +71,10 @@ impl AssociativeOperator {
         
         // Associative composition
         let mut composed = Array1::zeros(self.hidden_size);
-        let comp_flat = composed.as_slice_mut().unwrap();
-        let a_trans_flat = transformed_a.as_slice().unwrap();
-        let b_trans_flat = transformed_b.as_slice().unwrap();
-        let bias_flat = self.bias.as_slice().unwrap();
+        let comp_flat = composed.as_slice_mut().expect("tensor should be contiguous");
+        let a_trans_flat = transformed_a.as_slice().expect("tensor should be contiguous");
+        let b_trans_flat = transformed_b.as_slice().expect("tensor should be contiguous");
+        let bias_flat = self.bias.as_slice().expect("tensor should be contiguous");
         
         for i in 0..self.hidden_size {
             // Element-wise associative operation
@@ -87,7 +87,7 @@ impl AssociativeOperator {
     
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().unwrap();
+        let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -116,8 +116,8 @@ impl AssociativeOperator {
         let right_final = self.associative_operation(a, &right_result)?;
         
         // Compare results
-        let left_flat = left_final.as_slice().unwrap();
-        let right_flat = right_final.as_slice().unwrap();
+        let left_flat = left_final.as_slice().expect("tensor should be contiguous");
+        let right_flat = right_final.as_slice().expect("tensor should be contiguous");
         
         let mut difference = 0.0;
         for (l, r) in left_flat.iter().zip(right_flat.iter()) {
@@ -180,9 +180,9 @@ impl ParallelAssociativeScan {
         
         // Final composition (simplified - in practice would be element-wise)
         let mut final_state = Array1::zeros(self.hidden_size);
-        let final_flat = final_state.as_slice_mut().unwrap();
-        let state_flat = state_part.as_slice().unwrap();
-        let input_flat = input_part.as_slice().unwrap();
+        let final_flat = final_state.as_slice_mut().expect("tensor should be contiguous");
+        let state_flat = state_part.as_slice().expect("tensor should be contiguous");
+        let input_flat = input_part.as_slice().expect("tensor should be contiguous");
         
         for i in 0..self.hidden_size {
             final_flat[i] = state_flat[i] + input_flat[i];
@@ -378,7 +378,7 @@ impl ParallelAssociativeScan {
         
         for chunk in &chunks {
             let chunk_result = self.sequential_scan(chunk, &running_state)?;
-            running_state = chunk_result.last().unwrap().clone();
+            running_state = chunk_result.last().expect("chunk results should not be empty").clone();
             chunk_results.push(chunk_result);
         }
         
@@ -452,7 +452,7 @@ impl ParallelAssociativeScan {
         
         for chunk in sequence.chunks(chunk_size) {
             let chunk_results = self.sequential_scan(chunk, &current_state)?;
-            current_state = chunk_results.last().unwrap().clone();
+            current_state = chunk_results.last().expect("chunk results should not be empty").clone();
             all_results.extend(chunk_results);
         }
         
@@ -479,8 +479,8 @@ impl ParallelAssociativeScan {
         
         let mut total_error = 0.0;
         for (seq, par) in sequential_results.iter().zip(parallel_results.iter()) {
-            let seq_flat = seq.as_slice().unwrap();
-            let par_flat = par.as_slice().unwrap();
+            let seq_flat = seq.as_slice().expect("tensor should be contiguous");
+            let par_flat = par.as_slice().expect("tensor should be contiguous");
             
             for (s, p) in seq_flat.iter().zip(par_flat.iter()) {
                 total_error += (s - p).abs();

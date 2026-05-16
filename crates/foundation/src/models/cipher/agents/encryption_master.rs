@@ -267,7 +267,7 @@ impl EncryptionMasterAgent {
         
         if input.encryption_parameters.contains_key("algorithm") {
             metadata.insert("algorithm".to_string(), 
-                input.encryption_parameters.get("algorithm").unwrap().clone());
+                input.encryption_parameters.get("algorithm").expect("algorithm key exists").clone());
         }
         
         Ok(metadata)
@@ -283,7 +283,7 @@ impl EncryptionMasterAgent {
         
         if input.encryption_parameters.contains_key("access_level") {
             controls.push(format!("Access level: {}", 
-                input.encryption_parameters.get("access_level").unwrap()));
+                input.encryption_parameters.get("access_level").expect("access_level key exists")));
         }
         
         Ok(controls)
