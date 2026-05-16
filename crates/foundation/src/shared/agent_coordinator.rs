@@ -152,8 +152,8 @@ impl<T> AgentCoordinator<T> {
             }
         }
         
-        // Fallback to first agent
-        Ok(self.agent_weights.keys().next().unwrap().clone())
+        // Fallback to first agent (or default if empty)
+        Ok(self.agent_weights.keys().next().cloned().unwrap_or_default())
     }
     
     /// Get coordination strategy

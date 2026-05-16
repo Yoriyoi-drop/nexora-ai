@@ -321,7 +321,7 @@ impl LifecycleManager {
         let (tx, rx) = mpsc::unbounded_channel();
         
         // Add subscriber to the list
-        let mut subscribers = self.event_subscribers.lock().unwrap();
+        let mut subscribers = self.event_subscribers.lock().unwrap_or_else(|e| e.into_inner());
         subscribers.push(tx);
         
         Some(rx)

@@ -353,7 +353,7 @@ impl BaseAgent for ArtisticWeaverAgent {
             style_adaptation: if input.target_style.is_some() {
                 Some(StyleAdaptationInfo {
                     source_style: source_analysis.detected_style,
-                    target_style: input.target_style.unwrap(),
+                    target_style: input.target_style.clone().unwrap_or_default(),
                     adaptation_method: "contextual_adaptation".to_string(),
                     adaptation_strength: self.config.adaptation_strength,
                     success_score,

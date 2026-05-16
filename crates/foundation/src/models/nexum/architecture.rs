@@ -1483,13 +1483,18 @@ impl NexumArchitecture {
             }
         }
         
-        // Sort agents by performance
+        // Sort agents by performance (missing agents sorted last)
         selected_agents.sort_by(|a, b| {
-            let agent_a = self.orchestration_engine.agent_registry.agents.get(a).unwrap();
-            let agent_b = self.orchestration_engine.agent_registry.agents.get(b).unwrap();
-            
-            agent_b.performance.success_rate.partial_cmp(&agent_a.performance.success_rate)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            let agent_a = self.orchestration_engine.agent_registry.agents.get(a);
+            let agent_b = self.orchestration_engine.agent_registry.agents.get(b);
+            match (agent_a, agent_b) {
+                (Some(a), Some(b)) => b.performance.success_rate
+                    .partial_cmp(&a.performance.success_rate)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
         });
         
         Ok(selected_agents)

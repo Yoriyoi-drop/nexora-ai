@@ -239,8 +239,8 @@ impl ContextWeaveAgent {
             return Ok("Building emotional context...".to_string());
         }
 
-        let start = self.emotional_trajectory.first().unwrap();
-        let current = self.emotional_trajectory.last().unwrap();
+        let start = self.emotional_trajectory.first().copied().unwrap_or((0.0, 0.0));
+        let current = self.emotional_trajectory.last().copied().unwrap_or((0.0, 0.0));
         let valence_shift = current.0 - start.0;
         let arousal_shift = current.1 - start.1;
 
@@ -271,7 +271,10 @@ impl ContextWeaveAgent {
             return Ok("No prior context — beginning fresh.".to_string());
         }
 
-        let last = self.history.last().unwrap();
+        let last = match self.history.last() {
+            Some(l) => l,
+            None => return Ok("No prior context — beginning fresh.".to_string()),
+        };
         Ok(format!(
             "Prior turn #{}: felt {}, intensity {:.2}. Topics: {}",
             last.turn_id,
