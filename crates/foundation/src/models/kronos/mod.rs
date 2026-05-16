@@ -20,6 +20,7 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    foundation_components::FoundationComponents,
 };
 
 use self::{
@@ -38,6 +39,7 @@ pub struct NxrKronosModel {
     capabilities: KronosCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 #[derive(Debug, Clone)]
@@ -141,10 +143,17 @@ impl NxrKronosModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn retrieve_knowledge(&self, query: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(query)
+        };
+
         // Process query with deep learning
         let dl_result = self.dl_process(query).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
@@ -155,12 +164,13 @@ impl NxrKronosModel {
         let synthesis = self.synthesize_knowledge(&knowledge_retrieval, &fact_verification)?;
         
         Ok(format!(
-            "Knowledge Retrieval:\nQuery Type: {:?}\nFacts Retrieved: {}\nVerification: {:.2}%\nSynthesis: {}\nDL Processing: {}",
+            "Knowledge Retrieval:\nQuery Type: {:?}\nFacts Retrieved: {}\nVerification: {:.2}%\nSynthesis: {}\nDL Processing: {} (tokens: {})",
             query_analysis.query_type,
             knowledge_retrieval.facts_count,
             fact_verification.verification_score,
             synthesis.summary,
-            dl_result
+            dl_result,
+            tokens.len()
         ))
     }
 

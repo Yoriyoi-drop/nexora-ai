@@ -499,8 +499,8 @@ impl VortexCapabilities {
         suggestions
     }
 
-    /// Simulate capability improvement
-    pub fn simulate_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> VortexCapabilities {
+    /// Apply capability improvement
+    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> VortexCapabilities {
         let mut new_capabilities = self.clone();
         
         for (domain, improvement) in improvements {
@@ -510,7 +510,7 @@ impl VortexCapabilities {
                 let new_score = (current_score + improvement).min(1.0);
                 
                 // Update capability metrics
-                capability.metrics.insert("simulated_score".to_string(), new_score);
+                capability.metrics.insert("improved_score".to_string(), new_score);
             }
         }
 

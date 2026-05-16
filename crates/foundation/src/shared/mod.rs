@@ -13,6 +13,7 @@ pub mod agent_types;
 pub mod base_agent;
 pub mod agent_coordinator;
 pub mod tokenizer_integration;
+pub mod foundation_components;
 pub mod safety_gate;
 
 // Re-export shared components
@@ -27,4 +28,5 @@ pub use agent_types::*;
 pub use base_agent::*;
 pub use agent_coordinator::*;
 pub use tokenizer_integration::*;
+pub use foundation_components::*;
 pub use safety_gate::*;

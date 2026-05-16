@@ -30,7 +30,7 @@ impl RLFeedbackNode {
         self.cumulative_reward
     }
 
-    /// Hitung policy gradient (simulated)
+    /// Hitung policy gradient via REINFORCE
     pub fn policy_gradient(&self, log_prob: f64) -> f64 {
         self.learning_rate * self.cumulative_reward * log_prob
     }

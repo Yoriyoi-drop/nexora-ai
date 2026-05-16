@@ -20,6 +20,7 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    foundation_components::FoundationComponents,
 };
 
 use self::{
@@ -38,6 +39,7 @@ pub struct NxrSwiftModel {
     capabilities: SwiftCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 #[derive(Debug, Clone)]
@@ -129,12 +131,24 @@ impl NxrSwiftModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn fast_inference(&self, input: &str) -> NxrModelResult<String> {
         let start_time = std::time::Instant::now();
         
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(input)
+        };
+
+        // Apply ATQS compression for edge efficiency
+        {
+            let _ = self.components.atqs.compress(input.as_bytes()).await;
+        }
+
         // Process input with deep learning
         let dl_result = self.dl_process(input).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
@@ -146,10 +160,11 @@ impl NxrSwiftModel {
         let latency = start_time.elapsed().as_millis() as u32;
         
         Ok(format!(
-            "Edge Response ({}ms): {}\nDL Processing: {}",
+            "Edge Response ({}ms): {}\nDL Processing: {} (tokens: {})",
             latency,
             optimized,
-            dl_result
+            dl_result,
+            tokens.len()
         ))
     }
 

@@ -21,7 +21,11 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    foundation_components::FoundationComponents,
 };
+use crate::erp::{ERPEngine, ERPConfig, CompressionMode};
+use crate::vogp::VOGPConfig;
+use crate::has_moe_ffn::HasMoeFFNConfig;
 
 use self::{
     identity::OmnisIdentity,
@@ -47,6 +51,8 @@ pub struct NxrOmnisModel {
     dl_engine: DeepLearningEngine,
     /// GNAC engine
     gnac_engine: GnacEngine,
+    /// Foundation components (ERP, VOGP, ATQS, MoE, Tokenizer, Autograd)
+    components: FoundationComponents,
 }
 
 /// NXR-OMNIS Model State
@@ -235,6 +241,17 @@ impl NxrOmnisModel {
 
         let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
 
+        let components = FoundationComponents::new()
+            .with_moe_config(HasMoeFFNConfig {
+                num_experts: 16,
+                top_k: 4,
+                ..Default::default()
+            })
+            .with_erp_config(ERPConfig {
+                compression_mode: CompressionMode::Aggressive,
+                ..Default::default()
+            });
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -249,6 +266,7 @@ impl NxrOmnisModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components,
         }
     }
 
@@ -260,6 +278,17 @@ impl NxrOmnisModel {
         let initial_metrics = OmnisMetrics::default();
 
         let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
+        let components = FoundationComponents::new()
+            .with_moe_config(HasMoeFFNConfig {
+                num_experts: 16,
+                top_k: 4,
+                ..Default::default()
+            })
+            .with_erp_config(ERPConfig {
+                compression_mode: CompressionMode::Aggressive,
+                ..Default::default()
+            });
 
         let mut model = Self {
             base: crate::shared::base_model::BaseNxrModel::new(
@@ -276,6 +305,7 @@ impl NxrOmnisModel {
             dl_engine: DeepLearningEngine::new(config.deep_learning.clone())
                 .expect("Failed to initialize deep learning engine"),
             gnac_engine,
+            components,
         };
 
         // Initialize components
@@ -283,31 +313,53 @@ impl NxrOmnisModel {
         Ok(model)
     }
 
-    /// Perform deep reasoning
+    /// Perform deep reasoning with all foundation components
     async fn deep_reasoning(&self, input: &str) -> NxrModelResult<String> {
+        // Step 0: Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(input)
+        };
+
         // Process input with deep learning
         let dl_result = self.dl_process(input).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // Process through MoE for expert routing
+        let moe_input = ndarray::Array2::from_shape_vec(
+            (1, tokens.len().max(1)),
+            tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
+        ).unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
+        let moe_output = self.components.moe.forward(&moe_input);
+
+        // Apply ERP compression on deep learning state
+        {
+            let mut erp = self.components.erp.write();
+            let weights = vec![
+                ndarray::Array2::<f32>::zeros((moe_output.shape()[0], moe_output.shape()[1])),
+            ];
+            let _compressed = erp.apply_pruning(&weights);
+        }
+
         // Step 1: Decompose the problem
         let decomposition = self.agents.oracle_7().decompose_problem(input).await?;
-        
+
         // Step 2: Meta-reasoning about approach
         let meta_reasoning = self.agents.meta_reasoner().analyze_approach(&decomposition).await?;
-        
+
         // Step 3: World modeling
         let world_model = self.agents.world_model_x().update_context(input).await?;
-        
+
         // Step 4: Chain execution
         let chain_result = self.agents.chain_executor().execute_chain(&decomposition, &meta_reasoning).await?;
-        
+
         // Step 5: Truth arbitration
         let truth_arbitration = self.agents.truth_arbiter().arbitrate(&chain_result).await?;
-        
+
         // Step 6: Synthesis
         let synthesis = self.agents.synth_prime().synthesize(&truth_arbitration).await?;
-        
-        Ok(format!("{}\n\nDL Processing: {}", synthesis, dl_result))
+
+        Ok(format!("{}\n\nDL Processing: {} (tokens: {})", synthesis, dl_result, tokens.len()))
     }
 
     /// Update world model

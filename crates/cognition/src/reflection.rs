@@ -33,16 +33,9 @@ pub enum ReflectionType {
 /// Reflection engine trait
 #[async_trait]
 pub trait ReflectionEngine: Send + Sync {
-    /// Perform self-reflection on recent actions
     async fn reflect(&self, actions: &[Action], context: &str) -> FoundationResult<ReflectionResult>;
-    
-    /// Generate improvement suggestions
     async fn suggest_improvements(&self, reflection: &ReflectionResult) -> FoundationResult<Vec<String>>;
-    
-    /// Update internal model based on reflection
     async fn update_model(&self, reflection: &ReflectionResult) -> FoundationResult<()>;
-    
-    /// Get reflection statistics
     async fn stats(&self) -> FoundationResult<ReflectionStats>;
 }
 
@@ -105,6 +98,7 @@ impl ReflectionEngine for DefaultReflector {
             }
         }
 
+        let has_errors = !errors.is_empty();
         let confidence = if actions.is_empty() {
             0.0
         } else {
@@ -117,7 +111,7 @@ impl ReflectionEngine for DefaultReflector {
             improvements_suggested: improvements,
             learning_insights: insights,
             metadata: ReflectionMetadata {
-                reflection_type: if errors.is_empty() { ReflectionType::Performance } else { ReflectionType::ErrorAnalysis },
+                reflection_type: if has_errors { ReflectionType::ErrorAnalysis } else { ReflectionType::Performance },
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -128,4 +122,61 @@ impl ReflectionEngine for DefaultReflector {
 
         {
             let mut history = self.history.write().await;
-            hist
+            history.push(result.clone());
+            if history.len() > 1000 {
+                history.remove(0);
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn suggest_improvements(&self, reflection: &ReflectionResult) -> FoundationResult<Vec<String>> {
+        let mut suggestions = Vec::new();
+
+        if reflection.confidence < 0.3 {
+            suggestions.push("Consider using a different approach entirely".to_string());
+            suggestions.push("Break down the problem into smaller steps".to_string());
+        } else if reflection.confidence < 0.7 {
+            suggestions.push("Add more validation checkpoints".to_string());
+            suggestions.push("Review recent changes for regressions".to_string());
+        }
+
+        suggestions.extend(reflection.improvements_suggested.clone());
+        suggestions.extend(reflection.learning_insights.clone());
+
+        Ok(suggestions)
+    }
+
+    async fn update_model(&self, reflection: &ReflectionResult) -> FoundationResult<()> {
+        let mut history = self.history.write().await;
+        history.push(reflection.clone());
+        if history.len() > 1000 {
+            history.remove(0);
+        }
+        Ok(())
+    }
+
+    async fn stats(&self) -> FoundationResult<ReflectionStats> {
+        let history = self.history.read().await;
+        let total = history.len();
+        let avg_confidence = if total == 0 {
+            0.0
+        } else {
+            history.iter().map(|r| r.confidence).sum::<f32>() / total as f32
+        };
+        let improvement_rate = if total < 2 {
+            0.0
+        } else {
+            let recent = &history[total - total.min(10)..];
+            let improvements = recent.iter().filter(|r| r.confidence > 0.7).count();
+            improvements as f32 / recent.len() as f32
+        };
+
+        Ok(ReflectionStats {
+            total_reflections: total,
+            avg_confidence,
+            improvement_rate,
+        })
+    }
+}

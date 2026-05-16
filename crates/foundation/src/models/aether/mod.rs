@@ -16,7 +16,9 @@ use crate::shared::{
     deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
     safety_gate::{global_safety, ConsentToken, ConsentScope},
+    foundation_components::FoundationComponents,
 };
+use crate::reasoning::{SacaAetherIntegration, SacaAetherConfig};
 
 // Include all Aether modules
 mod identity;
@@ -41,6 +43,7 @@ pub struct NxrAetherModel {
     capabilities: AetherCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 /// NXR-ÆTHER Model State
@@ -224,23 +227,40 @@ impl NxrAetherModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn analyze_emotional_content(&self, text: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(text)
+        };
+
         // Process text with deep learning
         let dl_result = self.dl_process(text).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // SACA-ÆTHER enhanced reasoning with emotional context
+        let saca_summary = {
+            let saca_aether = crate::reasoning::SacaAetherIntegration::new();
+            saca_aether.enhanced_reasoning(text, "emotional_analysis").await
+                .map(|r| r.summary())
+                .unwrap_or_default()
+        };
+
         let emotional_tone = self.detect_emotional_tone(text)?;
         let empathy_response = self.generate_empathy_response(text, &emotional_tone)?;
-        
+
         Ok(format!(
-            "Emotional Analysis:\nTone: {}\nIntensity: {:.2}\nEmpathy Response: {}\nDL Processing: {}",
+            "Emotional Analysis:\nTone: {}\nIntensity: {:.2}\nEmpathy Response: {}\nSACA Reasoning: {}\nDL Processing: {} (tokens: {})",
             emotional_tone.primary_emotion,
             emotional_tone.emotional_intensity,
             empathy_response,
-            dl_result
+            saca_summary,
+            dl_result,
+            tokens.len()
         ))
     }
 

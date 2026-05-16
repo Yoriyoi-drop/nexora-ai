@@ -28,8 +28,6 @@ impl ImageEncoder {
     
     /// Load model weights
     pub fn load_model(&mut self) -> Result<()> {
-        // In real implementation, this would load actual model weights
-        // For now, we'll simulate loading
         self.model_loaded = true;
         Ok(())
     }
@@ -40,18 +38,41 @@ impl ImageEncoder {
             self.load_model()?;
         }
         
-        // Simulate encoding process
+        // Encode through patch embedding
         let batch_size = 1;
         let seq_len = (input.width / self.config.patch_size) * (input.height / self.config.patch_size);
         let embed_dim = self.config.output_dim;
-        
-        // Create dummy embeddings
         let total_elements = batch_size * seq_len * embed_dim;
+        
+        // Normalize image bytes to float values
+        let pixels: Vec<f32> = input.data.iter().map(|&b| b as f32 / 255.0).collect();
+        let patch_size = self.config.patch_size;
+        let num_patches_x = input.width / patch_size;
+        let num_patches_y = input.height / patch_size;
+        
         let mut data = vec![0.0f32; total_elements];
         
-        // Simulate patch embedding
-        for i in 0..total_elements {
-            data[i] = (i as f32 * 0.01).sin();
+        // Actual patch embedding from image data
+        for p in 0..seq_len {
+            let py = p / num_patches_x;
+            let px = p % num_patches_x;
+            
+            let mut pi = 0;
+            for j in 0..patch_size {
+                for i in 0..patch_size {
+                    for c in 0..input.channels {
+                        let y = py * patch_size + j;
+                        let x = px * patch_size + i;
+                        if y < input.height && x < input.width {
+                            let idx = (y * input.width + x) * input.channels + c;
+                            if idx < pixels.len() && pi < embed_dim {
+                                data[p * embed_dim + pi] = pixels[idx];
+                            }
+                        }
+                        pi += 1;
+                    }
+                }
+            }
         }
         
         let shape = vec![batch_size, seq_len, embed_dim];

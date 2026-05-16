@@ -1,13 +1,14 @@
 //! Checkpoint management for HLDVA-T training
 
 use crate::hldva_t::types::*;
-use crate::atqs::Tensor;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use super::curriculum::TrainingMetrics;
 
 /// Training checkpoint
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingCheckpoint {
     pub epoch: usize,
     pub step: usize,
@@ -19,7 +20,7 @@ pub struct TrainingCheckpoint {
 }
 
 /// Model state for checkpointing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelState {
     pub parameters: HashMap<String, Vec<f32>>,
     pub shapes: HashMap<String, Vec<usize>>,
@@ -27,7 +28,7 @@ pub struct ModelState {
 }
 
 /// Optimizer state for checkpointing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptimizerState {
     pub learning_rate: f32,
     pub step: usize,
@@ -57,9 +58,14 @@ impl CheckpointManager {
                               checkpoint.epoch, checkpoint.step);
         let filepath = Path::new(&self.checkpoint_dir).join(filename);
         
-        // In a real implementation, this would serialize and write to disk
-        // For now, we'll just simulate the save operation
-        println!("Saving checkpoint to: {:?}", filepath);
+        // Create checkpoint directory if it doesn't exist
+        fs::create_dir_all(&self.checkpoint_dir)?;
+        
+        // Serialize checkpoint to JSON
+        let serialized = serde_json::to_string_pretty(checkpoint)?;
+        fs::write(&filepath, serialized)?;
+        
+        println!("Saved checkpoint to: {:?}", filepath);
         
         // Keep only the most recent checkpoints
         self.cleanup_old_checkpoints()?;
@@ -72,61 +78,77 @@ impl CheckpointManager {
         let filename = format!("checkpoint_epoch_{}_step_{}.bin", epoch, step);
         let filepath = Path::new(&self.checkpoint_dir).join(filename);
         
-        // In a real implementation, this would deserialize from disk
-        // For now, we'll return a dummy checkpoint
-        Ok(TrainingCheckpoint {
-            epoch,
-            step,
-            loss: 0.1,
-            metrics: TrainingMetrics {
-                loss: 0.1,
-                accuracy: 0.95,
-                learning_rate: 0.001,
-            },
-            model_state: ModelState {
-                parameters: HashMap::new(),
-                shapes: HashMap::new(),
-                config: ModelConfig::default(),
-            },
-            optimizer_state: OptimizerState {
-                learning_rate: 0.001,
-                step,
-                momentum: None,
-                moments: None,
-                variance: None,
-            },
-            timestamp: "2024-01-01T00:00:00Z".to_string(),
-        })
+        let serialized = fs::read_to_string(&filepath)?;
+        let checkpoint: TrainingCheckpoint = serde_json::from_str(&serialized)?;
+        
+        Ok(checkpoint)
     }
     
     /// Load latest checkpoint
     pub fn load_latest_checkpoint(&self) -> HLDVAResult<Option<TrainingCheckpoint>> {
-        // In a real implementation, this would find and load the most recent checkpoint
-        // For now, we'll return None
-        Ok(None)
+        let checkpoints = self.list_checkpoints()?;
+        
+        let latest = checkpoints.into_iter()
+            .max_by(|a, b| a.epoch.cmp(&b.epoch).then(a.step.cmp(&b.step)));
+        
+        match latest {
+            Some(info) => self.load_checkpoint(info.epoch, info.step).map(Some),
+            None => Ok(None),
+        }
     }
     
     /// List available checkpoints
     pub fn list_checkpoints(&self) -> HLDVAResult<Vec<CheckpointInfo>> {
-        // In a real implementation, this would scan the checkpoint directory
-        // For now, we'll return an empty list
-        Ok(vec![])
+        let dir = Path::new(&self.checkpoint_dir);
+        if !dir.exists() {
+            return Ok(vec![]);
+        }
+        
+        let mut checkpoints = Vec::new();
+        let entries = fs::read_dir(dir)?;
+        
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.extension().and_then(|s| s.to_str()) == Some("bin") {
+                let filename = path.file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                if let Ok(serialized) = fs::read_to_string(&path) {
+                    if let Ok(ckpt) = serde_json::from_str::<TrainingCheckpoint>(&serialized) {
+                        let size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        checkpoints.push(CheckpointInfo {
+                            filename,
+                            epoch: ckpt.epoch,
+                            step: ckpt.step,
+                            loss: ckpt.loss,
+                            timestamp: ckpt.timestamp,
+                            size_bytes,
+                        });
+                    }
+                }
+            }
+        }
+        
+        Ok(checkpoints)
     }
     
     /// Clean up old checkpoints
     fn cleanup_old_checkpoints(&self) -> HLDVAResult<()> {
-        let checkpoints = self.list_checkpoints()?;
+        let mut checkpoints = self.list_checkpoints()?;
         
         if checkpoints.len() > self.config.max_checkpoints {
-            // Sort by timestamp and remove oldest
-            let mut sorted_checkpoints = checkpoints;
-            sorted_checkpoints.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+            checkpoints.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
             
-            let to_remove = sorted_checkpoints.len() - self.config.max_checkpoints;
-            for checkpoint in sorted_checkpoints.iter().take(to_remove) {
+            let to_remove = checkpoints.len() - self.config.max_checkpoints;
+            for checkpoint in checkpoints.iter().take(to_remove) {
                 let filepath = Path::new(&self.checkpoint_dir).join(&checkpoint.filename);
-                println!("Removing old checkpoint: {:?}", filepath);
-                // In a real implementation, this would delete the file
+                if filepath.exists() {
+                    fs::remove_file(&filepath)?;
+                }
             }
         }
         
@@ -170,7 +192,7 @@ impl CheckpointManager {
 }
 
 /// Checkpoint information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointInfo {
     pub filename: String,
     pub epoch: usize,
@@ -301,7 +323,7 @@ pub trait Optimizer {
 }
 
 // Mock model config
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub num_layers: usize,
     pub hidden_size: usize,

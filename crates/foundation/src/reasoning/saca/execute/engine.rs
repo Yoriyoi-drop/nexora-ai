@@ -13,6 +13,7 @@ use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use std::process::Command;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -343,23 +344,43 @@ impl SandboxCodeExecutor {
     
     /// Execute code in a controlled sandbox environment
     fn execute_in_sandbox(&self, code: &str, _env: &ExecutionEnvironment) -> Result<ExecutionOutput, String> {
-        // In a real implementation, this would:
-        // 1. Create an isolated process/container
-        // 2. Set resource limits (CPU, memory, time)
-        // 3. Execute the code
-        // 4. Capture stdout, stderr, exit code
-        // 5. Clean up resources
-        
-        // For now, simulate execution
-        Ok(ExecutionOutput {
-            success: true,
-            stdout: "Execution completed successfully".to_string(),
-            stderr: String::new(),
-            error_logs: Vec::new(),
-            exit_code: 0,
-            execution_time: Some(100), // 100ms simulated
-            memory_usage: Some(1024.0), // 1KB simulated
-        })
+        if code.trim().is_empty() {
+            return Ok(ExecutionOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+                error_logs: vec!["Warning: empty code".to_string()],
+                exit_code: 0,
+                execution_time: Some(0),
+                memory_usage: None,
+            });
+        }
+
+        let start = std::time::Instant::now();
+
+        match Command::new("python3")
+            .arg("-c")
+            .arg(code)
+            .output()
+        {
+            Ok(output) => {
+                let elapsed = start.elapsed();
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let success = output.status.success();
+
+                Ok(ExecutionOutput {
+                    success,
+                    stdout,
+                    stderr: stderr.clone(),
+                    error_logs: if success { vec![] } else { vec![stderr] },
+                    exit_code: output.status.code().unwrap_or(-1),
+                    execution_time: Some(elapsed.as_millis() as u64),
+                    memory_usage: None,
+                })
+            }
+            Err(e) => Err(format!("Failed to execute code: python3 not available ({})", e)),
+        }
     }
 }
 

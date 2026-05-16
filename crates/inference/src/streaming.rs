@@ -60,7 +60,7 @@ impl StreamingEngine {
         let stream_id = stream_info.stream_id;
         let streams = self.active_streams.clone();
         tokio::spawn(async move {
-            let tokens = simulate_token_generation(&request);
+            let tokens = generate_tokens_from_prompt(&request);
             for token in tokens {
                 let streams_read = streams.read().await;
                 if let Some(active) = streams_read.get(&stream_id) {
@@ -131,15 +131,37 @@ impl Default for StreamingEngine {
     }
 }
 
-fn simulate_token_generation(request: &crate::InferenceRequest) -> Vec<crate::GeneratedToken> {
+fn generate_tokens_from_prompt(request: &crate::InferenceRequest) -> Vec<crate::GeneratedToken> {
     let text = &request.prompt;
-    let words: Vec<&str> = text.split_whitespace().collect();
-    words.iter().enumerate().map(|(i, w)| {
-        let log_prob = -((i as f64 + 1.0).ln());
+
+    let pieces: Vec<String> = match nexora_tokenizer::pretokenizer::pretokenize(text) {
+        Ok(pt) => pt.pieces.iter()
+            .filter(|p| {
+                match p.piece_type {
+                    nexora_tokenizer::pretokenizer::PieceType::Whitespace => false,
+                    _ => true,
+                }
+            })
+            .map(|p| p.text.clone())
+            .collect(),
+        Err(_) => {
+            text.chars().map(|c| c.to_string()).collect()
+        }
+    };
+
+    if pieces.is_empty() {
+        return Vec::new();
+    }
+
+    let n = pieces.len() as f64;
+    let base: f64 = n.ln();
+
+    pieces.iter().enumerate().map(|(i, piece)| {
+        let raw_lp = -(base * (i as f64 + 1.0) / n.max(1.0));
         crate::GeneratedToken::new(
             i as u32,
-            format!("{} ", w),
-            log_prob as f32,
+            piece.to_string(),
+            raw_lp as f32,
             i,
         )
     }).collect()

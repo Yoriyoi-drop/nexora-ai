@@ -21,6 +21,7 @@ use crate::shared::{
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
     safety_gate::{global_safety, SafetyGate, ConsentToken, ConsentScope},
+    foundation_components::FoundationComponents,
 };
 
 use self::{
@@ -39,6 +40,7 @@ pub struct NxrCipherModel {
     capabilities: CipherCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 #[derive(Debug, Clone)]
@@ -130,10 +132,17 @@ impl NxrCipherModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn analyze_security(&self, target: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(target)
+        };
+
         // Process target with deep learning
         let dl_result = self.dl_process(target).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
@@ -143,11 +152,12 @@ impl NxrCipherModel {
         let security_recommendations = self.generate_recommendations(&threat_assessment)?;
         
         Ok(format!(
-            "Security Analysis:\nVulnerabilities Found: {}\nThreat Level: {:?}\nRecommendations: {}\nDL Processing: {}",
+            "Security Analysis:\nVulnerabilities Found: {}\nThreat Level: {:?}\nRecommendations: {}\nDL Processing: {} (tokens: {})",
             vulnerability_scan.count,
             threat_assessment.level,
             security_recommendations.join(", "),
-            dl_result
+            dl_result,
+            tokens.len()
         ))
     }
 

@@ -955,16 +955,24 @@ impl AxiomArchitecture {
         Ok(!proof.is_empty())
     }
 
-    /// Simulate world state
-    pub async fn simulate_world(&self, initial_state: HashMap<String, f64>, steps: u32) -> NxrModelResult<Vec<HashMap<String, f64>>> {
+    /// Simulate state evolution using physics-like dynamics
+    pub async fn simulate_state_evolution(&self, initial_state: HashMap<String, f64>, steps: u32) -> NxrModelResult<Vec<HashMap<String, f64>>> {
         let mut states = Vec::new();
         let mut current_state = initial_state;
+        let dt = 0.1;
 
-        for _ in 0..steps {
-            // Simple simulation - just add noise
+        for step in 0..steps {
             let mut new_state = HashMap::new();
+            let t = step as f64 * dt;
             for (key, value) in &current_state {
-                new_state.insert(key.clone(), value + (rand::random::<f32>() as f64 - 0.5) * 0.1);
+                // Logistic growth with periodic forcing: dN/dt = r*N*(1-N/K) + A*sin(omega*t)
+                let r = 0.5;
+                let k = 10.0;
+                let amplitude = 0.05;
+                let omega = 0.5;
+                let growth = r * value * (1.0 - value / k) + amplitude * (omega * t).sin();
+                let next_value = value + growth * dt;
+                new_state.insert(key.clone(), next_value);
             }
             states.push(new_state.clone());
             current_state = new_state;
@@ -973,17 +981,59 @@ impl AxiomArchitecture {
         Ok(states)
     }
 
-    /// Train reinforcement learning
-    pub async fn train_rl(&mut self, episodes: u32) -> NxrModelResult<f32> {
-        let mut total_reward = 0.0;
+    /// Train reinforcement learning using Q-learning
+    pub async fn train_reinforcement_learning(&mut self, episodes: u32) -> NxrModelResult<f32> {
+        use rand::rngs::StdRng;
+        use rand::Rng;
+        use rand::SeedableRng;
+
+        let alpha = 0.1;
+        let gamma = 0.95;
+        let epsilon = 0.1;
+        let num_states = 10;
+        let num_actions = 4;
+
+        let mut q_table = vec![vec![0.0_f32; num_actions]; num_states];
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let mut total_rewards = 0.0;
 
         for _ in 0..episodes {
-            // Simple training loop
-            let episode_reward = rand::random::<f32>();
-            total_reward += episode_reward;
+            let mut state: usize = 0;
+
+            loop {
+                let action = if rng.gen::<f32>() < epsilon {
+                    rng.gen_range(0..num_actions)
+                } else {
+                    q_table[state].iter()
+                        .enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(0)
+                };
+
+                let next_state = rng.gen_range(0..num_states);
+                let reward = if next_state == num_states - 1 { 1.0 } else { -0.01 };
+
+                let max_next_q = q_table[next_state].iter()
+                    .cloned()
+                    .max_by(|a, b| a.partial_cmp(b).unwrap())
+                    .unwrap_or(0.0);
+
+                let td_target = reward + gamma * max_next_q;
+                let td_error = td_target - q_table[state][action];
+                q_table[state][action] += alpha * td_error;
+
+                total_rewards += reward;
+                state = next_state;
+
+                if state == num_states - 1 {
+                    break;
+                }
+            }
         }
 
-        Ok(total_reward / episodes as f32)
+        Ok(total_rewards / episodes as f32)
     }
 }
 

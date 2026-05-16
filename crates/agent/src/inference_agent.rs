@@ -178,10 +178,9 @@ impl InferenceAgent {
                 }
             }
         } else {
-            // Mock implementation for now
-            self.update_session_status(session_id, InferenceSessionStatus::Ready).await?;
-            info!("Mock inference session {} started", session_id);
-            Ok(session_id)
+            Err(AgentError::ProcessingError(
+                "No inference engine configured".to_string()
+            ))
         }
     }
     
@@ -219,8 +218,9 @@ impl InferenceAgent {
         let result = if let Some(engine) = &self.inference_engine {
             engine.generate_tokens(session_id, prompt, max_tokens).await
         } else {
-            // Mock implementation
-            Ok(format!("Mock response for: {}", prompt))
+            Err(AgentError::ProcessingError(
+                "No inference engine configured".to_string()
+            ))
         };
         
         let processing_time = start_time.elapsed().as_millis() as u64;
@@ -228,7 +228,7 @@ impl InferenceAgent {
         match result {
             Ok(text) => {
                 // Update session stats
-                self.update_session_stats(session_id, text.len() as u64, processing_time).await?;
+                self.update_session_stats(session_id, text.split_whitespace().count() as u64, processing_time).await?;
                 self.update_session_status(session_id, InferenceSessionStatus::Completed).await?;
                 
                 debug!("Text generation completed for session: {}", session_id);
@@ -278,8 +278,9 @@ impl InferenceAgent {
         if let Some(engine) = &self.inference_engine {
             engine.stream_tokens(session_id, prompt, max_tokens).await
         } else {
-            // Mock streaming implementation
-            Err(AgentError::ProcessingError("Mock streaming not implemented".to_string()))
+            Err(AgentError::ProcessingError(
+                "No inference engine configured".to_string()
+            ))
         }
     }
     
@@ -467,11 +468,12 @@ impl Agent for InferenceAgent {
                 
                 let text = self.generate_text(session_id, prompt, max_tokens).await?;
                 
+                let token_count = text.split_whitespace().count();
                 json!({
                     "action": "generate",
                     "session_id": session_id,
                     "text": text,
-                    "tokens": text.len()
+                    "tokens": token_count
                 })
             }
             
@@ -572,9 +574,9 @@ impl Agent for InferenceAgent {
         if let Some(engine) = &self.inference_engine {
             engine.health_check().await
         } else {
-            // Mock health check - just check if we're not at capacity
-            let sessions = self.active_sessions.lock().unwrap();
-            Ok(sessions.len() < self.config.max_concurrent_sessions)
+            Err(AgentError::ProcessingError(
+                "No inference engine configured".to_string()
+            ))
         }
     }
     

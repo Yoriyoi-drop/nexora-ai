@@ -15,7 +15,9 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    foundation_components::FoundationComponents,
 };
+use crate::multimodal::{CaffeineSpectraIntegration, CaffeineSpectraConfig, MultimodalInputs};
 
 // Include all Spectra modules
 mod identity;
@@ -40,6 +42,7 @@ pub struct NxrSpectraModel {
     capabilities: SpectraCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 /// NXR-SPECTRA Model State
@@ -243,23 +246,45 @@ impl NxrSpectraModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn generate_creative_content(&self, prompt: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(prompt)
+        };
+
         // Process prompt with deep learning
         let dl_result = self.dl_process(prompt).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // CAFFEINE-SPECTRA multimodal processing
+        let caffeine_summary = {
+            let caffeine_spectra = crate::multimodal::CaffeineSpectraIntegration::new();
+            let multimodal_inputs = MultimodalInputs {
+                text: Some(prompt.to_string()),
+                image: None,
+                audio: None,
+            };
+            caffeine_spectra.enhanced_multimodal_processing(&multimodal_inputs).await
+                .map(|r| r.summary())
+                .unwrap_or_default()
+        };
+
         let creative_analysis = self.analyze_creative_requirements(prompt)?;
         let generation = self.synthesize_creative_content(prompt, &creative_analysis)?;
-        
+
         Ok(format!(
-            "Creative Generation:\nStyle: {}\nModality: {}\nContent: {}\nDL Processing: {}",
+            "Creative Generation:\nStyle: {}\nModality: {}\nContent: {}\nCAFFEINE: {}\nDL Processing: {} (tokens: {})",
             creative_analysis.style,
             creative_analysis.modality,
             generation,
-            dl_result
+            caffeine_summary,
+            dl_result,
+            tokens.len()
         ))
     }
 

@@ -4,6 +4,8 @@
 
 use crate::reasoning::saca::{types::*, error::*};
 use super::generator::{TestCase, TestType};
+use std::io::Write;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// Test runner for executing test cases
@@ -26,16 +28,8 @@ impl TestRunner {
     async fn run_single_test(&self, test_case: TestCase, implementation: &str) -> SACAResult<TestResult> {
         let start_time = std::time::Instant::now();
         
-        // For now, simulate test execution
-        // In a real implementation, this would:
-        // 1. Compile the implementation
-        // 2. Execute with test input
-        // 3. Compare actual vs expected output
-        
+        let (passed, actual_output, error_message) = self.run_test_execution(&test_case, implementation);
         let execution_time = start_time.elapsed();
-        
-        // Simulate test result based on test case characteristics
-        let (passed, actual_output, error_message) = self.simulate_test_execution(&test_case, implementation);
         
         Ok(TestResult {
             test_id: test_case.id,
@@ -49,41 +43,69 @@ impl TestRunner {
         })
     }
     
-    /// Simulate test execution with syntax and logic validation
-    fn simulate_test_execution(
+    /// Run a test case against the implementation and compare output
+    fn run_test_execution(
         &self,
         test_case: &TestCase,
         implementation: &str,
     ) -> (bool, String, Option<String>) {
-        // Simple simulation logic
-        // In real implementation, this would actually execute the code
-        
-        // Check for obvious syntax issues
         if implementation.contains("unimplemented!") {
             return (false, "Not implemented".to_string(), Some("Implementation contains unimplemented! macro".to_string()));
         }
-        
-        // Check for compilation issues (simple heuristics)
-        if implementation.contains("fn ") && !implementation.contains("{") {
-            return (false, "Compilation error".to_string(), Some("Function without body".to_string()));
+
+        let temp_dir = std::env::temp_dir().join(format!("saca_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let file_path = temp_dir.join("test_impl.py");
+
+        if let Err(e) = std::fs::write(&file_path, implementation) {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            return (false, String::new(), Some(format!("Failed to write temp file: {}", e)));
         }
-        
-        // Simulate test results based on test case
-        match test_case.id.as_str() {
-            "sort_empty" | "search_empty" | "collection_empty" => {
-                (true, test_case.expected_output.clone(), None)
-            },
-            "sort_single" | "collection_single" => {
-                (true, test_case.expected_output.clone(), None)
-            },
-            _ => {
-                // For other tests, simulate 80% pass rate
-                if rand::random::<f32>() < 0.8 {
-                    (true, test_case.expected_output.clone(), None)
-                } else {
-                    (false, "Unexpected output".to_string(), Some("Test failed due to logic error".to_string()))
+
+        let output = match Command::new("python3")
+            .arg(&file_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(mut child) => {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(test_case.input.as_bytes());
+                    let _ = stdin.flush();
+                }
+                match child.wait_with_output() {
+                    Ok(output) => output,
+                    Err(e) => {
+                        let _ = std::fs::remove_dir_all(&temp_dir);
+                        return (false, String::new(), Some(format!("Failed to read child output: {}", e)));
+                    }
                 }
             }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                return (false, String::new(), Some(format!("Failed to spawn python3: {}", e)));
+            }
+        };
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let actual_output = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() {
+            let err_msg = if stderr.is_empty() {
+                format!("Process exited with code {:?}", output.status.code())
+            } else {
+                stderr
+            };
+            return (false, actual_output, Some(err_msg));
+        }
+
+        if actual_output == test_case.expected_output.trim() {
+            (true, actual_output, None)
+        } else {
+            (false, actual_output.clone(), Some(format!("Expected '{}', got '{}'", test_case.expected_output, actual_output)))
         }
     }
 }

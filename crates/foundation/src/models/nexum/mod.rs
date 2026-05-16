@@ -15,7 +15,9 @@ use crate::shared::{
     deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
     safety_gate::global_safety,
+    foundation_components::FoundationComponents,
 };
+use crate::alignment::{SparoNexumIntegration, SparoNexumConfig};
 
 // Include all Nexum modules
 mod identity;
@@ -37,6 +39,7 @@ pub struct NxrNexumModel {
     capabilities: NexumCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 #[derive(Debug, Clone)]
@@ -193,10 +196,29 @@ impl NxrNexumModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn orchestrate_agents(&self, task: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(task)
+        };
+
+        // SPARO alignment enforcement
+        let alignment_summary = {
+            let sparo_nexum = crate::alignment::SparoNexumIntegration::new();
+            match sparo_nexum.enhanced_alignment(task, "multi_agent_orchestration").await {
+                Ok(r) => r.summary(),
+                Err(e) => {
+                    tracing::warn!("SPARO alignment warning: {}", e);
+                    String::new()
+                }
+            }
+        };
+
         // Process task with deep learning
         let dl_result = self.dl_process(task).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
@@ -212,13 +234,15 @@ impl NxrNexumModel {
             "nexum_orchestrator",
             &format!("Plan: {}, Agents: {}, Consensus: {:.2}", orchestration_plan.strategy, coordination_result.active_agents, consensus_result.agreement_level),
         ).await;
-        
+
         Ok(format!(
-            "Agent Orchestration:\nPlan: {}\nCoordination: {}\nConsensus: {:.2}\nDL Processing: {}",
+            "Agent Orchestration:\nPlan: {}\nCoordination: {}\nConsensus: {:.2}\nSPARO: {}\nDL Processing: {} (tokens: {})",
             orchestration_plan.strategy,
             coordination_result.status,
             consensus_result.agreement_level,
-            dl_result
+            alignment_summary,
+            dl_result,
+            tokens.len()
         ))
     }
 

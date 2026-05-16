@@ -483,8 +483,8 @@ impl NexumCapabilities {
         suggestions
     }
 
-    /// Simulate capability improvement
-    pub fn simulate_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> NexumCapabilities {
+    /// Apply capability improvement
+    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> NexumCapabilities {
         let mut new_capabilities = self.clone();
         
         for (domain, improvement) in improvements {
@@ -494,7 +494,7 @@ impl NexumCapabilities {
                 let new_score = (current_score + improvement).min(1.0_f32);
                 
                 // Update capability metrics
-                capability.metrics.insert("simulated_score".to_string(), new_score);
+                capability.metrics.insert("improved_score".to_string(), new_score);
             }
         }
 

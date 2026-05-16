@@ -508,7 +508,7 @@ fn compute_entanglement_similarity(
 }
 
 /// Compute truncated SVD using randomized SVD (Halko et al. 2011)
-/// Proper implementation, menggantikan random placeholder
+/// Randomized SVD (Halko et al. 2011) with oversampling
 fn compute_truncated_svd(
     matrix: &ArrayView<f32, ndarray::Ix2>,
     rank: usize,

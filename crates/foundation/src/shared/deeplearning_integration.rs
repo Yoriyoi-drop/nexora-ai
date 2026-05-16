@@ -251,22 +251,52 @@ impl DeepLearningEngine {
     /// Forward pass
     pub async fn forward(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
         let state = self.state.read().await;
-        
+
         match &*state {
-            DeepLearningState::StarX(_star_x_state) => {
-                // Implementasi forward pass untuk STAR-X
-                // Untuk sekarang, return dummy output
-                Ok(input.clone())
+            DeepLearningState::StarX(star_x_state) => {
+                let flat_input = input.clone().into_shape(input.len())?;
+                let model_dim = star_x_state.hidden_state.len();
+                let bias = star_x_state.episodic_memory.iter().sum::<f32>() / star_x_state.episodic_memory.len() as f32;
+
+                let result_data: Vec<f32> = flat_input.iter().enumerate().map(|(i, x)| {
+                    let w = star_x_state.hidden_state[i % model_dim];
+                    (x * w + bias).tanh()
+                }).collect();
+
+                ArrayD::from_shape_vec(input.shape(), result_data)
+                    .map_err(DeepLearningError::from)
             }
-            DeepLearningState::EchoNet(_echo_net_state) => {
-                // Implementasi forward pass untuk ECHO-Net
-                // Untuk sekarang, return dummy output
-                Ok(input.clone())
+            DeepLearningState::EchoNet(echo_net_state) => {
+                let flat_input = input.clone().into_shape(input.len())?;
+                let amp_dim = echo_net_state.amplitude_spectrum.len();
+                let phase_dim = echo_net_state.semantic_phase.len();
+
+                let result_data: Vec<f32> = flat_input.iter().enumerate().map(|(i, x)| {
+                    let amp = echo_net_state.amplitude_spectrum[i % amp_dim];
+                    let phase = echo_net_state.semantic_phase[i % phase_dim];
+                    (x * amp + phase).tanh()
+                }).collect();
+
+                ArrayD::from_shape_vec(input.shape(), result_data)
+                    .map_err(DeepLearningError::from)
             }
-            DeepLearningState::Hybrid { star_x: _, echo_net: _ } => {
-                // Implementasi forward pass untuk Hybrid
-                // Untuk sekarang, return dummy output
-                Ok(input.clone())
+            DeepLearningState::Hybrid { star_x, echo_net } => {
+                let flat_input = input.clone().into_shape(input.len())?;
+                let model_dim = star_x.hidden_state.len();
+                let amp_dim = echo_net.amplitude_spectrum.len();
+                let phase_dim = echo_net.semantic_phase.len();
+
+                let result_data: Vec<f32> = flat_input.iter().enumerate().map(|(i, x)| {
+                    let w = star_x.hidden_state[i % model_dim];
+                    let amp = echo_net.amplitude_spectrum[i % amp_dim];
+                    let phase = echo_net.semantic_phase[i % phase_dim];
+                    let star_x_contrib = x * w;
+                    let echo_net_contrib = (x * amp + phase).tanh();
+                    (star_x_contrib + echo_net_contrib).tanh()
+                }).collect();
+
+                ArrayD::from_shape_vec(input.shape(), result_data)
+                    .map_err(DeepLearningError::from)
             }
         }
     }
@@ -278,24 +308,47 @@ impl DeepLearningEngine {
                 reason: "Training not enabled".to_string(),
             });
         }
-        
+
         let state = self.state.read().await;
-        
+
         match &*state {
-            DeepLearningState::StarX(_star_x_state) => {
-                // Implementasi backward pass untuk STAR-X
-                // Untuk sekarang, return dummy gradient
-                Ok(gradient.clone())
+            DeepLearningState::StarX(star_x_state) => {
+                let flat_grad = gradient.clone().into_shape(gradient.len())?;
+                let model_dim = star_x_state.hidden_state.len();
+
+                let result_data: Vec<f32> = flat_grad.iter().enumerate().map(|(i, g)| {
+                    let w = star_x_state.hidden_state[i % model_dim];
+                    g * w
+                }).collect();
+
+                ArrayD::from_shape_vec(gradient.shape(), result_data)
+                    .map_err(DeepLearningError::from)
             }
-            DeepLearningState::EchoNet(_echo_net_state) => {
-                // Implementasi backward pass untuk ECHO-Net
-                // Untuk sekarang, return dummy gradient
-                Ok(gradient.clone())
+            DeepLearningState::EchoNet(echo_net_state) => {
+                let flat_grad = gradient.clone().into_shape(gradient.len())?;
+                let amp_dim = echo_net_state.amplitude_spectrum.len();
+
+                let result_data: Vec<f32> = flat_grad.iter().enumerate().map(|(i, g)| {
+                    let amp = echo_net_state.amplitude_spectrum[i % amp_dim];
+                    g * amp
+                }).collect();
+
+                ArrayD::from_shape_vec(gradient.shape(), result_data)
+                    .map_err(DeepLearningError::from)
             }
-            DeepLearningState::Hybrid { star_x: _, echo_net: _ } => {
-                // Implementasi backward pass untuk Hybrid
-                // Untuk sekarang, return dummy gradient
-                Ok(gradient.clone())
+            DeepLearningState::Hybrid { star_x, echo_net } => {
+                let flat_grad = gradient.clone().into_shape(gradient.len())?;
+                let model_dim = star_x.hidden_state.len();
+                let amp_dim = echo_net.amplitude_spectrum.len();
+
+                let result_data: Vec<f32> = flat_grad.iter().enumerate().map(|(i, g)| {
+                    let w = star_x.hidden_state[i % model_dim];
+                    let amp = echo_net.amplitude_spectrum[i % amp_dim];
+                    g * (w + amp)
+                }).collect();
+
+                ArrayD::from_shape_vec(gradient.shape(), result_data)
+                    .map_err(DeepLearningError::from)
             }
         }
     }

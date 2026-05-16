@@ -20,6 +20,7 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    foundation_components::FoundationComponents,
 };
 
 use self::{
@@ -38,6 +39,7 @@ pub struct NxrAxiomModel {
     capabilities: AxiomCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 #[derive(Debug, Clone)]
@@ -150,10 +152,17 @@ impl NxrAxiomModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn make_strategic_decision(&self, scenario: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(scenario)
+        };
+
         // Process scenario with deep learning
         let dl_result = self.dl_process(scenario).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
@@ -164,12 +173,13 @@ impl NxrAxiomModel {
         let simulation = self.simulate_outcomes(&decision)?;
         
         Ok(format!(
-            "Strategic Decision:\nAnalysis: {}\nRisk Level: {:.2}\nDecision: {}\nSuccess Probability: {:.2}\nDL Processing: {}",
+            "Strategic Decision:\nAnalysis: {}\nRisk Level: {:.2}\nDecision: {}\nSuccess Probability: {:.2}\nDL Processing: {} (tokens: {})",
             analysis.key_factors,
             risk_assessment.overall_risk,
             decision.recommendation,
             simulation.success_probability,
-            dl_result
+            dl_result,
+            tokens.len()
         ))
     }
 

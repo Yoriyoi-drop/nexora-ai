@@ -797,8 +797,8 @@ impl HebbianMemory {
         result
     }
     
-    /// Simulate memory retention curve for testing
-    pub fn simulate_retention(&self, time_horizon: f64, n_points: usize) -> Vec<f64> {
+    /// Compute memory retention curve
+    pub fn compute_retention_curve(&self, time_horizon: f64, n_points: usize) -> Vec<f64> {
         let mut strengths = Vec::with_capacity(n_points);
         let time_step = time_horizon / n_points as f64;
         

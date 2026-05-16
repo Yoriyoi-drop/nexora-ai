@@ -2,7 +2,7 @@
 //! 
 //! Module ini menyediakan monitoring system untuk Nexora AI
 
-#![allow(dead_code, unused_imports, unused_variables)]
+
 
 pub use metrics::{MetricsCollector, MetricType, MetricValue};
 pub use alerts::{AlertManager, Alert, AlertSeverity};
@@ -267,7 +267,18 @@ pub mod metrics {
         
         pub async fn start_collection(&self) {
             info!("Starting metrics collection");
-            // Implementation would start periodic collection
+            let metrics = Arc::clone(&self.metrics);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+                loop {
+                    interval.tick().await;
+                    let count = {
+                        let m = metrics.read().await;
+                        m.len()
+                    };
+                    debug!("Metrics collection tick: {} active metrics", count);
+                }
+            });
         }
         
         pub async fn get_status(&self) -> String {
@@ -335,7 +346,18 @@ pub mod alerts {
         
         pub async fn start_monitoring(&self, interval_seconds: u64) {
             info!("Starting alert monitoring with interval: {}s", interval_seconds);
-            // Implementation would start periodic alert checking
+            let alerts = Arc::clone(&self.alerts);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_seconds));
+                loop {
+                    interval.tick().await;
+                    let count = {
+                        let a = alerts.read().await;
+                        a.len()
+                    };
+                    debug!("Alert monitoring tick: {} unresolved alerts", count);
+                }
+            });
         }
         
         pub async fn get_status(&self) -> String {
@@ -379,6 +401,15 @@ pub mod dashboard {
         pub async fn start_server(&self) {
             let port = self.config.read().await.as_ref().map(|c| c.port).unwrap_or(8080);
             info!("Starting dashboard server on port {}", port);
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+            let app = axum::Router::new()
+                .route("/health", axum::routing::get(|| async { "OK" }));
+            if let Err(e) = axum::serve(
+                tokio::net::TcpListener::bind(addr).await.unwrap(),
+                app,
+            ).await {
+                warn!("Dashboard server stopped: {}", e);
+            }
         }
         
         pub async fn get_status(&self) -> String {

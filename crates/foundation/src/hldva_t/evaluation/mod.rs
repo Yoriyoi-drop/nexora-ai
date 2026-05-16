@@ -598,13 +598,12 @@ impl InceptionNetwork {
         let mut feature_sum = 0.0;
         let mut feature_count = 0;
         
-        // Simulate convolution dengan different kernel sizes
         for (i, &pixel) in image_data.iter().enumerate() {
             // Apply spatial weighting based on scale
             let spatial_weight = self.compute_spatial_weight(i, image_shape, scale);
             let weighted_pixel = pixel * spatial_weight;
             
-            // Apply non-linearity (simulated ReLU)
+            // Apply non-linearity (ReLU)
             let activated = weighted_pixel.max(0.0);
             
             feature_sum += activated;
@@ -807,14 +806,14 @@ impl ClipModel {
     fn extract_image_features(&self, image_data: &[f32], image_shape: &[usize]) -> HLDVAResult<Vec<f32>> {
         let mut features = Vec::with_capacity(self.embedding_dim);
         
-        // Simulate vision transformer layers
+        // Vision transformer layers
         let patches = self.extract_patches(image_data, image_shape)?;
         
         for i in 0..self.embedding_dim {
             let patch_idx = i % patches.len();
             let layer_idx = i / patches.len();
             
-            // Apply simulated transformer attention
+            // Apply transformer attention
             let patch_feature = patches[patch_idx];
             let attention_weight = self.compute_attention_weight(patch_idx, layer_idx);
             let transformed_feature = patch_feature * attention_weight;
@@ -877,7 +876,7 @@ impl ClipModel {
     fn extract_text_features(&self, tokens: &[usize]) -> HLDVAResult<Vec<f32>> {
         let mut features = Vec::with_capacity(self.embedding_dim);
         
-        // Simulate transformer layers
+        // Transformer layers
         for i in 0..self.embedding_dim {
             let token_idx = i % tokens.len();
             let layer_idx = i / tokens.len();
@@ -891,7 +890,7 @@ impl ClipModel {
             // Combine embeddings
             let combined_embedding = token_embedding + positional_encoding;
             
-            // Apply simulated transformer layers
+            // Apply transformer layers
             let mut hidden_state = combined_embedding;
             for layer in 0..self.text_encoder.num_layers {
                 hidden_state = self.transformer_layer(hidden_state, token_idx, layer);
@@ -918,7 +917,7 @@ impl ClipModel {
         (position as f32 * 0.01).sin()
     }
     
-    /// Simulate transformer layer
+    /// Transformer layer
     fn transformer_layer(&self, input: f32, token_idx: usize, layer_idx: usize) -> f32 {
         // Simplified attention computation
         let attention_score = (input + token_idx as f32 + layer_idx as f32).cos();

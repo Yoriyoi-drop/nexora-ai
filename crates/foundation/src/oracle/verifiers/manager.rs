@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use super::{security::SecurityVerifier, performance::PerformanceVerifier, correctness::CorrectnessVerifier, style::StyleVerifier};
 
 /// Code verifier interface
-pub trait CodeVerifier {
+pub trait CodeVerifier: Send + Sync {
     fn verify(&self, code: &str, language: &str) -> Result<VerificationResult>;
     fn verifier_name(&self) -> &str;
     fn verifier_type(&self) -> VerifierType;

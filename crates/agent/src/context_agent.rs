@@ -331,156 +331,274 @@ impl ContextAgent {
     
     /// Fetch context from Wikipedia API
     async fn fetch_wikipedia_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching Wikipedia context");
+        debug!("Fetching Wikipedia context via API");
         
-        // Use reqwest for HTTP requests (simplified implementation)
-        // In a real implementation, this would make actual HTTP calls
-        let mock_data = json!({
+        let response = reqwest::get("https://en.wikipedia.org/api/rest_v1/page/random/summary")
+            .await
+            .map_err(|e| AgentError::ProcessingError(
+                format!("External source wikipedia requires reqwest dependency: {}", e)
+            ))?;
+        
+        if !response.status().is_success() {
+            return Err(AgentError::ProcessingError(
+                format!("Wikipedia API returned unexpected status: {}", response.status())
+            ));
+        }
+        
+        let data: Value = response.json().await?;
+        
+        let result = json!({
             "source": "wikipedia",
-            "content": "Wikipedia is a free-content online encyclopedia written and maintained by a community of volunteers.",
+            "title": data["title"],
+            "content": data["extract"],
+            "page_url": data["content_urls"]["desktop"]["page"],
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.9
         });
         
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        let token_count = self.estimate_token_count(&result);
+        Ok((result, token_count))
     }
     
     /// Fetch context from news API
     async fn fetch_news_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching news context");
+        debug!("Fetching news context via NewsAPI");
         
-        let mock_data = json!({
+        let api_key = std::env::var("NEWSAPI_KEY")
+            .map_err(|_| AgentError::ProcessingError(
+                "External source news requires NEWSAPI_KEY environment variable".to_string()
+            ))?;
+        
+        let url = format!("https://newsapi.org/v2/top-headlines?country=us&pageSize=5&apiKey={}", api_key);
+        let response = reqwest::get(&url)
+            .await
+            .map_err(|e| AgentError::ProcessingError(
+                format!("External source news requires reqwest dependency: {}", e)
+            ))?;
+        
+        if !response.status().is_success() {
+            return Err(AgentError::ProcessingError(
+                format!("News API returned status: {}", response.status())
+            ));
+        }
+        
+        let data: Value = response.json().await?;
+        
+        let headlines: Vec<Value> = data["articles"].as_array()
+            .map(|articles| {
+                articles.iter().map(|a| json!({
+                    "title": a["title"],
+                    "source": a["source"]["name"],
+                    "url": a["url"],
+                })).collect()
+            })
+            .unwrap_or_default();
+        
+        let result = json!({
             "source": "news",
-            "headlines": [
-                "AI technology continues to advance rapidly",
-                "New breakthrough in machine learning research",
-                "Tech companies invest heavily in AI infrastructure"
-            ],
+            "headlines": headlines,
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.8
         });
         
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        let token_count = self.estimate_token_count(&result);
+        Ok((result, token_count))
     }
     
-    /// Fetch context from weather API
+    /// Fetch context from weather API via Open-Meteo (free, no API key required)
     async fn fetch_weather_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching weather context");
+        debug!("Fetching weather context via Open-Meteo API");
         
-        let mock_data = json!({
+        let response = reqwest::get(
+            "https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current_weather=true"
+        )
+            .await
+            .map_err(|e| AgentError::ProcessingError(
+                format!("External source weather requires reqwest dependency: {}", e)
+            ))?;
+        
+        if !response.status().is_success() {
+            return Err(AgentError::ProcessingError(
+                format!("Weather API returned status: {}", response.status())
+            ));
+        }
+        
+        let data: Value = response.json().await?;
+        let current = &data["current_weather"];
+        
+        let result = json!({
             "source": "weather",
-            "temperature": "22°C",
-            "condition": "Partly cloudy",
-            "humidity": "65%",
-            "location": "Default Location",
+            "temperature": format!("{}°C", current["temperature"].as_f64().unwrap_or(0.0)),
+            "wind_speed": format!("{} km/h", current["windspeed"].as_f64().unwrap_or(0.0)),
+            "wind_direction": format!("{}°", current["winddirection"].as_f64().unwrap_or(0.0)),
+            "weather_code": current["weathercode"].as_i64().unwrap_or(0),
+            "location": "40.7128°N, 74.0060°W",
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.7
         });
         
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        let token_count = self.estimate_token_count(&result);
+        Ok((result, token_count))
     }
     
-    /// Fetch context from stock market API
+    /// Fetch context from stock market API via Finnhub
     async fn fetch_stock_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching stock context");
+        debug!("Fetching stock context via Finnhub API");
         
-        let mock_data = json!({
+        let api_key = std::env::var("FINNHUB_API_KEY")
+            .map_err(|_| AgentError::ProcessingError(
+                "External source stock requires FINNHUB_API_KEY environment variable".to_string()
+            ))?;
+        
+        let url = format!("https://finnhub.io/api/v1/quote?symbol=SPY&token={}", api_key);
+        let response = reqwest::get(&url)
+            .await
+            .map_err(|e| AgentError::ProcessingError(
+                format!("External source stock requires reqwest dependency: {}", e)
+            ))?;
+        
+        if !response.status().is_success() {
+            return Err(AgentError::ProcessingError(
+                format!("Stock API returned status: {}", response.status())
+            ));
+        }
+        
+        let data: Value = response.json().await?;
+        
+        let current_price = data["c"].as_f64().unwrap_or(0.0);
+        let previous_close = data["pc"].as_f64().unwrap_or(0.0);
+        let change_pct = if previous_close > 0.0 {
+            ((current_price - previous_close) / previous_close * 100.0 * 100.0).round() / 100.0
+        } else {
+            0.0
+        };
+        
+        let result = json!({
             "source": "stock",
             "market_status": "Open",
             "major_indices": {
-                "S&P_500": "+0.5%",
-                "NASDAQ": "+0.8%",
-                "DOW_JONES": "+0.3%"
+                "S&P_500": format!("{:.2} ({:+.2}%)", current_price, change_pct),
             },
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.6
         });
         
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        let token_count = self.estimate_token_count(&result);
+        Ok((result, token_count))
     }
     
     /// Fetch user profile context from database
     async fn fetch_user_profile_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching user profile context");
-        
-        let mock_data = json!({
-            "source": "user_profile",
-            "preferences": {
-                "language": "en",
-                "timezone": "UTC",
-                "theme": "dark"
-            },
-            "recent_activity": [
-                "Last login: 2 hours ago",
-                "Recent queries: 5 in last hour"
-            ],
-            "last_updated": chrono::Utc::now().to_rfc3339(),
-            "confidence": 0.9
-        });
-        
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        Err(AgentError::ProcessingError(
+            "External source user_profile requires a configured user profile database service".to_string()
+        ))
     }
     
     /// Fetch context from knowledge base
     async fn fetch_knowledge_base_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching knowledge base context");
-        
-        let mock_data = json!({
-            "source": "knowledge_base",
-            "articles": [
-                {
-                    "title": "Introduction to AI",
-                    "summary": "Artificial Intelligence is a branch of computer science...",
-                    "relevance": 0.85
-                }
-            ],
-            "last_updated": chrono::Utc::now().to_rfc3339(),
-            "confidence": 0.8
-        });
-        
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        Err(AgentError::ProcessingError(
+            "External source knowledge_base requires a configured knowledge base service".to_string()
+        ))
     }
     
-    /// Fetch context from document storage
+    /// Fetch context from document storage via filesystem
     async fn fetch_document_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching document context");
+        debug!("Fetching document context from filesystem");
         
-        let mock_data = json!({
+        let docs_dir = std::path::Path::new("documents");
+        if !docs_dir.exists() {
+            return Err(AgentError::ProcessingError(
+                "External source documents requires a 'documents/' directory with indexed files".to_string()
+            ));
+        }
+        
+        let entries = std::fs::read_dir(docs_dir)
+            .map_err(|e| AgentError::ProcessingError(
+                format!("Failed to read documents directory: {}", e)
+            ))?;
+        
+        let mut recent_files = Vec::new();
+        let mut total_files = 0u64;
+        
+        for entry in entries {
+            let entry = entry.map_err(|e| AgentError::ProcessingError(
+                format!("Failed to read document entry: {}", e)
+            ))?;
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                total_files += 1;
+                if recent_files.len() < 10 {
+                    if let Some(name) = entry.file_name().to_str() {
+                        recent_files.push(Value::String(name.to_string()));
+                    }
+                }
+            }
+        }
+        
+        let result = json!({
             "source": "documents",
-            "recent_files": [
-                "project_report.pdf",
-                "meeting_notes.txt",
-                "analysis_results.csv"
-            ],
-            "total_files": 42,
+            "recent_files": recent_files,
+            "total_files": total_files,
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.7
         });
         
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        let token_count = self.estimate_token_count(&result);
+        Ok((result, token_count))
     }
     
-    /// Fetch context from log files
+    /// Fetch context from log files via filesystem
     async fn fetch_log_context(&self) -> Result<(Value, usize)> {
-        debug!("Fetching log context");
+        debug!("Fetching log context from filesystem");
         
-        let mock_data = json!({
+        let log_dir = std::path::Path::new("logs");
+        if !log_dir.exists() {
+            return Err(AgentError::ProcessingError(
+                "External source logs requires a 'logs/' directory with application logs".to_string()
+            ));
+        }
+        
+        let entries = std::fs::read_dir(log_dir)
+            .map_err(|e| AgentError::ProcessingError(
+                format!("Failed to read logs directory: {}", e)
+            ))?;
+        
+        let mut recent_errors = Vec::new();
+        let mut system_status = "Unknown".to_string();
+        let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
+        
+        for entry in entries {
+            let entry = entry.map_err(|e| AgentError::ProcessingError(
+                format!("Failed to read log entry: {}", e)
+            ))?;
+            
+            if let Ok(meta) = entry.metadata() {
+                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                if modified > latest_time && meta.is_file() {
+                    latest_time = modified;
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        for line in content.lines().rev().take(20) {
+                            if line.contains("error") || line.contains("ERROR") || line.contains("Error") {
+                                if recent_errors.len() < 10 {
+                                    recent_errors.push(Value::String(line.to_string()));
+                                }
+                            }
+                        }
+                        system_status = if recent_errors.is_empty() { "Healthy".to_string() } else { "Degraded".to_string() };
+                    }
+                }
+            }
+        }
+        
+        let result = json!({
             "source": "logs",
-            "recent_errors": [],
-            "system_status": "Healthy",
+            "recent_errors": recent_errors,
+            "system_status": system_status,
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.6
         });
         
-        let token_count = self.estimate_token_count(&mock_data);
-        Ok((mock_data, token_count))
+        let token_count = self.estimate_token_count(&result);
+        Ok((result, token_count))
     }
     
     /// Apply merge strategy

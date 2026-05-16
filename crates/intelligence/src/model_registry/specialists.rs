@@ -84,9 +84,8 @@ impl SpecialistModel for DefaultSpecialistModel {
         self.capabilities.clone()
     }
     
-    fn process(&self, _input: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // Placeholder implementation
-        Ok(vec![])
+    fn process(&self, input: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        Ok(input.to_vec())
     }
 }
 
@@ -136,33 +135,142 @@ impl TrainingModelFactory {
 /// Default training model implementation
 #[derive(Debug)]
 pub struct DefaultTrainingModel {
+    weights: Vec<f32>,
+    bias: f32,
     accuracy: f32,
+    input_dim: usize,
 }
 
 impl DefaultTrainingModel {
     pub fn new() -> Self {
-        Self { accuracy: 0.0 }
+        let input_dim = 8;
+        let mut rng = rand::thread_rng();
+        let weights: Vec<f32> = (0..input_dim)
+            .map(|_| rng.gen::<f32>() * 0.2 - 0.1)
+            .collect();
+        let bias = rng.gen::<f32>() * 0.2 - 0.1;
+        Self {
+            weights,
+            bias,
+            accuracy: 0.0,
+            input_dim,
+        }
+    }
+
+    fn forward(&self, features: &[f32]) -> f32 {
+        let dot: f32 = features.iter()
+            .zip(self.weights.iter())
+            .map(|(x, w)| x * w)
+            .sum();
+        sigmoid(dot + self.bias)
+    }
+
+    fn features_from_bytes(input: &[u8]) -> Vec<f32> {
+        input.iter()
+            .enumerate()
+            .map(|(i, &b)| {
+                let normalized = b as f32 / 255.0;
+                let pos_component = (i as f32 * 0.1).sin();
+                normalized + pos_component * 0.1
+            })
+            .collect()
     }
 }
 
+fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
+}
+
 impl TrainingModel for DefaultTrainingModel {
-    fn train(&mut self, _samples: &[TrainingSample]) -> Result<(), Box<dyn std::error::Error>> {
-        // Placeholder implementation
-        self.accuracy = 0.85; // Mock accuracy
+    fn train(&mut self, samples: &[TrainingSample]) -> Result<(), Box<dyn std::error::Error>> {
+        if samples.is_empty() {
+            self.accuracy = 0.0;
+            return Ok(());
+        }
+
+        let lr = 0.01;
+        let mut correct = 0usize;
+
+        for sample in samples {
+            let features = Self::features_from_bytes(&sample.input);
+            if features.len() != self.weights.len() {
+                self.input_dim = features.len();
+                self.weights.resize(self.input_dim, 0.0);
+            }
+
+            for epoch in 0..10 {
+                let pred = self.forward(&features);
+                let target_float = sample.target.iter()
+                    .fold(0u32, |acc, &b| acc.wrapping_add(b as u32)) as f32
+                    / (sample.target.len() as f32 * 255.0).max(1.0);
+                let error = pred - target_float.clamp(0.0, 1.0);
+
+                let grad = error * pred * (1.0 - pred);
+                for (j, w) in self.weights.iter_mut().enumerate() {
+                    *w -= lr * grad * features.get(j).copied().unwrap_or(0.0);
+                }
+                self.bias -= lr * grad;
+
+                if epoch == 9 && error.abs() < 0.3 {
+                    correct += 1;
+                }
+            }
+        }
+
+        self.accuracy = correct as f32 / samples.len() as f32;
         Ok(())
     }
-    
-    fn train_step(&mut self, _input: &[u8], _target: &[u8], _learning_rate: f32) -> Result<f32, Box<dyn std::error::Error>> {
-        // Placeholder implementation
-        Ok(0.1) // Mock loss
+
+    fn train_step(&mut self, input: &[u8], target: &[u8], learning_rate: f32) -> Result<f32, Box<dyn std::error::Error>> {
+        let features = Self::features_from_bytes(input);
+        if features.len() != self.weights.len() {
+            self.input_dim = features.len();
+            self.weights.resize(self.input_dim, 0.0);
+        }
+
+        let pred = self.forward(&features);
+        let target_float = target.iter()
+            .fold(0u32, |acc, &b| acc.wrapping_add(b as u32)) as f32
+            / (target.len() as f32 * 255.0).max(1.0);
+        let target_clamped = target_float.clamp(0.0, 1.0);
+
+        let error = pred - target_clamped;
+        let loss = error * error;
+
+        let grad = error * pred * (1.0 - pred);
+        let lr = learning_rate.max(1e-6);
+        for (j, w) in self.weights.iter_mut().enumerate() {
+            *w -= lr * grad * features.get(j).copied().unwrap_or(0.0);
+        }
+        self.bias -= lr * grad;
+
+        self.accuracy = if loss < 0.1 { 1.0 } else { 0.0 };
+
+        Ok(loss)
     }
-    
+
     fn accuracy(&self) -> f32 {
         self.accuracy
     }
-    
-    fn generate_prediction(&self, _input: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // Placeholder implementation
-        Ok(vec![0, 1, 0, 1]) // Mock prediction
+
+    fn generate_prediction(&self, input: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let features = Self::features_from_bytes(input);
+        if features.len() != self.weights.len() {
+            return Ok(vec![0u8; input.len()]);
+        }
+
+        let raw = self.forward(&features);
+        let threshold = 0.5;
+
+        Ok(input.iter().enumerate().map(|(i, &b)| {
+            let parity = (i as f32 * 0.1 + raw).sin().abs();
+            if raw > threshold && parity > 0.3 {
+                b.wrapping_add((raw * 64.0) as u8)
+            } else if raw < 1.0 - threshold && parity < 0.7 {
+                b.wrapping_sub((raw * 32.0) as u8)
+            } else {
+                b
+            }
+        }).collect())
     }
 }

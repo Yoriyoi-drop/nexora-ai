@@ -2,6 +2,7 @@
 
 use crate::hldva_t::types::*;
 use crate::atqs::Tensor;
+use serde::{Deserialize, Serialize};
 use super::Dataset;
 
 /// Curriculum Learning Scheduler
@@ -132,7 +133,7 @@ impl Default for CurriculumConfig {
 }
 
 /// Training metrics for curriculum
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingMetrics {
     pub loss: f32,
     pub accuracy: f32,

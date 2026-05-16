@@ -33,7 +33,7 @@ impl DistillationEngine {
         Ok(student)
     }
 
-    /// Hitung distillation loss (simulated)
+    /// Hitung distillation loss via KL divergence
     pub fn distillation_loss(
         teacher_logits: &[f64],
         student_logits: &[f64],

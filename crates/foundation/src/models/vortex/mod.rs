@@ -15,7 +15,10 @@ use crate::shared::{
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
+    foundation_components::FoundationComponents,
 };
+use crate::oracle::{OracleVortexIntegration, OracleVortexConfig};
+use crate::has_moe_ffn::HasMoeFFNConfig;
 
 // Include all Vortex modules
 mod identity;
@@ -47,6 +50,8 @@ pub struct NxrVortexModel {
     dl_engine: DeepLearningEngine,
     /// GNAC engine
     gnac_engine: GnacEngine,
+    /// Foundation components (ERP, VOGP, ATQS, MoE, Tokenizer, Autograd)
+    components: FoundationComponents,
 }
 
 /// NXR-VORTEX Model State
@@ -490,6 +495,12 @@ impl NxrVortexModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new()
+                .with_moe_config(HasMoeFFNConfig {
+                    num_experts: 8,
+                    top_k: 2,
+                    ..Default::default()
+                }),
         }
     }
 }
@@ -557,15 +568,36 @@ impl NxrModel for NxrVortexModel {
             )),
         };
 
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(&input_text)
+        };
+
         // Process input with deep learning
         let dl_result = self.dl_process(&input_text).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
+
+        // Process through MoE for expert code routing
+        let moe_input = ndarray::Array2::from_shape_vec(
+            (1, tokens.len().max(1)),
+            tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
+        ).unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
+        let _moe_output = self.components.moe.forward(&moe_input);
+
+        // Enhanced code analysis via ORACLE-VORTEX integration
+        let oracle_summary = {
+            let oracle_vortex = crate::oracle::OracleVortexIntegration::new();
+            oracle_vortex.enhanced_code_analysis(&input_text).await
+                .map(|r| r.summary())
+                .unwrap_or_default()
+        };
         
         // Perform code analysis
         let analysis = self.agents.code_sentinel().analyze_code(&input_text).await?;
         let result = format!(
-            "Code Analysis:\nLanguage: {}\nComplexity: {:.2}\nQuality Score: {:.2}\nDL Processing: {}",
-            analysis.language, analysis.complexity, analysis.quality_score, dl_result
+            "Code Analysis:\nLanguage: {}\nComplexity: {:.2}\nQuality Score: {:.2}\nORACLE: {}\nDL Processing: {}",
+            analysis.language, analysis.complexity, analysis.quality_score, oracle_summary, dl_result
         );
         
         let generation_time_ms = start_time.elapsed().as_millis() as u64;

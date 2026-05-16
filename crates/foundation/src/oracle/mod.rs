@@ -68,7 +68,7 @@ impl OracleVortexIntegration {
     }
 
     /// Enhanced code analysis with Vortex
-    pub async fn enhanced_code_analysis(&self, code: &str) -> Result<EnhancedCodeAnalysis, Box<dyn std::error::Error>> {
+    pub async fn enhanced_code_analysis(&self, code: &str) -> Result<EnhancedCodeAnalysis, Box<dyn std::error::Error + Send + Sync>> {
         let mut analysis = EnhancedCodeAnalysis::new();
 
         // Original ORACLE analysis

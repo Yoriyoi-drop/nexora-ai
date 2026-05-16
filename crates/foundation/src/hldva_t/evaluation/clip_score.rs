@@ -199,9 +199,9 @@ impl super::Metric for CLIPScoreMetric {
         // For the trait implementation, we'll use a simplified approach
         // assuming the first input is an image and calculating a self-score
         let image = &inputs[0];
-        let dummy_text = "dummy text for evaluation".to_string();
+        let default_text = String::new();
         
-        self.calculate_single_clip_score(image, &dummy_text)
+        self.calculate_single_clip_score(image, &default_text)
     }
     
     fn name(&self) -> &str {

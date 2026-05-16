@@ -21,6 +21,7 @@ use crate::shared::{
     deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
     gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
     safety_gate::global_safety,
+    foundation_components::FoundationComponents,
 };
 
 use self::{
@@ -39,6 +40,7 @@ pub struct NxrGenesisModel {
     capabilities: GenesisCapabilities,
     dl_engine: DeepLearningEngine,
     gnac_engine: GnacEngine,
+    components: FoundationComponents,
 }
 
 #[derive(Debug, Clone)]
@@ -154,10 +156,17 @@ impl NxrGenesisModel {
             capabilities,
             dl_engine,
             gnac_engine,
+            components: FoundationComponents::new(),
         }
     }
 
     async fn evolve_and_respond(&self, input: &str) -> NxrModelResult<String> {
+        // Tokenize input
+        let tokens = {
+            let tokenizer = self.components.tokenizer.read();
+            tokenizer.encode(input)
+        };
+
         // Process input with deep learning
         let dl_result = self.dl_process(input).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
@@ -168,13 +177,14 @@ impl NxrGenesisModel {
         let response = self.generate_evolved_response(input, &evolution_analysis, &emergence_detection)?;
         
         Ok(format!(
-            "Evolved Response (Gen {}):\nFitness: {:.3}\nEmergent Capabilities: {}\nSelf-Improvement: {}\nResponse: {}\nDL Processing: {}",
+            "Evolved Response (Gen {}):\nFitness: {:.3}\nEmergent Capabilities: {}\nSelf-Improvement: {}\nResponse: {}\nDL Processing: {} (tokens: {})",
             evolution_analysis.generation,
             evolution_analysis.fitness_score,
             emergence_detection.new_capabilities.len(),
             self_improvement.improvement_areas.join(", "),
             response,
-            dl_result
+            dl_result,
+            tokens.len()
         ))
     }
 

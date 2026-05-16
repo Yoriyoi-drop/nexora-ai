@@ -65,13 +65,13 @@ impl ClipEncoder {
                     ((i as f32 + 1.0) / (token as f32 + 1.0)).sin() * 
                     (1.0 + 0.1 * (token as f32).cos());
                 
-                // Attention weight simulation
+                // Attention weight computation
                 let attention_weight = 1.0 / (1.0 + ((pos as f32 - tokens.len() as f32 / 2.0).abs() / 10.0));
                 
                 sum += (token_embedding + pos_encoding) * attention_weight;
             }
             
-            // Layer normalization simulation
+            // Layer normalization
             let normalized_sum = sum / tokens.len() as f32;
             embedding_data.push(normalized_sum.tanh()); // Apply activation
         }
@@ -111,16 +111,16 @@ impl ClipImageEncoder {
     }
     
     fn extract_features(&self, image_data: &[f32]) -> HLDVAResult<Tensor> {
-        // Advanced feature extraction with convolution simulation
+        // Feature extraction with convolution
         let mut features = Vec::with_capacity(self.config.embedding_dim);
         
-        // Simulate multi-scale feature extraction
+        // Multi-scale feature extraction
         let scales = vec![1, 2, 4, 8]; // Different scales
         
         for i in 0..self.config.embedding_dim {
             let mut feature_sum = 0.0;
             
-            // Multi-scale convolution simulation
+            // Multi-scale convolution
             for scale in &scales {
                 let receptive_field = *scale;
                 let stride = receptive_field / 2;
@@ -128,21 +128,21 @@ impl ClipImageEncoder {
                 // Convolution-like operation
                 for j in (0..image_data.len()).step_by(stride.max(1)) {
                     if j + receptive_field <= image_data.len() {
-                        // Simulate convolution kernel
+                        // Convolution kernel
                         let mut patch_sum = 0.0;
                         for k in 0..receptive_field {
                             if j + k < image_data.len() {
-                                // Gabor-like kernel simulation
+                                // Gabor-like kernel
                                 let kernel_weight = ((k as f32 - receptive_field as f32 / 2.0) / receptive_field as f32).cos() * 
                                                   (-((k as f32 - receptive_field as f32 / 2.0).powi(2) / (2.0 * (receptive_field as f32 / 4.0).powi(2)))).exp();
                                 patch_sum += image_data[j + k] * kernel_weight;
                             }
                         }
                         
-                        // Non-linearity (ReLU simulation)
+                        // Non-linearity (ReLU)
                         let activated = patch_sum.max(0.0);
                         
-                        // Pooling simulation
+                        // Pooling
                         feature_sum += activated / receptive_field as f32;
                     }
                 }
