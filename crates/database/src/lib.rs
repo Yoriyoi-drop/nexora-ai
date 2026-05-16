@@ -2,7 +2,7 @@
 //! 
 //! High-performance database abstraction layer replacing database.c
 
-#![allow(dead_code, unused_imports, unused_variables)]
+
 
 use std::collections::HashMap;
 use std::sync::Arc;

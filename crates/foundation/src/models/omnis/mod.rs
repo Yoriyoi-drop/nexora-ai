@@ -20,6 +20,7 @@ use crate::shared::{
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
+    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
 };
 
 use self::{
@@ -44,6 +45,8 @@ pub struct NxrOmnisModel {
     capabilities: OmnisCapabilities,
     /// Deep learning engine
     dl_engine: DeepLearningEngine,
+    /// GNAC engine
+    gnac_engine: GnacEngine,
 }
 
 /// NXR-OMNIS Model State
@@ -230,6 +233,8 @@ impl NxrOmnisModel {
         let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
             .expect("Failed to initialize deep learning engine");
 
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -243,6 +248,7 @@ impl NxrOmnisModel {
             agents: OmnisAgents::new(&config),
             capabilities,
             dl_engine,
+            gnac_engine,
         }
     }
 
@@ -252,6 +258,8 @@ impl NxrOmnisModel {
         let capabilities = OmnisCapabilities::new();
         let initial_state = OmnisState::default();
         let initial_metrics = OmnisMetrics::default();
+
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
 
         let mut model = Self {
             base: crate::shared::base_model::BaseNxrModel::new(
@@ -265,6 +273,9 @@ impl NxrOmnisModel {
             architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
+            dl_engine: DeepLearningEngine::new(config.deep_learning.clone())
+                .expect("Failed to initialize deep learning engine"),
+            gnac_engine,
         };
 
         // Initialize components
@@ -553,6 +564,16 @@ impl DeepLearningModel for NxrOmnisModel {
 
     fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
         &mut self.dl_engine
+    }
+}
+
+impl GnacModel for NxrOmnisModel {
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.gnac_engine
+    }
+
+    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
+        &mut self.gnac_engine
     }
 }
 

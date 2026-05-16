@@ -15,10 +15,12 @@
 
 pub mod star_x;
 pub mod echo_net;
+pub mod gnac;
 
 // Re-export main components
 pub use echo_net::*;
 pub use star_x::*;
+pub use gnac::*;
 
 
 use anyhow::Result;

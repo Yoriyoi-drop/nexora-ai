@@ -19,6 +19,7 @@ use crate::shared::{
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
+    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
 };
 
 use self::{
@@ -36,6 +37,7 @@ pub struct NxrCipherModel {
     agents: CipherAgents,
     capabilities: CipherCapabilities,
     dl_engine: DeepLearningEngine,
+    gnac_engine: GnacEngine,
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +113,8 @@ impl NxrCipherModel {
         let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
             .expect("Failed to initialize deep learning engine");
 
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -124,6 +128,7 @@ impl NxrCipherModel {
             agents: CipherAgents::new(&config),
             capabilities,
             dl_engine,
+            gnac_engine,
         }
     }
 
@@ -362,6 +367,16 @@ impl DeepLearningModel for NxrCipherModel {
 
     fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
         &mut self.dl_engine
+    }
+}
+
+impl GnacModel for NxrCipherModel {
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.gnac_engine
+    }
+
+    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
+        &mut self.gnac_engine
     }
 }
 

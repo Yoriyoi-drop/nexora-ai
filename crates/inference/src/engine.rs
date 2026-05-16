@@ -429,22 +429,13 @@ impl InferenceEngine {
                     let request_id = request.request_id;
                     debug!("Received request: {}", request_id);
                     
-                    // Create shared references for the task
-                    let runtime = self.runtime.clone();
                     let scheduler = self.scheduler.clone();
-                    let kv_cache = self.kv_cache.clone();
-                    let session_manager = self.session_manager.clone();
-                    let streaming_engine = self.streaming_engine.clone();
                     let active_requests = self.active_requests.clone();
                     
                     let task = tokio::spawn(async move {
                         if let Err(e) = Self::process_single_request_internal(
                             request,
-                            runtime,
                             scheduler,
-                            kv_cache,
-                            session_manager,
-                            streaming_engine,
                             active_requests,
                         ).await {
                             error!("Failed to process request {}: {}", request_id, e);
@@ -478,14 +469,9 @@ impl InferenceEngine {
         Ok(())
     }
     
-    /// Process a single inference request internally
     async fn process_single_request_internal(
         request: InferenceRequest,
-        _runtime: Arc<InferenceRuntime>,
         scheduler: Arc<RwLock<RequestScheduler>>,
-        _kv_cache: Arc<RwLock<KVCache>>,
-        _session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
-        _streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
         active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     ) -> Result<()> {
         let request_id = request.request_id;

@@ -4,13 +4,7 @@
 //! for all AI frameworks in the Nexora ecosystem.
 //! Now includes NXR Model Series foundation implementations.
 
-#![allow(
-    dead_code,
-    unused_imports,
-    unused_variables,
-    unreachable_patterns,
-    deprecated
-)]
+#![allow(deprecated)]
 
 // Include framework modules
 

@@ -3,7 +3,7 @@
 //! Model-specific configuration for NXR-SWIFT
 
 use serde::{Deserialize, Serialize};
-use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
+use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-SWIFT Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +20,8 @@ pub struct SwiftConfig {
     pub agents: AgentConfig,
     /// Deep learning configuration
     pub deep_learning: DeepLearningConfig,
+    /// GNAC integration configuration
+    pub gnac: GnacIntegrationConfig,
 }
 
 /// Performance Configuration
@@ -419,6 +421,7 @@ impl Default for SwiftConfig {
             workflow_integration: WorkflowIntegrationConfig::default(),
             agents: AgentConfig::default(),
             deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 }

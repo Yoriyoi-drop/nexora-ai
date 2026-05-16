@@ -13,7 +13,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
+    deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
+    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
 };
 
 // Include all Vortex modules
@@ -44,6 +45,8 @@ pub struct NxrVortexModel {
     capabilities: VortexCapabilities,
     /// Deep learning engine
     dl_engine: DeepLearningEngine,
+    /// GNAC engine
+    gnac_engine: GnacEngine,
 }
 
 /// NXR-VORTEX Model State
@@ -403,6 +406,8 @@ pub struct VortexConfig {
     pub code_analysis: CodeAnalysisConfig,
     pub debugging: DebuggingConfig,
     pub architecture: ArchitectureConfig,
+    pub deep_learning: DeepLearningConfig,
+    pub gnac: GnacIntegrationConfig,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -445,6 +450,8 @@ impl Default for VortexConfig {
                 max_complexity_analysis: 10.0,
                 enable_optimization_suggestions: true,
             },
+            deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 }
@@ -467,6 +474,8 @@ impl NxrVortexModel {
         let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
             .expect("Failed to initialize deep learning engine");
 
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -480,6 +489,7 @@ impl NxrVortexModel {
             agents: VortexAgents::new(),
             capabilities,
             dl_engine,
+            gnac_engine,
         }
     }
 }
@@ -688,6 +698,16 @@ impl DeepLearningModel for NxrVortexModel {
 
     fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
         &mut self.dl_engine
+    }
+}
+
+impl GnacModel for NxrVortexModel {
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.gnac_engine
+    }
+
+    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
+        &mut self.gnac_engine
     }
 }
 

@@ -3,7 +3,7 @@
 //! Model-specific configuration for NXR-KRONOS
 
 use serde::{Deserialize, Serialize};
-use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
+use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-KRONOS Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +20,8 @@ pub struct KronosConfig {
     pub agents: AgentConfig,
     /// Deep learning configuration
     pub deep_learning: DeepLearningConfig,
+    /// GNAC integration configuration
+    pub gnac: GnacIntegrationConfig,
 }
 
 /// Indexing Configuration
@@ -347,6 +349,7 @@ impl Default for KronosConfig {
             knowledge_graph: KnowledgeGraphConfig::default(),
             agents: AgentConfig::default(),
             deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 }

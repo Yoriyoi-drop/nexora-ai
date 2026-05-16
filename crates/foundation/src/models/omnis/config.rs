@@ -3,7 +3,7 @@
 //! Model-specific configuration for NXR-OMNIS
 
 use serde::{Deserialize, Serialize};
-use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
+use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-OMNIS Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +22,8 @@ pub struct OmnisConfig {
     pub truth_arbitration: TruthArbitrationConfig,
     /// Deep learning configuration
     pub deep_learning: DeepLearningConfig,
+    /// GNAC integration configuration
+    pub gnac: GnacIntegrationConfig,
 }
 
 /// Reasoning configuration
@@ -513,6 +515,7 @@ impl Default for OmnisConfig {
             meta_reasoning: MetaReasoningConfig::default(),
             truth_arbitration: TruthArbitrationConfig::default(),
             deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 }

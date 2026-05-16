@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/nexora-ai/nexora-ai"
 homepage = "https://nexora.ai"
 documentation = "https://docs.nexora.ai/deeplearning"
-keywords = ["deep-learning", "neural-networks", "star-x", "rnn", "ai", "machine-learning"]
+keywords = ["deep-learning", "neural-networks", "star-x", "gnac", "rnn", "ai", "machine-learning", "no-code", "architecture-search"]
 categories = ["science", "algorithms", "mathematics"]
 readme = "README.md"
 

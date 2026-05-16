@@ -19,6 +19,7 @@ use crate::shared::{
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
+    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
 };
 
 use self::{
@@ -36,6 +37,7 @@ pub struct NxrKronosModel {
     agents: KronosAgents,
     capabilities: KronosCapabilities,
     dl_engine: DeepLearningEngine,
+    gnac_engine: GnacEngine,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +125,8 @@ impl NxrKronosModel {
         let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
             .expect("Failed to initialize deep learning engine");
 
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -136,6 +140,7 @@ impl NxrKronosModel {
             agents: KronosAgents::new(&config),
             capabilities,
             dl_engine,
+            gnac_engine,
         }
     }
 
@@ -403,6 +408,16 @@ impl DeepLearningModel for NxrKronosModel {
 
     fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
         &mut self.dl_engine
+    }
+}
+
+impl GnacModel for NxrKronosModel {
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.gnac_engine
+    }
+
+    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
+        &mut self.gnac_engine
     }
 }
 

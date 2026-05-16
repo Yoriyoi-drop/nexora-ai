@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use crate::shared::model_config::NxrModelConfig;
+use crate::shared::deeplearning_integration::DeepLearningConfig;
+use crate::shared::gnac_integration::GnacIntegrationConfig;
 
 /// NXR-GENESIS Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,6 +20,10 @@ pub struct GenesisConfig {
     pub creative: CreativeConfig,
     /// Agent configuration
     pub agents: AgentConfig,
+    /// Deep learning configuration
+    pub deep_learning: DeepLearningConfig,
+    /// GNAC integration configuration
+    pub gnac: GnacIntegrationConfig,
 }
 
 /// Generative Configuration
@@ -290,6 +296,8 @@ impl Default for GenesisConfig {
             evolutionary: EvolutionaryConfig::default(),
             creative: CreativeConfig::default(),
             agents: AgentConfig::default(),
+            deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 }

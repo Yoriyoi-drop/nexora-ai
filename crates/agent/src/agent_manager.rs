@@ -4,7 +4,7 @@
 //! Bertanggung jawab untuk spawn, stop, dan monitoring agent.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::Arc as StdArc;
 use tokio::sync::{RwLock, mpsc, oneshot};
 use uuid::Uuid;
 use tracing::{info, warn, error, debug};
@@ -48,19 +48,19 @@ impl Default for AgentManagerConfig {
 /// Manager untuk semua agent
 pub struct AgentManager {
     /// Registry untuk tracking agent
-    registry: Arc<AgentRegistry>,
+    registry: StdArc<AgentRegistry>,
     /// Lifecycle manager
-    lifecycle: Arc<LifecycleManager>,
+    lifecycle: StdArc<LifecycleManager>,
     /// Message bus untuk komunikasi
-    message_bus: Arc<MessageBus>,
+    message_bus: StdArc<MessageBus>,
     /// Shared state
-    state: Arc<AgentState>,
+    state: StdArc<AgentState>,
     /// Konfigurasi
     config: AgentManagerConfig,
-    /// Channel untuk menerima command
-    command_rx: RwLock<Option<mpsc::UnboundedReceiver<ManagerCommand>>>,
+    /// Channel untuk menerima command (shared via Arc agar Clone tidak duplikasi)
+    command_rx: StdArc<RwLock<Option<mpsc::UnboundedReceiver<ManagerCommand>>>>,
     /// Channel untuk mengirim command
-    command_tx: mpsc::UnboundedSender<ManagerCommand>,
+    command_tx: StdArc<mpsc::UnboundedSender<ManagerCommand>>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -118,19 +118,19 @@ impl AgentManager {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         
         Self {
-            registry: Arc::new(AgentRegistry::new()),
-            lifecycle: Arc::new(LifecycleManager::new(config.clone())),
-            message_bus: Arc::new(MessageBus::new()),
-            state: Arc::new(AgentState::new()),
+            registry: StdArc::new(AgentRegistry::new()),
+            lifecycle: StdArc::new(LifecycleManager::new(config.clone())),
+            message_bus: StdArc::new(MessageBus::new()),
+            state: StdArc::new(AgentState::new()),
             config,
-            command_rx: RwLock::new(Some(command_rx)),
-            command_tx,
+            command_rx: StdArc::new(RwLock::new(Some(command_rx))),
+            command_tx: StdArc::new(command_tx),
         }
     }
     
     /// Get command sender untuk external communication
     pub fn command_sender(&self) -> mpsc::UnboundedSender<ManagerCommand> {
-        self.command_tx.clone()
+        (*self.command_tx).clone()
     }
     
     /// Start agent manager
@@ -398,7 +398,7 @@ impl AgentManager {
             }
             "routing" => {
                 // Create routing agent
-                let specialist_models = Arc::new(HashMap::new());
+                let specialist_models = StdArc::new(HashMap::new());
                 let config = crate::routing_agent::RoutingAgentConfig::default();
                 let agent = crate::routing_agent::RoutingAgent::new(specialist_models, config);
                 Ok(Box::new(agent))
@@ -411,7 +411,7 @@ impl AgentManager {
             }
             "memory" => {
                 // Create memory agent
-                let memory_store = Arc::new(tokio::sync::RwLock::new(nexora_memory::MemoryLayers::new()));
+                let memory_store = StdArc::new(tokio::sync::RwLock::new(nexora_memory::MemoryLayers::new()));
                 let config = crate::memory_agent::MemoryAgentConfig::default();
                 let agent = crate::memory_agent::MemoryAgent::new(memory_store, config);
                 Ok(Box::new(agent))
@@ -441,29 +441,25 @@ impl AgentManager {
     }
     
     /// Get memory store instance
-    async fn get_memory_store(&self) -> Result<Arc<nexora_memory::MemoryLayers>> {
+    async fn get_memory_store(&self) -> Result<StdArc<nexora_memory::MemoryLayers>> {
         // Create or get memory store instance
         // In a real implementation, this might use dependency injection
         let _memory_config = nexora_memory::lru_memory::MemoryConfig::default();
-        let memory_store = Arc::new(nexora_memory::MemoryLayers::new());
+        let memory_store = StdArc::new(nexora_memory::MemoryLayers::new());
         Ok(memory_store)
     }
 }
 
-// Implement Clone untuk AgentManager
 impl Clone for AgentManager {
     fn clone(&self) -> Self {
-        // Create new command channel for the cloned manager
-        let (new_tx, new_rx) = tokio::sync::mpsc::unbounded_channel();
-        
         Self {
-            registry: Arc::clone(&self.registry),
-            lifecycle: Arc::clone(&self.lifecycle),
-            message_bus: Arc::clone(&self.message_bus),
-            state: Arc::clone(&self.state),
+            registry: StdArc::clone(&self.registry),
+            lifecycle: StdArc::clone(&self.lifecycle),
+            message_bus: StdArc::clone(&self.message_bus),
+            state: StdArc::clone(&self.state),
             config: self.config.clone(),
-            command_rx: RwLock::new(Some(new_rx)),
-            command_tx: new_tx,
+            command_rx: StdArc::clone(&self.command_rx),
+            command_tx: StdArc::clone(&self.command_tx),
         }
     }
 }

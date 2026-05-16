@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
+use crate::shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-AXIOM Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +27,8 @@ pub struct AxiomConfig {
     pub resources: ResourceConfig,
     /// Deep learning configuration
     pub deep_learning: DeepLearningConfig,
+    /// GNAC integration configuration
+    pub gnac: GnacIntegrationConfig,
 }
 
 /// Logical Reasoning Configuration
@@ -1865,6 +1867,7 @@ impl AxiomConfig {
             performance,
             resources,
             deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 

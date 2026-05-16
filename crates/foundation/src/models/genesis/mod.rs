@@ -18,6 +18,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
+    deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
+    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
 };
 
 use self::{
@@ -34,6 +36,8 @@ pub struct NxrGenesisModel {
     architecture: GenesisArchitecture,
     agents: GenesisAgents,
     capabilities: GenesisCapabilities,
+    dl_engine: DeepLearningEngine,
+    gnac_engine: GnacEngine,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +134,11 @@ impl NxrGenesisModel {
         let initial_state = GenesisState::default();
         let initial_metrics = GenesisMetrics::default();
 
+        let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
+            .expect("Failed to initialize deep learning engine");
+
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -142,6 +151,8 @@ impl NxrGenesisModel {
             architecture: GenesisArchitecture::new(&config),
             agents: GenesisAgents::new(&config),
             capabilities,
+            dl_engine,
+            gnac_engine,
         }
     }
 
@@ -385,6 +396,26 @@ impl NxrModel for NxrGenesisModel {
             active_connections: 0,
             queue_size: 0,
         })
+    }
+}
+
+impl DeepLearningModel for NxrGenesisModel {
+    fn dl_engine(&self) -> &DeepLearningEngine {
+        &self.dl_engine
+    }
+
+    fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
+        &mut self.dl_engine
+    }
+}
+
+impl GnacModel for NxrGenesisModel {
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.gnac_engine
+    }
+
+    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
+        &mut self.gnac_engine
     }
 }
 

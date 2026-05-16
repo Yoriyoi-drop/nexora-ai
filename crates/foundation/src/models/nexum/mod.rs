@@ -12,7 +12,8 @@ use crate::shared::{
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
     model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningEngine, DeepLearningModel},
+    deeplearning_integration::{DeepLearningConfig, DeepLearningEngine, DeepLearningModel},
+    gnac_integration::{GnacEngine, GnacModel, GnacIntegrationConfig},
 };
 
 // Include all Nexum modules
@@ -34,6 +35,7 @@ pub struct NxrNexumModel {
     identity: NexumIdentity,
     capabilities: NexumCapabilities,
     dl_engine: DeepLearningEngine,
+    gnac_engine: GnacEngine,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +111,8 @@ impl NexumCapabilities {
 pub struct NexumConfig {
     pub base: NxrModelConfig,
     pub orchestration: OrchestrationConfig,
+    pub deep_learning: DeepLearningConfig,
+    pub gnac: GnacIntegrationConfig,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -127,6 +131,8 @@ impl Default for NexumConfig {
                 coordination_strategy: "adaptive".to_string(),
                 consensus_threshold: 0.8,
             },
+            deep_learning: DeepLearningConfig::star_x(),
+            gnac: GnacIntegrationConfig::default(),
         }
     }
 }
@@ -172,6 +178,8 @@ impl NxrNexumModel {
         let dl_engine = DeepLearningEngine::new(config.deep_learning.clone())
             .expect("Failed to initialize deep learning engine");
 
+        let gnac_engine = GnacEngine::new(GnacIntegrationConfig::default());
+
         Self {
             base: crate::shared::base_model::BaseNxrModel::new(
                 identity.meta().clone(),
@@ -183,6 +191,7 @@ impl NxrNexumModel {
             identity,
             capabilities,
             dl_engine,
+            gnac_engine,
         }
     }
 
@@ -413,6 +422,16 @@ impl DeepLearningModel for NxrNexumModel {
 
     fn dl_engine_mut(&mut self) -> &mut DeepLearningEngine {
         &mut self.dl_engine
+    }
+}
+
+impl GnacModel for NxrNexumModel {
+    fn gnac_engine(&self) -> &GnacEngine {
+        &self.gnac_engine
+    }
+
+    fn gnac_engine_mut(&mut self) -> &mut GnacEngine {
+        &mut self.gnac_engine
     }
 }
 
