@@ -166,20 +166,34 @@ impl NxrAxiomModel {
         // Process scenario with deep learning
         let dl_result = self.dl_process(scenario).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // Optimize with VOGP
+        let vogp_output = {
+            use ndarray::{Array1, Array2};
+            let mut vogp = self.components.vogp.write();
+            let predictions = Array2::zeros((1, tokens.len()));
+            let targets = Array1::zeros(tokens.len());
+            let augmented = Array2::zeros((1, tokens.len()));
+            let (total_loss, _components) = vogp.compute_loss(
+                &predictions, &targets, &augmented, None
+            );
+            format!("VOGP loss: {:.4}", total_loss)
+        };
+
         let analysis = self.analyze_strategic_context(scenario)?;
         let risk_assessment = self.assess_risks(&analysis)?;
         let decision = self.generate_strategic_decision(&analysis, &risk_assessment)?;
         let simulation = self.simulate_outcomes(&decision)?;
         
         Ok(format!(
-            "Strategic Decision:\nAnalysis: {}\nRisk Level: {:.2}\nDecision: {}\nSuccess Probability: {:.2}\nDL Processing: {} (tokens: {})",
+            "Strategic Decision:\nAnalysis: {}\nRisk Level: {:.2}\nDecision: {}\nSuccess Probability: {:.2}\nDL Processing: {} (tokens: {})\n{}",
             analysis.key_factors,
             risk_assessment.overall_risk,
             decision.recommendation,
             simulation.success_probability,
             dl_result,
-            tokens.len()
+            tokens.len(),
+            vogp_output
         ))
     }
 

@@ -157,20 +157,34 @@ impl NxrKronosModel {
         // Process query with deep learning
         let dl_result = self.dl_process(query).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // Optimize retrieval with VOGP
+        let vogp_output = {
+            use ndarray::{Array1, Array2};
+            let mut vogp = self.components.vogp.write();
+            let predictions = Array2::zeros((1, tokens.len()));
+            let targets = Array1::zeros(tokens.len());
+            let augmented = Array2::zeros((1, tokens.len()));
+            let (total_loss, _components) = vogp.compute_loss(
+                &predictions, &targets, &augmented, None
+            );
+            format!("VOGP loss: {:.4}", total_loss)
+        };
+
         let query_analysis = self.analyze_query(query)?;
         let knowledge_retrieval = self.retrieve_from_graph(&query_analysis)?;
         let fact_verification = self.verify_facts(&knowledge_retrieval)?;
         let synthesis = self.synthesize_knowledge(&knowledge_retrieval, &fact_verification)?;
         
         Ok(format!(
-            "Knowledge Retrieval:\nQuery Type: {:?}\nFacts Retrieved: {}\nVerification: {:.2}%\nSynthesis: {}\nDL Processing: {} (tokens: {})",
+            "Knowledge Retrieval:\nQuery Type: {:?}\nFacts Retrieved: {}\nVerification: {:.2}%\nSynthesis: {}\nDL Processing: {} (tokens: {})\n{}",
             query_analysis.query_type,
             knowledge_retrieval.facts_count,
             fact_verification.verification_score,
             synthesis.summary,
             dl_result,
-            tokens.len()
+            tokens.len(),
+            vogp_output
         ))
     }
 

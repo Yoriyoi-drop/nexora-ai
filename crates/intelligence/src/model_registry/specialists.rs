@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use async_trait::async_trait;
+use rand::Rng;
 
 /// Specialist model trait
 pub trait SpecialistModel: Send + Sync {

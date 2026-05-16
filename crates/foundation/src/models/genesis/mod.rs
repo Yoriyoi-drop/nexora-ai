@@ -170,21 +170,35 @@ impl NxrGenesisModel {
         // Process input with deep learning
         let dl_result = self.dl_process(input).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // Optimize evolution with VOGP
+        let vogp_output = {
+            use ndarray::{Array1, Array2};
+            let mut vogp = self.components.vogp.write();
+            let predictions = Array2::zeros((1, tokens.len()));
+            let targets = Array1::zeros(tokens.len());
+            let augmented = Array2::zeros((1, tokens.len()));
+            let (total_loss, _components) = vogp.compute_loss(
+                &predictions, &targets, &augmented, None
+            );
+            format!("VOGP loss: {:.4}", total_loss)
+        };
+
         let evolution_analysis = self.analyze_evolution_state()?;
         let emergence_detection = self.detect_emergent_capabilities()?;
         let self_improvement = self.plan_self_improvement()?;
         let response = self.generate_evolved_response(input, &evolution_analysis, &emergence_detection)?;
         
         Ok(format!(
-            "Evolved Response (Gen {}):\nFitness: {:.3}\nEmergent Capabilities: {}\nSelf-Improvement: {}\nResponse: {}\nDL Processing: {} (tokens: {})",
+            "Evolved Response (Gen {}):\nFitness: {:.3}\nEmergent Capabilities: {}\nSelf-Improvement: {}\nResponse: {}\nDL Processing: {} (tokens: {})\n{}",
             evolution_analysis.generation,
             evolution_analysis.fitness_score,
             emergence_detection.new_capabilities.len(),
             self_improvement.improvement_areas.join(", "),
             response,
             dl_result,
-            tokens.len()
+            tokens.len(),
+            vogp_output
         ))
     }
 

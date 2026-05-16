@@ -15,7 +15,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Main monitoring system
 pub struct MonitoringSystem {

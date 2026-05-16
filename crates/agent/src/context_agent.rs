@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 
 use crate::{
-    Agent, Result, AgentMessage, AgentResponse, AgentStatus,
+    Agent, AgentError, Result, AgentMessage, AgentResponse, AgentStatus,
     AgentContext, AgentStats, AgentConfig
 };
 use nexora_memory::MemoryLayers;

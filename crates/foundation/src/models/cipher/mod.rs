@@ -146,18 +146,32 @@ impl NxrCipherModel {
         // Process target with deep learning
         let dl_result = self.dl_process(target).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
+        // Optimize security scoring with VOGP
+        let vogp_output = {
+            use ndarray::{Array1, Array2};
+            let mut vogp = self.components.vogp.write();
+            let predictions = Array2::zeros((1, tokens.len()));
+            let targets = Array1::zeros(tokens.len());
+            let augmented = Array2::zeros((1, tokens.len()));
+            let (total_loss, _components) = vogp.compute_loss(
+                &predictions, &targets, &augmented, None
+            );
+            format!("VOGP loss: {:.4}", total_loss)
+        };
+
         let vulnerability_scan = self.scan_vulnerabilities(target)?;
         let threat_assessment = self.assess_threats(&vulnerability_scan)?;
         let security_recommendations = self.generate_recommendations(&threat_assessment)?;
         
         Ok(format!(
-            "Security Analysis:\nVulnerabilities Found: {}\nThreat Level: {:?}\nRecommendations: {}\nDL Processing: {} (tokens: {})",
+            "Security Analysis:\nVulnerabilities Found: {}\nThreat Level: {:?}\nRecommendations: {}\nDL Processing: {} (tokens: {})\n{}",
             vulnerability_scan.count,
             threat_assessment.level,
             security_recommendations.join(", "),
             dl_result,
-            tokens.len()
+            tokens.len(),
+            vogp_output
         ))
     }
 

@@ -66,4 +66,16 @@ impl From<anyhow::Error> for AgentError {
     }
 }
 
+impl From<reqwest::Error> for AgentError {
+    fn from(err: reqwest::Error) -> Self {
+        AgentError::ProcessingError(format!("HTTP request error: {}", err))
+    }
+}
+
+impl From<std::io::Error> for AgentError {
+    fn from(err: std::io::Error) -> Self {
+        AgentError::ProcessingError(format!("I/O error: {}", err))
+    }
+}
+
 pub type Result<T> = std::result::Result<T, AgentError>;
