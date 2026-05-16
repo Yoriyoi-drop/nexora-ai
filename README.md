@@ -34,17 +34,17 @@ nexora-dashboard (app)   # TUI dashboard
 10 specialized models in `crates/foundation`:
 
 | Model | Domain | Integration |
-|---|---|---|
-| **Omnis** | General-purpose | ERP pruning, MoE FFN |
-| **Vortex** | Code analysis | ORACLE code verifier |
-| **Swift** | Edge inference | ATQS compression |
-| **Sentry** | Safety/guard | VOGP optimizer |
-| **Aether** | Emotional/cognitive | SACA reasoning |
-| **Echo** | Conversational | — |
-| **Vertex** | Vision/graph | VOGP optimizer |
-| **Spectra** | Multimodal | CAFFEINE encoder |
-| **Solara** | Lightweight | — |
-| **Nexum** | Agent orchestration | SPARO alignment |
+|---|---|---|---|
+| **Omnis** | General-purpose | ERP pruning, MoE FFN, VOGP optimizer |
+| **Vortex** | Code analysis | MoE FFN, ORACLE verifier, VOGP optimizer |
+| **Swift** | Edge inference | ATQS compression, VOGP optimizer |
+| **Aether** | Emotional/cognitive | SACA reasoning, VOGP optimizer |
+| **Spectra** | Multimodal | CAFFEINE encoder, VOGP optimizer |
+| **Nexum** | Agent orchestration | SPARO alignment, VOGP optimizer |
+| **Axiom** | Strategic decision | VOGP optimizer |
+| **Cipher** | Security/network | VOGP optimizer |
+| **Kronos** | Scientific knowledge | VOGP optimizer |
+| **Genesis** | Evolutionary learning | VOGP optimizer |
 
 All models share `FoundationComponents` (ERP engine, VOGP engine, ATQS compressor, MoE FFN, Tokenizer) and deep learning integration (STar-X tensor ops, EchoNet, GNAC, Autograd).
 
