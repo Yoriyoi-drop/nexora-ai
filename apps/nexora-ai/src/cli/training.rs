@@ -1,374 +1,355 @@
-//! Training and evaluation functionality for CLI
-
 use anyhow::Result;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::sync::RwLock;
 use tracing::{info, warn};
+use tokio::signal;
+use chrono::Utc;
 
 use crate::NexoraAI;
-use nexora_foundation::models::{EvaluationReport, EvaluationResult};
-use nexora_model::model_registry::specialists::{
-    SpecialistType, TrainingModel, TrainingModelFactory, TrainingSample,
+use nexora_foundation::training::{Trainer, TrainerConfig};
+use nexora_foundation::models::transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
+use nexora_deeplearning::TensorOps;
+use nexora_datastream::{
+    DataSample, SourceInfo, SourceCategory,
+    filter::{LengthFilter, QualityFilter, DedupFilter},
 };
+use nexora_tokenizer::BpeTokenizer;
 
 impl crate::cli::commands::Cli {
-    /// Run train command
     pub async fn run_train(
         &self,
-        nexora: &NexoraAI,
+        _nexora: &NexoraAI,
         data: &PathBuf,
         output: &PathBuf,
+        tokenizer_path: &Option<PathBuf>,
         epochs: usize,
         batch_size: usize,
         learning_rate: f32,
         gpu: bool,
     ) -> Result<()> {
-        info!("Training model with data: {:?}", data);
+        info!("=== NEXORA TRAINING ===");
+        info!("Data: {:?}", data);
         info!("Output: {:?}", output);
-        info!("Epochs: {}, Batch size: {}, Learning rate: {}, GPU: {}", 
-              epochs, batch_size, learning_rate, gpu);
-        
-        // Validate input parameters
-        if epochs == 0 {
-            return Err(anyhow::anyhow!("Epochs must be greater than 0"));
-        }
-        if batch_size == 0 {
-            return Err(anyhow::anyhow!("Batch size must be greater than 0"));
-        }
-        if learning_rate <= 0.0 || learning_rate > 1.0 {
-            return Err(anyhow::anyhow!("Learning rate must be between 0.0 and 1.0"));
-        }
-        
-        // Check if data file exists
+        info!("Epochs: {}, Batch: {}, LR: {}, GPU: {}", epochs, batch_size, learning_rate, gpu);
+
         if !data.exists() {
-            return Err(anyhow::anyhow!("Training data file not found: {:?}", data));
+            return Err(anyhow::anyhow!("Training data not found: {:?}", data));
         }
-        
-        // Create output directory if it doesn't exist
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        
-        info!("Loading training data...");
-        let training_data = self.load_training_data(data).await?;
-        info!("Loaded {} training samples", training_data.len());
-        
-        if training_data.is_empty() {
-            return Err(anyhow::anyhow!("No training data found"));
-        }
-        
-        info!("Initializing model...");
-        let model = nexora.get_training_model().await?;
-        
-        info!("Starting training...");
-        let mut total_loss = 0.0f32;
-        let mut samples_processed = 0usize;
-        
-        for epoch in 1..=epochs {
-            info!("Starting epoch {}/{}", epoch, epochs);
-            let mut epoch_loss = 0.0f32;
-            
-            // Process batches
-            for (batch_idx, batch) in training_data.chunks(batch_size).enumerate() {
-                let batch_loss = self.train_batch(&model, batch, learning_rate, gpu).await?;
-                epoch_loss += batch_loss;
-                total_loss += batch_loss;
-                samples_processed += batch.len();
-                
-                if batch_idx % 10 == 0 {
-                    info!("  Batch {}/{}: loss = {:.4}", batch_idx + 1, 
-                          (training_data.len() + batch_size - 1) / batch_size, batch_loss);
+
+        info!("[1/6] Membaca data training...");
+        let raw_text = std::fs::read_to_string(data)?;
+        let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
+        info!("  {} baris teks dibaca", lines.len());
+
+        info!("[2/6] Mempersiapkan tokenizer...");
+        let tokenizer: Arc<RwLock<BpeTokenizer>> = if let Some(tok_path) = tokenizer_path {
+            if tok_path.exists() {
+                info!("  Load existing tokenizer dari {:?}", tok_path);
+                let loaded = BpeTokenizer::load(tok_path)
+                    .map_err(|e| anyhow::anyhow!("Gagal load tokenizer: {}", e))?;
+                info!("  Vocab size: {}", loaded.vocab_size());
+                Arc::new(RwLock::new(loaded))
+            } else {
+                info!("  Train new tokenizer ke {:?}", tok_path);
+                let mut tok = BpeTokenizer::default();
+                tok.train(&raw_text)
+                    .map_err(|e| anyhow::anyhow!("Gagal train tokenizer: {}", e))?;
+                info!("  Vocab size setelah training: {}", tok.vocab_size());
+                tok.save(tok_path)
+                    .map_err(|e| anyhow::anyhow!("Gagal save tokenizer: {}", e))?;
+                Arc::new(RwLock::new(tok))
+            }
+        } else {
+            info!("  No tokenizer path — training default tokenizer dari corpus");
+            let mut tok = BpeTokenizer::default();
+            tok.train(&raw_text)
+                .map_err(|e| anyhow::anyhow!("Gagal train tokenizer: {}", e))?;
+            info!("  Vocab size: {}", tok.vocab_size());
+            Arc::new(RwLock::new(tok))
+        };
+
+        let vocab_size = tokenizer.read().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?.vocab_size();
+        info!("  Vocab size final: {}", vocab_size);
+
+        info!("[3/6] Inisialisasi DataStream pipeline (filter)...");
+        let source = SourceInfo {
+            name: "cli_training".into(),
+            url: None,
+            trust_score: 0.8,
+            category: SourceCategory::Other,
+            fetch_timestamp: Utc::now().timestamp(),
+        };
+
+        let mut graph = nexora_datastream::ExecutionGraph::new();
+        graph.add_node("length", Arc::new(LengthFilter::default()), vec![], true, 1);
+        graph.add_node("quality", Arc::new(QualityFilter::default()), vec!["length".into()], true, 2);
+        graph.add_node("dedup", Arc::new(DedupFilter::new()), vec!["quality".into()], false, 3);
+        graph.finalize();
+
+        let intake = nexora_datastream::StreamIntakeEngine::default();
+        let texts_with_source: Vec<(String, SourceInfo)> = lines.iter()
+            .map(|l| (l.to_string(), source.clone()))
+            .collect();
+        let mut sample_rx = intake.ingest_batch(texts_with_source).await;
+
+        let mut samples: Vec<DataSample> = Vec::new();
+        while let Some(s) = sample_rx.recv().await {
+            let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+            let result = graph.execute(s, cancel_rx).await;
+            drop(cancel_tx);
+            if result.is_accepted() {
+                if let Some(sample) = result.sample() {
+                    samples.push(sample.clone());
                 }
             }
-            
-            let avg_epoch_loss = epoch_loss / ((training_data.len() + batch_size - 1) / batch_size) as f32;
-            info!("Epoch {}/{} completed: average loss = {:.4}", epoch, epochs, avg_epoch_loss);
         }
-        
-        let final_loss = total_loss / samples_processed as f32;
-        info!("Training completed. Final average loss: {:.4}", final_loss);
-        
-        // Save trained model
-        info!("Saving trained model to: {:?}", output);
-        self.save_trained_model(&model, output).await?;
-        
-        // Generate training report
+        info!("  {} sampel lolos filter dari {}", samples.len(), lines.len());
+
+        if samples.is_empty() {
+            return Err(anyhow::anyhow!("Tidak ada data lolos filter"));
+        }
+
+        info!("[4/6] Inisialisasi Trainer + CausalLM...");
+        let seq_length = 128;
+        let max_steps = epochs.max(1) * samples.len().max(1) / batch_size.max(1);
+
+        let trainer_config = TrainerConfig {
+            learning_rate,
+            max_steps: max_steps.max(10),
+            seq_length,
+            vocab_size,
+            save_path: Some(output.to_string_lossy().to_string()),
+            save_every: (max_steps / 10).max(1),
+            report_every: 1,
+        };
+
+        let model_config = TransformerConfig {
+            vocab_size,
+            max_seq_len: seq_length,
+            ..Default::default()
+        };
+        let model = CausalLM::new(model_config);
+        let param_count = model.parameter_count();
+        info!("  Model: {}M parameters", param_count / 1_000_000);
+
+        let mut trainer = Trainer::with_model(model, trainer_config);
+        trainer.prepare();
+        let stop_flag = trainer.stop_signal();
+        info!("  Trainer siap: {} steps, {} seq_length", trainer.config.max_steps, trainer.config.seq_length);
+
+        let stop_flag_c = stop_flag.clone();
+        tokio::spawn(async move {
+            signal::ctrl_c().await.ok();
+            info!("  Sinyal stop diterima! Menyelesaikan batch terakhir...");
+            stop_flag_c.store(true, Ordering::SeqCst);
+        });
+
+        info!("[5/6] Training loop dimulai (Ctrl+C untuk stop)...");
+        let start_time = std::time::Instant::now();
+        let mut step = 0;
+        let total_steps = trainer.config.max_steps;
+
+        'training: for sample in samples.iter().cycle() {
+            if stop_flag.load(Ordering::SeqCst) {
+                info!("  Training dihentikan oleh pengguna");
+                break;
+            }
+
+            let tokens: Vec<u32> = tokenizer
+                .read().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?
+                .encode(&sample.text);
+
+            if tokens.len() < 2 {
+                continue;
+            }
+
+            for chunk in tokens.chunks(seq_length + 1) {
+                if chunk.len() < 2 {
+                    continue;
+                }
+                let (input, target) = trainer.prepare_batch(chunk);
+                if input.is_empty() {
+                    continue;
+                }
+
+                match trainer.train_batch(&input, &target) {
+                    Some(loss) => {
+                        step += 1;
+                        if step % trainer.config.report_every == 0 || step == 1 {
+                            let elapsed = start_time.elapsed();
+                            info!("  Step {}/{} | loss: {:.4} | avg: {:.4} | elapsed: {:?}",
+                                step, total_steps, loss, trainer.avg_loss(), elapsed);
+                        }
+                    }
+                    None => {
+                        info!("  Training dihentikan (stop flag)");
+                        break 'training;
+                    }
+                }
+
+                if stop_flag.load(Ordering::SeqCst) {
+                    break 'training;
+                }
+
+                if step >= total_steps {
+                    break 'training;
+                }
+            }
+        }
+
+        let total_time = start_time.elapsed();
+        let final_steps = step;
+        let final_avg_loss = if final_steps > 0 { trainer.avg_loss() } else { 0.0 };
+
+        info!("[6/6] Menyimpan final checkpoint + tokenizer...");
+        trainer.sync_weights();
+        if final_steps > 0 {
+            let safetensors_path = output.with_extension("safetensors");
+            let save_path_str = safetensors_path.to_string_lossy().to_string();
+            trainer.save(&save_path_str)?;
+            info!("  Checkpoint: {}", safetensors_path.display());
+        } else {
+            warn!("  Tidak ada checkpoint disimpan (0 steps)");
+        }
+
+        if let Some(tok_path) = tokenizer_path {
+            let tok = tokenizer.read().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            tok.save(tok_path)
+                .map_err(|e| anyhow::anyhow!("Gagal save final tokenizer: {}", e))?;
+            info!("  Tokenizer: {:?}", tok_path);
+        }
+
         let report = serde_json::json!({
             "epochs": epochs,
             "batch_size": batch_size,
             "learning_rate": learning_rate,
-            "gpu_used": gpu,
-            "samples_processed": samples_processed,
-            "final_loss": final_loss,
-            "training_data_path": data.to_string_lossy(),
-            "model_output_path": output.to_string_lossy(),
-            "timestamp": chrono::Utc::now().to_rfc3339()
+            "gpu": gpu,
+            "steps": final_steps,
+            "samples_filtered": samples.len(),
+            "lines_loaded": lines.len(),
+            "final_avg_loss": final_avg_loss,
+            "model_params": param_count,
+            "vocab_size": vocab_size,
+            "stopped_early": stop_flag.load(Ordering::SeqCst),
+            "training_time_secs": total_time.as_secs_f64(),
+            "timestamp": Utc::now().to_rfc3339(),
+            "data_stream_filtered": true,
         });
-        
+
         let report_path = output.with_extension("json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
-        info!("Training report saved to: {:?}", report_path);
-        
+
+        info!("=== TRAINING SELESAI ===");
+        info!("  Steps: {}", final_steps);
+        info!("  Final avg loss: {:.4}", final_avg_loss);
+        info!("  Waktu: {:.2}s", total_time.as_secs_f64());
+        if stop_flag.load(Ordering::SeqCst) {
+            info!("  Dihentikan lebih awal oleh pengguna");
+        }
+        info!("  Report: {}", report_path.display());
+
         Ok(())
     }
-    
-    /// Run evaluate command
+
     pub async fn run_evaluate(
         &self,
         _nexora: &NexoraAI,
-        model: &PathBuf,
+        model_path: &PathBuf,
         test_data: &PathBuf,
+        tokenizer_path: &PathBuf,
         output: &Option<PathBuf>,
     ) -> Result<()> {
-        info!("Evaluating model: {:?}", model);
+        info!("=== NEXORA EVALUATION ===");
+        info!("Model: {:?}", model_path);
         info!("Test data: {:?}", test_data);
-        
-        // Check if model file exists
-        if !model.exists() {
-            return Err(anyhow::anyhow!("Model file not found: {:?}", model));
+        info!("Tokenizer: {:?}", tokenizer_path);
+
+        if !model_path.exists() {
+            return Err(anyhow::anyhow!("Model file not found: {:?}", model_path));
         }
-        
-        // Check if test data file exists
         if !test_data.exists() {
-            return Err(anyhow::anyhow!("Test data file not found: {:?}", test_data));
+            return Err(anyhow::anyhow!("Test data not found: {:?}", test_data));
         }
-        
+        if !tokenizer_path.exists() {
+            return Err(anyhow::anyhow!("Tokenizer not found: {:?}", tokenizer_path));
+        }
+
+        info!("Loading tokenizer...");
+        let tokenizer = BpeTokenizer::load(tokenizer_path)
+            .map_err(|e| anyhow::anyhow!("Gagal load tokenizer: {}", e))?;
+        info!("  Vocab size: {}", tokenizer.vocab_size());
+
         info!("Loading test data...");
-        let test_samples = self.load_training_data(test_data).await?;
-        info!("Loaded {} test samples", test_samples.len());
-        
-        if test_samples.is_empty() {
-            return Err(anyhow::anyhow!("No test data found"));
-        }
-        
-        info!("Loading model for evaluation...");
-        let mut eval_model = self.load_model_for_evaluation(model).await?;
-        
-        info!("Starting evaluation...");
-        let mut total_loss = 0.0f32;
-        let mut correct_predictions = 0usize;
-        let mut total_predictions = 0usize;
-        let mut evaluation_results = Vec::new();
-        
-        // Evaluate each sample
-        for (idx, sample) in test_samples.iter().enumerate() {
-            let loss = eval_model.train_step(&sample.input, &sample.target, 0.0).map_err(|e| anyhow::anyhow!("Training step failed: {:?}", e))?;
-            total_loss += loss;
-            
-            // Simple prediction accuracy check
-            let predicted = self.generate_prediction(&eval_model, &String::from_utf8_lossy(&sample.input))?;
-            let is_correct = self.evaluate_prediction(&predicted, &String::from_utf8_lossy(&sample.target));
-            
-            if is_correct {
-                correct_predictions += 1;
-            }
-            total_predictions += 1;
-            
-            evaluation_results.push(EvaluationResult {
-                input: String::from_utf8_lossy(&sample.input).to_string(),
-                target: String::from_utf8_lossy(&sample.target).to_string(),
-                predicted,
-                loss,
-                correct: is_correct,
-            });
-            
-            if idx % 100 == 0 {
-                info!("  Evaluated {}/{} samples", idx + 1, test_samples.len());
+        let raw_text = std::fs::read_to_string(test_data)?;
+        let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
+        info!("  {} baris teks", lines.len());
+
+        info!("Loading model from safetensors...");
+        let model_config = TransformerConfig::default();
+        let mut model = CausalLM::new(model_config);
+        Trainer::load(&mut model, &model_path.to_string_lossy())?;
+        info!("  Model loaded: {} params", model.parameter_count());
+
+        let trainable = TrainableCausalLM::from_inference(&model);
+        let mut total_loss = 0.0f64;
+        let mut total_tokens = 0usize;
+
+        for line in &lines {
+            let tokens: Vec<u32> = tokenizer.encode(line);
+
+            if tokens.len() < 2 { continue; }
+
+            for chunk in tokens.chunks(128 + 1) {
+                if chunk.len() < 2 { continue; }
+                let input = &chunk[..chunk.len() - 1];
+                let target = &chunk[1..];
+
+                let input_t = nexora_deeplearning::autograd::Tensor::from_slice(
+                    &input.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+                    &[input.len()],
+                );
+                let target_t = nexora_deeplearning::autograd::Tensor::from_slice(
+                    &target.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+                    &[target.len()],
+                );
+
+                let logits = trainable.forward(&input_t);
+                let loss = nexora_deeplearning::autograd::ops::cross_entropy_loss(&logits, &target_t).mean();
+                total_loss += loss.data()[0] as f64 * target.len() as f64;
+                total_tokens += target.len();
             }
         }
-        
-        // Calculate metrics
-        let avg_loss = total_loss / test_samples.len() as f32;
-        let accuracy = correct_predictions as f32 / total_predictions as f32;
-        
-        info!("Evaluation completed:");
-        info!("  Average loss: {:.4}", avg_loss);
-        info!("  Accuracy: {:.2}% ({}/{} correct)", accuracy * 100.0, correct_predictions, total_predictions);
-        
-        // Generate evaluation report
-        let report = EvaluationReport {
-            model_path: model.to_string_lossy().to_string(),
-            test_data_path: test_data.to_string_lossy().to_string(),
-            total_samples: test_samples.len(),
-            average_loss: avg_loss,
-            accuracy,
-            correct_predictions,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            detailed_results: evaluation_results,
-        };
-        
-        // Save evaluation report
-        let report_path = if let Some(output_path) = output {
-            output_path.clone()
-        } else {
-            model.with_extension("evaluation.json")
-        };
-        
-        let report_json = serde_json::to_string_pretty(&report)?;
-        std::fs::write(&report_path, report_json)?;
-        info!("Evaluation report saved to: {:?}", report_path);
-        
+
+        let avg_loss = if total_tokens > 0 { total_loss / total_tokens as f64 } else { 0.0 };
+        let perplexity = avg_loss.exp();
+
+        let eval_report = serde_json::json!({
+            "model_path": model_path.to_string_lossy(),
+            "test_data_path": test_data.to_string_lossy(),
+            "total_lines": lines.len(),
+            "total_tokens": total_tokens,
+            "avg_loss": avg_loss,
+            "perplexity": perplexity,
+            "timestamp": Utc::now().to_rfc3339(),
+        });
+
+        let report_path = output.clone().unwrap_or_else(|| {
+            let mut p = model_path.clone();
+            p.set_extension("eval.json");
+            p
+        });
+        std::fs::write(&report_path, serde_json::to_string_pretty(&eval_report)?)?;
+
+        info!("=== EVALUATION SELESAI ===");
+        info!("  Avg loss: {:.4}", avg_loss);
+        info!("  Perplexity: {:.4}", perplexity);
+        info!("  Report: {}", report_path.display());
+
         Ok(())
-    }
-    
-    /// Load training data from file
-    async fn load_training_data(&self, data_path: &PathBuf) -> Result<Vec<TrainingSample>> {
-        let content = std::fs::read_to_string(data_path)?;
-        let samples: Vec<TrainingSample> = serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse training data: {}", e))?;
-        Ok(samples)
-    }
-    
-    /// Train a single batch
-    async fn train_batch(
-        &self, 
-        _model: &String, 
-        batch: &[TrainingSample],
-        learning_rate: f32,
-        _gpu: bool,
-    ) -> Result<f32> {
-        let mut batch_loss = 0.0f32;
-        
-        for sample in batch {
-            // Implement actual training step with proper loss calculation
-            let loss = self.calculate_training_loss(sample, learning_rate).await?;
-            batch_loss += loss;
-        }
-        
-        Ok(batch_loss / batch.len() as f32)
-    }
-    
-    /// Calculate training loss for a single sample
-    async fn calculate_training_loss(&self, sample: &TrainingSample, learning_rate: f32) -> Result<f32> {
-        // Implement sophisticated loss calculation based on content analysis
-        let input_tokens = self.tokenize_text(&String::from_utf8_lossy(&sample.input))?;
-        let target_tokens = self.tokenize_text(&String::from_utf8_lossy(&sample.target))?;
-        
-        // Determine task type based on target content
-        let task_type = if String::from_utf8_lossy(&sample.target).chars().all(|c| c.is_numeric() || c == '.' || c == '-') {
-            "classification"
-        } else if String::from_utf8_lossy(&sample.target).len() > String::from_utf8_lossy(&sample.input).len() * 2 {
-            "text_generation"
-        } else {
-            "general"
-        };
-        
-        match task_type {
-            "text_generation" => {
-                // Calculate cross-entropy loss for text generation
-                let mut loss = 0.0f32;
-                for (i, &target_id) in target_tokens.iter().enumerate() {
-                    if i < input_tokens.len() {
-                        let predicted_id = input_tokens[i];
-                        // Simple cross-entropy approximation
-                        let probability = if predicted_id == target_id { 0.9 } else { 0.1 / (target_tokens.len() as f32 - 1.0) };
-                        loss += -probability.ln();
-                    }
-                }
-                
-                Ok(loss / target_tokens.len().max(1) as f32)
-            },
-            "classification" => {
-                // Calculate classification loss
-                let predicted_class = self.predict_class(&String::from_utf8_lossy(&sample.input))?;
-                let true_class = String::from_utf8_lossy(&sample.target).trim().parse::<u32>()
-                    .unwrap_or(0);
-                
-                // Simple cross-entropy for classification
-                let loss = if predicted_class == true_class { 0.1 } else { 2.3 };
-                Ok(loss)
-            },
-            _ => {
-                // Default loss calculation for general tasks
-                let input_length = sample.input.len() as f32;
-                let target_length = sample.target.len() as f32;
-                let length_ratio = input_length / target_length.max(1.0);
-                
-                // Loss based on length difference and learning rate
-                let base_loss = (length_ratio - 1.0).abs() * learning_rate;
-                Ok(base_loss.max(0.01)) // Minimum loss to avoid zero
-            }
-        }
-    }
-    
-    /// Tokenize text for loss calculation
-    fn tokenize_text(&self, text: &str) -> Result<Vec<u32>> {
-        // Simple tokenization - split by whitespace and convert to hash-based IDs
-        let tokens: Vec<u32> = text
-            .split_whitespace()
-            .enumerate()
-            .map(|(i, token)| {
-                // Create a simple hash-based token ID
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                
-                let mut hasher = DefaultHasher::new();
-                token.hash(&mut hasher);
-                (hasher.finish() % 10000) as u32 + i as u32 * 1000
-            })
-            .collect();
-        
-        Ok(tokens)
-    }
-    
-    /// Predict class for classification tasks
-    fn predict_class(&self, input: &str) -> Result<u32> {
-        // Simple classification based on input characteristics
-        let features = self.extract_features(input)?;
-        
-        // Simple linear classifier simulation
-        let score = features.iter().zip([0.3, -0.2, 0.5, 0.1, -0.1].iter())
-            .map(|(f, w)| f * w)
-            .sum::<f32>();
-        
-        let class = if score > 0.5 { 1 } else { 0 };
-        Ok(class)
-    }
-    
-    /// Extract features from input text
-    fn extract_features(&self, input: &str) -> Result<Vec<f32>> {
-        let words = input.split_whitespace().count() as f32;
-        let chars = input.len() as f32;
-        let avg_word_length = if words > 0.0 { chars / words } else { 0.0 };
-        let uppercase_ratio = input.chars().filter(|c| c.is_uppercase()).count() as f32 / chars.max(1.0);
-        let digit_ratio = input.chars().filter(|c| c.is_numeric()).count() as f32 / chars.max(1.0);
-        
-        Ok(vec![
-            words / 100.0,          // Normalized word count
-            avg_word_length / 10.0, // Normalized average word length
-            uppercase_ratio,         // Uppercase ratio
-            digit_ratio,             // Digit ratio
-            (chars as f32 % 10.0) / 10.0, // Length pattern
-        ])
-    }
-    
-    /// Save trained model
-    async fn save_trained_model(&self, model: &String, output_path: &PathBuf) -> Result<()> {
-        let model_data = model.as_bytes();
-        std::fs::write(output_path, model_data)?;
-        Ok(())
-    }
-    
-    /// Load model for evaluation
-    async fn load_model_for_evaluation(&self, model_path: &PathBuf) -> Result<Box<dyn TrainingModel>> {
-        let _model_data = std::fs::read(model_path)?;
-        
-        // For now, create a default model since load_from_bytes doesn't exist
-        warn!("Creating default model for evaluation");
-        let default_model = TrainingModelFactory::create_model(SpecialistType::Text);
-        Ok(default_model)
-    }
-    
-    /// Generate prediction from model
-    fn generate_prediction(&self, _model: &Box<dyn TrainingModel>, input: &str) -> Result<String> {
-        // Simple prediction - for demo purposes, just return a modified version of input
-        // In a real implementation, this would use the model's actual prediction capabilities
-        Ok(format!("Predicted: {}", input))
-    }
-    
-    /// Evaluate prediction against target
-    fn evaluate_prediction(&self, predicted: &str, target: &str) -> bool {
-        // Simple evaluation - for demo purposes, just check if they're similar
-        // In a real implementation, this would use proper evaluation metrics
-        predicted.len() > target.len() / 2 && predicted.len() < target.len() * 2
     }
 }

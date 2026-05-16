@@ -61,6 +61,50 @@ pub fn gelu(input: &Tensor) -> Tensor {
     )
 }
 
+pub fn tanh(input: &Tensor) -> Tensor {
+    let data = input.data();
+    let result = data.mapv(|x| x.tanh());
+
+    if !input.requires_grad() {
+        return Tensor::new(result);
+    }
+
+    let saved = result.clone();
+
+    Tensor::with_grad_fn(
+        result,
+        vec![input.clone()],
+        vec![saved],
+        Box::new(|grad, saved| {
+            let t = &saved[0];
+            let grad_t = t.mapv(|v| 1.0 - v * v);
+            vec![grad.clone() * grad_t]
+        }),
+    )
+}
+
+pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
+    let data = input.data();
+    let result = data.mapv(|x| if x > 0.0 { x } else { x * negative_slope });
+
+    if !input.requires_grad() {
+        return Tensor::new(result);
+    }
+
+    let saved = data.clone();
+
+    Tensor::with_grad_fn(
+        result,
+        vec![input.clone()],
+        vec![saved],
+        Box::new(move |grad, saved| {
+            let x = &saved[0];
+            let grad_x = x.mapv(|v| if v > 0.0 { 1.0 } else { negative_slope });
+            vec![grad.clone() * grad_x]
+        }),
+    )
+}
+
 pub fn sigmoid(input: &Tensor) -> Tensor {
     let data = input.data();
     let result = data.mapv(|x| 1.0 / (1.0 + (-x).exp()));

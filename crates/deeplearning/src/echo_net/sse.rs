@@ -17,6 +17,7 @@
 //! Ψ_t(ω) = A_t(ω) * e^(i(ω_t + φ_t))
 
 use crate::{DLResult, DeepLearningError};
+use crate::autograd::Tensor;
 use crate::echo_net::{HolographicWave, ComplexTensor};
 use ndarray::{ArrayD, Array2, Array1, ArrayView1, s};
 use rand::Rng;
@@ -323,6 +324,20 @@ impl SemanticSpectralEmbedding {
         ]
     }
     
+    /// Set parameters from Tensors
+    pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
+        let names = ["embedding", "amp_w", "phase_w", "freq_w"];
+        for (i, t) in tensors.iter().enumerate() {
+            let d = t.data();
+            match i {
+                0 => self.embedding_matrix = d.clone().into_shape(self.embedding_matrix.dim()).unwrap_or(self.embedding_matrix.clone()),
+                1 => self.amplitude_weights = d.clone().into_shape(self.amplitude_weights.dim()).unwrap_or(self.amplitude_weights.clone()),
+                2 => self.phase_weights = d.clone().into_shape(self.phase_weights.dim()).unwrap_or(self.phase_weights.clone()),
+                3 => self.frequency_weights = d.clone().into_shape(self.frequency_weights.dim()).unwrap_or(self.frequency_weights.clone()),
+                _ => {}
+            }
+        }
+    }
     /// Get mutable parameters for training
     pub fn get_parameters_mut(&mut self) -> Vec<&mut Array2<f32>> {
         vec![

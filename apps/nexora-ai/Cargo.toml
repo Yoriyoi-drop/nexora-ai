@@ -13,6 +13,8 @@ nexora-memory = { path = "../../crates/memory" }
 nexora-inference = { path = "../../crates/inference" }
 nexora-blaa = { path = "../../crates/blaa" }
 nexora-infrastructure = { path = "../../crates/infrastructure" }
+nexora-datastream = { path = "../../crates/datastream" }
+nexora-deeplearning = { path = "../../crates/deeplearning" }
 
 tokio.workspace = true
 serde.workspace = true

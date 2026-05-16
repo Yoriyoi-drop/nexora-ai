@@ -2,7 +2,8 @@ use ndarray::{ArrayD, Axis};
 
 use super::super::tensor::Tensor;
 
-/// NOT YET IMPLEMENTED for requires_grad tensors — use basic concat for now
+/// Concatenate tensors along an axis.
+/// Backward: each input gets its slice of the gradient.
 pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
     assert!(!tensors.is_empty(), "cat: at least one tensor required");
     let arrays: Vec<ArrayD<f32>> = tensors.iter().map(|t| t.data()).collect();
@@ -15,29 +16,24 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
         return Tensor::new(result);
     }
 
-    let input_shapes: Vec<Vec<usize>> = tensors.iter().map(|t| t.shape().to_vec()).collect();
+    let dim_sizes: Vec<usize> = tensors.iter().map(|t| t.shape()[axis]).collect();
+    let input_tensors: Vec<Tensor> = tensors.iter().map(|t| (*t).clone()).collect();
+    let saved_sizes = ArrayD::from_shape_vec(
+        vec![dim_sizes.len()],
+        dim_sizes.iter().map(|&x| x as f32).collect(),
+    ).unwrap();
 
     Tensor::with_grad_fn(
         result,
-        tensors.iter().map(|t| (*t).clone()).collect(),
-        vec![],
-        Box::new(move |grad, _saved| {
-            let mut grads = Vec::new();
+        input_tensors,
+        vec![saved_sizes],
+        Box::new(move |grad, saved| {
+            let sizes: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
             let mut offset = 0usize;
-            for shape in &input_shapes {
-                let cat_dim = shape.len().saturating_sub(1).min(axis);
-                let len = shape[cat_dim];
-                let mut slices = vec![ndarray::s![..]; shape.len()];
-                slices[cat_dim] = ndarray::s![offset..offset + len];
-
-                // Build a properly indexed sub-array
-                let mut grad_shape = grad.shape().to_vec();
-                grad_shape[cat_dim] = len;
-                let g = grad
-                    .select(Axis(cat_dim),
-                        (offset..offset + len).collect::<Vec<_>>().as_slice())
-                    .to_owned()
-                    .into_dyn();
+            let mut grads = Vec::new();
+            for &len in &sizes {
+                let indices: Vec<usize> = (offset..offset + len).collect();
+                let g = grad.select(Axis(axis), &indices).to_owned().into_dyn();
                 grads.push(g);
                 offset += len;
             }
@@ -46,6 +42,7 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
     )
 }
 
+/// Stack tensors along a new axis. No grad tracking (placeholder).
 pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
     assert!(!tensors.is_empty(), "stack: at least one tensor required");
     let first = tensors[0];

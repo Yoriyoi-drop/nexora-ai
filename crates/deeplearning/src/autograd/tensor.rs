@@ -128,6 +128,10 @@ impl Tensor {
         self.0.borrow_mut().grad = None;
     }
 
+    pub fn set_data(&self, new_data: ArrayD<f32>) {
+        self.0.borrow_mut().data = new_data;
+    }
+
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.borrow_mut();
         let new_data = &inner.data - delta;

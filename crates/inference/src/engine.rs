@@ -22,6 +22,7 @@ use crate::streaming::StreamingEngine;
 use nexora_foundation::models::transformer::{
     CausalLM, TransformerConfig, KVCacheEntry,
 };
+use nexora_tokenizer::BpeTokenizer;
 
 /// Configuration untuk inference engine
 #[derive(Debug, Clone)]
@@ -76,6 +77,8 @@ pub struct InferenceEngine {
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     /// Transformer model (CausalLM)
     model: CausalLM,
+    /// BPE tokenizer for prompt encode / decode
+    tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
     /// Decoding strategies
     decoding_strategies: HashMap<String, Box<dyn DecodingStrategy>>,
     /// Streaming engine
@@ -106,11 +109,11 @@ pub enum EngineState {
 }
 
 impl InferenceEngine {
-    /// Create new inference engine
+    /// Create new inference engine with random weights (for testing)
     pub fn new(config: InferenceConfig) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
 
-        info!("Initializing CausalLM transformer model");
+        info!("Initializing CausalLM transformer model (random weights)");
         let model_config = TransformerConfig::default();
         let model = CausalLM::new(model_config);
         info!("CausalLM initialized with {} parameters", model.parameter_count());
@@ -121,6 +124,7 @@ impl InferenceEngine {
             kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
             model,
+            tokenizer: None,
             decoding_strategies: HashMap::new(),
             streaming_engine: if config.enable_streaming {
                 Some(Arc::new(RwLock::new(StreamingEngine::new())))
@@ -137,6 +141,40 @@ impl InferenceEngine {
         // Add default decoding strategies
         engine.add_default_decoding_strategies();
         
+        engine
+    }
+
+    /// Create inference engine with pre-loaded model and tokenizer
+    pub fn with_model(
+        model: CausalLM,
+        tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
+        config: InferenceConfig,
+    ) -> Self {
+        let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
+
+        info!("Initializing inference engine with loaded model ({} params)", model.parameter_count());
+
+        let mut engine = Self {
+            runtime: Arc::new(InferenceRuntime::new()),
+            scheduler: Arc::new(RwLock::new(RequestScheduler::new())),
+            kv_cache: Arc::new(RwLock::new(KVCache::new())),
+            session_manager: Arc::new(RwLock::new(HashMap::new())),
+            model,
+            tokenizer,
+            decoding_strategies: HashMap::new(),
+            streaming_engine: if config.enable_streaming {
+                Some(Arc::new(RwLock::new(StreamingEngine::new())))
+            } else {
+                None
+            },
+            request_tx,
+            request_rx: Arc::new(Mutex::new(Some(request_rx))),
+            active_requests: Arc::new(RwLock::new(HashMap::new())),
+            state: Arc::new(RwLock::new(EngineState::Uninitialized)),
+            config,
+        };
+
+        engine.add_default_decoding_strategies();
         engine
     }
     
@@ -442,10 +480,14 @@ impl InferenceEngine {
                     
                     let scheduler = self.scheduler.clone();
                     let active_requests = self.active_requests.clone();
+                    let model = self.model.clone();
+                    let tokenizer = self.tokenizer.clone();
                     
                     let task = tokio::spawn(async move {
-                        if let Err(e) = Self::process_single_request_internal(
+                        if let Err(e) = Self::process_request_with_model(
                             request,
+                            model,
+                            tokenizer,
                             scheduler,
                             active_requests,
                         ).await {
@@ -480,8 +522,10 @@ impl InferenceEngine {
         Ok(())
     }
     
-    async fn process_single_request_internal(
+    async fn process_request_with_model(
         request: InferenceRequest,
+        model: CausalLM,
+        tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
         scheduler: Arc<RwLock<RequestScheduler>>,
         active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     ) -> Result<()> {
@@ -497,12 +541,21 @@ impl InferenceEngine {
             scheduler.write().await.send_response(request_id, response).await.ok();
             return Err(InferenceError::InvalidRequest("Empty prompt".to_string()));
         }
-        
-        let model_config = TransformerConfig::default();
-        let model = CausalLM::new(model_config);
-        let prompt_ids: Vec<u32> = request.prompt.bytes().map(|b| b as u32 % 50257).collect();
+
+        let prompt_ids: Vec<u32> = match &tokenizer {
+            Some(tok) => {
+                tok.read().map_err(|e| {
+                    InferenceError::InternalError(format!("Tokenizer lock: {}", e))
+                })?.encode(&request.prompt)
+            }
+            None => {
+                request.prompt.bytes()
+                    .map(|b| b as u32 % model.config.vocab_size as u32)
+                    .collect()
+            }
+        };
+
         let mut kv_cache = model.reset_cache();
-        
         let mut full_ids = prompt_ids.clone();
         let inference_start = std::time::Instant::now();
         let tokens_to_generate = request.max_tokens.min(2048);
@@ -521,11 +574,20 @@ impl InferenceEngine {
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx as u32)
                 .unwrap_or(0);
-            
-            let token_text = if (token_id as usize) < 256 {
-                char::from_u32(token_id).unwrap_or('�').to_string()
-            } else {
-                format!("[{}]", token_id)
+
+            let token_text = match &tokenizer {
+                Some(tok) => {
+                    tok.read().map_err(|e| {
+                        InferenceError::InternalError(format!("Tokenizer lock: {}", e))
+                    })?.decode(&[token_id])
+                }
+                None => {
+                    if (token_id as usize) < 256 {
+                        char::from_u32(token_id).unwrap_or('�').to_string()
+                    } else {
+                        format!("[{}]", token_id)
+                    }
+                }
             };
             
             let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
@@ -607,7 +669,7 @@ impl InferenceEngine {
         let mut response = InferenceResponse::new(request.request_id);
         let mut generated_tokens = Vec::new();
         
-        let prompt_ids = self.encode_prompt_simple(&request.prompt);
+        let prompt_ids = self.encode_prompt(&request.prompt);
         let mut full_ids = prompt_ids.clone();
         let mut kv_cache = self.model.reset_cache();
         
@@ -639,7 +701,7 @@ impl InferenceEngine {
                 
                 let token_selection = strategy.select_token(&logits, &decoding_config, &decoding_context)?;
                 let first_id = token_selection.token_id;
-                let token_text = self.token_id_to_text_simple(first_id);
+                let token_text = self.token_id_to_text(first_id);
                 let log_prob = logits.get(first_id as usize).copied().unwrap_or(0.0).ln();
                 
                 let token = GeneratedToken::new(first_id, token_text, log_prob, 0);
@@ -682,7 +744,7 @@ impl InferenceEngine {
             let token_selection = strategy.select_token(&logits, &decoding_config, &decoding_context)?;
             let selected_id = token_selection.token_id;
             
-            let token_text = self.token_id_to_text_simple(selected_id);
+            let token_text = self.token_id_to_text(selected_id);
             let log_prob = logits.get(selected_id as usize).copied().unwrap_or(0.0).ln();
             let token = GeneratedToken::new(selected_id, token_text, log_prob, i as usize);
             
@@ -803,12 +865,17 @@ impl InferenceEngine {
         self.decoding_strategies.insert("temperature".to_string(), Box::new(crate::decoding::TemperatureSampling));
     }
     
-    /// Encode prompt to token IDs using simple byte mapping
-    /// In production, this would use the BPE tokenizer
-    fn encode_prompt_simple(&self, prompt: &str) -> Vec<u32> {
-        prompt.bytes()
-            .map(|b| b as u32 % self.model.config.vocab_size as u32)
-            .collect()
+    /// Encode prompt to token IDs
+    fn encode_prompt(&self, prompt: &str) -> Vec<u32> {
+        match &self.tokenizer {
+            Some(tok) => match tok.read() {
+                Ok(t) => t.encode(prompt),
+                Err(_) => prompt.bytes().map(|b| b as u32 % self.model.config.vocab_size as u32).collect(),
+            },
+            None => prompt.bytes()
+                .map(|b| b as u32 % self.model.config.vocab_size as u32)
+                .collect(),
+        }
     }
     
     /// Forward pass through the actual CausalLM transformer model
@@ -821,8 +888,18 @@ impl InferenceEngine {
         logits.to_vec()
     }
     
-    /// Convert token ID to text (simple byte decoding)
-    fn token_id_to_text_simple(&self, token_id: u32) -> String {
+    /// Convert token ID to text
+    fn token_id_to_text(&self, token_id: u32) -> String {
+        match &self.tokenizer {
+            Some(tok) => match tok.read() {
+                Ok(t) => t.decode(&[token_id]),
+                Err(_) => self.token_id_to_text_fallback(token_id),
+            },
+            None => self.token_id_to_text_fallback(token_id),
+        }
+    }
+
+    fn token_id_to_text_fallback(&self, token_id: u32) -> String {
         if token_id < 256 {
             char::from_u32(token_id).unwrap_or('�').to_string()
         } else {

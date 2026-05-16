@@ -68,14 +68,14 @@ pub fn register_grad_fn(
     })
 }
 
-pub fn with_tape_mut<F, R>(f: F) -> R
+pub(crate) fn with_tape_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut AutogradTape) -> R,
 {
     TAPE.with(|tape| f(&mut tape.borrow_mut()))
 }
 
-pub fn with_tape<F, R>(f: F) -> R
+pub(crate) fn with_tape<F, R>(f: F) -> R
 where
     F: FnOnce(&AutogradTape) -> R,
 {

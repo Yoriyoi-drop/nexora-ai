@@ -22,6 +22,7 @@ pub mod autograd;
 pub use echo_net::*;
 pub use star_x::*;
 pub use gnac::*;
+pub use autograd::*;
 
 
 use anyhow::Result;

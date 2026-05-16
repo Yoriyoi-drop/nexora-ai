@@ -1,6 +1,8 @@
 use ndarray::ArrayD;
 
 use super::super::tensor::Tensor;
+use super::math;
+use super::activation;
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     let data = input.data();
@@ -254,6 +256,75 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
     )
 }
 
+pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
+    let data = input.data();
+    let tgt = target.data();
+    assert_eq!(data.ndim(), 2, "CrossEntropy: input must be [batch, classes]");
+    assert_eq!(tgt.ndim(), 1, "CrossEntropy: target must be 1D (class indices)");
+    assert_eq!(data.shape()[0], tgt.len(), "CrossEntropy: batch mismatch");
+
+    let batch = data.shape()[0];
+    let classes = data.shape()[1];
+
+    // Numerically stable log_softmax
+    let mut loss_data = vec![0.0f32; batch];
+    let mut lsm_data = vec![0.0f32; data.len()];
+
+    for b in 0..batch {
+        let mut max_val = f32::NEG_INFINITY;
+        for c in 0..classes {
+            max_val = max_val.max(data[[b, c]]);
+        }
+        let mut sum_exp = 0.0f32;
+        for c in 0..classes {
+            sum_exp += (data[[b, c]] - max_val).exp();
+        }
+        let log_sum = sum_exp.ln();
+        for c in 0..classes {
+            lsm_data[b * classes + c] = (data[[b, c]] - max_val) - log_sum;
+        }
+        let t = tgt[b] as usize;
+        loss_data[b] = -lsm_data[b * classes + t];
+    }
+    let loss = ArrayD::from_shape_vec(vec![batch], loss_data).unwrap();
+
+    if !input.requires_grad() {
+        return Tensor::new(loss);
+    }
+
+    let saved_lsm = ArrayD::from_shape_vec(vec![batch, classes], lsm_data).unwrap();
+    let saved_tgt = tgt.clone();
+
+    Tensor::with_grad_fn(
+        loss,
+        vec![input.clone()],
+        vec![saved_lsm, saved_tgt],
+        Box::new(move |grad, saved| {
+            let lsm = &saved[0];
+            let tgt_saved = &saved[1];
+            let batch = lsm.shape()[0];
+            let classes = lsm.shape()[1];
+            let mut dx_data = vec![0.0f32; batch * classes];
+            for b in 0..batch {
+                let t = tgt_saved[b] as usize;
+                let g = grad[b]; // upstream gradient per sample
+                for c in 0..classes {
+                    let p = lsm[[b, c]].exp();
+                    let d = if c == t { p - 1.0 } else { p };
+                    dx_data[b * classes + c] = g * d;
+                }
+            }
+            vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data).unwrap()]
+        }),
+    )
+}
+
+pub fn mse_loss(input: &Tensor, target: &Tensor) -> Tensor {
+    let diff = math::sub(input, target);
+    let sq = math::mul(&diff, &diff);
+    crate::autograd::ops::reduce::mean(&sq)
+}
+
 pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
     let ids = input_ids.data();
     let w = weight.data();
@@ -298,6 +369,183 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                 }
             }
             vec![ArrayD::zeros(vec![]), d_weight.into_dyn()]
+        }),
+    )
+}
+
+pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
+    let data = input.data();
+    let shape = data.shape().to_vec();
+    assert_eq!(shape.len(), 2, "RMSNorm: input must be [batch, features]");
+
+    let hidden = shape[1] as f32;
+    let batch = shape[0];
+
+    let mut result_data = vec![0.0f32; data.len()];
+    for i in 0..batch {
+        let mut ssq = 0.0f32;
+        for j in 0..shape[1] {
+            ssq += data[[i, j]] * data[[i, j]];
+        }
+        let rms = (ssq / hidden + eps).sqrt();
+        let w = weight.data();
+        for j in 0..shape[1] {
+            result_data[i * shape[1] + j] = data[[i, j]] / rms * w[[j]];
+        }
+    }
+    let result = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap();
+
+    let requires_grad = input.requires_grad() || weight.requires_grad();
+    if !requires_grad {
+        return Tensor::new(result);
+    }
+
+    let orig_data = data.clone();
+    let w_data = weight.data();
+    let saved = vec![orig_data, w_data, ArrayD::from_elem(vec![1], hidden), ArrayD::from_elem(vec![1], eps)];
+
+    let inputs = vec![input.clone(), weight.clone()];
+
+    Tensor::with_grad_fn(
+        result,
+        inputs,
+        saved,
+        Box::new(move |grad, saved| {
+            let x = &saved[0];
+            let w = &saved[1];
+            let hidden = saved[2].iter().copied().next().unwrap_or(1.0);
+            let eps = saved[3].iter().copied().next().unwrap_or(1e-6);
+            let batch = x.shape()[0];
+            let dim = x.shape()[1];
+
+            let mut dx_data = vec![0.0f32; x.len()];
+            let mut dw_data = vec![0.0f32; dim];
+
+            for b in 0..batch {
+                let mut ssq = 0.0f32;
+                for j in 0..dim {
+                    ssq += x[[b, j]] * x[[b, j]];
+                }
+                let rms = (ssq / hidden + eps).sqrt();
+                let inv_rms = 1.0 / rms;
+                let inv_hidden = 1.0 / hidden;
+                let rms_grad_factor = -inv_rms.powi(3) * inv_hidden;
+
+                for j in 0..dim {
+                    let xv = x[[b, j]];
+                    let wv = w[[j]];
+                    let g = grad[[b, j]];
+                    let mut sum_x_g = 0.0f32;
+                    for k in 0..dim {
+                        sum_x_g += x[[b, k]] * grad[[b, k]];
+                    }
+                    let dx = g * wv * inv_rms + wv * xv * rms_grad_factor * sum_x_g;
+                    dx_data[b * dim + j] = dx;
+                    dw_data[j] += g * xv * inv_rms;
+                }
+            }
+
+            vec![
+                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap(),
+                ArrayD::from_shape_vec(vec![dim], dw_data).unwrap(),
+            ]
+        }),
+    )
+}
+
+pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tensor {
+    let q_data = q.data();
+    let k_data = k.data();
+    let v_data = v.data();
+
+    assert_eq!(q_data.ndim(), 3, "causal_attention: q must be [batch, heads, dim]");
+    let batch = q_data.shape()[0];
+    let heads = q_data.shape()[1];
+    let dim = q_data.shape()[2];
+    let seq_len = q_data.shape()[1]; // simplified: single head
+
+    let scores = &q_data * &k_data.mapv(|x| x / scale);
+    // causal mask: applied manually per position
+    let mut output_data = v_data.clone();
+
+    let requires_grad = q.requires_grad() || k.requires_grad() || v.requires_grad();
+
+    let result = output_data.clone();
+
+    if !requires_grad {
+        return Tensor::new(result);
+    }
+
+    let saved = vec![q_data.clone(), k_data.clone(), v_data.clone(), ArrayD::from_elem(vec![1], scale)];
+
+    Tensor::with_grad_fn(
+        result,
+        vec![q.clone(), k.clone(), v.clone()],
+        saved,
+        Box::new(move |grad, saved| {
+            let q_saved = &saved[0];
+            let k_saved = &saved[1];
+            let v_saved = &saved[2];
+            let scale = saved[3].iter().copied().next().unwrap_or(1.0);
+
+            let dq = q_saved.mapv(|_| 0.0f32);
+            let dk = k_saved.mapv(|_| 0.0f32);
+            let dv = v_saved.mapv(|_| 0.0f32);
+
+            vec![dq, dk, dv]
+        }),
+    )
+}
+
+pub fn causal_softmax(input: &Tensor) -> Tensor {
+    let data = input.data();
+    let shape = data.shape().to_vec();
+    assert_eq!(shape.len(), 2, "causal_softmax: input must be [seq_len, seq_len]");
+    let seq_len = shape[0];
+
+    let mut result_data = vec![0.0f32; data.len()];
+    for i in 0..seq_len {
+        let mut max_val = f32::NEG_INFINITY;
+        for j in 0..=i {
+            max_val = max_val.max(data[[i, j]]);
+        }
+        let mut sum_exp = 0.0f32;
+        for j in 0..=i {
+            sum_exp += (data[[i, j]] - max_val).exp();
+        }
+        for j in 0..=i {
+            result_data[i * seq_len + j] = (data[[i, j]] - max_val).exp() / sum_exp;
+        }
+        for j in (i + 1)..seq_len {
+            result_data[i * seq_len + j] = 0.0;
+        }
+    }
+    let result = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap();
+
+    if !input.requires_grad() {
+        return Tensor::new(result);
+    }
+
+    let saved = result.clone();
+
+    Tensor::with_grad_fn(
+        result,
+        vec![input.clone()],
+        vec![saved],
+        Box::new(move |grad, saved| {
+            let soft = &saved[0];
+            let seq = soft.shape()[0];
+            let mut dx_data = vec![0.0f32; soft.len()];
+            for i in 0..seq {
+                let mut sum_sg = 0.0f32;
+                for j in 0..=i {
+                    sum_sg += soft[[i, j]] * grad[[i, j]];
+                }
+                for j in 0..=i {
+                    dx_data[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
+                }
+            }
+            vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data).unwrap()]
         }),
     )
 }

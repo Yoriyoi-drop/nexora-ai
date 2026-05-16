@@ -18,6 +18,7 @@ members = [
     "crates/tokenizer",
     "crates/infrastructure",
     "crates/datastream",
+    "crates/isolation",
     "apps/nexora-ai",
     "apps/dashboard",
 ]

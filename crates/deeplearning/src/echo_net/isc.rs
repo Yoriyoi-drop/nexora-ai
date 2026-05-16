@@ -14,6 +14,7 @@
 //! untuk output atau layer berikutnya.
 
 use crate::{DLResult, DeepLearningError};
+use crate::autograd::Tensor;
 use crate::echo_net::{HolographicWave, ComplexTensor};
 use crate::echo_net::utils::{HolographicFFT, SpectralAnalyzer, Complex};
 use ndarray::{ArrayD, Array2, Array1, s};
@@ -575,6 +576,28 @@ impl InverseSpectralCollapse {
     
         
     /// Get recent collapse events
+    pub fn get_output_weights(&self) -> Tensor {
+        let data = ArrayD::from_shape_vec(
+            vec![self.output_weights.shape()[0], self.output_weights.shape()[1]],
+            self.output_weights.iter().copied().collect(),
+        ).unwrap();
+        Tensor::new(data)
+    }
+    pub fn get_output_bias(&self) -> Tensor {
+        let data = ArrayD::from_shape_vec(
+            vec![self.output_bias.len()],
+            self.output_bias.iter().copied().collect(),
+        ).unwrap();
+        Tensor::new(data)
+    }
+    pub fn set_output_weights(&mut self, t: &Tensor) {
+        let d = t.data();
+        self.output_weights = d.clone().into_shape(self.output_weights.dim()).unwrap_or(self.output_weights.clone());
+    }
+    pub fn set_output_bias(&mut self, t: &Tensor) {
+        let d = t.data();
+        self.output_bias = d.iter().copied().collect();
+    }
     pub fn get_recent_events(&self, count: usize) -> &[CollapseEvent] {
         let start = if self.collapse_history.len() > count {
             self.collapse_history.len() - count

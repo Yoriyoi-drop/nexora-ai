@@ -25,6 +25,7 @@
 | `crates/datastream` | `nexora-datastream` | DAG-based streaming data pipeline; features: `toxicity`, `prompt-injection`, `candle`, `arrow` |
 | `crates/database` | `nexora-database` | Features: `postgres`, `sqlite`, `sqlx`, `mysql`, `all` |
 | `crates/api` | `nexora-api` | Features: `cors`, `metrics`, `tls` |
+| `crates/isolation` | `nexora-isolation` | Multi-layered isolation architecture (L0-L6, Firewall, Kill Switch, Multi-Cluster) |
 
 ## Commands
 
@@ -80,6 +81,7 @@ nexora-intelligence  # depends on core, tokenizer, foundation, common
 nexora-inference     # depends on core, intelligence, foundation, common, blaa
 nexora-agent         # depends on core, intelligence, memory, common
 nexora-memory        # depends on core
+nexora-isolation     # depends on core; L0-L6 isolation, firewall, kill-switch, multi-cluster
 nexora-ai (app)      # depends on core, foundation, tokenizer, intelligence, memory, inference, blaa, infrastructure
 nexora-dashboard     # standalone TUI (ratatui)
 ```

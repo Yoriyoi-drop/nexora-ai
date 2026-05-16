@@ -27,6 +27,7 @@ nexora-intelligence = { path = "../intelligence" }
 nexora-foundation = { path = "../foundation" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-blaa = { path = "../blaa" }
+nexora-tokenizer = { path = "../tokenizer" }
 
 # For streaming
 futures = "0.3"

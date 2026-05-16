@@ -149,6 +149,10 @@ pub enum Commands {
         #[arg(short, long)]
         output: PathBuf,
         
+        /// Tokenizer path (load or save)
+        #[arg(long)]
+        tokenizer: Option<PathBuf>,
+        
         /// Number of epochs
         #[arg(long, default_value = "10")]
         epochs: usize,
@@ -175,6 +179,10 @@ pub enum Commands {
         /// Test data file
         #[arg(short, long)]
         test_data: PathBuf,
+        
+        /// Tokenizer path (required for proper encoding)
+        #[arg(short, long)]
+        tokenizer: PathBuf,
         
         /// Output file for results
         #[arg(short, long)]

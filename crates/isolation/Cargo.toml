@@ -1,0 +1,23 @@
+[package]
+name = "nexora-isolation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Nexora AI — Multi-layered cognitive & infrastructure isolation architecture (L0-L6 + Inter-Agent Firewall + Kill Switch + Multi-Cluster)"
+
+[dependencies]
+nexora-core = { path = "../core" }
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+rand.workspace = true
+futures.workspace = true
+regex.workspace = true

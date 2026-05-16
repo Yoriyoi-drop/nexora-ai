@@ -177,6 +177,44 @@ impl CausalLM {
         count
     }
 
+    pub fn from_checkpoint(config: TransformerConfig, path: &str) -> crate::FoundationResult<Self> {
+        let mut model = Self::new(config);
+        let loaded = crate::safetensors::load_safetensors(path)?;
+        let get_arr = |name: &str| -> crate::FoundationResult<ndarray::ArrayD<f32>> {
+            loaded.get(name).cloned().ok_or_else(|| {
+                crate::FoundationError::Implementation(format!("Missing tensor: {}", name))
+            })
+        };
+        model.token_embedding = get_arr("token_embedding")?
+            .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+        model.lm_head = get_arr("lm_head")?
+            .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+        model.norm.weight = get_arr("norm.weight")?
+            .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+        for (i, block) in model.blocks.iter_mut().enumerate() {
+            let prefix = format!("blocks.{}.", i);
+            block.attention_norm.weight = get_arr(&format!("{}attention_norm.weight", prefix))?
+                .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+            block.ffn_norm.weight = get_arr(&format!("{}ffn_norm.weight", prefix))?
+                .into_dimensionality::<ndarray::Ix1>().unwrap().to_owned();
+            block.attention.wq = get_arr(&format!("{}attention.wq", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.attention.wk = get_arr(&format!("{}attention.wk", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.attention.wv = get_arr(&format!("{}attention.wv", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.attention.wo = get_arr(&format!("{}attention.wo", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.ffn.w1 = get_arr(&format!("{}ffn.w1", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.ffn.w2 = get_arr(&format!("{}ffn.w2", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+            block.ffn.w3 = get_arr(&format!("{}ffn.w3", prefix))?
+                .into_dimensionality::<ndarray::Ix2>().unwrap().to_owned();
+        }
+        Ok(model)
+    }
+
     pub fn memory_bytes(&self) -> usize {
         self.parameter_count() * 4
     }

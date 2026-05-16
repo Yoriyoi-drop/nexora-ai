@@ -9,6 +9,7 @@
 // Include framework modules
 
 pub mod validation;
+pub mod safetensors;
 pub mod reasoning;
 pub mod atqs;
 pub mod compression;
@@ -28,6 +29,9 @@ pub mod vogp;
 
 // Include ERP module
 pub mod erp;
+
+// Include training module
+pub mod training;
 
 // Include NXR Model Series
 pub mod shared;

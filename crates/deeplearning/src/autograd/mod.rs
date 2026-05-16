@@ -15,6 +15,10 @@ pub trait TensorOps {
     fn sub(&self, other: &Self) -> Tensor;
     fn mul(&self, other: &Self) -> Tensor;
     fn div(&self, other: &Self) -> Tensor;
+    fn exp(&self) -> Tensor;
+    fn ln(&self) -> Tensor;
+    fn powf(&self, exponent: f32) -> Tensor;
+    fn sqrt(&self) -> Tensor;
     // Linear algebra
     fn matmul(&self, other: &Self) -> Tensor;
     // Reduce
@@ -27,6 +31,8 @@ pub trait TensorOps {
     fn relu(&self) -> Tensor;
     fn gelu(&self) -> Tensor;
     fn sigmoid(&self) -> Tensor;
+    fn tanh(&self) -> Tensor;
+    fn leaky_relu(&self, negative_slope: f32) -> Tensor;
     fn silu(&self) -> Tensor;
     // Neural network
     fn softmax(&self, axis: usize) -> Tensor;
@@ -39,6 +45,10 @@ impl TensorOps for Tensor {
     fn sub(&self, other: &Self) -> Tensor { ops::math::sub(self, other) }
     fn mul(&self, other: &Self) -> Tensor { ops::math::mul(self, other) }
     fn div(&self, other: &Self) -> Tensor { ops::math::div(self, other) }
+    fn exp(&self) -> Tensor { ops::math::exp(self) }
+    fn ln(&self) -> Tensor { ops::math::ln(self) }
+    fn powf(&self, exponent: f32) -> Tensor { ops::math::powf(self, exponent) }
+    fn sqrt(&self) -> Tensor { ops::math::sqrt(self) }
     fn matmul(&self, other: &Self) -> Tensor { ops::matmul::matmul(self, other) }
     fn sum(&self) -> Tensor { ops::reduce::sum(self) }
     fn mean(&self) -> Tensor { ops::reduce::mean(self) }
@@ -47,6 +57,8 @@ impl TensorOps for Tensor {
     fn relu(&self) -> Tensor { ops::activation::relu(self) }
     fn gelu(&self) -> Tensor { ops::activation::gelu(self) }
     fn sigmoid(&self) -> Tensor { ops::activation::sigmoid(self) }
+    fn tanh(&self) -> Tensor { ops::activation::tanh(self) }
+    fn leaky_relu(&self, negative_slope: f32) -> Tensor { ops::activation::leaky_relu(self, negative_slope) }
     fn silu(&self) -> Tensor { ops::activation::silu(self) }
     fn softmax(&self, axis: usize) -> Tensor { ops::nn::softmax(self, axis) }
     fn log_softmax(&self, axis: usize) -> Tensor { ops::nn::log_softmax(self, axis) }
@@ -132,6 +144,53 @@ impl Module for MLP {
     }
 
     fn name(&self) -> &str { "MLP" }
+}
+
+/// Adam Optimizer
+pub struct Adam {
+    pub parameters: Vec<Tensor>,
+    pub lr: f32,
+    pub beta1: f32,
+    pub beta2: f32,
+    pub eps: f32,
+    step: usize,
+    m: Vec<ArrayD<f32>>,
+    v: Vec<ArrayD<f32>>,
+}
+
+impl Adam {
+    pub fn new(parameters: Vec<Tensor>, lr: f32) -> Self {
+        let m = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
+        let v = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
+        Self { parameters, lr, beta1: 0.9, beta2: 0.999, eps: 1e-8, step: 0, m, v }
+    }
+
+    pub fn zero_grad(&self) {
+        for p in &self.parameters {
+            p.zero_grad();
+        }
+    }
+
+    pub fn step(&mut self) {
+        self.step += 1;
+        let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
+        let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
+
+        for (i, p) in self.parameters.iter().enumerate() {
+            if let Some(g) = p.grad() {
+                self.m[i] = &self.m[i] * self.beta1 + g.clone() * (1.0 - self.beta1);
+                self.v[i] = &self.v[i] * self.beta2 + (g.clone() * &g) * (1.0 - self.beta2);
+
+                let m_hat = self.m[i].clone() / bias_corr1;
+                let v_hat = self.v[i].clone() / bias_corr2;
+                let denom = v_hat.mapv(|x| x.sqrt()) + self.eps;
+
+                let lr_arr = ArrayD::from_elem(denom.shape().to_vec(), self.lr);
+                let update = m_hat * (lr_arr / &denom);
+                p.subtract_from_data(&update);
+            }
+        }
+    }
 }
 
 /// SGD Optimizer
@@ -301,6 +360,150 @@ mod tests {
         loss.backward();
         assert!(pred.grad().is_some());
         assert_eq!(pred.grad().unwrap().shape(), &[4]);
+    }
+
+    #[test]
+    fn test_tanh_backward() {
+        let a = Tensor::randn(&[4], true);
+        let b = a.tanh().sum();
+        b.backward();
+        assert!(a.grad().is_some());
+    }
+
+    #[test]
+    fn test_leaky_relu_backward() {
+        let a = Tensor::randn(&[4], true);
+        let b = a.leaky_relu(0.01).sum();
+        b.backward();
+        assert!(a.grad().is_some());
+    }
+
+    #[test]
+    fn test_exp_backward() {
+        let a = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3]);
+        a.set_requires_grad(true);
+        let b = a.exp().sum();
+        b.backward();
+        assert!(a.grad().is_some());
+    }
+
+    #[test]
+    fn test_ln_backward() {
+        let a = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3]);
+        a.set_requires_grad(true);
+        let b = a.ln().sum();
+        b.backward();
+        assert!(a.grad().is_some());
+    }
+
+    #[test]
+    fn test_sqrt_backward() {
+        let a = Tensor::from_slice(&[4.0, 9.0, 16.0], &[3]);
+        a.set_requires_grad(true);
+        let b = a.sqrt().sum();
+        b.backward();
+        assert!(a.grad().is_some());
+    }
+
+    #[test]
+    fn test_powf_backward() {
+        let a = Tensor::from_slice(&[2.0, 3.0, 4.0], &[3]);
+        a.set_requires_grad(true);
+        let b = a.powf(2.0).sum();
+        b.backward();
+        assert!(a.grad().is_some());
+    }
+
+    #[test]
+    fn test_cross_entropy_backward() {
+        let logits = Tensor::from_slice(&[2.0, 1.0, 0.1, 0.5, 2.5, 0.3], &[2, 3]);
+        logits.set_requires_grad(true);
+        let targets = Tensor::from_slice(&[0.0, 2.0], &[2]);
+        let loss = cross_entropy_loss(&logits, &targets).mean();
+        loss.backward();
+        assert!(logits.grad().is_some());
+        assert_eq!(logits.grad().unwrap().shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_adam_step() {
+        let mut layer = Linear::new(4, 2, true);
+        let x = Tensor::randn(&[2, 4], false);
+        let y = layer.forward(&x).sum();
+        y.backward();
+
+        let params = layer.parameters();
+        let old_data: Vec<f32> = params[0].data().iter().copied().collect();
+
+        let mut opt = Adam::new(params.clone(), 0.001);
+        opt.step();
+
+        let new_data = params[0].data();
+        let changed = old_data.iter().zip(new_data.iter()).any(|(a, b)| (a - b).abs() > 1e-6);
+        assert!(changed, "Adam should update parameters");
+    }
+
+    #[test]
+    fn test_end_to_end_linear_regression() {
+        // y = X @ w + noise
+        let n = 100;
+        let d = 5;
+        let w_true: Vec<f32> = (0..d).map(|i| (i + 1) as f32 / 10.0).collect();
+        let x_data: Vec<f32> = (0..n * d).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect();
+        let y_data: Vec<f32> = (0..n).map(|i| {
+            let pred: f32 = (0..d).map(|j| x_data[i * d + j] * w_true[j]).sum();
+            pred + rand::random::<f32>() * 0.1
+        }).collect();
+
+        let x = Tensor::from_slice(&x_data, &[n, d]);
+        let y = Tensor::from_slice(&y_data, &[n, 1]);
+        let model = Linear::new(d, 1, true);
+
+        let mut losses = Vec::new();
+        let mut opt = SGD::new(model.parameters(), 0.01, 0.9);
+
+        for _step in 0..50 {
+            let pred = model.forward(&x);
+            let diff = pred.sub(&y);
+            let loss = diff.mul(&diff).mean();
+            loss.backward();
+            opt.step();
+            opt.zero_grad();
+            losses.push(loss.data()[0]);
+        }
+
+        assert!(losses[losses.len() - 1] < 0.5, "Loss should decrease during training: {:?}", losses);
+    }
+
+    #[test]
+    fn test_end_to_end_classifier() {
+        // Simple binary classifier with BCE
+        let n = 50;
+        let d = 4;
+        let x_data: Vec<f32> = (0..n * d).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect();
+        let y_data: Vec<f32> = (0..n).map(|i| {
+            let sum: f32 = (0..d).map(|j| x_data[i * d + j]).sum();
+            if sum > 0.0 { 1.0 } else { 0.0 }
+        }).collect();
+
+        let x = Tensor::from_slice(&x_data, &[n, d]);
+        let y = Tensor::from_slice(&y_data, &[n, 1]);
+        let model = Linear::new(d, 1, true);
+
+        let mut losses = Vec::new();
+        let mut opt = SGD::new(model.parameters(), 0.1, 0.9);
+
+        for _step in 0..100 {
+            let logits = model.forward(&x);
+            let probs = logits.sigmoid();
+            let loss = ops::nn::binary_cross_entropy(&probs, &y).mean();
+            loss.backward();
+            opt.step();
+            opt.zero_grad();
+            losses.push(loss.data()[0]);
+        }
+
+        assert!(losses[losses.len() - 1] < 0.5, "BCE loss should decrease: {:?}", losses);
     }
 
     #[test]

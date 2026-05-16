@@ -65,12 +65,12 @@ impl Cli {
             Commands::Codegen { description, language, output } => {
                 self.run_codegen(&nexora, description, language, output).await
             }
-            Commands::Train { data, output, epochs, batch_size, learning_rate, gpu } => {
-                self.run_train(&nexora, data, output, *epochs, *batch_size, *learning_rate, *gpu).await
+            Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu } => {
+                self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu).await
                     .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
             }
-            Commands::Evaluate { model, test_data, output } => {
-                self.run_evaluate(&nexora, model, test_data, output).await
+            Commands::Evaluate { model, test_data, tokenizer, output } => {
+                self.run_evaluate(&nexora, model, test_data, tokenizer, output).await
                     .map_err(|e| NexoraError::processing(format!("Evaluate command failed: {}", e)))
             }
             Commands::Info { performance, memory, models, format } => {

@@ -20,6 +20,7 @@ pub mod tkrr;       // Top-K Resonance Routing
 pub mod isc;        // Inverse Spectral Collapse
 pub mod training;   // Training stabilization (PGN & REC)
 pub mod utils;      // Utility functions untuk holographic operations
+pub mod model;      // EchoNetModel orchestrator
 
 // Re-export semua komponen
 pub use sse::*;
@@ -34,6 +35,36 @@ pub use isc::*;
 pub use training::*;
 
 pub use utils::*;
+
+#[cfg(test)]
+pub mod model_tests {
+    use super::*;
+    use crate::autograd::{Module, Tensor};
+
+    #[test]
+    fn test_echo_net_parameters() {
+        let config = EchoNetConfig {
+            vocab_size: 100,
+            embedding_dim: 16,
+            amplitude_dim: 8,
+            phase_dim: 4,
+            resonance_dim: 4,
+            num_bands: 1,
+            band_frequencies: vec![1.0],
+            kernel_size: 2,
+            memory_size: 10,
+            compression_levels: 1,
+            compression_ratio: 0.5,
+            output_size: 4,
+            ..Default::default()
+        };
+        let model = model::EchoNetModel::new(config).unwrap();
+        let params = model.parameters();
+        assert!(!params.is_empty(), "EchoNet should have trainable parameters");
+        // SSE: 4, IRR: 3, ISC: 2 = 9 total
+        assert_eq!(params.len(), 9, "Expected 9 trainable parameter tensors");
+    }
+}
 
 use crate::{DLResult, DeepLearningError};
 use ndarray::ArrayD;
