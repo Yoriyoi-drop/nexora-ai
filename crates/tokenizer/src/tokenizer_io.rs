@@ -110,7 +110,7 @@ impl TokenizerIO {
         let mut line = String::new();
         while reader.read_line(&mut line)? > 0 {
             let token_strs: Vec<&str> = line.trim().split_whitespace().collect();
-            let mut token_ids = Vec::new();
+            let mut token_ids = Vec::with_capacity(token_strs.len());
             
             for token_str in token_strs {
                 if let Ok(id) = token_str.parse::<u32>() {
@@ -291,7 +291,7 @@ impl<'a> Iterator for TokenizerDecodeStream<'a> {
             Ok(0) => None, // EOF
             Ok(_) => {
                 let token_strs: Vec<&str> = self.buffer.trim().split_whitespace().collect();
-                let mut token_ids = Vec::new();
+                let mut token_ids = Vec::with_capacity(token_strs.len());
                 
                 for token_str in token_strs {
                     if let Ok(id) = token_str.parse::<u32>() {

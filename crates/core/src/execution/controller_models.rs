@@ -49,7 +49,7 @@ impl ModelProcessor {
         }
         
         // Direct security check
-        let mut security_issues = Vec::new();
+        let mut security_issues = Vec::with_capacity(2);
         if input.to_lowercase().contains("eval(") {
             security_issues.push("eval() detected - potential security risk");
         }

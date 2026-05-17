@@ -104,7 +104,7 @@ impl QualityAlgorithm for LengthQualityAlgorithm {
     
     fn reasons(&self, entry: &DataEntry) -> Vec<String> {
         let length = entry.content.len();
-        let mut reasons = Vec::new();
+        let mut reasons = Vec::with_capacity(3);
         
         if length < self.min_length {
             reasons.push(format!("Content too short: {} chars (min: {})", length, self.min_length));

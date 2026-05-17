@@ -218,7 +218,7 @@ impl EchoNetModel {
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {
-        let mut params = Vec::new();
+        let mut params = Vec::with_capacity(self.sse_params.len() + self.irr_params.len() + self.isc_params.len());
         params.extend(self.sse_params.iter().cloned());
         params.extend(self.irr_params.iter().cloned());
         params.extend(self.isc_params.iter().cloned());

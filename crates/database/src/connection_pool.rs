@@ -93,7 +93,7 @@ impl<T: Clone> GenericConnectionPool<T> {
         let waiting_requests = Arc::new(RwLock::new(0));
 
         // Create minimum connections
-        let mut conn_vec = Vec::new();
+        let mut conn_vec = Vec::with_capacity(config.min_connections);
         for _ in 0..config.min_connections {
             match connection_factory.create_connection().await {
                 Ok(connection) => {

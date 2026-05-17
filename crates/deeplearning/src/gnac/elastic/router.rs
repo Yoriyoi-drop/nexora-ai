@@ -21,7 +21,7 @@ impl ElasticRouter {
         match self.strategy {
             ElasticStrategy::Lightweight => {
                 // Hanya jalur utama, nonaktifkan branch mahal
-                let mut path = Vec::new();
+                let mut path = Vec::with_capacity(graph.nodes.len());
                 for node in graph.nodes.values() {
                     if !Self::is_expensive(&node.node_type) {
                         path.push(node.id);
@@ -36,7 +36,7 @@ impl ElasticRouter {
                 if input_complexity > self.complexity_thresholds[1] {
                     graph.topological_order().unwrap_or_default()
                 } else {
-                    let mut path = Vec::new();
+                    let mut path = Vec::with_capacity(graph.nodes.len());
                     for node in graph.nodes.values() {
                         if !Self::is_expensive(&node.node_type) {
                             path.push(node.id);

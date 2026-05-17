@@ -51,12 +51,13 @@ pub struct ChainOfThoughtReasoner;
 
 impl ChainOfThoughtReasoner {
     fn decompose_problem(&self, problem: &str) -> Vec<String> {
-        let mut steps = Vec::new();
         let sentences: Vec<&str> = problem
             .split(|c: char| c == '.' || c == '!' || c == '?')
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect();
+
+        let mut steps = Vec::with_capacity(sentences.len());
 
         for sentence in &sentences {
             let parts: Vec<&str> = sentence
@@ -133,7 +134,7 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
     }
     
     async fn alternatives(&self, problem: &str, _context: serde_json::Value) -> FoundationResult<Vec<ReasoningChain>> {
-        let mut alternatives = Vec::new();
+        let mut alternatives = Vec::with_capacity(2);
 
         // Deductive alternative
         let deductive: ReasoningChain = self.reason(problem, serde_json::Value::Null).await?;

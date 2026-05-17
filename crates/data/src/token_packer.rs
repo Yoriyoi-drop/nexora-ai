@@ -213,7 +213,7 @@ impl TokenPacker {
     
     /// Pack multiple entries
     pub fn pack_batch(&mut self, entries: &[DataEntry]) -> Result<Vec<PackedTokens>> {
-        let mut packed_entries = Vec::new();
+        let mut packed_entries = Vec::with_capacity(entries.len());
         
         for entry in entries {
             let packed = self.pack_entry(entry)?;
@@ -242,7 +242,7 @@ impl TokenPacker {
     
     /// Light compression - simple run-length encoding
     fn light_compression(&self, token_ids: &[u32], original_size: usize) -> Result<CompressionInfo> {
-        let mut compressed = Vec::new();
+        let mut compressed = Vec::with_capacity(token_ids.len() * 2);
         let mut current_run = (token_ids[0], 1u32);
         
         for &token_id in &token_ids[1..] {
@@ -270,7 +270,7 @@ impl TokenPacker {
     
     /// Medium compression - delta encoding
     fn medium_compression(&self, token_ids: &[u32], original_size: usize) -> Result<CompressionInfo> {
-        let mut compressed = Vec::new();
+        let mut compressed = Vec::with_capacity(token_ids.len());
         let mut prev_token = 0u32;
         
         for &token_id in token_ids {
@@ -292,7 +292,7 @@ impl TokenPacker {
     
     /// Heavy compression - variable byte encoding
     fn heavy_compression(&self, token_ids: &[u32], original_size: usize) -> Result<CompressionInfo> {
-        let mut compressed = Vec::new();
+        let mut compressed = Vec::with_capacity(token_ids.len() * 5);
         
         for &token_id in token_ids {
             let mut value = token_id;

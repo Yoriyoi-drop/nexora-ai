@@ -234,7 +234,7 @@ impl Trie {
     pub fn longest_match(&self, token_ids: &[u32]) -> Option<(Vec<u32>, u32)> {
         let mut current = &self.root;
         let mut best_match: Option<(Vec<u32>, u32)> = None;
-        let mut current_sequence = Vec::new();
+        let mut current_sequence = Vec::with_capacity(token_ids.len());
         
         for &token_id in token_ids {
             if let Some(child) = current.get_child(token_id) {

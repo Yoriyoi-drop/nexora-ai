@@ -144,7 +144,7 @@ impl ValidationAgent {
     ) -> Result<ValidationResult> {
         debug!("Validating content of length: {}", content.len());
         
-        let mut all_issues = Vec::new();
+        let mut all_issues = Vec::with_capacity(self.validation_rules.len());
         let mut total_confidence = 0.0;
         let mut rule_count = 0;
         
@@ -240,7 +240,7 @@ impl ValidationAgent {
         
         debug!("Detecting hallucinations in content");
         
-        let mut issues = Vec::new();
+        let mut issues = Vec::with_capacity(6);
         
         // Simple hallucination detection patterns
         let hallucination_patterns = [
@@ -293,7 +293,7 @@ impl ValidationAgent {
         
         debug!("Checking content appropriateness");
         
-        let mut issues = Vec::new();
+        let mut issues = Vec::with_capacity(5);
         
         // Simple inappropriate content detection
         let inappropriate_patterns = [
@@ -607,7 +607,7 @@ impl ValidationRule for BasicContentValidationRule {
     }
     
     async fn validate(&self, content: &str, _context: &Value) -> ValidationResult {
-        let mut issues = Vec::new();
+        let mut issues = Vec::with_capacity(2);
         let mut confidence = 1.0;
         
         // Check for empty content
@@ -704,7 +704,7 @@ impl ValidationRule for AppropriatenessValidationRule {
     }
     
     async fn validate(&self, content: &str, _context: &Value) -> ValidationResult {
-        let mut issues = Vec::new();
+        let mut issues = Vec::with_capacity(3);
         let mut confidence = 1.0;
         
         // Simple appropriateness check

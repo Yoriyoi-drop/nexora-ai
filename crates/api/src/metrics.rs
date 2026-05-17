@@ -398,7 +398,7 @@ impl PerformanceMonitor {
     /// Check performance and generate alerts
     pub async fn check_performance(&self) -> Vec<PerformanceAlert> {
         let metrics = self.metrics_collector.get_current_metrics().await;
-        let mut alerts = Vec::new();
+        let mut alerts = Vec::with_capacity(5);
         
         // Check response time
         if metrics.average_response_time_ms > self.thresholds.max_response_time_ms {

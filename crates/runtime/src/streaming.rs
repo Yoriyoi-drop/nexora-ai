@@ -501,20 +501,20 @@ impl StreamingEngine {
     /// Clean up expired streams
     async fn cleanup_expired_streams(&self) -> Result<()> {
         let now = Utc::now();
-        let mut expired_streams = Vec::new();
-        
-        {
+        let expired_streams = {
             let streams = self.active_streams.read().await;
+            let mut expired = Vec::with_capacity(streams.len());
             for (stream_id, stream_info) in streams.iter() {
                 let age_seconds = (now - stream_info.created_at).num_seconds() as u64;
                 let idle_seconds = (now - stream_info.last_activity).num_seconds() as u64;
                 
                 if age_seconds > self.config.stream_timeout_seconds || 
                    (idle_seconds > 300 && stream_info.finished) { // 5 minutes idle for finished streams
-                    expired_streams.push(*stream_id);
+                    expired.push(*stream_id);
                 }
             }
-        }
+            expired
+        };
         
         for stream_id in expired_streams {
             if let Err(e) = self.cancel_stream(stream_id).await {

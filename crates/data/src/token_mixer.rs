@@ -79,7 +79,7 @@ impl MixingStrategy for RandomMixingStrategy {
     }
     
     fn mix(&self, sources: &[&TokenSource], config: &MixerConfig) -> Result<Vec<String>> {
-        let mut mixed_tokens = Vec::new();
+        let mut mixed_tokens = Vec::with_capacity(config.max_tokens_per_entry);
         let mut rng = rand::thread_rng();
         
         // Calculate target number of tokens
@@ -175,7 +175,7 @@ impl MixingStrategy for WeightedMixingStrategy {
     }
     
     fn mix(&self, sources: &[&TokenSource], config: &MixerConfig) -> Result<Vec<String>> {
-        let mut mixed_tokens = Vec::new();
+        let mut mixed_tokens = Vec::with_capacity(config.max_tokens_per_entry);
         let mut rng = rand::thread_rng();
         
         // Calculate target number of tokens
@@ -249,7 +249,7 @@ impl MixingStrategy for SequentialMixingStrategy {
     }
     
     fn mix(&self, sources: &[&TokenSource], config: &MixerConfig) -> Result<Vec<String>> {
-        let mut mixed_tokens = Vec::new();
+        let mut mixed_tokens = Vec::with_capacity(config.max_tokens_per_entry);
         let mut source_index = self.current_source_index;
         
         // Calculate target number of tokens

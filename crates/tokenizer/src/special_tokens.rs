@@ -317,8 +317,8 @@ impl SpecialTokens {
     
     /// Find matching pairs in a sequence of token IDs
     pub fn find_matching_pairs(&self, token_ids: &[u32]) -> Vec<(usize, usize)> {
-        let mut pairs = Vec::new();
-        let mut stack = Vec::new();
+        let mut pairs = Vec::with_capacity(token_ids.len());
+        let mut stack = Vec::with_capacity(token_ids.len());
         
         for (i, &id) in token_ids.iter().enumerate() {
             if let Some(token_str) = self.get_token_str(id) {

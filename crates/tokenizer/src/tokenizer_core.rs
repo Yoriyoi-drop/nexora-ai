@@ -162,7 +162,7 @@ impl TokenizerCore {
     
     /// Tokenize text into token IDs
     pub fn tokenize(&self, text: &str) -> Result<Vec<u32>> {
-        let mut tokens = Vec::new();
+        let mut tokens = Vec::with_capacity(text.len());
         
         // Add prefix space if configured
         let processed_text = if self.config.add_prefix_space && !text.starts_with(' ') {
@@ -325,7 +325,7 @@ impl TokenizerCore {
         if let Some(dropout_rate) = self.config.dropout {
             if dropout_rate > 0.0 && dropout_rate < 1.0 {
                 let mut rng = rand::thread_rng();
-                let mut result = Vec::new();
+                let mut result = Vec::with_capacity(tokens.len());
                 
                 for token in tokens {
                     if rng.gen::<f64>() >= dropout_rate.into() {

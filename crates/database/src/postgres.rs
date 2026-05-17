@@ -379,7 +379,7 @@ impl PostgreSQLConnectionPool {
         let waiting_requests = Arc::new(RwLock::new(0));
 
         // Create minimum connections with real database connections
-        let mut conn_vec = Vec::new();
+        let mut conn_vec = Vec::with_capacity(config.min_connections);
         for i in 0..config.min_connections {
             let mut connection = PostgreSQLConnection::new(format!("conn_{}", i), &credentials);
 

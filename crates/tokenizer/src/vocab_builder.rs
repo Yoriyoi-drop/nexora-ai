@@ -272,7 +272,7 @@ impl VocabBuilder {
         let non_special_count = self.vocab.values().filter(|e| !e.is_special).count();
         let special_count = self.vocab.values().filter(|e| e.is_special).count();
         
-        let mut token_lengths = Vec::new();
+        let mut token_lengths = Vec::with_capacity(self.vocab.len());
         for entry in self.vocab.values() {
             if !entry.is_special {
                 token_lengths.push(entry.token.len());

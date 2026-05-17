@@ -74,7 +74,7 @@ impl HealthChecker {
     }
 
     pub fn check_health(&self) -> HealthReport {
-        let mut checks = Vec::new();
+        let mut checks = Vec::with_capacity(4);
         let mut all_healthy = true;
         let mut degraded = false;
 

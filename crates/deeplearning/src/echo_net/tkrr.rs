@@ -154,7 +154,7 @@ impl TopKResonanceRouting {
         self.cache_miss_count += 1;
         
         // Calculate resonance scores for all candidates
-        let mut candidates = Vec::new();
+        let mut candidates = Vec::with_capacity(resonance_data.len());
         
         for (idx, (resonance, holographic)) in resonance_data.iter().zip(holographic_memory.iter()).enumerate() {
             let resonance_score = self.calculate_resonance_score(query, resonance, holographic)?;
@@ -218,7 +218,7 @@ impl TopKResonanceRouting {
     
     /// Route from cached indices
     fn route_from_cached_indices(&self, indices: &[usize], resonance_data: &[ArrayD<f32>], holographic_memory: &[ArrayD<f32>]) -> DLResult<ArrayD<f32>> {
-        let mut cached_candidates = Vec::new();
+        let mut cached_candidates = Vec::with_capacity(indices.len());
         
         for &idx in indices {
             if idx < resonance_data.len() && idx < holographic_memory.len() {
@@ -374,8 +374,8 @@ impl TopKResonanceRouting {
             return Ok(candidates.to_vec());
         }
         
-        let mut diverse_candidates = Vec::new();
-        let mut selected_data = Vec::new();
+        let mut diverse_candidates = Vec::with_capacity(self.top_k);
+        let mut selected_data = Vec::with_capacity(self.top_k);
         
         for candidate in candidates {
             let is_diverse = if selected_data.is_empty() {

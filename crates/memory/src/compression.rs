@@ -173,7 +173,7 @@ impl ContextCompressor {
     /// Simple word-based compression
     fn simple_compress(&mut self, text: &str) -> Result<Vec<u8>> {
         let words: Vec<&str> = text.split_whitespace().collect();
-        let mut compressed = Vec::new();
+        let mut compressed = Vec::with_capacity(words.len());
         
         for word in words {
             if word.len() <= 255 {
@@ -218,7 +218,7 @@ impl ContextCompressor {
     /// Run-length encoding compression
     fn run_length_compress(&self, text: &str) -> Result<Vec<u8>> {
         let bytes = text.as_bytes();
-        let mut compressed = Vec::new();
+        let mut compressed = Vec::with_capacity(bytes.len());
         
         if bytes.is_empty() {
             return Ok(compressed);
@@ -250,7 +250,7 @@ impl ContextCompressor {
             return Err(anyhow::anyhow!("Invalid RLE data length"));
         }
         
-        let mut decompressed = Vec::new();
+        let mut decompressed = Vec::with_capacity(data.len() / 2);
         
         for chunk in data.chunks(2) {
             let count = chunk[0];
@@ -267,7 +267,7 @@ impl ContextCompressor {
     /// Dictionary-based compression
     fn dictionary_compress(&mut self, text: &str) -> Result<Vec<u8>> {
         let words: Vec<&str> = text.split_whitespace().collect();
-        let mut compressed = Vec::new();
+        let mut compressed = Vec::with_capacity(words.len());
         
         for word in words {
             let dict_id = if let Some(&id) = self.dictionary.get(word) {

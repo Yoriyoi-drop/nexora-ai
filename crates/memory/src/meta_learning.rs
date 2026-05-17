@@ -140,8 +140,8 @@ impl MetaLearningTensor {
 
     /// Which pathways are ineffective (low coupling change)
     pub fn ineffective_pathways(&self, threshold: f64) -> Vec<(usize, usize, usize)> {
-        let mut pathways = Vec::new();
         let dims = (self.tensor.len(), self.tensor[0].len(), self.tensor[0][0].len());
+        let mut pathways = Vec::with_capacity(dims.0 * dims.1 * dims.2);
 
         for i in 0..dims.0 {
             for j in 0..dims.1 {

@@ -132,7 +132,7 @@ impl SparseCausalAttention {
             });
         }
         
-        let mut heads = Vec::new();
+        let mut heads = Vec::with_capacity(self.num_heads);
         for i in 0..self.num_heads {
             let start = i * self.head_dim;
             let end = start + self.head_dim;
@@ -320,8 +320,8 @@ impl SparseAttention for SparseCausalAttention {
         let key_heads = self.split_heads(key)?;
         let value_heads = self.split_heads(value)?;
         
-        let mut head_outputs = Vec::new();
-        let mut all_entropies = Vec::new();
+        let mut head_outputs = Vec::with_capacity(self.num_heads);
+        let mut all_entropies = Vec::with_capacity(self.num_heads);
         let mut total_connections = 0;
         
         // Process each head

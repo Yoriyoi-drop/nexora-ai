@@ -73,7 +73,7 @@ impl MinHashLSH {
     /// Create n-gram shingles from content
     fn create_shingles(&self, content: &str, ngram_size: usize) -> Vec<String> {
         let chars: Vec<char> = content.chars().collect();
-        let mut shingles = Vec::new();
+        let mut shingles = Vec::with_capacity(chars.len().saturating_sub(ngram_size - 1));
         
         if chars.len() < ngram_size {
             shingles.push(content.to_string());
@@ -115,7 +115,7 @@ impl MinHashLSH {
     /// Create LSH bands from signature
     fn create_lsh_bands(&self, signature: &[u64]) -> Vec<Vec<u64>> {
         let bands_per_row = self.num_hashes / self.signature_size;
-        let mut bands = Vec::new();
+        let mut bands = Vec::with_capacity(self.signature_size);
         
         for i in 0..self.signature_size {
             let start = i * bands_per_row;

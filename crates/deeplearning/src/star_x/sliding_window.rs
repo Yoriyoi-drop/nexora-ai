@@ -65,7 +65,7 @@ impl SlidingWindowAttention {
         let blas_ops = BlasOperations::auto_detect().ok();
         
         // Calculate level ratios for hierarchical attention
-        let mut level_ratios = Vec::new();
+        let mut level_ratios = Vec::with_capacity(num_levels);
         for i in 0..num_levels {
             let ratio = 2.0_f32.powi(-(i as i32));
             level_ratios.push(ratio);
@@ -365,8 +365,8 @@ impl HierarchicalSlidingWindow {
         let base_attention = SlidingWindowAttention::new(hidden_dim, num_heads, window_size, stride, num_levels)?;
         
         // Calculate level scales
-        let mut level_scales = Vec::new();
-        let mut fusion_weights = Vec::new();
+        let mut level_scales = Vec::with_capacity(num_levels);
+        let mut fusion_weights = Vec::with_capacity(num_levels);
         
         for i in 0..num_levels {
             let scale = 2_usize.pow(i as u32);

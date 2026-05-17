@@ -533,7 +533,7 @@ impl SQLiteConnectionPool {
         let statistics = Arc::new(RwLock::new(PoolStatistics::default()));
         let waiting_requests = Arc::new(RwLock::new(0));
 
-        let mut conn_vec = Vec::new();
+        let mut conn_vec = Vec::with_capacity(config.min_connections);
         for i in 0..config.min_connections {
             match SQLiteConnection::new(format!("sqlite_conn_{}", i), database_path).await {
                 Ok(conn) => conn_vec.push(conn),

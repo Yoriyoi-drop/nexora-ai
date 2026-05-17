@@ -236,8 +236,8 @@ impl IterativeResonanceReasoner {
         let memory_1d = self.to_1d_array(memory)?;
         
         // Compute attention weights
-        let mut attention_scores = Vec::new();
         let chunk_size = query_1d.len().min(memory_1d.len());
+        let mut attention_scores = Vec::with_capacity(chunk_size);
         
         for i in 0..chunk_size {
             let query_chunk = Array1::from(vec![query_1d[i]]);
@@ -406,7 +406,7 @@ impl IterativeResonanceReasoner {
         
         // Calculate query stability
         if self.query_evolution.len() >= 2 {
-            let mut stabilities = Vec::new();
+            let mut stabilities = Vec::with_capacity(self.query_evolution.len().saturating_sub(1));
             
             for i in 1..self.query_evolution.len() {
                 let similarity = self.cosine_similarity(

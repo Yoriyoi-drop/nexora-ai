@@ -197,8 +197,8 @@ impl RequestProcessor {
     
     /// Extract functions from code
     fn extract_functions(&self, code: &str) -> Vec<FunctionInfo> {
-        let mut functions = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
+        let mut functions = Vec::with_capacity(lines.len());
         
         for (line_num, line) in lines.iter().enumerate() {
             if let Some(func_name) = self.extract_function_name(line) {
@@ -275,8 +275,8 @@ impl RequestProcessor {
     
     /// Extract classes from code
     fn extract_classes(&self, code: &str) -> Vec<ClassInfo> {
-        let mut classes = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
+        let mut classes = Vec::with_capacity(lines.len());
         
         for (line_num, line) in lines.iter().enumerate() {
             if line.contains("class ") || line.contains("struct ") {
@@ -304,8 +304,8 @@ impl RequestProcessor {
     
     /// Extract imports from code
     fn extract_imports(&self, code: &str) -> Vec<ImportInfo> {
-        let mut imports = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
+        let mut imports = Vec::with_capacity(lines.len());
         
         for (line_num, line) in lines.iter().enumerate() {
             if line.contains("import ") || line.contains("use ") || line.contains("#include") {
@@ -362,8 +362,8 @@ impl RequestProcessor {
     
     /// Identify code issues
     fn identify_issues(&self, code: &str) -> Vec<CodeIssue> {
-        let mut issues = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
+        let mut issues = Vec::with_capacity(lines.len());
         
         for (line_num, line) in lines.iter().enumerate() {
             // Check for very long lines

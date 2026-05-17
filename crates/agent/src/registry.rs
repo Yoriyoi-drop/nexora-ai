@@ -186,7 +186,7 @@ impl AgentRegistry {
     /// List all agents
     pub async fn list_agents(&self) -> Result<Vec<(Uuid, String, AgentStatus)>> {
         let agent_info = self.agent_info.read().await;
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(agent_info.len());
         
         for (agent_id, info) in agent_info.iter() {
             result.push((*agent_id, info.agent_type.clone(), info.status.clone()));
@@ -280,7 +280,7 @@ impl AgentRegistry {
     /// Get agents by status
     pub async fn get_agents_by_status(&self, status: AgentStatus) -> Result<Vec<Uuid>> {
         let agent_info = self.agent_info.read().await;
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(agent_info.len());
         
         for (agent_id, info) in agent_info.iter() {
             if info.status == status {

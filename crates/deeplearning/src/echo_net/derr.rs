@@ -128,7 +128,7 @@ impl DualEntropicResonanceRetrieval {
         let query_tensor = self.wave_to_tensor(query)?;
         
         // Process candidates and calculate metrics
-        let mut processed_candidates = Vec::new();
+        let mut processed_candidates = Vec::with_capacity(candidates.len());
         
         for candidate_data in candidates {
             let mut candidate = RetrievalCandidate::new(candidate_data.clone());

@@ -257,6 +257,7 @@ impl EpisodicMemory {
         let mut related = Vec::new();
         
         if let Some(episode) = self.episodes.get(episode_id) {
+            related = Vec::with_capacity(episode.related_episodes.len());
             for related_id in &episode.related_episodes {
                 if let Some(related_episode) = self.episodes.get(related_id) {
                     related.push(related_episode);
@@ -396,7 +397,7 @@ impl EpisodicMemory {
     
     /// Find similar episodes dan link them
     async fn find_similar_episodes(&mut self, new_episode_id: &str) -> Result<()> {
-        let mut similar_episodes = Vec::new();
+        let mut similar_episodes = Vec::with_capacity(self.episodes.len());
         
         if let Some(new_episode) = self.episodes.get(new_episode_id) {
             for (other_id, other_episode) in &self.episodes {
@@ -461,7 +462,7 @@ impl EpisodicMemory {
     
     /// Get recent episodes
     pub async fn get_recent_episodes(&self, count: usize) -> Result<Vec<&MemoryEpisode>> {
-        let mut recent_episodes = Vec::new();
+        let mut recent_episodes = Vec::with_capacity(count);
         
         for (_timestamp, episode_ids) in self.temporal_index.iter().rev() {
             for episode_id in episode_ids.iter().rev() {

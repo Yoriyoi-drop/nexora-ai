@@ -502,7 +502,7 @@ impl MetricsCollector {
         let metrics = self.metrics.read().await;
         let thresholds = self.alert_thresholds.read().await;
         
-        let mut new_alerts = Vec::new();
+        let mut new_alerts = Vec::with_capacity(5);
         
         // Check error rate
         if metrics.errors.error_rate > thresholds.max_error_rate {

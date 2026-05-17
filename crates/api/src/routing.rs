@@ -394,11 +394,11 @@ impl Router {
     
     /// Validate routes
     pub fn validate_routes(&self) -> Vec<String> {
-        let mut errors = Vec::new();
+        let mut errors = Vec::with_capacity(self.routes.len());
         
         for (route_key, route) in &self.routes {
             // Check for duplicate parameters
-            let mut param_names = Vec::new();
+            let mut param_names = Vec::with_capacity(8);
             for segment in route.path.split('/').filter(|s| !s.is_empty()) {
                 if segment.starts_with('{') && segment.ends_with('}') {
                     let param_name = &segment[1..segment.len()-1];

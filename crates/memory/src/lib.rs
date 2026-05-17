@@ -117,7 +117,7 @@ impl MemoryManager {
     pub async fn search(&self, query: &str) -> Result<Vec<MemorySearchResult>> {
         debug!("Searching memory: {}", query);
         
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(5);
         
         // Search di setiap layer
         let layers = self.layers.read().await;

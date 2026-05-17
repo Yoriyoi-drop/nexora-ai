@@ -517,7 +517,7 @@ impl ContextAgent {
                 format!("Failed to read documents directory: {}", e)
             ))?;
         
-        let mut recent_files = Vec::new();
+        let mut recent_files = Vec::with_capacity(10);
         let mut total_files = 0u64;
         
         for entry in entries {
@@ -562,7 +562,7 @@ impl ContextAgent {
                 format!("Failed to read logs directory: {}", e)
             ))?;
         
-        let mut recent_errors = Vec::new();
+        let mut recent_errors = Vec::with_capacity(10);
         let mut system_status = "Unknown".to_string();
         let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
         
@@ -660,7 +660,7 @@ impl ContextAgent {
                 debug!("Performing semantic context merge");
                 
                 let mut merged = serde_json::Map::new();
-                let mut context_items: Vec<(String, Value, f64)> = Vec::new();
+                let mut context_items: Vec<(String, Value, f64)> = Vec::with_capacity(contributions.len());
                 
                 // Extract items with their contribution scores
                 for (source, contribution) in contributions {

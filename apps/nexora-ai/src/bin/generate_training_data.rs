@@ -157,7 +157,10 @@ fn main() {
         vec![("train", 1.0)]
     };
 
-    let mut shard_infos: Vec<serde_json::Value> = Vec::new();
+    let total_shards: usize = splits.iter()
+        .map(|&(_, ratio)| if with_splits { (num_shards as f64 * ratio).ceil() as usize } else { num_shards })
+        .sum();
+    let mut shard_infos: Vec<serde_json::Value> = Vec::with_capacity(total_shards);
     let mut total_rows_all: u64 = 0;
 
     for &(split_name, ratio) in &splits {

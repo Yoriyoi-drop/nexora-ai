@@ -84,7 +84,7 @@ pub struct TemplateGenerationStrategy {
 
 impl TemplateGenerationStrategy {
     pub fn new() -> Self {
-        let mut templates = Vec::new();
+        let mut templates = Vec::with_capacity(3);
         let mut filler_words = HashMap::new();
         
         // Add default templates
@@ -496,7 +496,7 @@ impl SyntheticGenerator {
     
     /// Generate batch of synthetic entries
     pub fn generate_batch(&self, prompts: &[String], strategy_name: Option<&str>) -> Result<Vec<DataEntry>> {
-        let mut entries = Vec::new();
+        let mut entries = Vec::with_capacity(prompts.len());
         
         for prompt in prompts {
             let entry = self.generate_entry(prompt, strategy_name)?;

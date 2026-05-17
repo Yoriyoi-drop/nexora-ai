@@ -26,7 +26,7 @@ pub enum CheckStatus {
 impl ModelVerifier {
     /// Verifikasi penuh terhadap model
     pub fn verify(graph: &NeuralGraph) -> VerificationReport {
-        let mut checks = Vec::new();
+        let mut checks = Vec::with_capacity(4);
 
         // Cek adversarial vulnerability
         checks.push(Self::check_adversarial(graph));

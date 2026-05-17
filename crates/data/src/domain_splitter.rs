@@ -199,16 +199,16 @@ impl DomainClassifier for CodeClassifier {
     }
     
     fn classify(&self, text: &str, _config: &SplitterConfig) -> DomainClassification {
-        let mut evidence = Vec::new();
+        let mut evidence = Vec::with_capacity(3);
         let mut score = 0.0f32;
-        
+
         // Check keywords
         let keyword_matches = self.count_keyword_matches(text);
         if keyword_matches > 0 {
             score += keyword_matches as f32 * 0.3;
             evidence.push(format!("Found {} code keywords", keyword_matches));
         }
-        
+
         // Check patterns
         let pattern_matches = self.count_pattern_matches(text);
         if pattern_matches > 0 {
@@ -355,9 +355,9 @@ impl DomainClassifier for DeepLearningTheoryClassifier {
     }
     
     fn classify(&self, text: &str, _config: &SplitterConfig) -> DomainClassification {
-        let mut evidence = Vec::new();
+        let mut evidence = Vec::with_capacity(3);
         let mut score = 0.0f32;
-        
+
         // Check keywords
         let keyword_matches = self.count_keyword_matches(text);
         if keyword_matches > 0 {
@@ -531,9 +531,9 @@ impl DomainClassifier for LlmPapersClassifier {
     }
     
     fn classify(&self, text: &str, _config: &SplitterConfig) -> DomainClassification {
-        let mut evidence = Vec::new();
+        let mut evidence = Vec::with_capacity(3);
         let mut score = 0.0f32;
-        
+
         // Check model names
         let model_mentions = self.count_model_mentions(text);
         if model_mentions > 0 {

@@ -49,8 +49,8 @@ impl PlanningStrategy for HierarchicalPlanner {
             .filter(|s| !s.is_empty())
             .collect();
         
-        let mut steps = Vec::new();
-        let mut step_ids = Vec::new();
+        let mut steps = Vec::with_capacity(sentences.len());
+        let mut step_ids = Vec::with_capacity(sentences.len());
         let mut total_duration = 0u64;
         
         for (i, sentence) in sentences.iter().enumerate() {

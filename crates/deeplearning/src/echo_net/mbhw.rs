@@ -80,9 +80,9 @@ impl MultiBandHolographicWriter {
         let num_bands = bands.len();
         
         // Initialize holographic memory for each band
-        let mut holographic_memory = Vec::new();
-        let mut kernels = Vec::new();
-        let mut frequency_filters = Vec::new();
+        let mut holographic_memory = Vec::with_capacity(bands.len());
+        let mut kernels = Vec::with_capacity(bands.len());
+        let mut frequency_filters = Vec::with_capacity(bands.len());
         
         for band in &bands {
             // Initialize memory for this band
@@ -124,7 +124,7 @@ impl MultiBandHolographicWriter {
         let band_waves = self.filter_into_bands(&complex_wave)?;
         
         // Write to each band
-        let mut written_memories = Vec::new();
+        let mut written_memories = Vec::with_capacity(band_waves.len());
         for (band_idx, band_wave) in band_waves.into_iter().enumerate() {
             let written_memory = self.write_to_band(band_idx, &band_wave, timestamp)?;
             written_memories.push(written_memory);
@@ -141,7 +141,7 @@ impl MultiBandHolographicWriter {
     
     /// Filter complex wave into frequency bands
     fn filter_into_bands(&self, wave: &ComplexTensor) -> DLResult<Vec<Array2<Complex>>> {
-        let mut band_waves = Vec::new();
+        let mut band_waves = Vec::with_capacity(self.bands.len());
         
         for (band_idx, band) in self.bands.iter().enumerate() {
             let filtered_wave = self.apply_frequency_filter(wave, band_idx)?;

@@ -196,13 +196,13 @@ impl crate::cli::commands::Cli {
         };
 
         let (raw_samples, raw_text, loaded_count) = if data.is_dir() {
-            let mut all_samples: Vec<DataSample> = Vec::new();
-            let mut corpus = String::new();
             let mut entries: Vec<_> = std::fs::read_dir(data)?
                 .filter_map(|e| e.ok())
                 .filter(|e| e.path().extension().map_or(false, |ext| ext == "arrow"))
                 .collect();
             entries.sort_by_key(|e| e.file_name());
+            let mut all_samples: Vec<DataSample> = Vec::with_capacity(entries.len());
+            let mut corpus = String::new();
             info!("[1/6] Membaca {} arrow shards dari direktori {:?}...", entries.len(), data);
             for entry in &entries {
                 let path = entry.path();
@@ -356,7 +356,7 @@ impl crate::cli::commands::Cli {
         let total_models = all_models.len();
         info!("[5/6] Training {} NXR models secara sequential (max 2 jam per model)...", total_models);
 
-        let mut model_reports: Vec<serde_json::Value> = Vec::new();
+        let mut model_reports: Vec<serde_json::Value> = Vec::with_capacity(all_models.len());
 
         for (i, model_id) in all_models.into_iter().enumerate() {
             let model_name = format!("{:?}", model_id).to_lowercase();
@@ -596,7 +596,7 @@ impl crate::cli::commands::Cli {
         let mut step = 0;
         let total_steps = trainer.config.max_steps;
         let mut progress = ProgressTracker::new(manifest.total_samples, epochs);
-        let mut epoch_metrics: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+        let mut epoch_metrics: Vec<HashMap<String, serde_json::Value>> = Vec::with_capacity((epochs - resume_epoch) as usize);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2 * 3600);
 
         let mut data_exhausted = false;
@@ -1001,7 +1001,7 @@ fn train_nxr_model(
 
     let mut step = 0;
     let mut rng = rand::thread_rng();
-    let mut epoch_metrics: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+    let mut epoch_metrics: Vec<HashMap<String, serde_json::Value>> = Vec::with_capacity(epochs as usize);
     let start_time = std::time::Instant::now();
     let mut best_val_loss: Option<f64> = None;
     let mut patience_counter: usize = 0;

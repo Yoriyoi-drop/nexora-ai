@@ -182,7 +182,7 @@ impl PersistentResonanceMemory {
         let query_tensor = self.wave_to_tensor(query)?;
         
         // Calculate resonance with all memory entries
-        let mut resonances = Vec::new();
+        let mut resonances = Vec::with_capacity(self.memory_entries.iter().filter(|e| e.is_some()).count());
         
         let entries_to_process: Vec<(usize, ArrayD<f32>)> = self.memory_entries.iter()
             .enumerate()
@@ -455,7 +455,7 @@ impl PersistentResonanceMemory {
     /// Extract phase information from tensor
     fn extract_phase_info(&self, tensor: &ArrayD<f32>) -> DLResult<Array1<f32>> {
         // Simplified phase extraction using arctan2
-        let mut phase_info = Vec::new();
+        let mut phase_info = Vec::with_capacity(tensor.len() / 2);
         
         for i in 0..tensor.len() / 2 {
             if i + 1 < tensor.len() {

@@ -459,7 +459,7 @@ impl KVCache {
         
         for shard in &self.shards {
             let mut shard_guard = shard.write().await;
-            let mut expired_keys = Vec::new();
+            let mut expired_keys = Vec::with_capacity(shard_guard.entries.len());
             
             for (key, entry) in shard_guard.entries.iter() {
                 if let Some(expires_at) = entry.expires_at {

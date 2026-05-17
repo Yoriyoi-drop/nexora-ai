@@ -77,9 +77,9 @@ impl Default for DefaultReflector {
 #[async_trait]
 impl ReflectionEngine for DefaultReflector {
     async fn reflect(&self, actions: &[Action], context: &str) -> FoundationResult<ReflectionResult> {
-        let mut errors = Vec::new();
-        let mut improvements = Vec::new();
-        let mut insights = Vec::new();
+        let mut errors = Vec::with_capacity(actions.len());
+        let mut improvements = Vec::with_capacity(actions.len());
+        let mut insights = Vec::with_capacity(2);
 
         for action in actions {
             if !action.success {
@@ -132,7 +132,7 @@ impl ReflectionEngine for DefaultReflector {
     }
 
     async fn suggest_improvements(&self, reflection: &ReflectionResult) -> FoundationResult<Vec<String>> {
-        let mut suggestions = Vec::new();
+        let mut suggestions = Vec::with_capacity(2 + reflection.improvements_suggested.len() + reflection.learning_insights.len());
 
         if reflection.confidence < 0.3 {
             suggestions.push("Consider using a different approach entirely".to_string());

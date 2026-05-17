@@ -105,7 +105,7 @@ impl NeuralGraph {
             .map(|(id, _)| *id)
             .collect();
 
-        let mut order = Vec::new();
+        let mut order = Vec::with_capacity(self.nodes.len());
         while let Some(node) = queue.pop() {
             order.push(node);
             for edge in self.edges.values() {

@@ -462,7 +462,7 @@ impl AdaptiveComputeAllocation {
         let memory_per_full = 50;   // MB
         
         let mut total_memory = 0;
-        let mut adjusted_levels = Vec::new();
+        let mut adjusted_levels = Vec::with_capacity(base_levels.len());
         
         for (_i, &level) in base_levels.iter().enumerate() {
             let memory_cost = match level {
@@ -515,7 +515,7 @@ impl AdaptiveComputeAllocation {
     
     /// Get allocation recommendations
     pub fn get_allocation_recommendations(&self) -> Vec<String> {
-        let mut recommendations = Vec::new();
+        let mut recommendations = Vec::with_capacity(3);
         
         if self.compute_efficiency < 0.5 {
             recommendations.push("Consider lowering compute thresholds to improve efficiency".to_string());

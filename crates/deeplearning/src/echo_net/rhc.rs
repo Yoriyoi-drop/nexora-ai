@@ -88,9 +88,9 @@ impl RecursiveHolographicCompression {
         let num_levels = levels.len();
         
         // Initialize compressed memory for each level
-        let mut compressed_memory = Vec::new();
-        let mut memory_shapes = Vec::new();
-        let mut feature_extractors = Vec::new();
+        let mut compressed_memory = Vec::with_capacity(levels.len());
+        let mut memory_shapes = Vec::with_capacity(levels.len());
+        let mut feature_extractors = Vec::with_capacity(levels.len());
         
         for level in &levels {
             // Estimate memory size based on compression ratio
@@ -129,7 +129,7 @@ impl RecursiveHolographicCompression {
     
     /// Forward pass - compress input holographic data
     pub fn forward(&mut self, input: &Array2<f32>, timestamp: usize) -> DLResult<Vec<Array2<f32>>> {
-        let mut compressed_levels = Vec::new();
+        let mut compressed_levels = Vec::with_capacity(self.num_levels);
         let mut current_data = input.clone();
         
         // Compress through each level

@@ -65,7 +65,7 @@ impl QualityFilter {
     /// Filter a single data entry
     pub fn filter_entry(&mut self, entry: DataEntry) -> FilterResult {
         let score = self.classifier.classify(&entry);
-        let mut reasons = Vec::new();
+        let mut reasons = Vec::with_capacity(4);
         let mut passed = true;
         
         self.statistics.total_processed += 1;

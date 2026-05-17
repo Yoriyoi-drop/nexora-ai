@@ -137,9 +137,10 @@ impl App {
 
     fn parse_nextest_output(&mut self, output: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Parse each line as potential JSON (nextest outputs multiple JSON objects)
-        let mut new_test_results = Vec::new();
+        let lines: Vec<&str> = output.lines().collect();
+        let mut new_test_results = Vec::with_capacity(lines.len());
         
-        for line in output.lines() {
+        for line in lines {
             if line.trim().is_empty() {
                 continue;
             }
