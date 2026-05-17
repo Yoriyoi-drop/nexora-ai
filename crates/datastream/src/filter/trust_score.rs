@@ -93,7 +93,7 @@ impl Filter for TrustScoreFilter {
             Some(format!("low_trust: {:.2} < min={:.2} (source={}, category={:?})",
                 trust_score, self.min_trust, sample.source.name, sample.source.category))
         } else {
-            Some(format!("trust_score={:.2}", trust_score))
+            None
         };
 
         FilterResult {

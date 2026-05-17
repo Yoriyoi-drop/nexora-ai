@@ -20,9 +20,6 @@ pub enum NexoraError {
     #[error("Agent error: {message}")]
     Agent { message: String },
 
-    #[error("API error: {code} - {message}")]
-    Api { code: String, message: String },
-
     #[error("Memory error: {message}")]
     Memory { message: String },
 
@@ -124,7 +121,6 @@ impl NexoraError {
             Self::Initialization { .. } => "INIT_ERROR",
             Self::Processing { .. } => "PROCESSING_ERROR",
             Self::Agent { .. } => "AGENT_ERROR",
-            Self::Api { .. } => "API_ERROR",
             Self::Memory { .. } => "MEMORY_ERROR",
             Self::Model { .. } => "MODEL_ERROR",
             Self::Io { .. } => "IO_ERROR",
@@ -143,7 +139,6 @@ impl NexoraError {
         match self {
             Self::Config { .. } | Self::Initialization { .. } | Self::System { .. } => 500,
             Self::Processing { .. } | Self::Agent { .. } | Self::Model { .. } => 422,
-            Self::Api { .. } => 400,
             Self::Memory { .. } => 503,
             Self::Io { .. } => 500,
             Self::Serialization { .. } => 400,
@@ -165,49 +160,4 @@ impl From<anyhow::Error> for NexoraError {
     }
 }
 
-/// Error context untuk debugging
-#[derive(Debug, Clone)]
-pub struct ErrorContext {
-    pub operation: String,
-    pub component: String,
-    pub request_id: Option<String>,
-    pub user_id: Option<String>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-}
 
-impl ErrorContext {
-    pub fn new(operation: impl Into<String>, component: impl Into<String>) -> Self {
-        Self {
-            operation: operation.into(),
-            component: component.into(),
-            request_id: None,
-            user_id: None,
-            timestamp: chrono::Utc::now(),
-        }
-    }
-
-    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
-        self.request_id = Some(request_id.into());
-        self
-    }
-
-    pub fn with_user_id(mut self, user_id: impl Into<String>) -> Self {
-        self.user_id = Some(user_id.into());
-        self
-    }
-}
-
-/// Error dengan context tambahan
-#[derive(Debug, Error)]
-#[error("{error}")]
-pub struct ContextualError {
-    #[source]
-    pub error: NexoraError,
-    pub context: ErrorContext,
-}
-
-impl ContextualError {
-    pub fn new(error: NexoraError, context: ErrorContext) -> Self {
-        Self { error, context }
-    }
-}

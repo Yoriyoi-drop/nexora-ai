@@ -115,6 +115,8 @@ pub struct NaiveBayesClassifier {
     likelihoods: HashMap<IntentType, HashMap<String, f32>>,
     // Feature vocabulary
     vocabulary: std::collections::HashSet<String>,
+    // Total feature count per intent (for smoothing)
+    feature_totals: HashMap<IntentType, usize>,
     // Smoothing parameter
     alpha: f32,
 }
@@ -125,6 +127,7 @@ impl NaiveBayesClassifier {
             priors: HashMap::new(),
             likelihoods: HashMap::new(),
             vocabulary: std::collections::HashSet::new(),
+            feature_totals: HashMap::new(),
             alpha: 1.0, // Laplace smoothing
         }
     }
@@ -178,6 +181,7 @@ impl NaiveBayesClassifier {
             let intent_features = feature_counts.get(intent)
                 .ok_or_else(|| anyhow::anyhow!("Missing feature counts for intent {:?}", intent))?;
             let total_intent_features: usize = intent_features.values().sum();
+            self.feature_totals.insert(*intent, total_intent_features);
             
             for feature in &self.vocabulary {
                 let count = intent_features.get(feature).unwrap_or(&0);
@@ -197,13 +201,14 @@ impl NaiveBayesClassifier {
         for intent in self.priors.keys() {
             let mut log_prob = self.priors[intent].ln();
             
-            for (feature, value) in features {
+            for (feature, _) in features {
                 if let Some(likelihood) = self.likelihoods.get(intent).and_then(|l| l.get(feature)) {
-                    log_prob += value * likelihood.ln();
+                    log_prob += likelihood.ln();
                 } else {
                     // Apply smoothing for unknown features
-                    let smoothed_likelihood = self.alpha / (self.vocabulary.len() as f32 * self.alpha);
-                    log_prob += value * smoothed_likelihood.ln();
+                    let total_intent_features: usize = self.feature_totals.get(intent).copied().unwrap_or(0);
+                    let smoothed_likelihood = self.alpha / (total_intent_features as f32 + self.alpha * self.vocabulary.len() as f32);
+                    log_prob += smoothed_likelihood.ln();
                 }
             }
             
@@ -276,7 +281,7 @@ impl AdvancedIntentDetector {
             return Err(CoreError::IntentDetection("Detector not trained".to_string()));
         }
         
-        debug!("Detecting intent with ML approach: {}", &input_data.raw_input[..input_data.raw_input.len().min(50)]);
+        debug!("Detecting intent with ML approach: {}", input_data.raw_input.chars().take(50).collect::<String>());
         
         // Extract features
         let features = self.feature_extractor.extract_features(&input_data.raw_input);
@@ -306,44 +311,6 @@ impl AdvancedIntentDetector {
         Ok(result)
     }
     
-    fn apply_feature_weights(&self, result: &mut IntentResult, _predictions: &HashMap<IntentType, f32>) {
-        if result.intent_reasoning.is_empty() {
-            if result.intents.is_empty() {
-                result.intent_reasoning = format!(
-                    "No intents detected above ML threshold {:.2}", 
-                    self.confidence_threshold
-                );
-                result.primary_intent = IntentType::Unknown;
-            } else if result.is_multi_intent {
-                let mut reasoning = format!("ML detected {} intents above threshold {:.2}: ", 
-                                         result.intents.len(), self.confidence_threshold);
-                for (i, intent_score) in result.intents.iter().enumerate() {
-                    if i == 0 {
-                        reasoning.push_str(&format!("{} ({:.3})", 
-                                                 intent_score.intent_type.name(), 
-                                                 intent_score.confidence));
-                    } else {
-                        reasoning.push_str(&format!(", {} ({:.3})", 
-                                                 intent_score.intent_type.name(), 
-                                                 intent_score.confidence));
-                    }
-                }
-                reasoning.push_str(". Primary intent selected by highest probability.");
-                result.intent_reasoning = reasoning;
-            } else {
-                result.intent_reasoning = format!(
-                    "ML single intent detected: {} ({:.3})",
-                    result.primary_intent.name(),
-                    result.get_confidence(result.primary_intent)
-                );
-            }
-        }
-    }
-    
-    /// Get feature importance untuk debugging
-    pub fn get_feature_importance(&self, text: &str) -> HashMap<String, f32> {
-        self.feature_extractor.extract_features(text)
-    }
     
     /// Check if detector is trained
     pub fn is_trained(&self) -> bool {
@@ -354,55 +321,6 @@ impl AdvancedIntentDetector {
 impl Default for AdvancedIntentDetector {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Training data generator untuk demo purposes
-pub struct TrainingDataGenerator;
-
-impl TrainingDataGenerator {
-    pub fn generate_sample_data() -> Vec<(String, IntentType)> {
-        vec![
-            // Coding examples
-            ("buat fungsi rekursif".to_string(), IntentType::Coding),
-            ("code program rust".to_string(), IntentType::Coding),
-            ("implementasi algorithm".to_string(), IntentType::Coding),
-            ("debug error code".to_string(), IntentType::Debugging),
-            ("fix bug memory".to_string(), IntentType::Debugging),
-            ("resolve compilation error".to_string(), IntentType::Debugging),
-            
-            // Memory examples
-            ("simpan data memory".to_string(), IntentType::Memory),
-            ("ingat informasi".to_string(), IntentType::Memory),
-            ("store knowledge".to_string(), IntentType::Memory),
-            ("retrieve memory".to_string(), IntentType::Retrieval),
-            ("cari data".to_string(), IntentType::Retrieval),
-            ("search information".to_string(), IntentType::Retrieval),
-            
-            // Planning examples
-            ("rancang arsitektur".to_string(), IntentType::Planning),
-            ("plan project".to_string(), IntentType::Planning),
-            ("desain sistem".to_string(), IntentType::Planning),
-            ("workflow process".to_string(), IntentType::Planning),
-            
-            // Reasoning examples
-            ("logic analysis".to_string(), IntentType::Reasoning),
-            ("matematika problem".to_string(), IntentType::Reasoning),
-            ("inferensi reasoning".to_string(), IntentType::Reasoning),
-            ("analyze logic".to_string(), IntentType::Reasoning),
-            
-            // Validation examples
-            ("validasi input".to_string(), IntentType::Validation),
-            ("check correctness".to_string(), IntentType::Validation),
-            ("verify output".to_string(), IntentType::Validation),
-            ("test validation".to_string(), IntentType::Validation),
-            
-            // Optimization examples
-            ("optimasi performance".to_string(), IntentType::Optimization),
-            ("improve efficiency".to_string(), IntentType::Optimization),
-            ("enhance speed".to_string(), IntentType::Optimization),
-            ("optimize algorithm".to_string(), IntentType::Optimization),
-        ]
     }
 }
 

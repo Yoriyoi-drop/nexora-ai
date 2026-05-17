@@ -5,12 +5,11 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::net::TcpListener;
 use axum::Router;
-use tracing::{info, error, debug};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use axum::body::Body;
-use axum::body::to_bytes;
+use tracing::{info, error};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tower::Service;
 
-use super::config::{ServerConfig, load_rustls_pem_file, load_rustls_private_key};
+use crate::config::server::ServerConfig;
 
 /// Start TLS server with secure connections
 pub async fn start_tls_server(
@@ -64,188 +63,138 @@ pub async fn start_tls_server(
     }
 }
 
-/// Handle individual TLS stream
+/// Handle individual TLS stream — routes through the axum Router
 async fn handle_tls_stream(
-    mut tls_stream: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
-    _app: Router,
+    tls_stream: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    app: Router,
 ) -> Result<()> {
-    // In a real implementation, this would handle HTTP over TLS
-    // For now, we'll just log the connection
     let peer_addr = tls_stream.get_ref().0.peer_addr()?;
     info!("Handling TLS connection from: {}", peer_addr);
-    
-    // Simple TLS connection handling - just log and close
-    info!("TLS connection established successfully");
-    
-    // Read a simple request and send response
-    let mut buffer = [0u8; 1024];
-    match tls_stream.read(&mut buffer).await {
-        Ok(0) => {
-            info!("Client closed connection");
+
+    let (reader, mut writer) = tokio::io::split(tls_stream);
+    let mut reader = BufReader::new(reader);
+
+    // Parse request line: "METHOD URI HTTP/1.1\r\n"
+    let mut request_line = String::new();
+    reader.read_line(&mut request_line).await
+        .map_err(|e| anyhow::anyhow!("Failed to read request line: {}", e))?;
+    let request_line = request_line.trim_end_matches("\r\n");
+    let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
+    if parts.len() != 3 {
+        writer.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 11\r\n\r\nBad Request\r\n").await?;
+        return Ok(());
+    }
+
+    let method: axum::http::Method = parts[0].parse()?;
+    let uri: axum::http::Uri = parts[1].parse()?;
+
+    // Parse headers
+    let mut header_map = axum::http::HeaderMap::new();
+    let mut content_length: Option<usize> = None;
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).await?;
+        let trimmed = line.trim_end_matches("\r\n");
+        if trimmed.is_empty() {
+            break;
         }
-        Ok(n) => {
-            let request = String::from_utf8_lossy(&buffer[..n]);
-            info!("Received TLS request: {}", request.trim());
-            
-            // Send a simple HTTP response
-            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nTLS Connection Successful";
-            if let Err(e) = tls_stream.write_all(response.as_bytes()).await {
-                error!("Failed to send TLS response: {}", e);
+        if let Some((k, v)) = trimmed.split_once(':') {
+            let key = k.trim();
+            let value = v.trim();
+            if key.eq_ignore_ascii_case("content-length") {
+                content_length = value.parse().ok();
+            }
+            if let Ok(name) = axum::http::HeaderName::from_bytes(key.as_bytes()) {
+                if let Ok(val) = axum::http::HeaderValue::from_str(value) {
+                    header_map.append(name, val);
+                }
             }
         }
-        Err(e) => {
-            error!("Failed to read from TLS stream: {}", e);
-        }
     }
+
+    // Read body if present
+    let body = if let Some(len) = content_length {
+        let mut buf = vec![0u8; len];
+        reader.read_exact(&mut buf).await?;
+        axum::body::Bytes::from(buf)
+    } else {
+        axum::body::Bytes::new()
+    };
     
+    let req = axum::http::Request::builder()
+        .method(method)
+        .uri(uri)
+        .body(axum::body::Body::from(body))?;
+
+    // Route through the axum Router
+    let mut app = app;
+    let res = Service::call(&mut app, req).await.unwrap_or_else(|e| match e {});
+    let (parts, res_body) = res.into_parts();
+    let status = parts.status;
+    let body = axum::body::to_bytes(res_body, 10_000_000)
+        .await
+        .unwrap_or_default();
+
+    let mut response = format!(
+        "HTTP/1.1 {} {}\r\n",
+        status.as_u16(),
+        status.canonical_reason().unwrap_or("OK")
+    );
+    for (name, value) in parts.headers.iter() {
+        response.push_str(&format!("{}: {}\r\n", name, value.to_str().unwrap_or("")));
+    }
+    response.push_str(&format!("content-length: {}\r\n", body.len()));
+    response.push_str("\r\n");
+
+    writer.write_all(response.as_bytes()).await?;
+    writer.write_all(&body).await?;
+
+    info!("TLS connection closed: {}", peer_addr);
     Ok(())
 }
 
-/// Handle individual HTTP requests over TLS
-#[allow(dead_code)]
-async fn handle_http_request(
-    req: hyper::Request<Body>
-) -> Result<hyper::Response<Body>, hyper::Error> {
-    let method = req.method().clone();
-    let uri = req.uri().clone();
-    let headers = req.headers().clone();
+/// Load Rustls PEM file for TLS certificate
+pub fn load_rustls_pem_file(cert_path: &str) -> Result<rustls::Certificate> {
+    let cert_file = std::fs::File::open(cert_path)?;
+    let mut reader = std::io::BufReader::new(cert_file);
+    let certs: Vec<rustls::Certificate> = rustls_pemfile::certs(&mut reader)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|cert| rustls::Certificate(cert.to_owned().to_vec()))
+        .collect();
     
-    info!("HTTPS {} {} from TLS connection", method, uri);
-    
-    // Log request headers for debugging
-    for (name, value) in headers.iter() {
-        debug!("Header: {}: {:?}", name, value);
+    if certs.is_empty() {
+        return Err(anyhow::anyhow!("No certificates found in file: {}", cert_path));
     }
     
-    // Handle different endpoints
-    match (method.as_str(), uri.path()) {
-        ("GET", "/") => {
-            let response_body = include_str!("../../static/index.html");
-            Ok(hyper::Response::builder()
-                .status(200)
-                .header("content-type", "text/html")
-                .body(Body::from(response_body))
-                .unwrap())
-        },
-        ("GET", "/health") => {
-            let health_response = serde_json::json!({
-                "status": "healthy",
-                "tls": "enabled",
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            });
-            Ok(hyper::Response::builder()
-                .status(200)
-                .header("content-type", "application/json")
-                .body(Body::from(health_response.to_string()))
-                .unwrap())
-        },
-        ("POST", "/process") => {
-            // Read request body
-            let body_bytes = match to_bytes(req.into_body(), 1024 * 1024).await {
-                Ok(bytes) => bytes,
-                Err(_) => return Ok(hyper::Response::builder()
-                    .status(400)
-                    .body(Body::from("Request body too large"))
-                    .unwrap()),
-            };
-            let body_str = String::from_utf8_lossy(&body_bytes);
-            
-            // Parse JSON request
-            let request_json: serde_json::Value = serde_json::from_str(&body_str)
-                .unwrap_or_else(|_| serde_json::json!({"error": "Invalid JSON"}));
-            
-            // Process the request
-            let input = request_json.get("input")
-                .and_then(|v| v.as_str())
-                .unwrap_or("No input provided");
-            
-            let response = serde_json::json!({
-                "success": true,
-                "response": format!("Processed (TLS): {}", input),
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            });
-            
-            Ok(hyper::Response::builder()
-                .status(200)
-                .header("content-type", "application/json")
-                .body(Body::from(response.to_string()))
-                .unwrap())
-        },
-        _ => {
-            let not_found = serde_json::json!({
-                "error": "Not Found",
-                "message": format!("Endpoint {} {} not found", method, uri.path()),
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            });
-            Ok(hyper::Response::builder()
-                .status(404)
-                .header("content-type", "application/json")
-                .body(Body::from(not_found.to_string()))
-                .unwrap())
-        }
+    certs.into_iter().next()
+            .ok_or_else(|| anyhow::anyhow!("Failed to extract certificate from parsed certificates"))
+}
+
+/// Load Rustls private key for TLS
+pub fn load_rustls_private_key(key_path: &str) -> Result<rustls::PrivateKey> {
+    let key_file = std::fs::File::open(key_path)?;
+    let mut reader = std::io::BufReader::new(key_file);
+    
+    // Try to load as PKCS8 first
+    let keys = rustls_pemfile::pkcs8_private_keys(&mut reader)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(key) = keys.into_iter().next() {
+        return Ok(rustls::PrivateKey(key.secret_pkcs8_der().to_vec()));
     }
-}
-
-/// Generate self-signed certificate for development
-pub fn generate_self_signed_cert() -> Result<(String, String)> {
-    use rcgen::{Certificate, CertificateParams, DistinguishedName, KeyPair};
-    use std::time::SystemTime;
     
-    let mut params = CertificateParams::default();
+    // Reset reader and try as RSA key
+    let key_file = std::fs::File::open(key_path)?;
+    let mut reader = std::io::BufReader::new(key_file);
     
-    // Set certificate validity (1 year)
-    params.not_before = (SystemTime::now() - std::time::Duration::from_secs(86400)).into();
-    params.not_after = (SystemTime::now() + std::time::Duration::from_secs(365 * 86400)).into();
+    let keys = rustls_pemfile::rsa_private_keys(&mut reader)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(key) = keys.into_iter().next() {
+        return Ok(rustls::PrivateKey(key.secret_pkcs1_der().to_vec()));
+    }
     
-    // Set distinguished name
-    let mut dn = DistinguishedName::new();
-    dn.push(rcgen::DnType::CommonName, "localhost");
-    dn.push(rcgen::DnType::OrganizationName, "Nexora AI Development");
-    dn.push(rcgen::DnType::CountryName, "US");
-    params.distinguished_name = dn;
-    
-    // Add subject alternative names
-    params.subject_alt_names = vec![
-        rcgen::SanType::DnsName("localhost".to_string()),
-        rcgen::SanType::DnsName("127.0.0.1".to_string()),
-        rcgen::SanType::IpAddress("127.0.0.1".parse().unwrap()),
-    ];
-    
-    // Generate key pair
-    let key_pair = KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256)?;
-    params.key_pair = Some(key_pair);
-    let cert = Certificate::from_params(params)?;
-    
-    // Serialize certificate and private key
-    let cert_pem = cert.serialize_pem()?;
-    let key_pem = cert.serialize_private_key_pem();
-    
-    info!("Generated self-signed certificate for development");
-    
-    Ok((cert_pem, key_pem))
-}
-
-/// Create TLS acceptor from certificate and key
-pub fn create_tls_acceptor(cert_pem: &str, key_pem: &str) -> Result<tokio_rustls::TlsAcceptor> {
-    use rustls::ServerConfig;
-    use std::io::Cursor;
-    
-    // Parse certificate
-    let cert_der = rustls_pemfile::certs(&mut Cursor::new(cert_pem.as_bytes()))
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No certificate found"))??;
-    
-    // Parse private key
-    let mut cursor = Cursor::new(key_pem.as_bytes());
-    let mut keys = rustls_pemfile::pkcs8_private_keys(&mut cursor);
-    let key_der = keys.next()
-        .ok_or_else(|| anyhow::anyhow!("No private key found"))??;
-    
-    // Create TLS config
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(vec![rustls::Certificate(cert_der.to_vec())], rustls::PrivateKey(key_der.secret_pkcs8_der().to_vec()))?;
-    
-    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
+    Err(anyhow::anyhow!("No valid private key found in file: {}", key_path))
 }

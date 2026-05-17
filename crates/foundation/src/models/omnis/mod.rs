@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
+    base_model::{NxrModel, NxrModelResult, NxrModelError, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
     model_identity::{ModelMeta, NxrModelId},
     capability_spec::CapabilityVector,
     model_config::NxrModelConfig,
@@ -49,6 +49,7 @@ pub struct NxrOmnisModel {
     capabilities: OmnisCapabilities,
     /// Foundation components (ERP, VOGP, ATQS, MoE, DL, GNAC, Tokenizer)
     components: FoundationComponents,
+    config: OmnisConfig,
 }
 
 /// NXR-OMNIS Model State
@@ -256,6 +257,7 @@ impl NxrOmnisModel {
             agents: OmnisAgents::new(&config),
             capabilities,
             components,
+            config,
         }
     }
 
@@ -292,6 +294,7 @@ impl NxrOmnisModel {
             agents: OmnisAgents::new(&config),
             capabilities,
             components,
+            config: config.clone(),
         };
 
         // Initialize components
@@ -308,7 +311,7 @@ impl NxrOmnisModel {
         };
 
         // Process input with deep learning
-        let dl_result = self.dl_process(input).await
+        let dl_result = self.components.dl_engine.process_text(input).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Process through MoE for expert routing
@@ -388,10 +391,7 @@ impl NxrModel for NxrOmnisModel {
     }
 
     fn config(&self) -> &Self::Config {
-        // Return reference to config stored in base
-        // For now, create a static default to avoid lifetime issues
-        static DEFAULT_CONFIG: std::sync::OnceLock<OmnisConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(OmnisConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -412,6 +412,7 @@ impl NxrModel for NxrOmnisModel {
         
         // Mark as initialized
         self.base.mark_initialized().await;
+        self.config = config;
         
         Ok(())
     }

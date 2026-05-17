@@ -27,10 +27,10 @@ pub use error::*;
 /// Main CAFFEINE implementation
 pub struct Caffeine {
     config: CaffeineConfig,
-    encoders: crate::caffeine::encoders::MultiModalEncoders,
-    qformer: crate::caffeine::qformer::TriQueryFormer,
-    tokenizer: crate::caffeine::tokenizer::UnifiedTokenizer,
-    action_head: crate::caffeine::action_head::AgenticActionHead,
+    encoders: crate::multimodal::caffeine::encoders::MultiModalEncoders,
+    qformer: crate::multimodal::caffeine::qformer::TriQueryFormer,
+    tokenizer: crate::multimodal::caffeine::tokenizer::UnifiedTokenizer,
+    action_head: crate::multimodal::caffeine::action_head::AgenticActionHead,
     
     // Integration with existing modules
     atqs_compression: Option<crate::atqs::compression::adaptive_rank::CompressionEngine>,
@@ -70,11 +70,11 @@ impl CaffeineProcessor {
 
 impl Caffeine {
     /// Create new CAFFEINE instance
-    pub fn new(config: CaffeineConfig) -> crate::caffeine::error::Result<Self> {
-        let encoders = crate::caffeine::encoders::MultiModalEncoders::new(config.encoders_config.clone())?;
-        let qformer = crate::caffeine::qformer::TriQueryFormer::new(config.qformer_config.clone())?;
-        let tokenizer = crate::caffeine::tokenizer::UnifiedTokenizer::new(config.tokenizer_config.clone())?;
-        let action_head = crate::caffeine::action_head::AgenticActionHead::new(config.action_config.clone())?;
+    pub fn new(config: CaffeineConfig) -> crate::multimodal::caffeine::error::Result<Self> {
+        let encoders = crate::multimodal::caffeine::encoders::MultiModalEncoders::new(config.encoders_config.clone())?;
+        let qformer = crate::multimodal::caffeine::qformer::TriQueryFormer::new(config.qformer_config.clone())?;
+        let tokenizer = crate::multimodal::caffeine::tokenizer::UnifiedTokenizer::new(config.tokenizer_config.clone())?;
+        let action_head = crate::multimodal::caffeine::action_head::AgenticActionHead::new(config.action_config.clone())?;
         
         // Initialize ATQS compression if enabled
         let atqs_compression = if config.enable_atqs_compression {
@@ -106,7 +106,7 @@ impl Caffeine {
     }
     
     /// Forward pass through CAFFEINE pipeline
-    pub fn forward(&mut self, inputs: &crate::caffeine::types::MultiModalInputs) -> crate::caffeine::error::Result<crate::caffeine::types::MultiModalOutputs> {
+    pub async fn forward(&mut self, inputs: &crate::multimodal::caffeine::types::MultiModalInputs) -> crate::multimodal::caffeine::error::Result<crate::multimodal::caffeine::types::MultiModalOutputs> {
         // Stage 1: Multi-modal encoding
         let encoded_features = self.encoders.encode(inputs)?;
         
@@ -130,7 +130,7 @@ impl Caffeine {
             if let Some(ref mut router) = self.has_moe_router {
                 // Convert routing decisions to expected format
                 let routing_decisions_raw = router.route(&tensor_input)
-                    .map_err(|e| crate::caffeine::error::CaffeineError::HasMoeRouting(format!("{}", e)))?;
+                    .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::HasMoeRouting(format!("{}", e)))?;
                 let routing_decisions: Vec<crate::has_moe_ffn::types::RoutingDecision> = routing_decisions_raw
                     .into_iter()
                     .flatten()
@@ -149,13 +149,13 @@ impl Caffeine {
         };
         
         // Stage 6: Action head processing
-        let outputs = self.action_head.process(routed_tokens, inputs)?;
+        let outputs = self.action_head.process(routed_tokens, inputs).await?;
         
         Ok(outputs)
     }
     
     /// Convert tokens to tensor format for HAS-MoE-FFN
-    fn tokens_to_tensor(&self, tokens: &[crate::caffeine::types::UnifiedToken]) -> crate::caffeine::error::Result<ndarray::Array2<f32>> {
+    fn tokens_to_tensor(&self, tokens: &[crate::multimodal::caffeine::types::UnifiedToken]) -> crate::multimodal::caffeine::error::Result<ndarray::Array2<f32>> {
         // Convert tokens to tensor representation
         let mut data = Vec::with_capacity(tokens.len() * 768); // Assuming 768-dim embeddings
         for token in tokens {
@@ -167,7 +167,7 @@ impl Caffeine {
     }
     
     /// Apply routing decisions to tokens
-    fn apply_routing(&self, tokens: Vec<crate::caffeine::types::UnifiedToken>, routing_decisions: Vec<crate::has_moe_ffn::types::RoutingDecision>) -> crate::caffeine::error::Result<Vec<crate::caffeine::types::UnifiedToken>> {
+    fn apply_routing(&self, tokens: Vec<crate::multimodal::caffeine::types::UnifiedToken>, routing_decisions: Vec<crate::has_moe_ffn::types::RoutingDecision>) -> crate::multimodal::caffeine::error::Result<Vec<crate::multimodal::caffeine::types::UnifiedToken>> {
         // Implement actual routing logic with expert selection and modality-aware processing
         
         if tokens.is_empty() {
@@ -188,11 +188,11 @@ impl Caffeine {
         
         for (i, token) in tokens.iter().enumerate() {
             match token.modality {
-                crate::caffeine::types::ModalityType::Text => text_tokens.push((i, token)),
-                crate::caffeine::types::ModalityType::Image => image_tokens.push((i, token)),
-                crate::caffeine::types::ModalityType::Audio => audio_tokens.push((i, token)),
-                crate::caffeine::types::ModalityType::Video => video_tokens.push((i, token)),
-                crate::caffeine::types::ModalityType::Action => action_tokens.push((i, token)),
+                crate::multimodal::caffeine::types::ModalityType::Text => text_tokens.push((i, token)),
+                crate::multimodal::caffeine::types::ModalityType::Image => image_tokens.push((i, token)),
+                crate::multimodal::caffeine::types::ModalityType::Audio => audio_tokens.push((i, token)),
+                crate::multimodal::caffeine::types::ModalityType::Video => video_tokens.push((i, token)),
+                crate::multimodal::caffeine::types::ModalityType::Action => action_tokens.push((i, token)),
             }
         }
         
@@ -208,7 +208,7 @@ impl Caffeine {
         self.route_modality_group(&mut routed_tokens, action_tokens, &routing_decisions, "action")?;
         
         // Convert Option<UnifiedToken> to Vec<UnifiedToken>
-        let result: Vec<crate::caffeine::types::UnifiedToken> = routed_tokens
+        let result: Vec<crate::multimodal::caffeine::types::UnifiedToken> = routed_tokens
             .into_iter()
             .filter_map(|token| token)
             .collect();
@@ -219,11 +219,11 @@ impl Caffeine {
     /// Apply routing to a specific modality group
     fn route_modality_group(
         &self,
-        routed_tokens: &mut [Option<crate::caffeine::types::UnifiedToken>],
-        modality_tokens: Vec<(usize, &crate::caffeine::types::UnifiedToken)>,
+        routed_tokens: &mut [Option<crate::multimodal::caffeine::types::UnifiedToken>],
+        modality_tokens: Vec<(usize, &crate::multimodal::caffeine::types::UnifiedToken)>,
         routing_decisions: &[crate::has_moe_ffn::types::RoutingDecision],
         modality_name: &str,
-    ) -> crate::caffeine::error::Result<()> {
+    ) -> crate::multimodal::caffeine::error::Result<()> {
         if modality_tokens.is_empty() {
             return Ok(());
         }
@@ -243,10 +243,10 @@ impl Caffeine {
     /// Select appropriate experts for a modality group
     fn select_experts_for_modality(
         &self,
-        tokens: &[(usize, &crate::caffeine::types::UnifiedToken)],
+        tokens: &[(usize, &crate::multimodal::caffeine::types::UnifiedToken)],
         routing_decisions: &[crate::has_moe_ffn::types::RoutingDecision],
         modality_name: &str,
-    ) -> crate::caffeine::error::Result<Vec<usize>> {
+    ) -> crate::multimodal::caffeine::error::Result<Vec<usize>> {
         let mut expert_assignments = Vec::with_capacity(tokens.len());
         
         // Sort routing decisions by confidence
@@ -265,10 +265,10 @@ impl Caffeine {
     /// Select optimal expert for a specific token
     fn select_optimal_expert(
         &self,
-        token: &crate::caffeine::types::UnifiedToken,
+        token: &crate::multimodal::caffeine::types::UnifiedToken,
         available_decisions: &[crate::has_moe_ffn::types::RoutingDecision],
         modality_name: &str,
-    ) -> crate::caffeine::error::Result<usize> {
+    ) -> crate::multimodal::caffeine::error::Result<usize> {
         // Expert selection logic based on modality and token characteristics
         let expert_id = match modality_name {
             "text" => self.select_text_expert(token, available_decisions),
@@ -285,10 +285,10 @@ impl Caffeine {
     /// Apply expert-specific transformation to a token
     fn apply_expert_transformation(
         &self,
-        token: &crate::caffeine::types::UnifiedToken,
+        token: &crate::multimodal::caffeine::types::UnifiedToken,
         expert_id: usize,
         modality_name: &str,
-    ) -> crate::caffeine::error::Result<crate::caffeine::types::UnifiedToken> {
+    ) -> crate::multimodal::caffeine::error::Result<crate::multimodal::caffeine::types::UnifiedToken> {
         // Apply expert-specific processing based on modality
         let transformed_embedding = match modality_name {
             "text" => self.apply_text_expert_transformation(&token.embedding, expert_id),
@@ -299,20 +299,20 @@ impl Caffeine {
             _ => token.embedding.clone(),
         };
         
-        Ok(crate::caffeine::types::UnifiedToken {
+        Ok(crate::multimodal::caffeine::types::UnifiedToken {
             embedding: transformed_embedding,
             ..token.clone()
         })
     }
     
     /// Default routing when no specific decisions are available
-    fn apply_default_routing(&self, tokens: Vec<crate::caffeine::types::UnifiedToken>) -> crate::caffeine::error::Result<Vec<crate::caffeine::types::UnifiedToken>> {
+    fn apply_default_routing(&self, tokens: Vec<crate::multimodal::caffeine::types::UnifiedToken>) -> crate::multimodal::caffeine::error::Result<Vec<crate::multimodal::caffeine::types::UnifiedToken>> {
         // Apply basic processing to all tokens
-        let processed_tokens: Vec<crate::caffeine::types::UnifiedToken> = tokens
+        let processed_tokens: Vec<crate::multimodal::caffeine::types::UnifiedToken> = tokens
             .into_iter()
             .map(|token| {
                 let processed_embedding = self.apply_basic_transformation(&token.embedding);
-                crate::caffeine::types::UnifiedToken {
+                crate::multimodal::caffeine::types::UnifiedToken {
                     embedding: processed_embedding,
                     ..token
                 }
@@ -323,7 +323,7 @@ impl Caffeine {
     }
     
     // Expert selection methods for different modalities
-    fn select_text_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_text_expert(&self, token: &crate::multimodal::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
         // Prefer experts with high confidence for text processing
         decisions
             .iter()
@@ -333,7 +333,7 @@ impl Caffeine {
             .unwrap_or(0)
     }
     
-    fn select_image_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_image_expert(&self, token: &crate::multimodal::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
         // Prefer experts specialized in visual processing
         decisions
             .iter()
@@ -343,7 +343,7 @@ impl Caffeine {
             .unwrap_or(1)
     }
     
-    fn select_audio_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_audio_expert(&self, token: &crate::multimodal::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
         decisions
             .iter()
             .filter(|d| d.confidence > 0.5)
@@ -352,7 +352,7 @@ impl Caffeine {
             .unwrap_or(2)
     }
     
-    fn select_video_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_video_expert(&self, token: &crate::multimodal::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
         decisions
             .iter()
             .filter(|d| d.confidence > 0.6)
@@ -361,7 +361,7 @@ impl Caffeine {
             .unwrap_or(3)
     }
     
-    fn select_action_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_action_expert(&self, token: &crate::multimodal::caffeine::types::UnifiedToken, decisions: &[crate::has_moe_ffn::types::RoutingDecision]) -> usize {
         decisions
             .iter()
             .filter(|d| d.confidence > 0.7)
@@ -421,8 +421,8 @@ impl Caffeine {
     }
     
     /// Get performance statistics
-    pub fn get_performance_stats(&self) -> crate::caffeine::types::PerformanceStats {
-        crate::caffeine::types::PerformanceStats {
+    pub fn get_performance_stats(&self) -> crate::multimodal::caffeine::types::PerformanceStats {
+        crate::multimodal::caffeine::types::PerformanceStats {
             total_tokens_processed: 0,
             compression_ratio: self.atqs_compression.as_ref().map(|c| c.get_compression_ratio()).unwrap_or(1.0),
             routing_efficiency: self.has_moe_router.as_ref().map(|r| r.get_routing_stats().load_balance_score).unwrap_or(1.0),

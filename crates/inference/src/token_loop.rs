@@ -365,7 +365,6 @@ impl TokenLoop {
         }
         
         // Create response
-        let _generated_text = tokens.iter().map(|t| t.token_text.clone()).collect::<String>();
         let processing_time = (Utc::now() - start_time).num_milliseconds() as u64;
         
         let response = InferenceResponse::new(request.request_id)

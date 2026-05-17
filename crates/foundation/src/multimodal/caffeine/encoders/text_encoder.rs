@@ -2,13 +2,13 @@
 //! 
 //! Based on BERT with multi-lingual support
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Text encoder based on BERT
 pub struct TextEncoder {
-    config: crate::caffeine::config::TextEncoderConfig,
+    config: crate::multimodal::caffeine::config::TextEncoderConfig,
     model_loaded: bool,
     // Simulated vocabulary
     vocab_size: usize,
@@ -17,7 +17,7 @@ pub struct TextEncoder {
 
 impl TextEncoder {
     /// Create new text encoder
-    pub fn new(config: crate::caffeine::config::TextEncoderConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::TextEncoderConfig) -> Result<Self> {
         Ok(Self {
             vocab_size: config.vocab_size,
             max_position_embeddings: 512,
@@ -231,7 +231,7 @@ impl TextEncoder {
     }
     
     /// Get configuration
-    pub fn config(&self) -> &crate::caffeine::config::TextEncoderConfig {
+    pub fn config(&self) -> &crate::multimodal::caffeine::config::TextEncoderConfig {
         &self.config
     }
 }

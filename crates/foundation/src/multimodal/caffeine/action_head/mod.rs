@@ -15,9 +15,9 @@ pub use spatial_grounding::*;
 pub use action_planning::*;
 pub use execution::*;
 
-use crate::caffeine::types::*;
-use crate::caffeine::config::BBoxFormat as ConfigBBoxFormat;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::config::BBoxFormat as ConfigBBoxFormat;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Agentic Action Head
@@ -26,12 +26,12 @@ pub struct AgenticActionHead {
     spatial_grounding: SpatialGroundingModule,
     action_planning: ActionPlanningModule,
     execution_engine: ExecutionEngine,
-    config: crate::caffeine::config::ActionConfig,
+    config: crate::multimodal::caffeine::config::ActionConfig,
 }
 
 impl AgenticActionHead {
     /// Create new action head
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         let semantic_output = SemanticOutputGenerator::new(config.clone())?;
         let spatial_grounding = SpatialGroundingModule::new(config.clone())?;
         let action_planning = ActionPlanningModule::new(config.clone())?;
@@ -47,7 +47,7 @@ impl AgenticActionHead {
     }
     
     /// Process tokens and generate multimodal outputs with actions
-    pub fn process(
+    pub async fn process(
         &mut self,
         tokens: Vec<UnifiedToken>,
         inputs: &MultiModalInputs,
@@ -105,7 +105,7 @@ impl AgenticActionHead {
                         .as_secs() as f32,
                 }
             }).collect();
-            let execution_results = self.execution_engine.execute_batch(&actions)?;
+            let execution_results = self.execution_engine.execute_batch(&actions).await?;
             
             // Update action results
             for (action_output, result) in outputs.actions.iter_mut().zip(execution_results) {
@@ -141,7 +141,7 @@ impl AgenticActionHead {
             },
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| crate::caffeine::error::CaffeineError::output_generation(&format!("Failed to get timestamp: {}", e)))?
+                .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::output_generation(&format!("Failed to get timestamp: {}", e)))?
                 .as_secs_f32(),
             confidence: grounding.confidence_scores.iter().sum::<f32>() / grounding.confidence_scores.len() as f32,
         };
@@ -178,7 +178,7 @@ impl AgenticActionHead {
     }
     
     /// Update configuration
-    pub fn update_config(&mut self, config: crate::caffeine::config::ActionConfig) -> Result<()> {
+    pub fn update_config(&mut self, config: crate::multimodal::caffeine::config::ActionConfig) -> Result<()> {
         self.config = config;
         
         // Reinitialize components with new config

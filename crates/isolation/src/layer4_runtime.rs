@@ -1,3 +1,5 @@
+//! Data models for runtime isolation specification. Awaiting implementation.
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::SandboxKind;
@@ -72,6 +74,7 @@ pub enum IsolationLevel {
     Thread,
 }
 
+#[allow(dead_code)]
 pub type RuntimeProfile = RuntimeIsolationSpec;
 
 impl RuntimeIsolationSpec {
@@ -204,6 +207,7 @@ impl RuntimeIsolationSpec {
         }
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn validate(&self) -> Vec<String> {
         let mut violations = Vec::with_capacity(4);
         if self.container.privileged {

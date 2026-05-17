@@ -9,6 +9,7 @@ pub struct ShuffleBuffer {
     capacity: usize,
     buffer: Vec<DataSample>,
     rng: StdRng,
+    seen: usize,
 }
 
 impl ShuffleBuffer {
@@ -17,17 +18,21 @@ impl ShuffleBuffer {
             capacity,
             buffer: Vec::with_capacity(capacity),
             rng: StdRng::from_entropy(),
+            seen: 0,
         }
     }
 
     pub fn push(&mut self, samples: Vec<DataSample>) {
         for sample in samples {
-            if self.buffer.len() >= self.capacity {
-                let idx = self.rng.gen_range(0..self.buffer.len());
-                self.buffer[idx] = sample;
-            } else {
+            if self.buffer.len() < self.capacity {
                 self.buffer.push(sample);
+            } else {
+                let idx = self.rng.gen_range(0..self.seen + 1);
+                if idx < self.capacity {
+                    self.buffer[idx] = sample;
+                }
             }
+            self.seen += 1;
         }
     }
 

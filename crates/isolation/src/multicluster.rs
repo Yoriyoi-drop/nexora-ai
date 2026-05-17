@@ -1,3 +1,5 @@
+//! Data models for multi-cluster orchestration. Awaiting implementation.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -129,6 +131,7 @@ pub enum ScalingPolicy {
     Custom { rule: String },
 }
 
+#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrossClusterMessage {
     pub id: Uuid,
@@ -142,6 +145,7 @@ pub struct CrossClusterMessage {
     pub priority: CrossClusterPriority,
 }
 
+#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CrossClusterMsgType {
     StateSync,
@@ -152,6 +156,7 @@ pub enum CrossClusterMsgType {
     ConfigUpdate,
 }
 
+#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CrossClusterPriority {
     Low,
@@ -174,6 +179,7 @@ impl MultiClusterSystem {
         }
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn add_region(&mut self, name: &str, region: &str) -> RegionalCluster {
         let cluster = RegionalCluster {
             id: Uuid::new_v4(),
@@ -188,6 +194,7 @@ impl MultiClusterSystem {
         self.regions.get(name).expect("region was just inserted").clone()
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn add_mode_to_region(
         &mut self,
         region_name: &str,
@@ -213,6 +220,7 @@ impl MultiClusterSystem {
         Ok(region.mode_clusters.get(&mode_id.0).expect("mode cluster was just inserted").clone())
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn spawn_agent_cluster(
         &mut self,
         region_name: &str,
@@ -241,6 +249,7 @@ impl MultiClusterSystem {
         Ok(cluster)
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn spawn_micro_vm(
         &mut self,
         region_name: &str,
@@ -277,6 +286,7 @@ impl MultiClusterSystem {
         Ok(cluster.micro_vms.last().expect("micro vm was just added").clone())
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn spawn_execution_thread(
         &mut self,
         region_name: &str,

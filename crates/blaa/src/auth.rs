@@ -5,9 +5,9 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, error};
+use tracing::debug;
 
-use super::{BlaaConfig, BlaaError, BlaaResult};
+use super::{BlaaError, BlaaResult};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -65,7 +65,7 @@ impl AuthMethod {
     ) -> BlaaResult<String> {
         match self {
             Self::HmacSignature { secret_key, .. } => {
-                let message = format!(
+                let _message = format!(
                     "{}\n{}\n{}\n{}",
                     method,
                     path,
@@ -132,6 +132,10 @@ impl TokenManager {
     }
     
     /// Get current authentication token
+    ///
+    /// Note: Caching is meaningful only for HMAC tokens (which have a 1-hour expiry).
+    /// For Bearer and ApiKey tokens the value never changes, so caching is a no-op
+    /// but kept for interface uniformity.
     pub async fn get_token(&mut self) -> BlaaResult<String> {
         // Check if cached token is still valid
         if let (Some(token), Some(expires_at)) = (&self.token_cache, &self.expires_at) {

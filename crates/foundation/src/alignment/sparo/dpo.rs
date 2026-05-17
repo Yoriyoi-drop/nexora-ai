@@ -63,9 +63,8 @@ impl DpoLossCalculator {
         let ratio = pi_lograt - ref_lograt;
         let sigmoid_input = self.config.beta * ratio;
         
-        // Avoid numerical issues
-        let sigmoid_input_clamped = sigmoid_input.clamp(-20.0, 20.0);
-        let loss = -sigmoid_input_clamped.ln_1p();
+        // DPO loss: L = -log(σ(β * ratio)) = softplus(-β * ratio)
+        let loss = (1.0 + (-sigmoid_input).exp()).ln();
         
         // Add regularization
         let regularization = self.config.regularization_strength * (pi_lograt * pi_lograt);
@@ -83,8 +82,10 @@ impl DpoLossCalculator {
         let sigmoid_input_clamped = sigmoid_input.clamp(-20.0, 20.0);
         let sigmoid = 1.0 / (1.0 + (-sigmoid_input_clamped).exp());
         
+        // Gradient of DPO loss: ∂L/∂ratio = -β * (1 - σ(β*ratio))
+        // ratio = chosen_logprob - rejected_logprob, so derivatives w.r.t. each logprob differ by sign
         let grad_chosen = -self.config.beta * (1.0 - sigmoid);
-        let grad_rejected = self.config.beta * sigmoid;
+        let grad_rejected = self.config.beta * (1.0 - sigmoid);
         
         // Add regularization gradient
         let reg_grad = 2.0 * self.config.regularization_strength;

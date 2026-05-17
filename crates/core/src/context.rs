@@ -23,7 +23,7 @@ impl ContextAnalyzer {
     
     /// Analyze current system context
     pub async fn analyze_context(&self, input_data: &InputData, last_active_model: ModelId) -> CoreResult<ContextInfo> {
-        debug!("Analyzing context for input: {}", &input_data.raw_input[..input_data.raw_input.len().min(50)]);
+        debug!("Analyzing context for input: {}", input_data.raw_input.chars().take(50).collect::<String>());
         
         let mut context = ContextInfo::new(input_data.raw_input.clone(), last_active_model);
         
@@ -45,15 +45,6 @@ impl ContextAnalyzer {
         debug!("Updating context");
         context.update_context(new_context);
         info!("Context updated successfully");
-    }
-    
-    /// Check context relevance dengan query
-    pub fn check_context_relevance(&self, context: &ContextInfo, query: &str) -> f32 {
-        if !query.is_empty() && !context.current_context.is_empty() {
-            self.calculate_relevance(&context.current_context, query)
-        } else {
-            0.0
-        }
     }
     
     fn has_memory_relevance(&self, input: &str) -> bool {
@@ -115,15 +106,4 @@ mod tests {
         assert!(context.has_memory);
     }
     
-    #[test]
-    fn test_context_relevance() {
-        let analyzer = ContextAnalyzer::new();
-        let context = ContextInfo::new("coding rust program".to_string(), ModelId::Controller);
-        
-        let relevance = analyzer.check_context_relevance(&context, "rust coding");
-        assert!(relevance > 0.5);
-        
-        let relevance = analyzer.check_context_relevance(&context, "python machine learning");
-        assert!(relevance < 0.5);
-    }
 }

@@ -33,11 +33,11 @@ impl Default for TransformerConfig {
 
 impl TransformerConfig {
     pub fn head_dim(&self) -> usize {
-        self.hidden_size / self.num_heads
+        if self.num_heads == 0 { 0 } else { self.hidden_size / self.num_heads }
     }
 
     pub fn num_groups(&self) -> usize {
-        self.num_heads / self.num_kv_heads
+        if self.num_kv_heads == 0 { 0 } else { self.num_heads / self.num_kv_heads }
     }
 
     pub fn parameter_count(&self) -> usize {

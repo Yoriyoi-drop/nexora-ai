@@ -28,15 +28,7 @@ impl BatchIterator {
         self.shuffle_buffer.drain(take)
     }
 
-    pub fn has_batch(&self) -> bool {
-        self.shuffle_buffer.len() >= self.batch_size
-    }
-
     pub fn remaining(&self) -> usize {
         self.shuffle_buffer.len()
-    }
-
-    pub fn flush(&mut self) -> Vec<DataSample> {
-        self.shuffle_buffer.drain(self.shuffle_buffer.len())
     }
 }

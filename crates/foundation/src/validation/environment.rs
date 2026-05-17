@@ -10,6 +10,7 @@ use serde::{Serialize, Deserialize};
 use regex::Regex;
 use tracing::info;
 
+use super::validator::EnvironmentRule;
 use super::{ValidationResult, ValidationError, ValidationWarning, ValidationInfo, ErrorSeverity};
 
 /// Environment setup result
@@ -57,16 +58,6 @@ impl EnvironmentSetupResult {
 /// Environment validator
 pub struct EnvironmentValidator {
     rules: HashMap<String, EnvironmentRule>,
-}
-
-/// Environment rule
-#[derive(Debug, Clone)]
-struct EnvironmentRule {
-    name: String,
-    required: bool,
-    validator: Option<Regex>,
-    default_value: Option<String>,
-    description: String,
 }
 
 impl EnvironmentValidator {
@@ -283,15 +274,9 @@ impl EnvironmentValidator {
         
         // Set environment variables
         for (key, value) in config {
-            match env::set_var(key, value) {
-                Ok(_) => {
-                    setup_result.add_set_env_var(key.clone(), value);
-                    info!("Set environment variable: {}={}", key, value);
-                }
-                Err(e) => {
-                    setup_result.add_error(format!("Failed to set environment variable '{}': {}", key, e));
-                }
-            }
+            env::set_var(key, value);
+            setup_result.add_set_env_var(key.clone(), value);
+            info!("Set environment variable: {}={}", key, value);
         }
         
         // Validate the setup
@@ -355,7 +340,7 @@ impl EnvironmentValidator {
             name: "DATABASE_URL".to_string(),
             required: true,
             validator: Some(Regex::new(r"^[a-zA-Z]+://.*")
-                .map_err(|e| anyhow::anyhow!("Failed to create database URL regex: {}", e))?),
+                .expect("Failed to create database URL regex")),
             default_value: Some("postgres://localhost:5432/mydb".to_string()),
             description: "Database connection URL".to_string(),
         });
@@ -364,7 +349,7 @@ impl EnvironmentValidator {
             name: "LOG_LEVEL".to_string(),
             required: false,
             validator: Some(Regex::new(r"^(trace|debug|info|warn|error)$")
-                .map_err(|e| anyhow::anyhow!("Failed to create log level regex: {}", e))?),
+                .expect("Failed to create log level regex")),
             default_value: Some("info".to_string()),
             description: "Logging level".to_string(),
         });
@@ -381,7 +366,7 @@ impl EnvironmentValidator {
             name: "NODE_ENV".to_string(),
             required: false,
             validator: Some(Regex::new(r"^(development|production|test)$")
-                .map_err(|e| anyhow::anyhow!("Failed to create node environment regex: {}", e))?),
+                .expect("Failed to create node environment regex")),
             default_value: Some("development".to_string()),
             description: "Node environment".to_string(),
         });

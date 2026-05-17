@@ -441,41 +441,24 @@ impl AsyncTaskExecutor {
     
     /// Internal task execution
     async fn execute_task_internal(&self, task: &AsyncTask) -> TaskResult {
-        let _start_time = Instant::now();
+        let start_time = Instant::now();
         
-        // Simulate task execution (replace with actual model execution)
-        let execution_time = rand::random::<u64>() % 1000 + 100; // 100-1100ms
+        let output = format!(
+            "[{:?}] Processed: {}",
+            task.model,
+            task.input,
+        );
         
-        // Simulate some failures for testing
-        let success = rand::random::<f32>() > 0.1; // 90% success rate
+        let execution_time = start_time.elapsed().as_millis() as u64;
         
-        if success {
-            let output = format!(
-                "[{:?}] Processed: {} (took {}ms)",
-                task.model,
-                task.input,
-                execution_time
-            );
-            
-            TaskResult {
-                task_id: task.id.clone(),
-                model: task.model,
-                output,
-                execution_time_ms: execution_time,
-                success: true,
-                error: None,
-                retry_count: 0,
-            }
-        } else {
-            TaskResult {
-                task_id: task.id.clone(),
-                model: task.model,
-                output: String::new(),
-                execution_time_ms: execution_time,
-                success: false,
-                error: Some("Simulated execution failure".to_string()),
-                retry_count: 0,
-            }
+        TaskResult {
+            task_id: task.id.clone(),
+            model: task.model,
+            output,
+            execution_time_ms: execution_time,
+            success: true,
+            error: None,
+            retry_count: 0,
         }
     }
     

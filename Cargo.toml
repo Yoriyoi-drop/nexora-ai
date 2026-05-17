@@ -6,7 +6,6 @@ members = [
     "crates/blaa",
     "crates/core",
     "crates/cognition",
-    "crates/data",
     "crates/database",
     "crates/deeplearning",
     "crates/foundation",

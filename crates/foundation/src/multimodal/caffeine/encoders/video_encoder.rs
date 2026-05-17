@@ -2,13 +2,13 @@
 //! 
 //! Based on 3D Vision Transformer with temporal modeling
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Video encoder based on 3D Vision Transformer
 pub struct VideoEncoder {
-    config: crate::caffeine::config::VideoEncoderConfig,
+    config: crate::multimodal::caffeine::config::VideoEncoderConfig,
     model_loaded: bool,
     // Simulated model weights
     _temporal_dim: usize,
@@ -16,7 +16,7 @@ pub struct VideoEncoder {
 
 impl VideoEncoder {
     /// Create new video encoder
-    pub fn new(config: crate::caffeine::config::VideoEncoderConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::VideoEncoderConfig) -> Result<Self> {
         Ok(Self {
             _temporal_dim: config.num_frames,
             model_loaded: false,
@@ -75,7 +75,7 @@ impl VideoEncoder {
     
     /// Encode individual frame
     fn encode_frame(&self, frame: &ImageInput) -> Result<ArrayD<f32>> {
-        // Simulate frame encoding (similar to image encoder)
+        // TODO: frame content is currently ignored — should use actual pixel data from `frame.data`
         let patch_size = 16; // Standard patch size
         let seq_len = (frame.width / patch_size) * (frame.height / patch_size);
         let embed_dim = self.config.output_dim;
@@ -94,7 +94,7 @@ impl VideoEncoder {
     /// Apply temporal modeling across frames
     fn apply_temporal_modeling(&self, frame_features: &[ArrayD<f32>]) -> Result<ArrayD<f32>> {
         if frame_features.is_empty() {
-            return Err(crate::caffeine::error::CaffeineError::encoder(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::encoder(
                 "No frame features to process"
             ));
         }
@@ -170,7 +170,7 @@ impl VideoEncoder {
     }
     
     /// Get configuration
-    pub fn config(&self) -> &crate::caffeine::config::VideoEncoderConfig {
+    pub fn config(&self) -> &crate::multimodal::caffeine::config::VideoEncoderConfig {
         &self.config
     }
 }

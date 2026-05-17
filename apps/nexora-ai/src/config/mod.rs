@@ -17,6 +17,6 @@ pub use tokenizer::{TokenizerConfig, SpecialTokens};
 pub use memory::MemoryConfig;
 pub use models::ModelsConfig;
 pub use server::ServerConfig;
-pub use api::ApiConfig;
+pub use api::{ApiConfig, ApiResponse, RateLimitConfig, HttpClientConfig};
 pub use logging::LoggingConfig;
 pub use utils::UtilsConfig;

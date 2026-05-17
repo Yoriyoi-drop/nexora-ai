@@ -10,10 +10,9 @@ use tracing::{info, warn};
 use axum::{
     Router,
     routing::get,
-    extract::{Request, State},
-    response::{Json, Response},
+    extract::State,
+    response::Json,
     http::StatusCode,
-    middleware::{self, Next},
 };
 use tower_http::cors::{CorsLayer, Any};
 use serde_json::json;
@@ -111,10 +110,6 @@ impl ApiServer {
             app = app.layer(cors);
         }
         
-        // Add common middleware
-        app = app.layer(middleware::from_fn(request_logging_middleware))
-            .layer(middleware::from_fn(rate_limit_middleware));
-        
         Ok(app)
     }
     
@@ -141,12 +136,37 @@ impl ApiServer {
     /// Start HTTP server
     async fn start_http_server(self, listener: TcpListener) -> Result<()> {
         axum::serve(listener, self.router)
+            .with_graceful_shutdown(shutdown_signal())
             .await
             .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
         
         Ok(())
     }
-    
+}
+
+/// Wait for SIGINT or SIGTERM to initiate graceful shutdown
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("shutdown signal received, starting graceful shutdown");
+}
+
+impl ApiServer {
     /// Create Axum application
     async fn _create_app(self) -> axum::Router {
         self.router
@@ -461,84 +481,4 @@ async fn system_stats_handler(State(state): State<AppState>) -> Result<Json<serd
     })))
 }
 
-/// Request logging middleware
-async fn request_logging_middleware(
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    let start = Instant::now();
-    let method = request.method().clone();
-    let uri = request.uri().clone();
-    let user_agent = request.headers()
-        .get("user-agent")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("unknown");
-    
-    info!("{} {} from {}", method, uri, user_agent);
-    
-    let response = next.run(request).await;
-    
-    let duration = start.elapsed();
-    info!("{} {} completed in {}ms", method, uri, duration.as_millis());
-    
-    Ok(response)
-}
 
-
-
-/// Rate limiting middleware
-async fn rate_limit_middleware(
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    // Implement rate limiting
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-    use std::time::{Duration, Instant};
-    
-    // Get client IP from request
-    let client_ip = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .unwrap_or_else(|| {
-            request
-                .headers()
-                .get("x-real-ip")
-                .and_then(|h| h.to_str().ok())
-                .unwrap_or("unknown")
-        })
-        .to_string();
-    
-    // Rate limit configuration (100 requests per minute per IP)
-    const REQUESTS_PER_MINUTE: u32 = 100;
-    const WINDOW_SIZE: Duration = Duration::from_secs(60);
-    
-    // Use a simple in-memory rate limiter
-    // In production, this should use Redis or similar
-    static RATE_LIMITER: std::sync::LazyLock<Arc<RwLock<HashMap<String, Vec<Instant>>>>> = 
-        std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
-    
-    let now = Instant::now();
-    let mut rate_limiter = RATE_LIMITER.write().await;
-    
-    // Get or create client entry
-    let requests = rate_limiter.entry(client_ip.clone()).or_insert_with(Vec::new);
-    
-    // Remove old requests outside the window
-    requests.retain(|&timestamp| now.duration_since(timestamp) < WINDOW_SIZE);
-    
-    // Check if rate limit exceeded
-    if requests.len() >= REQUESTS_PER_MINUTE as usize {
-        tracing::warn!("Rate limit exceeded for IP: {}", client_ip);
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-    
-    // Add current request
-    requests.push(now);
-    
-    // Continue with request
-    Ok(next.run(request).await)
-}

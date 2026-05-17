@@ -207,14 +207,34 @@ impl MultiModelCoordinator {
         let results = self.execute_plan(&execution_plan, input, context).await?;
         
         // Fuse results
+        let mut model_responses = Vec::with_capacity(results.len());
+        let mut response_sources = Vec::with_capacity(results.len());
+        let mut success_count = 0;
+
+        for result in &results {
+            model_responses.push(result.output.clone());
+            response_sources.push(result.model);
+            if result.success {
+                success_count += 1;
+            }
+        }
+
+        let fused_response = self.generate_fused_response(&results);
+        let has_conflicts = self.detect_conflicts(&results);
+        let fusion_confidence = if results.is_empty() { 0.0 } else { success_count as f32 / results.len() as f32 };
+
         let fusion_result = FusionResult {
-            model_responses: Vec::new(),
-            response_sources: Vec::new(),
+            model_responses,
+            response_sources,
             response_count: results.len(),
-            fused_response: "Results fused".to_string(),
-            fusion_confidence: 0.5,
-            has_conflicts: false,
-            conflict_descriptions: Vec::new(),
+            fused_response,
+            fusion_confidence,
+            has_conflicts,
+            conflict_descriptions: if has_conflicts {
+                self.describe_conflicts(&results)
+            } else {
+                Vec::new()
+            },
         };
         
         info!("Multi-model coordination completed with {} models", selected_models.len());
@@ -405,42 +425,9 @@ impl MultiModelCoordinator {
                 let mut active_tasks = self.active_tasks.write().await;
                 active_tasks.remove(&task_id);
             }
-            
-            let mut model_responses = Vec::with_capacity(results.len());
-            let mut response_sources = Vec::with_capacity(results.len());
-            let mut success_count = 0;
-            
-            for result in &results {
-                model_responses.push(result.output.clone());
-                response_sources.push(result.model);
-                if result.success {
-                    success_count += 1;
-                }
-            }
-            
-            let fused_response = self.generate_fused_response(&results);
-            let has_conflicts = self.detect_conflicts(&results);
-            let fusion_confidence = success_count as f32 / results.len() as f32;
-            
-            let _fusion_result = FusionResult {
-                model_responses,
-                response_sources,
-                response_count: results.len(),
-                fused_response,
-                fusion_confidence,
-                has_conflicts,
-                conflict_descriptions: if has_conflicts {
-                    self.describe_conflicts(&results)
-                } else {
-                    Vec::new()
-                },
-            };
-            
-            return Ok(results);
         }
         
-        // If we get here, no results were generated
-        Err(CoreError::ModelNotAvailable { model_id: 0 })
+        Ok(results)
     }
     
     fn generate_fused_response(&self, results: &[ModelResult]) -> String {

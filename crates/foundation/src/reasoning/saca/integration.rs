@@ -5,8 +5,9 @@
 
 use super::{types::*, config::*, error::*, prelude::*};
 use crate::atqs::compression::CompressionEngine;
-use crate::caffeine::Caffeine;
+use crate::multimodal::caffeine::Caffeine;
 use crate::has_moe_ffn::routing::Router;
+use futures::executor::block_on;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
@@ -135,8 +136,8 @@ impl SACAIntegration {
         debug!("Applying Caffeine multimodal enhancement");
         
         // Create multimodal inputs from task description
-        let multimodal_inputs = crate::caffeine::types::MultiModalInputs {
-            text: Some(crate::caffeine::types::TextInput {
+        let multimodal_inputs = crate::multimodal::caffeine::types::MultiModalInputs {
+            text: Some(crate::multimodal::caffeine::types::TextInput {
                 text: task.description.clone(),
                 tokens: None,
                 language: "en".to_string(),
@@ -144,8 +145,8 @@ impl SACAIntegration {
             image: None, // Could be enhanced with diagrams/screenshots
             audio: None,
             video: None,
-            context: Some(crate::caffeine::types::ContextInfo {
-                task_type: crate::caffeine::types::TaskType::Generation,
+            context: Some(crate::multimodal::caffeine::types::ContextInfo {
+                task_type: crate::multimodal::caffeine::types::TaskType::Generation,
                 instruction: Some("Generate code based on requirements".to_string()),
                 previous_actions: Vec::new(),
                 environment_state: None,
@@ -154,7 +155,7 @@ impl SACAIntegration {
         
         // Process through Caffeine model
         let mut caffeine = caffeine.lock().map_err(|e| SACAError::ContextError(format!("Failed to lock caffeine model: {}", e)))?;
-        let multimodal_outputs = caffeine.forward(&multimodal_inputs)
+        let multimodal_outputs = block_on(caffeine.forward(&multimodal_inputs))
             .map_err(|e| SACAError::ContextError(format!("Caffeine processing failed: {}", e)))?;
         
         // Extract features and enhance solution
@@ -300,7 +301,7 @@ impl SACAFactory {
     pub async fn create_full_saca(
         saca_config: SACAConfig,
         atqs_config: Option<crate::atqs::config::ATQSConfig>,
-        caffeine_config: Option<crate::caffeine::config::CaffeineConfig>,
+        caffeine_config: Option<crate::multimodal::caffeine::config::CaffeineConfig>,
         has_moe_config: Option<crate::has_moe_ffn::HasMoeFFNConfig>,
     ) -> SACAResult<SACAIntegration> {
         let mut integration = SACAIntegration::new(saca_config).await?;
@@ -341,7 +342,7 @@ impl SACAFactory {
     /// Create SACA with Caffeine only
     pub async fn create_saca_with_caffeine(
         saca_config: SACAConfig,
-        caffeine_config: crate::caffeine::config::CaffeineConfig,
+        caffeine_config: crate::multimodal::caffeine::config::CaffeineConfig,
     ) -> SACAResult<SACAIntegration> {
         let caffeine = Arc::new(Mutex::new(Caffeine::new(caffeine_config)
             .map_err(|e| SACAError::ContextError(format!("Caffeine creation failed: {}", e)))?));

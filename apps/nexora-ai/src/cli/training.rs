@@ -87,14 +87,15 @@ fn init_gpu(gpu: bool) {
     }
 }
 
-fn post_metrics(payload: &Value) {
-    if let Ok(c) = reqwest::blocking::Client::builder()
+async fn post_metrics(payload: &Value) {
+    if let Ok(c) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(1))
         .build()
     {
         let _ = c.post("http://127.0.0.1:8080/train/metrics")
             .json(payload)
-            .send();
+            .send()
+            .await;
     }
 }
 
@@ -482,7 +483,32 @@ impl crate::cli::commands::Cli {
         info!("  Shards: {}", manifest.total_shards);
 
         info!("[2/6] Scan shards + persiapan tokenizer...");
-        let raw_corpus = String::new();
+        let raw_corpus = {
+            let mut corpus = String::new();
+            let source = SourceInfo {
+                name: "tokenizer_training".into(),
+                url: None,
+                trust_score: 0.8,
+                category: SourceCategory::Other,
+                fetch_timestamp: Utc::now().timestamp(),
+            };
+            for shard in manifest.shards.iter().take(5) {
+                let shard_path = data.join(&shard.path);
+                if let Ok(samples) = nexora_datastream::arrow_reader::read_arrow_file(&shard_path, source.clone()) {
+                    for s in &samples {
+                        corpus.push_str(&s.text);
+                        corpus.push('\n');
+                        if corpus.len() > 10_000_000 {
+                            break;
+                        }
+                    }
+                }
+                if corpus.len() > 10_000_000 {
+                    break;
+                }
+            }
+            corpus
+        };
 
         let tokenizer: Arc<RwLock<BpeTokenizer>> = if let Some(tok_path) = tokenizer_path {
             if tok_path.exists() {
@@ -694,7 +720,7 @@ impl crate::cli::commands::Cli {
                                         post_metrics(&metrics_acc.to_json(
                                             "running", epoch + 1, epochs, step, total_steps,
                                             loss as f64, avg_loss, best_loss, lr as f64, speed, trainer.total_tokens, None,
-                                        ));
+                                        )).await;
 
                                         // Periodic checkpoint tiap 500 step
                                         if step - last_save_step >= 500 {
@@ -802,7 +828,7 @@ impl crate::cli::commands::Cli {
             "done", epochs, epochs, final_steps, total_steps,
             final_avg_loss, final_avg_loss, best_final,
             done_lr, progress.speed(), trainer.total_tokens, None,
-        ));
+        )).await;
 
         info!("[6/6] Menyimpan final checkpoint...");
         trainer.sync_weights();

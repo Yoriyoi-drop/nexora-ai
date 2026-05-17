@@ -126,6 +126,7 @@ pub type SharedGlobalCluster = Arc<RwLock<GlobalCluster>>;
 
 pub struct GlobalSystemIsolation {
     cluster: SharedGlobalCluster,
+    #[allow(dead_code)] // Reserved for future implementation
     mode_registry: Arc<RwLock<HashMap<Uuid, String>>>,
 }
 
@@ -207,6 +208,7 @@ impl GlobalSystemIsolation {
         cluster.health.active_modes = registry.len() as u32;
     }
 
+    #[allow(dead_code)] // Reserved for future implementation
     pub fn heartbeat(&self) {
         let mut cluster = self.cluster.write();
         cluster.health.last_heartbeat = chrono::Utc::now();

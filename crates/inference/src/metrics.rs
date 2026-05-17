@@ -462,13 +462,16 @@ impl MetricsCollector {
         // Aggregate request metrics
         aggregated.requests.total_requests = relevant_metrics.iter()
             .map(|m| m.requests.total_requests)
-            .sum();
+            .max()
+            .unwrap_or(0);
         aggregated.requests.successful_requests = relevant_metrics.iter()
             .map(|m| m.requests.successful_requests)
-            .sum();
+            .max()
+            .unwrap_or(0);
         aggregated.requests.failed_requests = relevant_metrics.iter()
             .map(|m| m.requests.failed_requests)
-            .sum();
+            .max()
+            .unwrap_or(0);
         aggregated.requests.avg_request_size = relevant_metrics.iter()
             .map(|m| m.requests.avg_request_size)
             .sum::<f64>() / count as f64;
@@ -646,9 +649,9 @@ pub mod analysis {
             let next = &metrics[i + 1];
             
             let avg_latency = (prev.performance.avg_latency_ms + curr.performance.avg_latency_ms + next.performance.avg_latency_ms) / 3.0;
-            let std_dev = ((prev.performance.avg_latency_ms - avg_latency).powi(2) +
-                           (curr.performance.avg_latency_ms - avg_latency).powi(2) +
-                           (next.performance.avg_latency_ms - avg_latency).powi(2) / 3.0).sqrt();
+            let std_dev = (((prev.performance.avg_latency_ms - avg_latency).powi(2) +
+                            (curr.performance.avg_latency_ms - avg_latency).powi(2) +
+                            (next.performance.avg_latency_ms - avg_latency).powi(2)) / 3.0).sqrt();
             
             let z_score = (curr.performance.avg_latency_ms - avg_latency) / std_dev;
             

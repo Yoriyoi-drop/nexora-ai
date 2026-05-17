@@ -362,23 +362,4 @@ impl NexoraConfig {
         let string_overhead = self.server.host.len() + self.api.base_url.len() + self.logging.level.len();
         (base_size + string_overhead) / 1024
     }
-    
-    /// Calculate configuration complexity score
-    fn calculate_complexity(&self) -> &'static str {
-        let mut score = 0;
-        
-        if self.core.enable_ml_intent { score += 1; }
-        if self.core.enable_coordination { score += 1; }
-        if self.server.enable_tls { score += 1; }
-        if self.api.enable_rate_limiting { score += 1; }
-        if self.logging.enable_file_logging { score += 1; }
-        if self.logging.enable_structured_logging { score += 1; }
-        
-        match score {
-            0..=2 => "Simple",
-            3..=4 => "Moderate",
-            5..=6 => "Complex",
-            _ => "Very Complex",
-        }
-    }
 }

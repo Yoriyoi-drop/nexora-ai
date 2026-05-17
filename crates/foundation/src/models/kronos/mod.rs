@@ -38,6 +38,7 @@ pub struct NxrKronosModel {
     _agents: KronosAgents,
     capabilities: KronosCapabilities,
     components: FoundationComponents,
+    config: KronosConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +136,7 @@ impl NxrKronosModel {
             _agents: KronosAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
+            config,
         }
     }
 
@@ -275,8 +277,7 @@ impl NxrModel for NxrKronosModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: std::sync::OnceLock<KronosConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(KronosConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -288,6 +289,7 @@ impl NxrModel for NxrKronosModel {
         self.architecture.initialize(&config).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
+        self.config = config;
         Ok(())
     }
 

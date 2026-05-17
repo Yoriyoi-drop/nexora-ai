@@ -2,8 +2,8 @@
 //! 
 //! Individual query sets for semantic, spatial, and temporal processing
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Query set for specific modality
@@ -35,7 +35,7 @@ impl QuerySet {
     /// Forward pass through query set
     pub fn forward(&mut self, inputs: &[ArrayD<f32>]) -> Result<ArrayD<f32>> {
         if inputs.is_empty() {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "No inputs provided for query processing"
             ));
         }
@@ -206,7 +206,7 @@ impl QueryToken {
     /// Update embedding
     pub fn update_embedding(&mut self, new_embedding: Vec<f32>) -> Result<()> {
         if new_embedding.len() != self.embedding.len() {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Embedding dimension mismatch"
             ));
         }

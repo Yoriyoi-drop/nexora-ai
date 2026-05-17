@@ -13,8 +13,8 @@ pub use vq_vae::*;
 pub use multimodal_vocab::*;
 pub use token_sequence::*;
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Unified tokenizer for all modalities
@@ -22,12 +22,12 @@ pub struct UnifiedTokenizer {
     vq_vae: VectorQuantizedVAE,
     vocabulary: MultimodalVocabulary,
     sequence_processor: TokenSequenceProcessor,
-    config: crate::caffeine::config::TokenizerConfig,
+    config: crate::multimodal::caffeine::config::TokenizerConfig,
 }
 
 impl UnifiedTokenizer {
     /// Create new unified tokenizer
-    pub fn new(config: crate::caffeine::config::TokenizerConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::TokenizerConfig) -> Result<Self> {
         let vq_vae = VectorQuantizedVAE::new(
             config.token_dim,
             config.codebook_size,
@@ -240,7 +240,7 @@ impl UnifiedTokenizer {
         }
         
         // Simple pattern: cycle through modalities
-        let last_modality = context_tokens.last().ok_or_else(|| crate::caffeine::error::CaffeineError::tokenizer("No context tokens available"))?.modality;
+        let last_modality = context_tokens.last().ok_or_else(|| crate::multimodal::caffeine::error::CaffeineError::tokenizer("No context tokens available"))?.modality;
         
         match last_modality {
             ModalityType::Text => Ok(ModalityType::Image),

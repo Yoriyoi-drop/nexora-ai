@@ -8,9 +8,7 @@ pub struct RMSNorm {
 
 impl RMSNorm {
     pub fn new(hidden_size: usize, eps: f32) -> Self {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let weight = Array1::from_shape_fn(hidden_size, |_| rng.gen::<f32>() * 0.02);
+        let weight = Array1::from_shape_fn(hidden_size, |_| 1.0);
         Self { weight, eps }
     }
 

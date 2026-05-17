@@ -2,20 +2,20 @@
 //! 
 //! Implements action sequence planning and reasoning
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use std::collections::HashMap;
 
 /// Action planning module
 pub struct ActionPlanningModule {
-    config: crate::caffeine::config::ActionConfig,
+    config: crate::multimodal::caffeine::config::ActionConfig,
     planner: ActionPlanner,
     reasoner: ActionReasoner,
 }
 
 impl ActionPlanningModule {
     /// Create new action planning module
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         let planner = ActionPlanner::new(config.clone())?;
         let reasoner = ActionReasoner::new(config.clone())?;
         
@@ -176,7 +176,7 @@ impl ActionPlanningModule {
             parameters,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| crate::caffeine::error::CaffeineError::output_generation(&format!("Failed to get timestamp: {}", e)))?
+                .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::output_generation(&format!("Failed to get timestamp: {}", e)))?
                 .as_secs_f32(),
             confidence: 0.8,
         })
@@ -189,8 +189,8 @@ impl ActionPlanningModule {
         // Extract click coordinates from tokens
         if let Some(spatial_token) = tokens.iter().find(|t| t.modality == ModalityType::Image) {
             if let Some((x, y, w, h)) = spatial_token.spatial_coords {
-                params.insert("x".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(x as f64).ok_or_else(|| crate::caffeine::error::CaffeineError::output_generation("Failed to convert x to number"))?));
-                params.insert("y".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(y as f64).ok_or_else(|| crate::caffeine::error::CaffeineError::output_generation("Failed to convert y to number"))?));
+                params.insert("x".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(x as f64).ok_or_else(|| crate::multimodal::caffeine::error::CaffeineError::output_generation("Failed to convert x to number"))?));
+                params.insert("y".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(y as f64).ok_or_else(|| crate::multimodal::caffeine::error::CaffeineError::output_generation("Failed to convert y to number"))?));
             }
         }
         
@@ -382,12 +382,12 @@ pub struct EnvironmentInfo {
 
 /// Action planner
 pub struct ActionPlanner {
-    _config: crate::caffeine::config::ActionConfig,
+    _config: crate::multimodal::caffeine::config::ActionConfig,
 }
 
 impl ActionPlanner {
     /// Create new action planner
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         Ok(Self { _config: config })
     }
     
@@ -423,12 +423,12 @@ impl ActionPlanner {
 
 /// Action reasoner
 pub struct ActionReasoner {
-    config: crate::caffeine::config::ActionConfig,
+    config: crate::multimodal::caffeine::config::ActionConfig,
 }
 
 impl ActionReasoner {
     /// Create new action reasoner
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         Ok(Self { config })
     }
     

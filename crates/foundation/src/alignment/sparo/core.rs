@@ -131,45 +131,29 @@ impl PolicyModel {
     }
     
     pub fn log_probability(&self, input: &str, output: &str) -> Result<f32> {
-        // Implementasi sederhana - akan diperluas
-        let combined = format!("{} {}", input, output);
-        let hash = format!("{:x}", md5::compute(combined.as_bytes()));
-        let hash_value = u64::from_str_radix(&hash[..8], 16).unwrap_or(0);
-        let prob = (hash_value as f32 / u64::MAX as f32).ln();
-        Ok(prob)
+        // TODO: Replace with actual language model log-probability computation.
+        // Placeholder: character-level n-gram overlap scoring between input and output.
+        if output.is_empty() {
+            return Ok(f32::NEG_INFINITY);
+        }
+        let in_ngrams: std::collections::HashSet<u32> = input.as_bytes()
+            .windows(3)
+            .map(|w| u32::from_ne_bytes([w[0], w.get(1).copied().unwrap_or(0), w.get(2).copied().unwrap_or(0), 0]))
+            .collect();
+        let out_ngrams: std::collections::HashSet<u32> = output.as_bytes()
+            .windows(3)
+            .map(|w| u32::from_ne_bytes([w[0], w.get(1).copied().unwrap_or(0), w.get(2).copied().unwrap_or(0), 0]))
+            .collect();
+        if out_ngrams.is_empty() {
+            return Ok(-(output.len() as f32));
+        }
+        let overlap = out_ngrams.iter().filter(|ng| in_ngrams.contains(ng)).count();
+        let score = (overlap as f32 / out_ngrams.len() as f32).clamp(1e-10, 1.0);
+        Ok(score.ln())
     }
     
     pub fn reference_log_probability(&self, input: &str, output: &str) -> Result<f32> {
-        // Use reference parameters for calculation
-        let combined = format!("{} {}", input, output);
-        let hash = format!("{:x}", md5::compute(combined.as_bytes()));
-        let hash_value = u64::from_str_radix(&hash[..8], 16).unwrap_or(0);
-        let prob = (hash_value as f32 / u64::MAX as f32).ln();
-        Ok(prob)
-    }
-}
-
-/// Training batch untuk SPARO
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingBatch {
-    pub id: Uuid,
-    pub traces: Vec<ReasoningTrace>,
-    pub feedback: Vec<JudgeFeedback>,
-    pub iteration: usize,
-}
-
-impl TrainingBatch {
-    pub fn new(traces: Vec<ReasoningTrace>, feedback: Vec<JudgeFeedback>, iteration: usize) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            traces,
-            feedback,
-            iteration,
-        }
-    }
-    
-    pub fn is_empty(&self) -> bool {
-        self.traces.is_empty() || self.feedback.is_empty()
+        self.log_probability(input, output)
     }
 }
 

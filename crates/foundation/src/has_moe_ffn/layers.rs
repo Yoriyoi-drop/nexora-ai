@@ -74,13 +74,7 @@ impl DenseLayer {
     fn apply_activation(&self, x: f32) -> f32 {
         match self.config.activation.as_str() {
             "relu" => x.max(0.0),
-            "gelu" => {
-                // GELU approximation
-                let sqrt_2_over_pi = (2.0 / std::f32::consts::PI).sqrt();
-                let x_cubed = x * x * x;
-                let tanh_arg = sqrt_2_over_pi * (x + 0.044715 * x_cubed);
-                x * 0.5 * (1.0 + tanh_arg.tanh())
-            },
+            "gelu" => crate::has_moe_ffn::experts::gelu(x),
             "sigmoid" => 1.0 / (1.0 + (-x).exp()),
             "tanh" => x.tanh(),
             "swish" => x * (1.0 / (1.0 + (-x).exp())),

@@ -4,8 +4,6 @@
 
 pub mod unified_api;
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use tracing::info;
@@ -22,14 +20,12 @@ pub struct ServingConfig {
 /// Model server for serving AI models
 pub struct ModelServer {
     config: ServingConfig,
-    _active_requests: Arc<RwLock<usize>>,
 }
 
 impl ModelServer {
     pub fn new(config: ServingConfig) -> Self {
         Self {
             config,
-            _active_requests: Arc::new(RwLock::new(0)),
         }
     }
     

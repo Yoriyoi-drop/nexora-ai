@@ -178,7 +178,7 @@ impl TextGenerator {
             // Truncate to approximate token limit
             let char_limit = max_tokens * 4;
             if text.len() > char_limit {
-                let truncated = &text[..char_limit.min(text.len())];
+                let truncated: String = text.chars().take(char_limit).collect();
                 return Ok(format!("{}...[truncated]", truncated));
             }
         }

@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::ffi::CString;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use rand::Rng;
@@ -868,76 +867,7 @@ impl ValidationResult {
     }
 }
 
-/// C-compatible interface for FFI
-#[repr(C)]
-pub struct CMemoryEntry {
-    pub memory_id: u32,
-    pub memory_type: i32,
-    pub activation: f64,
-    pub relevance: f64,
-    pub emotional_salience: f64,
-    pub timestamp: f64,
-    pub strength: f64,
-    pub content: *mut std::os::raw::c_char,
-    pub content_len: usize,
-    pub embedding: *mut f32,
-    pub embedding_dim: usize,
-}
 
-/// C-compatible memory statistics
-#[repr(C)]
-pub struct CMemoryStats {
-    pub avg_strength: f64,
-    pub max_strength: f64,
-    pub min_strength: f64,
-    pub memory_count: usize,
-}
-
-/// C-compatible validation result
-#[repr(C)]
-pub struct CValidationResult {
-    pub is_stable: bool,
-    pub is_realistic: bool,
-    pub learns: bool,
-    pub filters_noise: bool,
-    pub convergence_error: f64,
-}
-
-/// Convert Rust MemoryEntry to C-compatible format
-pub fn memory_entry_to_c(entry: &MemoryEntry) -> CMemoryEntry {
-    use std::ffi::CString;
-    
-    let content_cstr = entry.content.as_ref()
-        .and_then(|s| CString::new(s.as_str()).ok())
-        .map(|s| s.into_raw())
-        .unwrap_or(std::ptr::null_mut());
-    
-    let embedding_ptr = entry.embedding.as_ref()
-        .map(|e| e.as_ptr() as *mut f32)
-        .unwrap_or(std::ptr::null_mut());
-    
-    CMemoryEntry {
-        memory_id: entry.memory_id,
-        memory_type: entry.memory_type as i32,
-        activation: entry.activation,
-        relevance: entry.relevance,
-        emotional_salience: entry.emotional_salience,
-        timestamp: entry.timestamp,
-        strength: entry.strength,
-        content: content_cstr,
-        content_len: entry.content.as_ref().map(|s| s.len()).unwrap_or(0),
-        embedding: embedding_ptr,
-        embedding_dim: entry.embedding_dim,
-    }
-}
-
-/// Convert CMemoryEntry back to Rust (for cleanup)
-pub fn free_c_memory_entry(c_entry: CMemoryEntry) {
-    if !c_entry.content.is_null() {
-        let _ = unsafe { CString::from_raw(c_entry.content) };
-    }
-    // Note: embedding is owned by Rust, so don't free it here
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Differentiable Neural Attention Memory

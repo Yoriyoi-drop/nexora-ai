@@ -6,10 +6,17 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
+use std::sync::Arc;
+use nexora_foundation::reasoning::{
+    SACAIntegration,
+    EnhancedSACASolution,
+    CodingTask as SacaCodingTask,
+    TaskContext as SacaTaskContext,
+};
 
 /// Unified model interface that combines all AI frameworks
 #[async_trait]
-pub trait UnifiedModel {
+pub trait UnifiedModelTrait {
     /// Generate code based on the given task
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError>;
     
@@ -22,27 +29,27 @@ pub struct UnifiedModelFactory;
 
 impl UnifiedModelFactory {
     /// Create a basic SACA-only model
-    pub async fn create_basic_coder() -> Result<Box<dyn UnifiedModel>, ModelError> {
+    pub async fn create_basic_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(BasicSacaModel::new()))
     }
     
     /// Create a SACA + ATQS compressed model
-    pub async fn create_compressed_coder() -> Result<Box<dyn UnifiedModel>, ModelError> {
+    pub async fn create_compressed_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(CompressedSacaModel::new()))
     }
     
     /// Create a SACA + CAFFEINE multimodal model
-    pub async fn create_multimodal_coder() -> Result<Box<dyn UnifiedModel>, ModelError> {
+    pub async fn create_multimodal_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(MultimodalSacaModel::new()))
     }
     
     /// Create a SACA + HAS-MoE expert model
-    pub async fn create_expert_coder() -> Result<Box<dyn UnifiedModel>, ModelError> {
+    pub async fn create_expert_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(ExpertSacaModel::new()))
     }
     
     /// Create a full integration model with all frameworks
-    pub async fn create_full_integration() -> Result<Box<dyn UnifiedModel>, ModelError> {
+    pub async fn create_full_integration() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(FullIntegrationModel::new()))
     }
 }
@@ -110,32 +117,77 @@ pub enum ModelError {
     InvalidConfiguration(String),
 }
 
+// Helper: convert unified CodingTask to SACA CodingTask
+fn to_saca_coding_task(task: &CodingTask) -> SacaCodingTask {
+    SacaCodingTask {
+        description: task.description.clone(),
+        requirements: task.requirements.clone(),
+        constraints: task.constraints.clone(),
+        context: task.context.as_ref().map(|c| SacaTaskContext {
+            repository_path: c.repository_path.clone(),
+            existing_files: c.existing_files.clone(),
+            dependencies: c.dependencies.clone(),
+            coding_standards: c.coding_standards.clone(),
+        }),
+    }
+}
+
+// Helper: convert EnhancedSACASolution to CodeSolution with given integration mode
+fn enhanced_to_code_solution(enhanced: EnhancedSACASolution, mode: IntegrationMode) -> CodeSolution {
+    CodeSolution {
+        quality_score: enhanced.base_solution.quality_score as f64,
+        execution_time: std::time::Duration::from_millis(
+            enhanced.base_solution.execution_time.num_milliseconds() as u64,
+        ),
+        integration_mode: mode,
+        atqs_compression_applied: enhanced.atqs_compression_applied,
+        compression_ratio: enhanced.compression_ratio,
+        caffeine_multimodal_applied: enhanced.caffeine_multimodal_enhanced,
+        has_moe_routing_applied: enhanced.has_moe_routing_applied,
+        routing_efficiency: enhanced.routing_efficiency as f64,
+        generated_code: enhanced.base_solution.final_code,
+    }
+}
+
 // Mock model implementations
 
 /// Basic SACA model implementation
-struct BasicSacaModel;
+struct BasicSacaModel {
+    saca: Option<Arc<SACAIntegration>>,
+}
 
 impl BasicSacaModel {
     fn new() -> Self {
-        BasicSacaModel
+        BasicSacaModel { saca: None }
+    }
+
+    fn with_saca(saca: SACAIntegration) -> Self {
+        BasicSacaModel { saca: Some(Arc::new(saca)) }
     }
 }
 
 #[async_trait]
-impl UnifiedModel for BasicSacaModel {
+impl UnifiedModelTrait for BasicSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
-        Ok(CodeSolution {
-            quality_score: 0.85,
-            execution_time: std::time::Duration::from_millis(150),
-            integration_mode: IntegrationMode::BasicSaca,
-            atqs_compression_applied: false,
-            compression_ratio: 1.0,
-            caffeine_multimodal_applied: false,
-            has_moe_routing_applied: false,
-            routing_efficiency: 0.0,
-            generated_code: format!("// Basic SACA generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"Executing: {}\");\n    Ok(())\n}}",
-                task.description, task.description),
-        })
+        if let Some(ref saca) = self.saca {
+            let saca_task = to_saca_coding_task(task);
+            let enhanced = saca.solve_with_models(saca_task).await
+                .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
+            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::BasicSaca))
+        } else {
+            Ok(CodeSolution {
+                quality_score: 0.85,
+                execution_time: std::time::Duration::from_millis(150),
+                integration_mode: IntegrationMode::BasicSaca,
+                atqs_compression_applied: false,
+                compression_ratio: 1.0,
+                caffeine_multimodal_applied: false,
+                has_moe_routing_applied: false,
+                routing_efficiency: 0.0,
+                generated_code: format!("// Basic SACA generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"Executing: {}\");\n    Ok(())\n}}",
+                    task.description, task.description),
+            })
+        }
     }
     
     fn get_statistics(&self) -> ModelStatistics {
@@ -150,29 +202,42 @@ impl UnifiedModel for BasicSacaModel {
 }
 
 /// Compressed SACA + ATQS model implementation
-struct CompressedSacaModel;
+struct CompressedSacaModel {
+    saca: Option<Arc<SACAIntegration>>,
+}
 
 impl CompressedSacaModel {
     fn new() -> Self {
-        CompressedSacaModel
+        CompressedSacaModel { saca: None }
+    }
+
+    fn with_saca(saca: SACAIntegration) -> Self {
+        CompressedSacaModel { saca: Some(Arc::new(saca)) }
     }
 }
 
 #[async_trait]
-impl UnifiedModel for CompressedSacaModel {
+impl UnifiedModelTrait for CompressedSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
-        Ok(CodeSolution {
-            quality_score: 0.88,
-            execution_time: std::time::Duration::from_millis(120),
-            integration_mode: IntegrationMode::SacaAtqs,
-            atqs_compression_applied: true,
-            compression_ratio: 2.5,
-            caffeine_multimodal_applied: false,
-            has_moe_routing_applied: false,
-            routing_efficiency: 0.0,
-            generated_code: format!("// Compressed SACA+ATQS generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let compressed = format!(\"ATQS compressed: {{}}\", \"{}\");\n    println!(\"{{}}\", compressed);\n    Ok(())\n}}",
-                task.description, task.description),
-        })
+        if let Some(ref saca) = self.saca {
+            let saca_task = to_saca_coding_task(task);
+            let enhanced = saca.solve_with_models(saca_task).await
+                .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
+            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::SacaAtqs))
+        } else {
+            Ok(CodeSolution {
+                quality_score: 0.88,
+                execution_time: std::time::Duration::from_millis(120),
+                integration_mode: IntegrationMode::SacaAtqs,
+                atqs_compression_applied: true,
+                compression_ratio: 2.5,
+                caffeine_multimodal_applied: false,
+                has_moe_routing_applied: false,
+                routing_efficiency: 0.0,
+                generated_code: format!("// Compressed SACA+ATQS generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let compressed = format!(\"ATQS compressed: {{}}\", \"{}\");\n    println!(\"{{}}\", compressed);\n    Ok(())\n}}",
+                    task.description, task.description),
+            })
+        }
     }
     
     fn get_statistics(&self) -> ModelStatistics {
@@ -187,29 +252,42 @@ impl UnifiedModel for CompressedSacaModel {
 }
 
 /// Multimodal SACA + CAFFEINE model implementation
-struct MultimodalSacaModel;
+struct MultimodalSacaModel {
+    saca: Option<Arc<SACAIntegration>>,
+}
 
 impl MultimodalSacaModel {
     fn new() -> Self {
-        MultimodalSacaModel
+        MultimodalSacaModel { saca: None }
+    }
+
+    fn with_saca(saca: SACAIntegration) -> Self {
+        MultimodalSacaModel { saca: Some(Arc::new(saca)) }
     }
 }
 
 #[async_trait]
-impl UnifiedModel for MultimodalSacaModel {
+impl UnifiedModelTrait for MultimodalSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
-        Ok(CodeSolution {
-            quality_score: 0.91,
-            execution_time: std::time::Duration::from_millis(180),
-            integration_mode: IntegrationMode::SacaCaffeine,
-            atqs_compression_applied: false,
-            compression_ratio: 1.0,
-            caffeine_multimodal_applied: true,
-            has_moe_routing_applied: false,
-            routing_efficiency: 0.0,
-            generated_code: format!("// Multimodal SACA+CAFFEINE generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let multimodal = vec![\"text\", \"image\", \"audio\"];\n    println!(\"CAFFEINE multimodal processing for: {} with modalities: {{:?}}\", multimodal);\n    Ok(())\n}}",
-                task.description, task.description),
-        })
+        if let Some(ref saca) = self.saca {
+            let saca_task = to_saca_coding_task(task);
+            let enhanced = saca.solve_with_models(saca_task).await
+                .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
+            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::SacaCaffeine))
+        } else {
+            Ok(CodeSolution {
+                quality_score: 0.91,
+                execution_time: std::time::Duration::from_millis(180),
+                integration_mode: IntegrationMode::SacaCaffeine,
+                atqs_compression_applied: false,
+                compression_ratio: 1.0,
+                caffeine_multimodal_applied: true,
+                has_moe_routing_applied: false,
+                routing_efficiency: 0.0,
+                generated_code: format!("// Multimodal SACA+CAFFEINE generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let multimodal = vec![\"text\", \"image\", \"audio\"];\n    println!(\"CAFFEINE multimodal processing for: {} with modalities: {{:?}}\", multimodal);\n    Ok(())\n}}",
+                    task.description, task.description),
+            })
+        }
     }
     
     fn get_statistics(&self) -> ModelStatistics {
@@ -224,29 +302,42 @@ impl UnifiedModel for MultimodalSacaModel {
 }
 
 /// Expert SACA + HAS-MoE model implementation
-struct ExpertSacaModel;
+struct ExpertSacaModel {
+    saca: Option<Arc<SACAIntegration>>,
+}
 
 impl ExpertSacaModel {
     fn new() -> Self {
-        ExpertSacaModel
+        ExpertSacaModel { saca: None }
+    }
+
+    fn with_saca(saca: SACAIntegration) -> Self {
+        ExpertSacaModel { saca: Some(Arc::new(saca)) }
     }
 }
 
 #[async_trait]
-impl UnifiedModel for ExpertSacaModel {
+impl UnifiedModelTrait for ExpertSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
-        Ok(CodeSolution {
-            quality_score: 0.93,
-            execution_time: std::time::Duration::from_millis(200),
-            integration_mode: IntegrationMode::SacaHasMoe,
-            atqs_compression_applied: false,
-            compression_ratio: 1.0,
-            caffeine_multimodal_applied: false,
-            has_moe_routing_applied: true,
-            routing_efficiency: 0.87,
-            generated_code: format!("// Expert SACA+HAS-MoE generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let experts = vec![\"reasoning\", \"coding\", \"analysis\"];\n    let routing_efficiency = 0.87;\n    println!(\"HAS-MoE routing {{:.2}} experts: {{:?}}\", routing_efficiency, experts);\n    Ok(())\n}}",
-                task.description),
-        })
+        if let Some(ref saca) = self.saca {
+            let saca_task = to_saca_coding_task(task);
+            let enhanced = saca.solve_with_models(saca_task).await
+                .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
+            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::SacaHasMoe))
+        } else {
+            Ok(CodeSolution {
+                quality_score: 0.93,
+                execution_time: std::time::Duration::from_millis(200),
+                integration_mode: IntegrationMode::SacaHasMoe,
+                atqs_compression_applied: false,
+                compression_ratio: 1.0,
+                caffeine_multimodal_applied: false,
+                has_moe_routing_applied: true,
+                routing_efficiency: 0.87,
+                generated_code: format!("// Expert SACA+HAS-MoE generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let experts = vec![\"reasoning\", \"coding\", \"analysis\"];\n    let routing_efficiency = 0.87;\n    println!(\"HAS-MoE routing {{:.2}} experts: {{:?}}\", routing_efficiency, experts);\n    Ok(())\n}}",
+                    task.description),
+            })
+        }
     }
     
     fn get_statistics(&self) -> ModelStatistics {
@@ -261,29 +352,42 @@ impl UnifiedModel for ExpertSacaModel {
 }
 
 /// Full integration model with all frameworks
-struct FullIntegrationModel;
+struct FullIntegrationModel {
+    saca: Option<Arc<SACAIntegration>>,
+}
 
 impl FullIntegrationModel {
     fn new() -> Self {
-        FullIntegrationModel
+        FullIntegrationModel { saca: None }
+    }
+
+    fn with_saca(saca: SACAIntegration) -> Self {
+        FullIntegrationModel { saca: Some(Arc::new(saca)) }
     }
 }
 
 #[async_trait]
-impl UnifiedModel for FullIntegrationModel {
+impl UnifiedModelTrait for FullIntegrationModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
-        Ok(CodeSolution {
-            quality_score: 0.96,
-            execution_time: std::time::Duration::from_millis(250),
-            integration_mode: IntegrationMode::FullIntegration,
-            atqs_compression_applied: true,
-            compression_ratio: 3.2,
-            caffeine_multimodal_applied: true,
-            has_moe_routing_applied: true,
-            routing_efficiency: 0.92,
-            generated_code: format!("// Full Integration generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"SACA reasoning enabled\");\n    println!(\"ATQS compression ratio: {{:.1}}x\", 3.2f64);\n    println!(\"CAFFEINE multimodal active\");\n    println!(\"HAS-MoE routing efficiency: {{:.2}}\", 0.92f64);\n    println!(\"Full integration pipeline complete for: {}\");\n    Ok(())\n}}",
-                task.description, task.description),
-        })
+        if let Some(ref saca) = self.saca {
+            let saca_task = to_saca_coding_task(task);
+            let enhanced = saca.solve_with_models(saca_task).await
+                .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
+            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::FullIntegration))
+        } else {
+            Ok(CodeSolution {
+                quality_score: 0.96,
+                execution_time: std::time::Duration::from_millis(250),
+                integration_mode: IntegrationMode::FullIntegration,
+                atqs_compression_applied: true,
+                compression_ratio: 3.2,
+                caffeine_multimodal_applied: true,
+                has_moe_routing_applied: true,
+                routing_efficiency: 0.92,
+                generated_code: format!("// Full Integration generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"SACA reasoning enabled\");\n    println!(\"ATQS compression ratio: {{:.1}}x\", 3.2f64);\n    println!(\"CAFFEINE multimodal active\");\n    println!(\"HAS-MoE routing efficiency: {{:.2}}\", 0.92f64);\n    println!(\"Full integration pipeline complete for: {}\");\n    Ok(())\n}}",
+                    task.description, task.description),
+            })
+        }
     }
     
     fn get_statistics(&self) -> ModelStatistics {

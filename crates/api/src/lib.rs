@@ -2,8 +2,6 @@
 //! 
 //! High-performance HTTP API server replacing runtime_http_server.c
 
-
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::Result;
@@ -15,14 +13,14 @@ pub mod handlers;
 pub mod middleware;
 pub mod routing;
 pub mod metrics;
-pub mod security;
+
 
 pub use server::ApiServer;
 pub use handlers::*;
-pub use middleware::{MiddlewareStack, AuthMiddleware, LoggingMiddleware, LogLevel, RateLimitingMiddleware, CorsMiddleware, CompressionMiddleware, SecurityMiddleware as MiddlewareSecurityMiddleware, create_default_middleware_stack};
+pub use middleware::{MiddlewareStack, AuthMiddleware, LoggingMiddleware, LogLevel, RateLimitingMiddleware, CorsMiddleware, CompressionMiddleware, SecurityMiddleware as MiddlewareSecurityMiddleware, RateLimitStatistics, create_default_middleware_stack};
 pub use routing::*;
 pub use metrics::*;
-pub use security::{SecurityConfig, SecurityMiddlewareBuilder, SecurityMiddleware as AdvancedSecurityMiddleware, RateLimitStatistics, SecurityStatistics};
+
 
 /// API configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,12 +238,6 @@ pub trait Middleware: Send + Sync {
 pub struct RateLimiter {
     limits: Arc<RwLock<HashMap<String, RateLimit>>>,
     requests: Arc<RwLock<HashMap<String, Vec<u64>>>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RateLimit {
-    pub max_requests: u32,
-    pub window_seconds: u64,
 }
 
 impl RateLimiter {

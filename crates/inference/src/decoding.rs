@@ -527,6 +527,8 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
             digits[i] = (n % 10) as u8 + b'0';
             n /= 10;
         }
+        // SAFETY: digits[i..] contains only ASCII byte values (0-9, b'0'..=b'9')
+        // produced by (n % 10) as u8 + b'0', so it's always valid UTF-8.
         buf.push_str(unsafe { core::str::from_utf8_unchecked(&digits[i..]) });
     }
     buf.push(']');

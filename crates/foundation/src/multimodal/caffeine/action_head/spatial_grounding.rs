@@ -2,21 +2,21 @@
 //! 
 //! Implements bounding box detection and segmentation
 
-use crate::caffeine::types::*;
-use crate::caffeine::config::BBoxFormat as ConfigBBoxFormat;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::config::BBoxFormat as ConfigBBoxFormat;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Spatial grounding module
 pub struct SpatialGroundingModule {
-    _config: crate::caffeine::config::ActionConfig,
+    _config: crate::multimodal::caffeine::config::ActionConfig,
     bbox_detector: BoundingBoxDetector,
     segmentor: SegmentationModule,
 }
 
 impl SpatialGroundingModule {
     /// Create new spatial grounding module
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         let bbox_detector = BoundingBoxDetector::new(config.clone())?;
         let segmentor = SegmentationModule::new(config.clone())?;
         
@@ -188,14 +188,14 @@ impl SpatialGroundingModule {
 
 /// Bounding box detector
 pub struct BoundingBoxDetector {
-    config: crate::caffeine::config::ActionConfig,
+    config: crate::multimodal::caffeine::config::ActionConfig,
     confidence_threshold: f32,
     nms_threshold: f32,
 }
 
 impl BoundingBoxDetector {
     /// Create new bounding box detector
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         Ok(Self {
             config,
             confidence_threshold: 0.5,
@@ -363,13 +363,13 @@ impl BoundingBoxDetector {
 
 /// Segmentation module
 pub struct SegmentationModule {
-    _config: crate::caffeine::config::ActionConfig,
+    _config: crate::multimodal::caffeine::config::ActionConfig,
     num_classes: usize,
 }
 
 impl SegmentationModule {
     /// Create new segmentation module
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         Ok(Self {
             _config: config,
             num_classes: 20, // Common number of classes

@@ -46,6 +46,7 @@ parking_lot.workspace = true
 
 # Alignment (SPARO) dependencies
 md5 = "0.7"
+bincode = "1.3"
 
 # Cache dependencies
 lru = "0.12"

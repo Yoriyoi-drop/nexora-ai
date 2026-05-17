@@ -6,7 +6,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
 use crate::NexoraAI;
-use super::config::ServerConfig;
+use crate::config::server::ServerConfig;
 use super::handlers::*;
 
 pub async fn create_router(

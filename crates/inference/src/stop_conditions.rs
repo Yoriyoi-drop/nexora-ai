@@ -158,7 +158,7 @@ impl StopConditions {
         let eos_tokens = self.eos_tokens.read().await;
         
         for condition in conditions.iter() {
-            if let Some(reason) = self.check_condition(condition, tokens, context, &stop_sequences, &eos_tokens) {
+            if let Some(reason) = self.check_condition(condition, tokens, context) {
                 // Update statistics
                 {
                     let mut stats = self.stats.write().await;
@@ -194,8 +194,6 @@ impl StopConditions {
         condition: &StopCondition,
         tokens: &[GeneratedToken],
         context: &StopContext,
-        _stop_sequences: &HashSet<String>,
-        _eos_tokens: &HashSet<u32>,
     ) -> Option<String> {
         match condition {
             StopCondition::MaxTokens(max_tokens) => {

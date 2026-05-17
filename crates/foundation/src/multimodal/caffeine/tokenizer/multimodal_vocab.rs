@@ -2,8 +2,8 @@
 //! 
 //! Unified vocabulary for all modalities with special tokens
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use std::collections::HashMap;
 
 /// Multimodal vocabulary
@@ -186,7 +186,7 @@ impl MultimodalVocabulary {
         let next_id = self.token_to_id.len();
         
         if next_id >= self.vocab_size {
-            return Err(crate::caffeine::error::CaffeineError::tokenizer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                 "Vocabulary size exceeded"
             ));
         }

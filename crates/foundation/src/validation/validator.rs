@@ -11,7 +11,8 @@ use serde_json::{json, Value};
 use regex::Regex;
 use tracing::info;
 
-use super::{environment::EnvironmentValidator, security::SecurityValidator};
+use super::environment::EnvironmentValidator;
+use super::security::{SecurityRule, SecurityValidatorImpl};
 
 /// Configuration validation result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,7 +100,7 @@ enum FieldType {
 
 /// Environment rule
 #[derive(Debug, Clone)]
-struct EnvironmentRule {
+pub(crate) struct EnvironmentRule {
     name: String,
     required: bool,
     validator: Option<Regex>,
@@ -180,7 +181,7 @@ impl ConfigValidator {
     
     /// Validate security configuration
     pub fn validate_security(&self, config: &Value) -> Result<ValidationResult> {
-        let security_validator = SecurityValidator::new();
+        let security_validator = SecurityValidatorImpl::new();
         security_validator.validate_config(config, &self.security_rules)
     }
     
@@ -316,7 +317,7 @@ impl ConfigValidator {
             required: true,
             default_value: Some(json!("localhost")),
             validator: Some(Regex::new(r"^[a-zA-Z0-9.-]+$")
-                .map_err(|e| anyhow::anyhow!("Failed to create hostname regex: {}", e))?),
+                .expect("Failed to create hostname regex")),
             min_value: None,
             max_value: None,
             allowed_values: None,
@@ -367,7 +368,7 @@ impl ConfigValidator {
             name: "DATABASE_URL".to_string(),
             required: true,
             validator: Some(Regex::new(r"^postgres://.*")
-                .map_err(|e| anyhow::anyhow!("Failed to create database URL regex: {}", e))?),
+                .expect("Failed to create database URL regex")),
             default_value: Some("postgres://localhost:5432/mydb".to_string()),
             description: "Database connection URL".to_string(),
         });
@@ -376,7 +377,7 @@ impl ConfigValidator {
             name: "LOG_LEVEL".to_string(),
             required: false,
             validator: Some(Regex::new(r"^(debug|info|warn|error)$")
-                .map_err(|e| anyhow::anyhow!("Failed to create log level regex: {}", e))?),
+                .expect("Failed to create log level regex")),
             default_value: Some("info".to_string()),
             description: "Logging level".to_string(),
         });

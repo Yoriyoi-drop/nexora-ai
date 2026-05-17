@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::warn;
 
@@ -22,7 +22,14 @@ struct CacheEntry {
     value: Vec<f32>,
     access_count: AtomicUsize,
     created_at: Instant,
-    last_access: Instant,
+    last_access: AtomicU64,
+}
+
+fn timestamp_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
 }
 
 pub struct KVCache {
@@ -90,6 +97,7 @@ impl KVCache {
                         return None;
                     }
                     entry.access_count.fetch_add(1, Ordering::Relaxed);
+                    entry.last_access.store(timestamp_nanos(), Ordering::Relaxed);
                     self.stats_hits.fetch_add(1, Ordering::Relaxed);
                     return Some(entry.value.clone());
                 }
@@ -119,7 +127,7 @@ impl KVCache {
         while entries.len() >= self.max_entries || (total_bytes + entry_size) > self.max_memory_bytes {
             let lru_key = entries
                 .iter()
-                .min_by_key(|(_, e)| e.last_access)
+                .min_by_key(|(_, e)| e.last_access.load(Ordering::Relaxed))
                 .map(|(k, _)| *k);
             match lru_key {
                 Some(k) => {
@@ -137,7 +145,7 @@ impl KVCache {
                 value,
                 access_count: AtomicUsize::new(0),
                 created_at: Instant::now(),
-                last_access: Instant::now(),
+                last_access: AtomicU64::new(timestamp_nanos()),
             },
         );
 

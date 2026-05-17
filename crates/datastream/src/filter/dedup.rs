@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use parking_lot::Mutex;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction, PipelineMetrics};
+use crate::types::{DataSample, FilterResult, FilterAction};
 
 #[derive(Debug, Clone)]
 pub struct DedupFilter {
@@ -62,12 +62,6 @@ impl DedupFilter {
         self.seen_hashes.lock().clear();
     }
 
-    pub fn update_metrics(&self, metrics: &mut PipelineMetrics) {
-        metrics.filter_breakdown.entry(self.name().to_string())
-            .or_insert_with(|| crate::types::FilterMetric {
-                processed: 0, passed: 0, rejected: 0, avg_latency_us: 0.0,
-            });
-    }
 }
 
 impl Default for DedupFilter {

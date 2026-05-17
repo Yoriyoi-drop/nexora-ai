@@ -7,7 +7,7 @@ use tracing::{info, warn};
 use reqwest::{Client, Response};
 
 use crate::NexoraAI;
-use super::config::{ApiConfig, HttpClientConfig, ApiResponse};
+use crate::config::api::{ApiConfig, HttpClientConfig, ApiResponse};
 use super::types::*;
 
 /// HTTP client for making API requests
@@ -15,13 +15,11 @@ use super::types::*;
 pub struct ApiClient {
     client: Client,
     config: ApiConfig,
-    #[allow(dead_code)]
-    nexora: Arc<NexoraAI>,
 }
 
 impl ApiClient {
     /// Create new API client
-    pub fn new(nexora: Arc<NexoraAI>, config: ApiConfig) -> Result<Self> {
+    pub fn new(_nexora: Arc<NexoraAI>, config: ApiConfig) -> Result<Self> {
         let http_config = HttpClientConfig::default();
         
         let client = Client::builder()

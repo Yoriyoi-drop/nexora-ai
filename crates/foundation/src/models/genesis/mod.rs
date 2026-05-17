@@ -39,6 +39,7 @@ pub struct NxrGenesisModel {
     _agents: GenesisAgents,
     capabilities: GenesisCapabilities,
     components: FoundationComponents,
+    config: GenesisConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +148,7 @@ impl NxrGenesisModel {
             _agents: GenesisAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
+            config,
         }
     }
 
@@ -158,7 +160,7 @@ impl NxrGenesisModel {
         };
 
         // Process input with deep learning
-        let dl_result = self.dl_process(input).await
+        let dl_result = self.components.dl_engine.process_text(input).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Optimize evolution with VOGP
@@ -272,8 +274,7 @@ impl NxrModel for NxrGenesisModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: std::sync::OnceLock<GenesisConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(GenesisConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -285,6 +286,7 @@ impl NxrModel for NxrGenesisModel {
         self.architecture.initialize(&config).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
+        self.config = config;
         Ok(())
     }
 

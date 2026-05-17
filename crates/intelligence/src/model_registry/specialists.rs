@@ -117,17 +117,18 @@ pub struct TrainingModelFactory;
 impl TrainingModelFactory {
     /// Create a new training model
     pub fn create_model(model_type: SpecialistType) -> Box<dyn TrainingModel> {
-        match model_type {
-            SpecialistType::Text => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::Image => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::Audio => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::Video => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::Multimodal => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::TextGenerator => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::Analyzer => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::CodeGenerator => Box::new(DefaultTrainingModel::new()),
-            SpecialistType::CreativeWriter => Box::new(DefaultTrainingModel::new()),
-        }
+        let input_dim = match model_type {
+            SpecialistType::Text => 8,
+            SpecialistType::Image => 16,
+            SpecialistType::Audio => 12,
+            SpecialistType::Video => 24,
+            SpecialistType::Multimodal => 32,
+            SpecialistType::TextGenerator => 8,
+            SpecialistType::Analyzer => 4,
+            SpecialistType::CodeGenerator => 16,
+            SpecialistType::CreativeWriter => 12,
+        };
+        Box::new(DefaultTrainingModel::with_input_dim(input_dim))
     }
 }
 
@@ -142,7 +143,10 @@ pub struct DefaultTrainingModel {
 
 impl DefaultTrainingModel {
     pub fn new() -> Self {
-        let input_dim = 8;
+        Self::with_input_dim(8)
+    }
+
+    pub fn with_input_dim(input_dim: usize) -> Self {
         let mut rng = rand::thread_rng();
         let weights: Vec<f32> = (0..input_dim)
             .map(|_| rng.gen::<f32>() * 0.2 - 0.1)

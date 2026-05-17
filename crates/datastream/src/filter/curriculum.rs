@@ -36,7 +36,7 @@ impl CurriculumRanker {
             .find(|(_, (_, domains, _))| domains.contains(&domain))
             .map(|(i, (level, _, _))| (level.clone(), i as u8))
             .unwrap_or_else(|| {
-                let fallback = domain_level.saturating_sub(1).max(1);
+                let fallback = (domain_level as u8).saturating_sub(1).max(1);
                 let level = match fallback {
                     1 => CurriculumLevel::BasicGrammar,
                     2 => CurriculumLevel::BasicInstruction,
@@ -75,7 +75,7 @@ impl Filter for CurriculumRanker {
             passed: true,
             sample_id: sample.id,
             filter_name: self.name().to_string(),
-            reason: Some(format!("curriculum_level={}, rank={}", _level as u8, _rank)),
+            reason: Some(format!("curriculum_level={:?}, rank={}", _level, _rank)),
             score_delta,
         }
     }

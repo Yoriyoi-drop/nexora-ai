@@ -7,21 +7,6 @@ pub use crate::memory_model::MemoryType;
 
 
 
-/// Memory entry with all properties
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryEntry {
-    pub memory_id: u32,           // Unique identifier for this memory
-    pub memory_type: MemoryType,  // Memory type (episodic/semantic/procedural)
-    pub activation: f64,         // A_ik: How often accessed/activated
-    pub relevance: f64,          // R_ik: Context/goal/reward importance
-    pub emotional_salience: f64, // E_ik: Emotional weight (limbic modulation)
-    pub timestamp: f64,          // t_k: When this memory was created/last updated
-    pub strength: f64,           // M_i(t): Current memory strength
-    pub content: Option<String>,  // Memory content (optional)
-    pub embedding: Option<Vec<f32>>, // Semantic embedding vector (optional)
-    pub embedding_dim: usize,    // Dimension of embedding
-}
-
 /// Memory statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryStats {

@@ -62,6 +62,7 @@ pub struct FirewallRateLimiter {
     pub window_seconds: u64,
     pub per_agent_counts: HashMap<Uuid, u32>,
     pub cooldown_expiry: HashMap<Uuid, chrono::DateTime<chrono::Utc>>,
+    pub window_start: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +125,8 @@ pub enum MessagePriority {
     High,
     Critical,
 }
+
+const MAX_AUDIT_LOG: usize = 1000;
 
 pub type SharedFirewall = Arc<RwLock<InterAgentFirewall>>;
 pub type SharedAgentBus = Arc<RwLock<AgentBus>>;
@@ -188,6 +191,7 @@ impl InterAgentFirewall {
                 window_seconds: 60,
                 per_agent_counts: HashMap::new(),
                 cooldown_expiry: HashMap::new(),
+                window_start: chrono::Utc::now(),
             },
             audit_log: Vec::new(),
             suspicious_patterns: vec![
@@ -228,7 +232,7 @@ impl InterAgentFirewall {
 
         if let Some(expiry) = self.rate_limiter.cooldown_expiry.get(&source_id) {
             if chrono::Utc::now() < *expiry {
-                self.audit_log.push(FirewallAuditEntry {
+                self.push_audit_entry(FirewallAuditEntry {
                     id: Uuid::new_v4(),
                     timestamp: chrono::Utc::now(),
                     source_id,
@@ -242,6 +246,11 @@ impl InterAgentFirewall {
                 });
                 return FirewallAction::Deny;
             }
+        }
+
+        if (chrono::Utc::now() - self.rate_limiter.window_start).num_seconds() >= self.rate_limiter.window_seconds as i64 {
+            self.rate_limiter.per_agent_counts.clear();
+            self.rate_limiter.window_start = chrono::Utc::now();
         }
 
         let count = self.rate_limiter.per_agent_counts.entry(source_id).or_insert(0);
@@ -260,7 +269,7 @@ impl InterAgentFirewall {
                 .or_insert_with(|| Regex::new(&pattern.pattern).expect("Invalid regex pattern"));
             if re.is_match(&payload_str) {
                 if pattern.auto_block {
-                    self.audit_log.push(FirewallAuditEntry {
+                    self.push_audit_entry(FirewallAuditEntry {
                         id: Uuid::new_v4(),
                         timestamp: chrono::Utc::now(),
                         source_id,
@@ -281,8 +290,11 @@ impl InterAgentFirewall {
             if matches_source(&rule.source, source_id, source_label)
                 && matches_destination(&rule.destination, dest_id, dest_label)
             {
-                if rule.log {
-                    self.audit_log.push(FirewallAuditEntry {
+                let should_log = rule.log;
+                let action = rule.action.clone();
+                let description = rule.description.clone();
+                if should_log {
+                    self.push_audit_entry(FirewallAuditEntry {
                         id: Uuid::new_v4(),
                         timestamp: chrono::Utc::now(),
                         source_id,
@@ -290,12 +302,12 @@ impl InterAgentFirewall {
                         destination_id: dest_id,
                         destination_label: dest_label.to_string(),
                         message_type: msg_type.to_string(),
-                        action_taken: rule.action.clone(),
-                        reason: format!("Rule match: {}", rule.description),
+                        action_taken: action.clone(),
+                        reason: format!("Rule match: {description}"),
                         message_size_bytes: payload.len() as u64,
                     });
                 }
-                return rule.action.clone();
+                return action;
             }
         }
 
@@ -342,6 +354,13 @@ impl InterAgentFirewall {
 
     pub fn get_recent_audit(&self, count: usize) -> Vec<&FirewallAuditEntry> {
         self.audit_log.iter().rev().take(count).collect()
+    }
+
+    fn push_audit_entry(&mut self, entry: FirewallAuditEntry) {
+        self.audit_log.push(entry);
+        if self.audit_log.len() > MAX_AUDIT_LOG {
+            self.audit_log.remove(0);
+        }
     }
 }
 

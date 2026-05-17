@@ -14,7 +14,7 @@ use crate::input::InputReceiver;
 use crate::intent::IntentDetector;
 use crate::context::ContextAnalyzer;
 use crate::error::{CoreError, CoreResult};
-use parking_lot::RwLock as ParkingRwLock;
+use parking_lot::RwLock;
 
 use tracing::{debug, info, warn, instrument};
 
@@ -25,7 +25,7 @@ use tracing::{debug, info, warn, instrument};
 /// Core Controller - Main struct untuk mengelola seluruh sistem
 pub struct CoreController {
     /// State management dengan thread-safe access
-    state: Arc<ParkingRwLock<ControllerState>>,
+    state: Arc<RwLock<ControllerState>>,
     /// Configuration
     config: ControllerConfig,
     /// Komponen-komponen sistem
@@ -33,9 +33,9 @@ pub struct CoreController {
     intent_detector: IntentDetector,
     context_analyzer: ContextAnalyzer,
     /// Specialist models registry
-    specialist_models: Arc<ParkingRwLock<HashMap<String, Box<dyn SpecialistModel>>>>,
+    specialist_models: Arc<RwLock<HashMap<String, Box<dyn SpecialistModel>>>>,
     /// Context management dengan LRU cache
-    context_cache: Arc<ParkingRwLock<LruContextCache>>,
+    context_cache: Arc<RwLock<LruContextCache>>,
     /// Performance metrics
     metrics: Arc<ControllerMetrics>,
 }
@@ -62,13 +62,13 @@ impl CoreController {
         let context_cache = LruContextCache::new(config.context_cache_size);
         
         Self {
-            state: Arc::new(ParkingRwLock::new(state)),
+            state: Arc::new(RwLock::new(state)),
             config: config.clone(),
             input_receiver: InputReceiver::new(),
             intent_detector: IntentDetector::new().with_threshold(config.intent_threshold),
             context_analyzer: ContextAnalyzer::new().with_memory(config.enable_memory_management),
-            specialist_models: Arc::new(ParkingRwLock::new(HashMap::new())),
-            context_cache: Arc::new(ParkingRwLock::new(context_cache)),
+            specialist_models: Arc::new(RwLock::new(HashMap::new())),
+            context_cache: Arc::new(RwLock::new(context_cache)),
             metrics: Arc::new(ControllerMetrics::default()),
         }
     }
@@ -133,7 +133,7 @@ impl CoreController {
             state.is_processing = false;
             
             // Update processing time
-            if let Ok(duration) = start_time.duration_since(SystemTime::UNIX_EPOCH) {
+            if let Ok(duration) = start_time.elapsed() {
                 let processing_time = duration.as_millis() as usize;
                 let total_requests = state.stats.total_requests_processed;
                 if total_requests > 0 {
@@ -206,9 +206,12 @@ impl CoreController {
     }
     
     /// Check apakah model tersedia
-    pub fn is_model_available(&self, _model_id: ModelId) -> bool {
-        // Simplified - semua model tersedia
-        true
+    pub fn is_model_available(&self, model_id: ModelId) -> bool {
+        if model_id == ModelId::Controller {
+            return true;
+        }
+        let models = self.specialist_models.read();
+        models.contains_key(model_id.name())
     }
     
     /// Get current context count (for testing)
@@ -316,12 +319,6 @@ impl CoreController {
         self.intent_detector.detect_intent(&input_data).await
     }
     
-    /// Get current memory usage in bytes
-    pub fn get_memory_usage(&self) -> usize {
-        // Simple implementation - in a real scenario this would use system APIs
-        // For now, return a reasonable estimate based on active tasks
-        self.active_task_count() * 1024 * 1024 // 1MB per active task as estimate
-    }
 }
 
 impl Default for CoreController {
@@ -336,7 +333,9 @@ mod tests {
     
     #[tokio::test]
     async fn test_process_request() {
-        let controller = CoreController::new();
+        let mut config = ControllerConfig::default();
+        config.routing_threshold = 0.3;
+        let controller = CoreController::with_config(config);
         
         let result = controller.process_request("buat fungsi rust", InputType::Text).await;
         assert!(result.is_ok());

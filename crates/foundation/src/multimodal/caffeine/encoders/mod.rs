@@ -18,8 +18,8 @@ pub use video_encoder::*;
 pub use text_encoder::*;
 pub use regional_alignment::*;
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Multi-modal encoder collection
@@ -29,12 +29,12 @@ pub struct MultiModalEncoders {
     video_encoder: VideoEncoder,
     text_encoder: TextEncoder,
     regional_aligner: RegionalAlignment,
-    config: crate::caffeine::config::EncodersConfig,
+    config: crate::multimodal::caffeine::config::EncodersConfig,
 }
 
 impl MultiModalEncoders {
     /// Create new multi-modal encoders
-    pub fn new(config: crate::caffeine::config::EncodersConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::EncodersConfig) -> Result<Self> {
         let image_encoder = ImageEncoder::new(config.image_encoder.clone())?;
         let audio_encoder = AudioEncoder::new(config.audio_encoder.clone())?;
         let video_encoder = VideoEncoder::new(config.video_encoder.clone())?;

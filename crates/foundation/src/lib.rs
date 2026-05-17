@@ -14,6 +14,7 @@
 // Include framework modules
 
 pub mod validation;
+pub mod validation_modules;
 pub mod safetensors;
 pub mod reasoning;
 pub mod atqs;

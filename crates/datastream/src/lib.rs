@@ -57,8 +57,6 @@ pub use dataset::*;
 
 pub use filter::Filter as FilterTrait;
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 pub struct PipelineBuilder {
     graph: ExecutionGraph,
     intake: StreamIntakeEngine,
@@ -113,6 +111,7 @@ impl PipelineBuilder {
             intake: self.intake,
             intelligence: self.intelligence,
             delivery: self.delivery,
+            cancel_tx: None,
         }
     }
 }
@@ -122,6 +121,7 @@ pub struct Pipeline {
     pub intake: StreamIntakeEngine,
     pub intelligence: DatasetIntelligenceCore,
     pub delivery: TrainingDeliveryLayer,
+    cancel_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl Pipeline {
@@ -136,8 +136,9 @@ impl Pipeline {
     pub async fn run(
         &mut self,
         samples: Vec<DataSample>,
-        (_cancel_tx, cancel_rx): (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
+        (cancel_tx, cancel_rx): (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
     ) -> Vec<graph::ExecutionResult> {
+        self.cancel_tx = Some(cancel_tx);
         self.graph.finalize();
         let mut results = Vec::with_capacity(samples.len());
 

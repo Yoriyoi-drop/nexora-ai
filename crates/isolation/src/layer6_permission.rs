@@ -92,6 +92,8 @@ pub struct ResourceQuota {
     pub max_tokens_per_minute: u64,
 }
 
+const MAX_AUDIT_LOG: usize = 1000;
+
 pub type SharedPermissionLayer = Arc<RwLock<PermissionLayer>>;
 
 pub struct PermissionLayer {
@@ -167,7 +169,7 @@ impl PermissionLayer {
 
     pub fn check_capability(&mut self, agent_id: Uuid, capability: &Capability) -> bool {
         let Some(agent) = self.agents.get(&agent_id) else {
-            self.audit_log.push(AccessAuditEntry {
+            self.push_audit_entry(AccessAuditEntry {
                 id: Uuid::new_v4(),
                 agent_id,
                 capability: capability.clone(),
@@ -179,7 +181,7 @@ impl PermissionLayer {
         };
 
         if agent.denied_capabilities.contains(capability) {
-            self.audit_log.push(AccessAuditEntry {
+            self.push_audit_entry(AccessAuditEntry {
                 id: Uuid::new_v4(),
                 agent_id,
                 capability: capability.clone(),
@@ -191,7 +193,7 @@ impl PermissionLayer {
         }
 
         let granted = agent.allowed_capabilities.contains(capability);
-        self.audit_log.push(AccessAuditEntry {
+        self.push_audit_entry(AccessAuditEntry {
             id: Uuid::new_v4(),
             agent_id,
             capability: capability.clone(),
@@ -205,6 +207,7 @@ impl PermissionLayer {
     pub fn grant_capability(&mut self, agent_id: Uuid, capability: Capability) -> Result<(), PermissionError> {
         let agent = self.agents.get_mut(&agent_id)
             .ok_or(PermissionError::AgentNotFound(agent_id))?;
+        agent.denied_capabilities.remove(&capability);
         agent.allowed_capabilities.insert(capability);
         Ok(())
     }
@@ -212,6 +215,7 @@ impl PermissionLayer {
     pub fn revoke_capability(&mut self, agent_id: Uuid, capability: &Capability) -> Result<(), PermissionError> {
         let agent = self.agents.get_mut(&agent_id)
             .ok_or(PermissionError::AgentNotFound(agent_id))?;
+        agent.allowed_capabilities.remove(capability);
         agent.denied_capabilities.insert(capability.clone());
         Ok(())
     }
@@ -228,6 +232,13 @@ impl PermissionLayer {
 
     pub fn get_agent_permissions(&self, agent_id: Uuid) -> Option<&AgentPermissions> {
         self.agents.get(&agent_id)
+    }
+
+    fn push_audit_entry(&mut self, entry: AccessAuditEntry) {
+        self.audit_log.push(entry);
+        if self.audit_log.len() > MAX_AUDIT_LOG {
+            self.audit_log.remove(0);
+        }
     }
 
     pub fn get_audit_log(&self, since: chrono::DateTime<chrono::Utc>) -> Vec<&AccessAuditEntry> {

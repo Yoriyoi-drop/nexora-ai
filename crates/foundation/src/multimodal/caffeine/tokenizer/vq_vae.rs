@@ -3,8 +3,8 @@
 //! VQ-VAE: EMA-based codebook (existing)
 //! FSQ: Lookup-free quantization (SOTA — tidak ada codebook collapse)
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 
 /// FSQ levels per dimension — fixed rounding boundaries
 /// Default: [8, 6, 5] → 8×6×5 = 240 codes, 3 dimensi
@@ -184,7 +184,7 @@ impl VectorQuantizedVAE {
     /// Quantize input embeddings
     pub fn quantize(&mut self, input: &[f32]) -> Result<(Vec<f32>, Vec<usize>, f32)> {
         if input.len() != self.token_dim {
-            return Err(crate::caffeine::error::CaffeineError::tokenizer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                 "Input dimension doesn't match token dimension"
             ));
         }
@@ -215,7 +215,7 @@ impl VectorQuantizedVAE {
     /// Dequantize token IDs back to embeddings
     pub fn dequantize(&self, token_ids: &[usize]) -> Result<Vec<f32>> {
         if token_ids.len() != self.num_codebooks {
-            return Err(crate::caffeine::error::CaffeineError::tokenizer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                 "Number of token IDs doesn't match number of codebooks"
             ));
         }
@@ -224,7 +224,7 @@ impl VectorQuantizedVAE {
         
         for (book_idx, &token_id) in token_ids.iter().enumerate() {
             if token_id >= self.codebook_size {
-                return Err(crate::caffeine::error::CaffeineError::tokenizer(
+                return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                     "Token ID exceeds codebook size"
                 ));
             }
@@ -247,7 +247,7 @@ impl VectorQuantizedVAE {
     /// Find closest code in codebook
     fn find_closest_code(&self, input: &[f32], book_idx: usize) -> Result<(Vec<f32>, usize, f32)> {
         if book_idx >= self.codebooks.len() {
-            return Err(crate::caffeine::error::CaffeineError::tokenizer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                 "Codebook index out of bounds"
             ));
         }
@@ -310,7 +310,7 @@ impl VectorQuantizedVAE {
     /// Update codebook using exponential moving average
     pub fn update_codebook(&mut self, input: &[f32], token_ids: &[usize], learning_rate: f32) -> Result<()> {
         if token_ids.len() != self.num_codebooks {
-            return Err(crate::caffeine::error::CaffeineError::tokenizer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                 "Number of token IDs doesn't match number of codebooks"
             ));
         }

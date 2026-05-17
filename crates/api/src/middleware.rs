@@ -6,8 +6,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::Serialize;
-use crate::security::RateLimitStatistics;
+use serde::{Serialize, Deserialize};
 
 use crate::{Middleware, RequestContext, RateLimiter};
 
@@ -242,6 +241,15 @@ impl Middleware for LoggingMiddleware {
     }
 }
 
+/// Rate limit statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitStatistics {
+    pub total_clients: usize,
+    pub total_requests: usize,
+    pub requests_per_minute: f64,
+    pub average_requests_per_client: f64,
+}
+
 /// Rate limiting middleware
 #[derive(Debug)]
 pub struct RateLimitingMiddleware {
@@ -265,6 +273,7 @@ impl RateLimitingMiddleware {
             crate::RateLimit {
                 max_requests: self.default_limit,
                 window_seconds: self.window_seconds,
+                burst_size: None,
             }
         );
     }
@@ -292,6 +301,7 @@ impl RateLimitingMiddleware {
             crate::RateLimit {
                 max_requests,
                 window_seconds,
+                burst_size: None,
             }
         );
     }
@@ -421,32 +431,12 @@ impl Middleware for RateLimitingMiddleware {
 #[derive(Debug)]
 pub struct CorsMiddleware {
     allowed_origins: Vec<String>,
-    _allowed_methods: Vec<String>,
-    _allowed_headers: Vec<String>,
-    _expose_headers: Vec<String>,
-    _allow_credentials: bool,
-    _max_age: u64,
 }
 
 impl CorsMiddleware {
     pub fn new() -> Self {
         Self {
             allowed_origins: vec!["*".to_string()],
-            _allowed_methods: vec![
-                "GET".to_string(),
-                "POST".to_string(),
-                "PUT".to_string(),
-                "DELETE".to_string(),
-                "OPTIONS".to_string(),
-            ],
-            _allowed_headers: vec![
-                "Content-Type".to_string(),
-                "Authorization".to_string(),
-                "X-Requested-With".to_string(),
-            ],
-            _expose_headers: Vec::new(),
-            _allow_credentials: false,
-            _max_age: 86400, // 24 hours
         }
     }
     
@@ -497,15 +487,13 @@ impl Middleware for CorsMiddleware {
 pub struct CompressionMiddleware {
     enable_compression: bool,
     min_size: usize,
-    _compression_level: u32,
 }
 
 impl CompressionMiddleware {
-    pub fn new(enable_compression: bool, min_size: usize, compression_level: u32) -> Self {
+    pub fn new(enable_compression: bool, min_size: usize) -> Self {
         Self {
             enable_compression,
             min_size,
-            _compression_level: compression_level,
         }
     }
     
@@ -790,7 +778,7 @@ pub async fn create_default_middleware_stack() -> MiddlewareStack {
     stack.add_middleware(Arc::new(rate_limit_mw));
     stack.add_middleware(Arc::new(CorsMiddleware::new()));
     stack.add_middleware(Arc::new(AuthMiddleware::new(false))); // Auth disabled by default
-    stack.add_middleware(Arc::new(CompressionMiddleware::new(true, 1024, 6)));
+    stack.add_middleware(Arc::new(CompressionMiddleware::new(true, 1024)));
     
     stack
 }

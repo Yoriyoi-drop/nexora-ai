@@ -2,8 +2,8 @@
 //! 
 //! Multi-head attention and query attention implementations
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Multi-head attention mechanism

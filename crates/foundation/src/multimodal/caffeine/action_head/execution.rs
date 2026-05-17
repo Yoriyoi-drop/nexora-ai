@@ -2,20 +2,22 @@
 //! 
 //! Executes planned actions and handles results
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
+use async_trait::async_trait;
 use std::collections::HashMap;
+use tokio::time::{sleep, Duration};
 
 /// Execution engine
 pub struct ExecutionEngine {
-    _config: crate::caffeine::config::ActionConfig,
+    _config: crate::multimodal::caffeine::config::ActionConfig,
     action_handlers: HashMap<ActionType, Box<dyn ActionHandler>>,
     execution_history: Vec<ExecutionRecord>,
 }
 
 impl ExecutionEngine {
     /// Create new execution engine
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         let mut action_handlers: HashMap<ActionType, Box<dyn ActionHandler>> = HashMap::new();
         
         // Register action handlers
@@ -36,13 +38,13 @@ impl ExecutionEngine {
     }
     
     /// Execute single action
-    pub fn execute(&mut self, action: &Action) -> Result<ExecutionResult> {
+    pub async fn execute(&mut self, action: &Action) -> Result<ExecutionResult> {
         let start_time = std::time::Instant::now();
         
         // Get handler for action type
         if let Some(handler) = self.action_handlers.get(&action.action_type) {
             // Execute action
-            let result = handler.execute(action)?;
+            let result = handler.execute(action).await?;
             
             // Record execution
             let execution_time = start_time.elapsed().as_millis() as f32;
@@ -52,7 +54,7 @@ impl ExecutionEngine {
                 execution_time_ms: execution_time,
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|e| crate::caffeine::error::CaffeineError::output_generation(&format!("Failed to get timestamp: {}", e)))?
+                    .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::output_generation(&format!("Failed to get timestamp: {}", e)))?
                     .as_secs_f32(),
             };
             
@@ -60,18 +62,18 @@ impl ExecutionEngine {
             
             Ok(result)
         } else {
-            Err(crate::caffeine::error::CaffeineError::action_head(
+            Err(crate::multimodal::caffeine::error::CaffeineError::action_head(
                 &format!("No handler found for action type: {:?}", action.action_type)
             ))
         }
     }
     
     /// Execute batch of actions
-    pub fn execute_batch(&mut self, actions: &[Action]) -> Result<Vec<ExecutionResult>> {
+    pub async fn execute_batch(&mut self, actions: &[Action]) -> Result<Vec<ExecutionResult>> {
         let mut results = Vec::new();
         
         for action in actions {
-            let result = self.execute(action)?;
+            let result = self.execute(action).await?;
             results.push(result);
         }
         
@@ -138,8 +140,9 @@ pub struct ExecutionStats {
 }
 
 /// Action handler trait
+#[async_trait]
 pub trait ActionHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult>;
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult>;
     fn get_handler_name(&self) -> &str;
 }
 
@@ -156,8 +159,9 @@ impl ClickHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for ClickHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract click coordinates
         let x = action.parameters.get("x")
             .and_then(|v| v.as_f64())
@@ -168,7 +172,7 @@ impl ActionHandler for ClickHandler {
             .unwrap_or(0.0) as f32;
         
         // Simulate click execution
-        std::thread::sleep(std::time::Duration::from_millis(self.click_delay_ms));
+        sleep(Duration::from_millis(self.click_delay_ms)).await;
         
         // Validate coordinates
         if x >= 0.0 && y >= 0.0 && x <= 1.0 && y <= 1.0 {
@@ -198,8 +202,9 @@ impl TypeHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for TypeHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract text to type
         let text = action.parameters.get("text")
             .and_then(|v| v.as_str())
@@ -207,10 +212,10 @@ impl ActionHandler for TypeHandler {
         
         // Simulate typing
         for char in text.chars() {
-            std::thread::sleep(std::time::Duration::from_millis(self.typing_delay_ms));
+            sleep(Duration::from_millis(self.typing_delay_ms)).await;
             print!("{}", char);
             std::io::Write::flush(&mut std::io::stdout())
-                .map_err(|e| crate::caffeine::error::CaffeineError::output_generation(&format!("Failed to flush stdout: {}", e)))?;
+                .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::output_generation(&format!("Failed to flush stdout: {}", e)))?;
         }
         println!();
         
@@ -235,8 +240,9 @@ impl ScrollHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for ScrollHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract scroll parameters
         let direction = action.parameters.get("direction")
             .and_then(|v| v.as_str())
@@ -271,8 +277,9 @@ impl DragHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for DragHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract drag parameters
         let start_x = action.parameters.get("start_x")
             .and_then(|v| v.as_f64())
@@ -294,7 +301,7 @@ impl ActionHandler for DragHandler {
         println!("Simulated drag from ({:.2}, {:.2}) to ({:.2}, {:.2})", 
                  start_x, start_y, end_x, end_y);
         
-        std::thread::sleep(std::time::Duration::from_millis(self.drag_duration_ms));
+        sleep(Duration::from_millis(self.drag_duration_ms)).await;
         
         Ok(ExecutionResult::Success)
     }
@@ -317,8 +324,9 @@ impl WaitHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for WaitHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract wait duration
         let duration_ms = action.parameters.get("duration_ms")
             .and_then(|v| v.as_u64())
@@ -326,7 +334,7 @@ impl ActionHandler for WaitHandler {
         
         // Simulate waiting
         println!("Waiting for {} ms", duration_ms);
-        std::thread::sleep(std::time::Duration::from_millis(duration_ms));
+        sleep(Duration::from_millis(duration_ms)).await;
         
         Ok(ExecutionResult::Success)
     }
@@ -349,8 +357,9 @@ impl NavigateHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for NavigateHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract navigation parameters
         let destination = action.parameters.get("destination")
             .and_then(|v| v.as_str())
@@ -364,7 +373,7 @@ impl ActionHandler for NavigateHandler {
         println!("Navigating to '{}' using '{}' method", destination, method);
         
         // Simulate navigation time
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        sleep(Duration::from_millis(1000)).await;
         
         // Check if destination is valid
         if !destination.is_empty() && destination != "unknown" {
@@ -392,8 +401,9 @@ impl ExtractHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for ExtractHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract extraction parameters
         let target = action.parameters.get("target")
             .and_then(|v| v.as_str())
@@ -407,7 +417,7 @@ impl ActionHandler for ExtractHandler {
         println!("Extracting '{}' using '{}' method", target, method);
         
         // Simulate extraction time
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        sleep(Duration::from_millis(500)).await;
         
         // Generate mock extracted content
         let extracted_content = match target {
@@ -440,8 +450,9 @@ impl AnalyzeHandler {
     }
 }
 
+#[async_trait]
 impl ActionHandler for AnalyzeHandler {
-    fn execute(&self, action: &Action) -> Result<ExecutionResult> {
+    async fn execute(&self, action: &Action) -> Result<ExecutionResult> {
         // Extract analysis parameters
         let analysis_type = action.parameters.get("analysis_type")
             .and_then(|v| v.as_str())
@@ -455,7 +466,7 @@ impl ActionHandler for AnalyzeHandler {
         println!("Performing '{}' analysis", analysis_type);
         
         // Simulate analysis time
-        std::thread::sleep(std::time::Duration::from_millis(800));
+        sleep(Duration::from_millis(800)).await;
         
         // Generate mock analysis result
         let analysis_result = match analysis_type {

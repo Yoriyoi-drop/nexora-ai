@@ -550,7 +550,7 @@ impl CompressionEngine {
     }
     
     /// Compress input tensor
-    pub fn compress(&mut self, input: Vec<crate::caffeine::types::UnifiedToken>) -> crate::ATQSResult<Vec<crate::caffeine::types::UnifiedToken>> {
+    pub fn compress(&mut self, input: Vec<crate::multimodal::caffeine::types::UnifiedToken>) -> crate::ATQSResult<Vec<crate::multimodal::caffeine::types::UnifiedToken>> {
         // Convert tokens to tensor representation
         let tensor_data = self.tokens_to_tensor(&input)?;
         
@@ -562,18 +562,18 @@ impl CompressionEngine {
     }
     
     /// Convert tokens to tensor representation
-    fn tokens_to_tensor(&self, tokens: &[crate::caffeine::types::UnifiedToken]) -> crate::ATQSResult<ndarray::ArrayD<f32>> {
+    fn tokens_to_tensor(&self, tokens: &[crate::multimodal::caffeine::types::UnifiedToken]) -> crate::ATQSResult<ndarray::ArrayD<f32>> {
         let mut data = Vec::with_capacity(tokens.len() * 10); // 10 features per token
         
         for token in tokens {
             // Extract token features
             data.push(token.token_id as f32 / 8192.0); // Normalized token ID
             data.push(match token.modality {
-                crate::caffeine::types::ModalityType::Text => 0.0,
-                crate::caffeine::types::ModalityType::Image => 0.25,
-                crate::caffeine::types::ModalityType::Audio => 0.5,
-                crate::caffeine::types::ModalityType::Video => 0.75,
-                crate::caffeine::types::ModalityType::Action => 1.0,
+                crate::multimodal::caffeine::types::ModalityType::Text => 0.0,
+                crate::multimodal::caffeine::types::ModalityType::Image => 0.25,
+                crate::multimodal::caffeine::types::ModalityType::Audio => 0.5,
+                crate::multimodal::caffeine::types::ModalityType::Video => 0.75,
+                crate::multimodal::caffeine::types::ModalityType::Action => 1.0,
             });
             data.push(token.position as f32 / 2048.0); // Normalized position
             data.push(token.timestamp.unwrap_or(0.0));
@@ -599,7 +599,7 @@ impl CompressionEngine {
     }
     
     /// Convert tensor back to tokens
-    fn tensor_to_tokens(&self, tensor: &ndarray::ArrayD<f32>, original_tokens: &[crate::caffeine::types::UnifiedToken]) -> crate::ATQSResult<Vec<crate::caffeine::types::UnifiedToken>> {
+    fn tensor_to_tokens(&self, tensor: &ndarray::ArrayD<f32>, original_tokens: &[crate::multimodal::caffeine::types::UnifiedToken]) -> crate::ATQSResult<Vec<crate::multimodal::caffeine::types::UnifiedToken>> {
         let mut compressed_tokens = Vec::new();
         
         if tensor.ndim() >= 2 {
@@ -610,7 +610,7 @@ impl CompressionEngine {
                 let original_token = &original_tokens[i];
                 
                 // Reconstruct token from compressed features
-                let compressed_token = crate::caffeine::types::UnifiedToken {
+                let compressed_token = crate::multimodal::caffeine::types::UnifiedToken {
                     token_id: (tensor[[i, 0]] * 8192.0) as usize,
                     modality: original_token.modality, // Preserve original modality
                     embedding: original_token.embedding.clone(), // Preserve original embedding

@@ -4,7 +4,6 @@
 //!
 //! Cognitive Dynamics Extension — mengubah memory system menjadi unified cognitive
 
-#![allow(dead_code, unused_variables)]
 //! dynamical system dengan conservation law, phase coherence, attention curvature,
 //! meta-learning, dan identity persistence.
 
@@ -12,17 +11,9 @@ pub mod layers;
 pub mod episodic;
 pub mod cache;
 pub mod compression;
-pub mod memory;
 pub mod memory_model;
-pub mod lru_memory;
-pub mod optimizer;
 pub mod types;
 pub mod core;
-pub mod conservation;
-pub mod coherence;
-pub mod curvature;
-pub mod meta_learning;
-pub mod identity;
 
 pub use layers::{MemoryLayers, MemoryLayer};
 pub use episodic::{EpisodicMemory, MemoryEpisode};
@@ -33,15 +24,6 @@ pub use memory_model::{
     NeuralAttentionMemory, NeuralAttentionMemoryConfig, NeuralMemoryEntry,
 };
 pub use types::*;
-pub use optimizer::{
-    MemoryPool, MemoryPoolConfig, MemoryPoolStatistics, MemoryLeakDetector,
-    MemoryOptimizer, MemoryOptimizerStatistics, PotentialLeak, LeakStatistics,
-};
-pub use conservation::EnergyConservation;
-pub use coherence::{CoherenceField, EmergenceOperator};
-pub use curvature::CurvatureField;
-pub use meta_learning::MetaLearningTensor;
-pub use identity::IdentityPersistence;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -398,7 +380,6 @@ impl CognitiveDynamics {
         }
 
         let field_norm2: f64 = field.iter().map(|v| v * v).sum();
-        let field_norm4: f64 = field.iter().map(|v| v * v * v * v).sum();
 
         // Linear term: w·Φ
         let linear: f64 = field.iter().map(|v| v * coupling).sum();

@@ -4,14 +4,14 @@ use serde::{Serialize, Deserialize};
 
 /// Configuration for layers
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LayerConfig {
+pub struct MoeLayerConfig {
     pub hidden_size: usize,
     pub intermediate_size: usize,
     pub use_layer_norm: bool,
     pub activation: String,
 }
 
-impl Default for LayerConfig {
+impl Default for MoeLayerConfig {
     fn default() -> Self {
         Self {
             hidden_size: 768,

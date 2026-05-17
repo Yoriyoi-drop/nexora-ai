@@ -132,6 +132,12 @@ impl InferenceEngine {
     }
 
     pub async fn initialize(&mut self) -> Result<()> {
+        let state = self.state.read().await.clone();
+        if state != EngineState::Uninitialized {
+            return Err(InferenceError::EngineNotInitialized(
+                "Engine already initialized".to_string(),
+            ));
+        }
         info!("Initializing inference engine");
         *self.state.write().await = EngineState::Initializing;
 
@@ -533,15 +539,9 @@ impl InferenceEngine {
             // Try to pop a batch first
             if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                 let engine = InferenceEngineHandle {
-                    _config: self.config.clone(),
-                    _runtime: self.runtime.clone(),
                     scheduler: self.scheduler.clone(),
-                    _kv_cache: self.kv_cache.clone(),
-                    _session_manager: self.session_manager.clone(),
                     model: self.model.clone(),
                     tokenizer: self.tokenizer.clone(),
-                    _streaming_engine: self.streaming_engine.clone(),
-                    _active_requests: self.active_requests.clone(),
                     state: self.state.clone(),
                 };
                 let task = tokio::spawn(async move {
@@ -666,97 +666,13 @@ fn token_id_to_text_fallback(token_id: u32) -> String {
 
 /// Handle used inside spawned tasks to avoid borrowing self
 struct InferenceEngineHandle {
-    _config: InferenceConfig,
-    _runtime: Arc<InferenceRuntime>,
     scheduler: Arc<RwLock<RequestScheduler>>,
-    _kv_cache: Arc<RwLock<KVCache>>,
-    _session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     model: CausalLM,
     tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
-    _streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
-    _active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     state: Arc<RwLock<EngineState>>,
 }
 
 impl InferenceEngineHandle {
-    async fn _generate_internal(&self, request: InferenceRequest) -> Result<InferenceResponse> {
-        let start = std::time::Instant::now();
-        let mut response = InferenceResponse::new(request.request_id);
-
-        if request.prompt.is_empty() {
-            return Ok(response
-                .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
-                .with_inference_time(start.elapsed().as_millis() as u64));
-        }
-
-        let prompt_ids: Vec<u32> = match &self.tokenizer {
-            Some(tok) => match tok.read() {
-                Ok(t) => t.encode(&request.prompt),
-                Err(_) => request.prompt.bytes().map(|b| b as u32).collect(),
-            },
-            None => request.prompt.bytes().map(|b| b as u32).collect(),
-        };
-
-        let mut kv_state = self.model.reset_cache();
-        let mut all_ids = prompt_ids.clone();
-        let max_gen = request.max_tokens.min(2048) as usize;
-
-        let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
-            temperature: request.temperature,
-            top_k: request.top_k as usize,
-            top_p: request.top_p,
-            ..Default::default()
-        });
-
-        for pos in 0..max_gen {
-            let input = if pos == 0 {
-                all_ids.clone()
-            } else {
-                vec![*all_ids.last().unwrap_or(&0)]
-            };
-
-            let logits = self.model.forward(&input, &mut kv_state);
-
-            let token_id = match sampler.sample(&logits.to_vec()) {
-                Ok(idx) => idx as u32,
-                Err(_) => logits
-                    .iter()
-                    .enumerate()
-                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
-                    .map(|(i, _)| i as u32)
-                    .unwrap_or(0),
-            };
-
-            let token_text: String = match &self.tokenizer {
-                Some(tok) => match tok.read() {
-                    Ok(t) => t.decode(&[token_id]),
-                    Err(_) => token_id_to_text_fallback(token_id),
-                },
-                None => token_id_to_text_fallback(token_id),
-            };
-
-            let log_prob = logits
-                .get(token_id as usize)
-                .copied()
-                .unwrap_or(0.0)
-                .ln();
-            let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
-            response.add_token(token);
-            all_ids.push(token_id);
-
-            if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
-                break;
-            }
-        }
-
-        if start.elapsed() > Duration::from_secs(60) {
-            response.finish_reason = FinishReason::Timeout;
-        } else {
-            response.finish_reason = FinishReason::MaxTokens;
-        }
-        response.inference_time_ms = start.elapsed().as_millis() as u64;
-        Ok(response)
-    }
 
     /// Process a batch of requests.
     /// Each request is processed sequentially through the model (single-sequence forward).

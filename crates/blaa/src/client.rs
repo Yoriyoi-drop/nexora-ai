@@ -2,19 +2,17 @@
 
 use futures::Stream;
 use reqwest::{Client, RequestBuilder, Response};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::time::{timeout, Duration};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, warn};
 use uuid::Uuid;
 use bytes::Bytes;
 
 use super::{
     auth::{AuthMethod, RateLimiter, TokenManager},
-    BlaaConfig, BlaaError, BlaaResult, defaults,
+    BlaaConfig, BlaaError, BlaaResult,
 };
 use super::models::*;
 
@@ -291,7 +289,7 @@ impl BlaaClient {
 /// Streaming chat completion response
 pub struct ChatCompletionStream {
     stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
-    buffer: String,
+    buffer: Vec<u8>,
 }
 
 impl ChatCompletionStream {
@@ -299,7 +297,7 @@ impl ChatCompletionStream {
         let stream = Box::pin(response.bytes_stream());
         Self {
             stream,
-            buffer: String::new(),
+            buffer: Vec::new(),
         }
     }
 }
@@ -314,12 +312,15 @@ impl Stream for ChatCompletionStream {
         loop {
             match self.stream.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok(chunk))) => {
-                    let text = String::from_utf8_lossy(&chunk);
-                    self.buffer.push_str(&text);
+                    self.buffer.extend_from_slice(&chunk);
 
-                    if let Some(line_end) = self.buffer.find('\n') {
-                        let line = self.buffer[..line_end].trim().to_string();
-                        self.buffer = self.buffer[line_end + 1..].to_string();
+                    if let Some(line_end) = self.buffer.iter().position(|&b| b == b'\n') {
+                        let line_bytes: Vec<u8> = self.buffer.drain(..=line_end).collect();
+                        let line = String::from_utf8(line_bytes)
+                            .map_err(|e| BlaaError::InvalidResponse(
+                                format!("Invalid UTF-8 in SSE stream: {}", e)
+                            ))?;
+                        let line = line.trim().to_string();
 
                         if line.starts_with("data: ") {
                             let data = &line[6..];
@@ -330,8 +331,6 @@ impl Stream for ChatCompletionStream {
                                 Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),
                                 Err(_) => continue,
                             }
-                        } else if line.is_empty() {
-                            continue;
                         } else {
                             continue;
                         }
@@ -344,7 +343,11 @@ impl Stream for ChatCompletionStream {
                 }
                 Poll::Ready(None) => {
                     if !self.buffer.is_empty() {
-                        let line = std::mem::take(&mut self.buffer);
+                        let remaining = std::mem::take(&mut self.buffer);
+                        let line = String::from_utf8(remaining)
+                            .map_err(|e| BlaaError::InvalidResponse(
+                                format!("Invalid UTF-8 in SSE stream: {}", e)
+                            ))?;
                         if let Some(data) = line.strip_prefix("data: ") {
                             if data.trim() == "[DONE]" {
                                 return Poll::Ready(None);
@@ -365,6 +368,7 @@ impl Stream for ChatCompletionStream {
 
 /// Models list response
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ModelsResponse {
     data: Vec<ModelInfo>,
     object: String,

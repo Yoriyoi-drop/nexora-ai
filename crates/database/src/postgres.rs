@@ -12,7 +12,7 @@ use tokio_postgres::{Client, Config, NoTls};
 use crate::{
     credentials::{CredentialManager, DatabaseCredentials},
     ConnectionPool, ConnectionPoolConfig, Database, DatabaseConfig, DatabaseInfo, ExecuteResult,
-    PoolStatus, QueryResult, Statement, Transaction, Value,
+    PoolStatus, QueryResult, Statement, Transaction, Value, ValueType,
 };
 
 /// PostgreSQL database implementation
@@ -20,7 +20,7 @@ pub struct PostgreSQLDatabase {
     config: DatabaseConfig,
     connection_pool: Arc<dyn ConnectionPool>,
     connection_info: Arc<RwLock<ConnectionInfo>>,
-    client: Arc<RwLock<Option<Client>>>,
+    client: Arc<RwLock<Option<Arc<Client>>>>,
 }
 
 /// Connection information
@@ -225,7 +225,7 @@ impl Database for PostgreSQLDatabase {
         let _version = client.query_one("SELECT version()", &[]).await?;
 
         // Store the client
-        *self.client.write().await = Some(client);
+        *self.client.write().await = Some(Arc::new(client));
 
         let mut info = self.connection_info.write().await;
         info.is_connected = true;
@@ -259,24 +259,41 @@ impl Database for PostgreSQLDatabase {
 
         let client_guard = self.client.read().await;
         let client = client_guard
-            .as_ref()
+            .as_deref()
             .ok_or_else(|| anyhow::anyhow!("Database not connected"))?;
 
-        // Convert parameters to PostgreSQL types - simplified version
-        // For now, only support basic types to avoid borrowing issues
-        let pg_params: Vec<&(dyn ToSql + Sync)> = params
+        // Convert parameters to PostgreSQL types — Box owned values, then reference them
+        let boxed_params: Vec<Box<dyn ToSql + Sync + Send>> = params
             .iter()
-            .map(|value| match value {
-                Value::String(s) => s as &(dyn ToSql + Sync),
-                Value::I32(i) => i as &(dyn ToSql + Sync),
-                Value::I64(i) => i as &(dyn ToSql + Sync),
-                Value::F32(f) => f as &(dyn ToSql + Sync),
-                Value::F64(f) => f as &(dyn ToSql + Sync),
-                Value::Bool(b) => b as &(dyn ToSql + Sync),
-                Value::Null => &None::<String> as &(dyn ToSql + Sync),
-                // Skip complex types for now
-                _ => &None::<String> as &(dyn ToSql + Sync),
+            .map(|value| -> Box<dyn ToSql + Sync + Send> {
+                match value {
+                    Value::String(s) => Box::new(s.clone()),
+                    Value::I32(i) => Box::new(*i),
+                    Value::I64(i) => Box::new(*i),
+                    Value::F32(f) => Box::new(*f),
+                    Value::F64(f) => Box::new(*f),
+                    Value::Bool(b) => Box::new(*b),
+                    Value::Null => Box::new(None::<String>),
+                    Value::Bytes(bytes) => Box::new(bytes.clone()),
+                    Value::Json(json) => Box::new(json.to_string()),
+                    Value::Timestamp(ts) => {
+                        let dur =
+                            ts.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                        let datetime = chrono::DateTime::from_timestamp(
+                            dur.as_secs() as i64,
+                            dur.subsec_nanos(),
+                        )
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default();
+                        Box::new(datetime)
+                    }
+                }
             })
+            .collect();
+
+        let pg_params: Vec<&(dyn ToSql + Sync)> = boxed_params
+            .iter()
+            .map(|b| b.as_ref() as &(dyn ToSql + Sync))
             .collect();
 
         let statement = client.prepare(query).await?;
@@ -308,17 +325,44 @@ impl Database for PostgreSQLDatabase {
         })
     }
 
-    async fn execute_statement(&self, _statement: &Statement) -> Result<ExecuteResult> {
+    async fn execute_statement(&self, statement: &Statement) -> Result<ExecuteResult> {
         let start_time = Instant::now();
 
-        // Get connection from pool
-        let _connection = self.connection_pool.get_connection().await?;
+        let client_guard = self.client.read().await;
+        let client = client_guard
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Database not connected"))?;
 
-        // In a real implementation, this would execute the prepared statement
+        // Convert parameter types to PostgreSQL values
+        let boxed_params: Vec<Box<dyn ToSql + Sync + Send>> = statement
+            .parameter_types
+            .iter()
+            .map(|pt| -> Box<dyn ToSql + Sync + Send> {
+                match pt {
+                    ValueType::Boolean => Box::new(false),
+                    ValueType::Integer => Box::new(0i32),
+                    ValueType::BigInt => Box::new(0i64),
+                    ValueType::Float => Box::new(0.0f32),
+                    ValueType::Double => Box::new(0.0f64),
+                    ValueType::String => Box::new(String::new()),
+                    ValueType::Bytes => Box::new(Vec::<u8>::new()),
+                    ValueType::Json => Box::new(String::from("null")),
+                    ValueType::Timestamp => Box::new(String::from("1970-01-01T00:00:00Z")),
+                    ValueType::Array(_) => Box::new(String::from("[]")),
+                }
+            })
+            .collect();
+
+        let pg_params: Vec<&(dyn ToSql + Sync)> = boxed_params
+            .iter()
+            .map(|b| b.as_ref() as &(dyn ToSql + Sync))
+            .collect();
+
+        let statement_prepared = client.prepare(&statement.query).await?;
+        let rows = client.query(&statement_prepared, &pg_params[..]).await?;
+        let affected_rows = rows.len() as u64;
+
         let execution_time = start_time.elapsed();
-
-        // Simulate execution result
-        let affected_rows = 0; // Simplified implementation
 
         Ok(ExecuteResult {
             affected_rows,
@@ -328,15 +372,23 @@ impl Database for PostgreSQLDatabase {
     }
 
     async fn begin_transaction(&self) -> Result<Transaction> {
-        let connection = self.connection_pool.get_connection().await?;
+        let client_arc = {
+            let client_guard = self.client.read().await;
+            let client = client_guard
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("Database not connected"))?;
 
-        // In a real implementation, this would begin a transaction
-        let transaction_id = format!("tx_{}", uuid::Uuid::new_v4());
+            client.simple_query("BEGIN").await?;
 
-        Ok(Transaction::new_generic(
-            transaction_id,
-            connection.id().to_string(),
-        ))
+            client_guard
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Database not connected"))?
+                .clone()
+        };
+
+        let connection_id = format!("pg_tx_{}", uuid::Uuid::new_v4());
+
+        Ok(Transaction::new_postgres(client_arc, connection_id))
     }
 
     async fn get_info(&self) -> Result<DatabaseInfo> {

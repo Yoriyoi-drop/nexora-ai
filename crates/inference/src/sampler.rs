@@ -395,12 +395,6 @@ pub mod configs {
         }
     }
 
-    pub fn deterministic() -> SamplingConfig {
-        SamplingConfig {
-            method: SamplingMethod::Greedy,
-            ..Default::default()
-        }
-    }
 }
 
 #[cfg(test)]

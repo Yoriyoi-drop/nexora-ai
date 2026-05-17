@@ -2,14 +2,14 @@
 //! 
 //! Based on CLIP ViT with regional contrastive alignment support
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::{ArrayD, s};
 use std::collections::HashMap;
 
 /// Image encoder based on CLIP ViT
 pub struct ImageEncoder {
-    config: crate::caffeine::config::ImageEncoderConfig,
+    config: crate::multimodal::caffeine::config::ImageEncoderConfig,
     model_loaded: bool,
     // Pre-computed embeddings for efficient encoding
     // In production, this would contain trained model weights
@@ -18,7 +18,7 @@ pub struct ImageEncoder {
 
 impl ImageEncoder {
     /// Create new image encoder
-    pub fn new(config: crate::caffeine::config::ImageEncoderConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ImageEncoderConfig) -> Result<Self> {
         Ok(Self {
             config,
             model_loaded: false,
@@ -111,7 +111,7 @@ impl ImageEncoder {
     }
     
     /// Get configuration
-    pub fn config(&self) -> &crate::caffeine::config::ImageEncoderConfig {
+    pub fn config(&self) -> &crate::multimodal::caffeine::config::ImageEncoderConfig {
         &self.config
     }
 }
@@ -160,7 +160,7 @@ impl RegionalContrastiveAligner {
     fn l2_normalize(&self, tensor: &ArrayD<f32>) -> Result<ArrayD<f32>> {
         let norm = tensor.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm == 0.0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Cannot normalize zero tensor"
             ));
         }
@@ -172,7 +172,7 @@ impl RegionalContrastiveAligner {
     /// Compute cosine similarity between two tensors
     fn cosine_similarity(&self, a: &ArrayD<f32>, b: &ArrayD<f32>) -> Result<f32> {
         if a.shape() != b.shape() {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Tensor shapes don't match for cosine similarity"
             ));
         }

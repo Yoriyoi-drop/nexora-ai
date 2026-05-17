@@ -5,7 +5,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use tracing::{info, warn, debug, error, span, Level, Instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -17,16 +16,14 @@ use nexora_foundation::compression::prelude::*;
 use nexora_foundation::has_moe_ffn::*;
 
 /// Initialize logger untuk benchmark
-fn init_logger() {
+fn init_logger() -> Result<(), tracing_subscriber::util::TryInitError> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "nexora_model=debug,benchmark=info".into()),
         )
         .with(tracing_subscriber::fmt::layer().with_target(false))
-        .init();
-    
-    info!("Logger initialized for end-to-end integration benchmark");
+        .try_init()
 }
 
 /// Buat input dummy untuk benchmark
@@ -124,12 +121,11 @@ fn create_moe_config() -> HasMoeFFNConfig {
 
 /// Benchmark integrasi penuh ATQS + Caffeine + MoE
 fn benchmark_full_integration(c: &mut Criterion) {
+    let _ = init_logger();
     let span = span!(Level::INFO, "benchmark_full_integration");
     let _enter = span.enter();
     
     info!("Starting full integration benchmark - ATQS + Caffeine + MoE");
-    
-    let rt = Runtime::new().unwrap();
     
     let mut group = c.benchmark_group("full_integration");
     
@@ -182,8 +178,6 @@ fn benchmark_caffeine_only(c: &mut Criterion) {
     
     info!("Starting Caffeine-only benchmark (baseline)");
     
-    let rt = Runtime::new().unwrap();
-    
     let mut group = c.benchmark_group("caffeine_only");
     
     for batch_size in [1, 4, 8, 16].iter() {
@@ -225,8 +219,6 @@ fn benchmark_atqs_caffeine(c: &mut Criterion) {
     let _enter = span.enter();
     
     info!("Starting ATQS + Caffeine benchmark (without MoE)");
-    
-    let rt = Runtime::new().unwrap();
     
     let mut group = c.benchmark_group("atqs_caffeine");
     
@@ -270,8 +262,6 @@ fn benchmark_caffeine_moe(c: &mut Criterion) {
     
     info!("Starting Caffeine + MoE benchmark (without ATQS)");
     
-    let rt = Runtime::new().unwrap();
-    
     let mut group = c.benchmark_group("caffeine_moe");
     
     for batch_size in [1, 4, 8, 16].iter() {
@@ -309,7 +299,6 @@ fn benchmark_caffeine_moe(c: &mut Criterion) {
 
 /// Benchmark komponen individual untuk perbandingan
 fn benchmark_individual_components(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
     
     // Benchmark ATQS compression saja
     let mut group = c.benchmark_group("atqs_compression");
@@ -378,7 +367,6 @@ fn benchmark_individual_components(c: &mut Criterion) {
 
 /// Benchmark memori usage
 fn benchmark_memory_usage(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
     
     let mut group = c.benchmark_group("memory_usage");
     
@@ -423,14 +411,13 @@ fn benchmark_memory_usage(c: &mut Criterion) {
 }
 
 /// Helper function untuk mendapatkan memory usage (simplified)
+// TODO: Replace with real memory measurement (e.g. via procfs or psutil)
 fn get_memory_usage() -> usize {
-    // Placeholder - dalam implementasi nyata gunakan psutil atau sejenisnya
     0
 }
 
 /// Benchmark latency breakdown
 fn benchmark_latency_breakdown(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
     
     let mut group = c.benchmark_group("latency_breakdown");
     
@@ -507,7 +494,6 @@ fn benchmark_latency_breakdown(c: &mut Criterion) {
 
 /// Benchmark throughput dengan batch processing
 fn benchmark_batch_throughput(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
     
     let mut group = c.benchmark_group("batch_throughput");
     

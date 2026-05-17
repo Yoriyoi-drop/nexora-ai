@@ -7,7 +7,7 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
-use super::config::RateLimitConfig;
+use crate::config::api::RateLimitConfig;
 
 /// Rate limiter for API requests
 #[derive(Debug)]

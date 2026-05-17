@@ -111,16 +111,9 @@ impl TrainingDeliveryLayer {
         Ok(())
     }
 
-    pub fn create_async_iterator(
-        &self,
-        rx: mpsc::Receiver<Vec<DataSample>>,
-    ) -> impl futures::Stream<Item = Vec<DataSample>> {
-        tokio_stream::wrappers::ReceiverStream::new(rx)
-    }
-
-    pub fn zero_copy_batch(&self, samples: Vec<DataSample>) -> Vec<u8> {
+    fn zero_copy_batch(&self, samples: &[DataSample]) -> Vec<u8> {
         let mut buffer = Vec::with_capacity(samples.len() * 1024);
-        for sample in &samples {
+        for sample in samples {
             if let Ok(json) = serde_json::to_vec(sample) {
                 let len = json.len() as u32;
                 buffer.extend_from_slice(&len.to_le_bytes());
@@ -139,7 +132,7 @@ impl TrainingDeliveryLayer {
         let client = reqwest::Client::new();
 
         while let Some(batch) = rx.recv().await {
-            let payload = self.zero_copy_batch(batch);
+            let payload = self.zero_copy_batch(&batch);
             for endpoint in &endpoints {
                 match client
                     .post(endpoint)

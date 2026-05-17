@@ -2,6 +2,14 @@
 
 use serde::{Serialize, Deserialize};
 
+/// GELU activation function (standalone, for sharing across modules)
+pub fn gelu(x: f32) -> f32 {
+    let sqrt_2_over_pi = (2.0 / std::f32::consts::PI).sqrt();
+    let x_cubed = x * x * x;
+    let tanh_arg = sqrt_2_over_pi * (x + 0.044715 * x_cubed);
+    x * 0.5 * (1.0 + tanh_arg.tanh())
+}
+
 /// Expert configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpertConfig {
@@ -50,9 +58,9 @@ impl Expert {
     fn init_weights(input_size: usize, output_size: usize) -> Vec<Vec<f32>> {
         let scale = (2.0 / (input_size + output_size) as f32).sqrt();
         let mut weights = Vec::with_capacity(output_size);
-        for i in 0..output_size {
+        for _ in 0..output_size {
             let row: Vec<f32> = (0..input_size)
-                .map(|j| ((i as f32 + j as f32) * 0.01).cos() * scale)
+                .map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale)
                 .collect();
             weights.push(row);
         }
@@ -102,21 +110,20 @@ impl Expert {
     
     /// GELU activation function
     fn apply_gelu(&self, input: &[f32]) -> Vec<f32> {
-        input.iter().map(|&x| {
-            // GELU approximation: x * 0.5 * (1.0 + tanh(sqrt(2.0/π) * (x + 0.044715 * x^3)))
-            let sqrt_2_over_pi = (2.0 / std::f32::consts::PI).sqrt();
-            let x_cubed = x * x * x;
-            let tanh_arg = sqrt_2_over_pi * (x + 0.044715 * x_cubed);
-            x * 0.5 * (1.0 + tanh_arg.tanh())
-        }).collect()
+        input.iter().map(|&x| gelu(x)).collect()
     }
     
     /// Apply dropout during training
     fn apply_dropout(&self, input: &[f32]) -> Vec<f32> {
-        // In production, this would use a random mask
-        // For now, we'll apply a simple scaling
-        let scale = 1.0 - self.config.dropout_rate;
-        input.iter().map(|x| x * scale).collect()
+        let rate = self.config.dropout_rate;
+        let scale = 1.0 / (1.0 - rate);
+        input.iter().map(|&x| {
+            if rand::random::<f32>() < rate {
+                0.0
+            } else {
+                x * scale
+            }
+        }).collect()
     }
     
     /// Get expert configuration

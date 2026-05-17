@@ -38,9 +38,15 @@ impl PerplexityFilter {
         let mut log_prob_sum = 0.0;
         let mut ngram_count = 0;
 
+        let mut trigram_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for window in chars.windows(3) {
+            let trigram: String = window.iter().collect();
+            *trigram_counts.entry(trigram).or_insert(0) += 1;
+        }
+
         for i in 0..chars.len().saturating_sub(2) {
             let trigram: String = chars[i..=i + 2].iter().collect();
-            let count = chars.windows(3).filter(|w| w.iter().collect::<String>() == trigram).count() as f64;
+            let count = *trigram_counts.get(&trigram).unwrap_or(&0) as f64;
             let prob = count / (total - 2.0).max(1.0);
             if prob > 0.0 {
                 log_prob_sum -= prob.ln();

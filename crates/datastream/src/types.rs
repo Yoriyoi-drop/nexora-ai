@@ -12,7 +12,7 @@ pub struct DataSample {
     pub stats: SampleStats,
     pub domains: Vec<Domain>,
     pub score: Option<f64>,
-    pub curriculum_level: Option<u8>,
+    pub curriculum_level: Option<CurriculumLevel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +41,8 @@ pub enum SourceCategory {
     Other,
 }
 
+// TODO: This Domain enum overlaps with DomainType in crates/data/src/domain_splitter.rs.
+// These should be unified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Domain {
     Code,
@@ -58,20 +60,14 @@ pub enum Domain {
 }
 
 impl Domain {
-    pub fn curriculum_level(&self) -> u8 {
+    pub fn curriculum_level(&self) -> CurriculumLevel {
         match self {
-            Domain::Conversation => 1,
-            Domain::Instruction => 1,
-            Domain::Knowledge => 2,
-            Domain::Creative => 2,
-            Domain::General => 2,
-            Domain::Code => 3,
-            Domain::Memory => 3,
-            Domain::Math => 3,
-            Domain::Science => 4,
-            Domain::Architecture => 4,
-            Domain::Reasoning => 5,
-            Domain::Planning => 6,
+            Domain::Conversation | Domain::Instruction => CurriculumLevel::BasicGrammar,
+            Domain::Knowledge | Domain::Creative | Domain::General => CurriculumLevel::BasicInstruction,
+            Domain::Code | Domain::Memory | Domain::Math => CurriculumLevel::MediumReasoning,
+            Domain::Science | Domain::Architecture => CurriculumLevel::ChainOfThought,
+            Domain::Reasoning => CurriculumLevel::AgenticPlanning,
+            Domain::Planning => CurriculumLevel::MultiHopLogic,
         }
     }
 }
@@ -87,7 +83,10 @@ pub struct SampleStats {
     pub quality_score: f64,
 }
 
+// TODO: CurriculumLevel (enum) is inconsistent with DataSample.curriculum_level
+// (Option<u8>). These should be reconciled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum CurriculumLevel {
     BasicGrammar = 1,
     BasicInstruction = 2,

@@ -2,8 +2,8 @@
 //! 
 //! Implements attention between different modalities
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,13 +59,13 @@ impl CrossModalAttention {
     /// Create new cross-modal attention with memory optimization
     pub fn new(hidden_dim: usize, num_heads: usize, _dropout_rate: f32) -> Result<Self> {
         if hidden_dim == 0 || num_heads == 0 {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Hidden dimension and number of heads must be greater than 0"
             ));
         }
         
         if hidden_dim % num_heads != 0 {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Hidden dimension must be divisible by number of heads"
             ));
         }
@@ -119,7 +119,7 @@ impl CrossModalAttention {
         hidden_dim: usize,
     ) -> Result<Vec<f32>> {
         if features.len() != num_queries * hidden_dim {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Feature dimensions don't match expected query dimensions"
             ));
         }
@@ -254,7 +254,7 @@ impl CrossModalAttention {
             
             // Validate dimensions
             if input_dim * output_dim != weights.len() {
-                return Err(crate::caffeine::error::CaffeineError::qformer(
+                return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                     &format!("Weight dimensions {} don't match expected {}x{}", 
                             weights.len(), input_dim, output_dim)
                 ));
@@ -268,7 +268,7 @@ impl CrossModalAttention {
             let output_shape = vec![batch_size, seq_len, output_dim];
             Ok(ArrayD::from_shape_vec(output_shape, projected)?)
         } else {
-            Err(crate::caffeine::error::CaffeineError::qformer(
+            Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("No projection weights found for {} -> {}", from_modality, to_modality)
             ))
         }
@@ -369,13 +369,13 @@ impl CrossModalAttention {
         fusion_weights: &std::collections::HashMap<String, f32>,
     ) -> Result<ArrayD<f32>> {
         if modality_features.is_empty() {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "No modality features provided for fusion"
             ));
         }
         
         // Get reference shape from first modality
-        let first_features = modality_features.values().next().ok_or_else(|| crate::caffeine::error::CaffeineError::input_validation("No modality features available"))?;
+        let first_features = modality_features.values().next().ok_or_else(|| crate::multimodal::caffeine::error::CaffeineError::input_validation("No modality features available"))?;
         let shape = first_features.shape();
         let batch_size = shape[0];
         let seq_len = shape[1];
@@ -443,7 +443,7 @@ impl ModalityAlignment {
                 }
             }
         } else {
-            Err(crate::caffeine::error::CaffeineError::qformer(
+            Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Unknown alignment method: {}", method)
             ))
         }
@@ -507,7 +507,7 @@ impl ModalityAlignment {
     fn l2_normalize(&self, tensor: &ArrayD<f32>) -> Result<ArrayD<f32>> {
         let norm = tensor.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm == 0.0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Cannot normalize zero tensor"
             ));
         }

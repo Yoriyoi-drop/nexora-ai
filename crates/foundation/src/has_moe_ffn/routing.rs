@@ -65,6 +65,7 @@ pub struct Router {
     config: RouterConfig,
     routing_stats: HashMap<usize, usize>,
     expert_capacities: Vec<usize>,
+    router_weights: Vec<Vec<f32>>,
 }
 
 impl Router {
@@ -77,19 +78,33 @@ impl Router {
             ..Default::default()
         };
         
+        let scale = (1.0 / hidden_size as f32).sqrt();
+        let router_weights: Vec<Vec<f32>> = (0..num_experts)
+            .map(|_| (0..hidden_size).map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale).collect())
+            .collect();
+
         Self { 
             expert_capacities: vec![0; num_experts],
             config,
             routing_stats: HashMap::new(),
+            router_weights,
         }
     }
     
     /// Create router with custom config
     pub fn with_config(config: RouterConfig) -> Self {
+        let num_experts = config.num_experts;
+        let hidden_size = config.hidden_size;
+        let scale = (1.0 / hidden_size as f32).sqrt();
+        let router_weights: Vec<Vec<f32>> = (0..num_experts)
+            .map(|_| (0..hidden_size).map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale).collect())
+            .collect();
+
         Self { 
             expert_capacities: vec![0; config.num_experts],
             config,
             routing_stats: HashMap::new(),
+            router_weights,
         }
     }
     
@@ -97,7 +112,7 @@ impl Router {
     fn compute_gating_weight(&self, input: &[f32], expert_idx: usize) -> f32 {
         let expert_bias = expert_idx as f32 * 0.1;
         let dot_product: f32 = input.iter().enumerate()
-            .map(|(i, &x)| x * ((i + expert_idx) as f32 * 0.01).cos())
+            .map(|(i, &x)| x * self.router_weights[expert_idx][i])
             .sum();
         dot_product + expert_bias
     }
@@ -165,18 +180,21 @@ impl Router {
         // Apply softmax
         let softmax_weights = self.softmax(&gating_weights);
         
-        // Get top-k experts
+        // Get top-k experts using O(E) select_nth_unstable
         let mut expert_scores: Vec<(usize, f32)> = softmax_weights
             .iter()
             .enumerate()
             .map(|(i, &score)| (i, score))
             .collect();
         
-        expert_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let k = self.config.top_k.min(expert_scores.len());
+        if k > 1 {
+            expert_scores.select_nth_unstable_by(k - 1, |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
         
         let top_experts: Vec<usize> = expert_scores
             .iter()
-            .take(self.config.top_k)
+            .take(k)
             .map(|(expert_idx, _)| *expert_idx)
             .collect();
         
@@ -260,15 +278,18 @@ impl Router {
             vec![1.0 / self.config.num_experts as f32; self.config.num_experts]
         };
         
-        // Get top-k experts
+        // Get top-k experts using O(E) select_nth_unstable
         let mut expert_scores: Vec<(usize, f32)> = softmax_weights.iter()
             .enumerate()
             .map(|(i, &score)| (i, score))
             .collect();
-        expert_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let k = self.config.top_k.min(expert_scores.len());
+        if k > 1 {
+            expert_scores.select_nth_unstable_by(k - 1, |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
         
         let top_experts: Vec<usize> = expert_scores.iter()
-            .take(self.config.top_k)
+            .take(k)
             .map(|(expert_idx, _)| *expert_idx)
             .collect();
         
@@ -288,10 +309,13 @@ impl Router {
             .enumerate()
             .map(|(i, &score)| (i, score))
             .collect();
-        expert_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let k = self.config.top_k.min(expert_scores.len());
+        if k > 1 {
+            expert_scores.select_nth_unstable_by(k - 1, |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
         
         let top_experts: Vec<usize> = expert_scores.iter()
-            .take(self.config.top_k)
+            .take(k)
             .map(|(expert_idx, _)| *expert_idx)
             .collect();
         

@@ -2,14 +2,7 @@
 //! 
 //! This crate provides integration with the BLAA API for advanced language model capabilities.
 
-#![allow(unused_imports, unused_variables, dead_code)]
-
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 pub mod client;
 pub mod config;
@@ -50,21 +43,6 @@ pub type BlaaResult<T> = Result<T, BlaaError>;
 pub const BLAA_API_VERSION: &str = "v1";
 pub const BLAA_BASE_URL: &str = "https://api.blaa.ai";
 
-/// Default configuration values
-pub struct DefaultConfig {
-    pub timeout: u64,
-    pub max_retries: usize,
-}
-
-impl Default for DefaultConfig {
-    fn default() -> Self {
-        Self {
-            timeout: 30,
-            max_retries: 3,
-        }
-    }
-}
-
 /// Default constants
 pub mod defaults {
     pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -79,9 +57,8 @@ mod tests {
 
     #[test]
     fn test_default_config_values() {
-        let cfg = DefaultConfig::default();
-        assert_eq!(cfg.timeout, 30);
-        assert_eq!(cfg.max_retries, 3);
+        assert_eq!(defaults::DEFAULT_TIMEOUT_SECS, 30);
+        assert_eq!(defaults::DEFAULT_MAX_RETRIES, 3);
     }
 
     #[test]

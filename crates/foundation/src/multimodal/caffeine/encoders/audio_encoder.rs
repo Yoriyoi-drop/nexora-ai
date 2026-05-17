@@ -2,13 +2,13 @@
 //! 
 //! Based on Whisper architecture with multi-scale feature extraction
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Audio encoder based on Whisper
 pub struct AudioEncoder {
-    config: crate::caffeine::config::AudioEncoderConfig,
+    config: crate::multimodal::caffeine::config::AudioEncoderConfig,
     model_loaded: bool,
     // Simulated model weights
     sample_rate: usize,
@@ -17,7 +17,7 @@ pub struct AudioEncoder {
 
 impl AudioEncoder {
     /// Create new audio encoder
-    pub fn new(config: crate::caffeine::config::AudioEncoderConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::AudioEncoderConfig) -> Result<Self> {
         Ok(Self {
             sample_rate: config.sample_rate,
             n_mels: 80, // Whisper uses 80 mel channels
@@ -218,7 +218,7 @@ impl AudioEncoder {
     }
     
     /// Get configuration
-    pub fn config(&self) -> &crate::caffeine::config::AudioEncoderConfig {
+    pub fn config(&self) -> &crate::multimodal::caffeine::config::AudioEncoderConfig {
         &self.config
     }
 }

@@ -7,10 +7,7 @@ pub trait Filter: Debug + Send + Sync {
     fn name(&self) -> &str;
 
     async fn filter(&self, sample: &DataSample) -> FilterResult {
-        let start = std::time::Instant::now();
-        let result = self.evaluate(sample).await;
-        let _elapsed = start.elapsed();
-        result
+        self.evaluate(sample).await
     }
 
     async fn evaluate(&self, sample: &DataSample) -> FilterResult;

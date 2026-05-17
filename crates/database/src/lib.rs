@@ -223,15 +223,6 @@ impl Database for MySQLDatabase {
     }
 }
 
-/// SSL modes
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SslMode {
-    Disable,
-    Allow,
-    Prefer,
-    Require,
-}
-
 /// Database trait for common operations
 #[async_trait::async_trait]
 pub trait Database: Send + Sync {
@@ -348,6 +339,9 @@ pub struct Transaction {
     pub connection_id: String,
     pub is_active: bool,
     pub savepoints: Vec<String>,
+    // PostgreSQL connection (only available when postgres feature is enabled)
+    #[cfg(feature = "postgres")]
+    pub(crate) client: Option<std::sync::Arc<tokio_postgres::Client>>,
     // MySQL connection (only available when mysql feature is enabled)
     #[cfg(feature = "mysql")]
     conn: Option<mysql::Conn>,
@@ -364,6 +358,8 @@ impl Transaction {
             connection_id,
             is_active: true,
             savepoints: Vec::new(),
+            #[cfg(feature = "postgres")]
+            client: None,
             #[cfg(feature = "mysql")]
             conn: None,
             #[cfg(feature = "sqlite")]
@@ -384,6 +380,8 @@ impl Transaction {
             is_active: true,
             savepoints: Vec::new(),
             conn_sqlite: Some(conn),
+            #[cfg(feature = "postgres")]
+            client: None,
             #[cfg(feature = "mysql")]
             conn: None,
         }
@@ -403,6 +401,27 @@ impl Transaction {
             is_active: true,
             savepoints: Vec::new(),
             conn: Some(conn),
+            #[cfg(feature = "postgres")]
+            client: None,
+            #[cfg(feature = "sqlite")]
+            conn_sqlite: None,
+        }
+    }
+}
+
+/// PostgreSQL-specific Transaction constructor
+#[cfg(feature = "postgres")]
+impl Transaction {
+    pub fn new_postgres(client: std::sync::Arc<tokio_postgres::Client>, connection_id: String) -> Self {
+        let id = uuid::Uuid::new_v4().to_string();
+        Self {
+            id,
+            connection_id,
+            is_active: true,
+            savepoints: Vec::new(),
+            client: Some(client),
+            #[cfg(feature = "mysql")]
+            conn: None,
             #[cfg(feature = "sqlite")]
             conn_sqlite: None,
         }
@@ -418,6 +437,16 @@ impl Transaction {
 
     /// Commit the transaction
     pub fn commit(mut self) -> Result<()> {
+        #[cfg(feature = "postgres")]
+        if let Some(client) = self.client.take() {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async { client.simple_query("COMMIT").await })
+                    .map_err(|e| anyhow::anyhow!("PostgreSQL commit failed: {}", e))
+            })?;
+            self.is_active = false;
+            return Ok(());
+        }
         #[cfg(feature = "mysql")]
         if let Some(mut conn) = self.conn.take() {
             conn.query("COMMIT")
@@ -436,6 +465,16 @@ impl Transaction {
 
     /// Rollback the transaction
     pub fn rollback(mut self) -> Result<()> {
+        #[cfg(feature = "postgres")]
+        if let Some(client) = self.client.take() {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async { client.simple_query("ROLLBACK").await })
+                    .map_err(|e| anyhow::anyhow!("PostgreSQL rollback failed: {}", e))
+            })?;
+            self.is_active = false;
+            return Ok(());
+        }
         #[cfg(feature = "mysql")]
         if let Some(mut conn) = self.conn.take() {
             conn.query("ROLLBACK")
@@ -454,6 +493,18 @@ impl Transaction {
 
     /// Create a savepoint within the transaction
     pub fn create_savepoint(&mut self, name: &str) -> Result<()> {
+        #[cfg(feature = "postgres")]
+        if let Some(ref client) = self.client {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(
+                        async { client.simple_query(&format!("SAVEPOINT {}", name)).await },
+                    )
+                    .map_err(|e| anyhow::anyhow!("PostgreSQL savepoint failed: {}", e))
+            })?;
+            self.savepoints.push(name.to_string());
+            return Ok(());
+        }
         #[cfg(feature = "mysql")]
         if let Some(ref mut conn) = self.conn {
             conn.query(&format!("SAVEPOINT {}", name))
@@ -472,6 +523,17 @@ impl Transaction {
 
     /// Rollback to a savepoint
     pub fn rollback_to_savepoint(&mut self, name: &str) -> Result<()> {
+        #[cfg(feature = "postgres")]
+        if let Some(ref client) = self.client {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(
+                        async { client.simple_query(&format!("ROLLBACK TO SAVEPOINT {}", name)).await },
+                    )
+                    .map_err(|e| anyhow::anyhow!("PostgreSQL rollback to savepoint failed: {}", e))
+            })?;
+            return Ok(());
+        }
         #[cfg(feature = "mysql")]
         if let Some(ref mut conn) = self.conn {
             conn.query(&format!("ROLLBACK TO SAVEPOINT {}", name))
@@ -488,6 +550,22 @@ impl Transaction {
 
     /// Execute a query within the transaction
     pub fn execute(&mut self, query: &str) -> Result<ExecuteResult> {
+        #[cfg(feature = "postgres")]
+        if let Some(ref client) = self.client {
+            let rows_affected = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async {
+                        let affected = client.execute(query, &[]).await?;
+                        Ok::<u64, anyhow::Error>(affected)
+                    })
+                    .map_err(|e| anyhow::anyhow!("PostgreSQL execute failed: {}", e))
+            })?;
+            return Ok(ExecuteResult {
+                affected_rows: rows_affected,
+                execution_time_ms: 0,
+                last_insert_id: None,
+            });
+        }
         #[cfg(feature = "mysql")]
         if let Some(ref mut conn) = self.conn {
             let result = conn.query_iter(query)?;
@@ -552,18 +630,27 @@ impl DatabaseFactory {
             }
             #[cfg(feature = "mysql")]
             DatabaseType::MySQL => {
-                let config = config
-                    .as_any()
-                    .downcast_ref::<MySQLConfig>()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid MySQL configuration"))?;
+                let mysql_config = MySQLConfig {
+                    host: config.host.clone(),
+                    port: config.port,
+                    username: config.username.clone(),
+                    password: config.password.clone(),
+                    database: config.database.clone(),
+                    pool_size: config.max_connections as u32,
+                    timeout: config.connection_timeout_seconds,
+                };
 
                 let connection_string = format!(
                     "mysql://{}:{}@{}:{}/{}",
-                    config.username, config.password, config.host, config.port, config.database
+                    mysql_config.username,
+                    mysql_config.password,
+                    mysql_config.host,
+                    mysql_config.port,
+                    mysql_config.database
                 );
 
                 let pool = mysql::Pool::new(&connection_string)?;
-                Ok(Arc::new(MySQLDatabase::new(pool, config)))
+                Ok(Arc::new(MySQLDatabase::new(pool, mysql_config)))
             }
             #[cfg(not(feature = "mysql"))]
             DatabaseType::MySQL => Err(anyhow::anyhow!(

@@ -38,6 +38,7 @@ pub struct NxrAxiomModel {
     _agents: AxiomAgents,
     capabilities: AxiomCapabilities,
     components: FoundationComponents,
+    config: AxiomConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +145,7 @@ impl NxrAxiomModel {
             _agents: AxiomAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
+            config,
         }
     }
 
@@ -266,8 +268,7 @@ impl NxrModel for NxrAxiomModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: std::sync::OnceLock<AxiomConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(AxiomConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -279,6 +280,7 @@ impl NxrModel for NxrAxiomModel {
         self.architecture.initialize(&config).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
+        self.config = config;
         Ok(())
     }
 

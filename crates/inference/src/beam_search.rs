@@ -57,6 +57,8 @@ pub struct BeamHypothesis {
     pub cumulative_log_prob: f32,
     /// Normalized score
     pub score: f32,
+    /// Length penalty coefficient
+    pub length_penalty: f32,
     /// Is this hypothesis finished?
     pub finished: bool,
     /// Finish reason
@@ -67,12 +69,13 @@ pub struct BeamHypothesis {
 
 impl BeamHypothesis {
     /// Create new hypothesis
-    pub fn new() -> Self {
+    pub fn new(length_penalty: f32) -> Self {
         Self {
             id: Uuid::new_v4(),
             tokens: Vec::new(),
             cumulative_log_prob: 0.0,
             score: 0.0,
+            length_penalty,
             finished: false,
             finish_reason: None,
             metadata: HashMap::new(),
@@ -108,8 +111,8 @@ impl BeamHypothesis {
         let length = self.tokens.len() as f32;
         if length > 0.0 {
             // Length penalty: (length + 5) / (5 + 1) ^ length_penalty
-            let length_penalty = ((length + 5.0) / (6.0)).powf(1.0);
-            self.score = self.cumulative_log_prob / length_penalty;
+            let lp = ((length + 5.0) / (6.0)).powf(self.length_penalty);
+            self.score = self.cumulative_log_prob / lp;
         } else {
             self.score = self.cumulative_log_prob;
         }
@@ -166,7 +169,7 @@ impl BeamSearchEngine {
                 0,
             );
             
-            let mut hypothesis = BeamHypothesis::new();
+            let mut hypothesis = BeamHypothesis::new(self.config.length_penalty);
             hypothesis.add_token(token);
             
             hypotheses.push(hypothesis);

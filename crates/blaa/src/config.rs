@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use anyhow::Result;
 
 use super::{BlaaError, BlaaResult, defaults};
 

@@ -16,12 +16,12 @@ use super::{ValidationResult, ValidationError, ValidationWarning, ValidationInfo
 pub struct SecurityRule {
     name: String,
     description: String,
-    validator: SecurityValidator,
+    validator: Box<dyn SecurityValidator>,
     severity: ErrorSeverity,
 }
 
 /// Security validator trait
-trait SecurityValidator {
+pub trait SecurityValidator {
     fn validate(&self, config: &Value) -> Result<Vec<ValidationError>>;
     fn name(&self) -> &str;
 }

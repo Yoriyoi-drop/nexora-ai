@@ -2,13 +2,13 @@
 //! 
 //! Generates text, image, audio, and video outputs from tokens
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Semantic output generator
 pub struct SemanticOutputGenerator {
-    _config: crate::caffeine::config::ActionConfig,
+    _config: crate::multimodal::caffeine::config::ActionConfig,
     text_generator: TextOutputGenerator,
     image_generator: ImageOutputGenerator,
     audio_generator: AudioOutputGenerator,
@@ -17,7 +17,7 @@ pub struct SemanticOutputGenerator {
 
 impl SemanticOutputGenerator {
     /// Create new semantic output generator
-    pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::ActionConfig) -> Result<Self> {
         let text_generator = TextOutputGenerator::new()?;
         let image_generator = ImageOutputGenerator::new()?;
         let audio_generator = AudioOutputGenerator::new()?;

@@ -16,22 +16,24 @@ use super::{
     safety_gate::CapabilityLock,
 };
 
+/// A single atomic registry entry holding all components for one model.
+#[derive(Clone)]
+struct RegistryEntry {
+    model: Option<Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>>,
+    metadata: ModelMeta,
+    capabilities: CapabilityVector,
+    config: NxrModelConfig,
+}
+
 /// Model registry for managing all NXR models
 pub struct NxrModelRegistry {
-    /// Registered models
-    models: Arc<RwLock<HashMap<NxrModelId, Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>>>>,
-    /// Model metadata
-    metadata: Arc<RwLock<HashMap<NxrModelId, ModelMeta>>>,
-    /// Model capabilities
-    capabilities: Arc<RwLock<HashMap<NxrModelId, CapabilityVector>>>,
-    /// Model configurations
-    configurations: Arc<RwLock<HashMap<NxrModelId, NxrModelConfig>>>,
+    entries: Arc<RwLock<HashMap<NxrModelId, RegistryEntry>>>,
 }
 
 impl fmt::Debug for NxrModelRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NxrModelRegistry")
-            .field("registered_count", &self.models.try_read().map(|m| m.len()).unwrap_or(0))
+            .field("registered_count", &self.entries.try_read().map(|m| m.len()).unwrap_or(0))
             .finish()
     }
 }
@@ -40,10 +42,7 @@ impl NxrModelRegistry {
     /// Create new model registry
     pub fn new() -> Self {
         Self {
-            models: Arc::new(RwLock::new(HashMap::new())),
-            metadata: Arc::new(RwLock::new(HashMap::new())),
-            capabilities: Arc::new(RwLock::new(HashMap::new())),
-            configurations: Arc::new(RwLock::new(HashMap::new())),
+            entries: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -61,66 +60,60 @@ impl NxrModelRegistry {
             return Err(RegistryError::IdentityMismatch);
         }
 
-        // Check if model already registered
-        {
-            let models = self.models.read().await;
-            if models.contains_key(&model_id) {
-                return Err(RegistryError::AlreadyRegistered(model_id));
-            }
-        }
-
         // Enforce safety capability locks at registration
         let cap_lock = CapabilityLock::new();
         let mut caps = model_capabilities;
         cap_lock.enforce(&mut caps).await.map_err(|e| RegistryError::Validation(e.to_string()))?;
 
-        // Register all components
-        {
-            let mut models = self.models.write().await;
-            models.insert(model_id, model);
+        // Atomic insert: all four components under a single write lock
+        let mut entries = self.entries.write().await;
+        if entries.contains_key(&model_id) {
+            return Err(RegistryError::AlreadyRegistered(model_id));
         }
+        entries.insert(model_id, RegistryEntry {
+            model: Some(model),
+            metadata: meta,
+            capabilities: caps,
+            config,
+        });
 
-        {
-            let mut metadata = self.metadata.write().await;
-            metadata.insert(model_id, meta);
-        }
+        Ok(())
+    }
 
-        {
-            let mut capabilities = self.capabilities.write().await;
-            capabilities.insert(model_id, caps);
-        }
+    /// Register model metadata and configuration without a model instance.
+    /// Prefer `register_model` when a model instance is available.
+    pub async fn register_components(
+        &self,
+        model_id: NxrModelId,
+        meta: ModelMeta,
+        model_capabilities: CapabilityVector,
+        config: NxrModelConfig,
+    ) -> Result<(), RegistryError> {
+        // Enforce safety capability locks at registration
+        let cap_lock = CapabilityLock::new();
+        let mut caps = model_capabilities;
+        cap_lock.enforce(&mut caps).await.map_err(|e| RegistryError::Validation(e.to_string()))?;
 
-        {
-            let mut configurations = self.configurations.write().await;
-            configurations.insert(model_id, config);
+        let mut entries = self.entries.write().await;
+        if entries.contains_key(&model_id) {
+            return Err(RegistryError::AlreadyRegistered(model_id));
         }
+        entries.insert(model_id, RegistryEntry {
+            model: None,
+            metadata: meta,
+            capabilities: caps,
+            config,
+        });
 
         Ok(())
     }
 
     /// Unregister a model
     pub async fn unregister_model(&self, model_id: &NxrModelId) -> Result<(), RegistryError> {
-        // Remove from all registries
-        {
-            let mut models = self.models.write().await;
-            models.remove(model_id);
+        let mut entries = self.entries.write().await;
+        if entries.remove(model_id).is_none() {
+            return Err(RegistryError::NotFound(*model_id));
         }
-
-        {
-            let mut metadata = self.metadata.write().await;
-            metadata.remove(model_id);
-        }
-
-        {
-            let mut capabilities = self.capabilities.write().await;
-            capabilities.remove(model_id);
-        }
-
-        {
-            let mut configurations = self.configurations.write().await;
-            configurations.remove(model_id);
-        }
-
         Ok(())
     }
 
@@ -129,52 +122,52 @@ impl NxrModelRegistry {
         &self,
         model_id: &NxrModelId,
     ) -> Result<Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>, RegistryError> {
-        let models = self.models.read().await;
-        models
+        let entries = self.entries.read().await;
+        entries
             .get(model_id)
-            .cloned()
+            .and_then(|e| e.model.clone())
             .ok_or(RegistryError::NotFound(*model_id))
     }
 
     /// Get model metadata
     pub async fn get_metadata(&self, model_id: &NxrModelId) -> Result<ModelMeta, RegistryError> {
-        let metadata = self.metadata.read().await;
-        metadata
+        let entries = self.entries.read().await;
+        entries
             .get(model_id)
-            .cloned()
+            .map(|e| e.metadata.clone())
             .ok_or(RegistryError::NotFound(*model_id))
     }
 
     /// Get model capabilities
     pub async fn get_capabilities(&self, model_id: &NxrModelId) -> Result<CapabilityVector, RegistryError> {
-        let capabilities = self.capabilities.read().await;
-        capabilities
+        let entries = self.entries.read().await;
+        entries
             .get(model_id)
-            .cloned()
+            .map(|e| e.capabilities.clone())
             .ok_or(RegistryError::NotFound(*model_id))
     }
 
     /// Get model configuration
     pub async fn get_configuration(&self, model_id: &NxrModelId) -> Result<NxrModelConfig, RegistryError> {
-        let configurations = self.configurations.read().await;
-        configurations
+        let entries = self.entries.read().await;
+        entries
             .get(model_id)
-            .cloned()
+            .map(|e| e.config.clone())
             .ok_or(RegistryError::NotFound(*model_id))
     }
 
     /// List all registered models
     pub async fn list_models(&self) -> Vec<NxrModelId> {
-        let models = self.models.read().await;
-        models.keys().cloned().collect()
+        let entries = self.entries.read().await;
+        entries.keys().cloned().collect()
     }
 
     /// List models by tier
     pub async fn list_models_by_tier(&self, tier: ModelTier) -> Vec<NxrModelId> {
-        let metadata = self.metadata.read().await;
-        metadata
+        let entries = self.entries.read().await;
+        entries
             .iter()
-            .filter(|(_, meta)| meta.tier == tier)
+            .filter(|(_, e)| e.metadata.tier == tier)
             .map(|(id, _)| *id)
             .collect()
     }
@@ -185,29 +178,26 @@ impl NxrModelRegistry {
         domain: &super::capability_spec::CapabilityDomain,
         min_level: super::capability_spec::CapabilityLevel,
     ) -> Vec<NxrModelId> {
-        let capabilities = self.capabilities.read().await;
-        capabilities
+        let entries = self.entries.read().await;
+        entries
             .iter()
-            .filter(|(_, cap)| cap.has_capability(domain, min_level))
+            .filter(|(_, e)| e.capabilities.has_capability(domain, min_level))
             .map(|(id, _)| *id)
             .collect()
     }
 
     /// Get best model for task
     pub async fn get_best_model_for_task(&self, task: &Task) -> Result<NxrModelId, RegistryError> {
-        let models = self.list_models().await;
-        
-        if models.is_empty() {
+        let entries = self.entries.read().await;
+        if entries.is_empty() {
             return Err(RegistryError::NoModelsAvailable);
         }
 
         // Score each model for this task
-        let mut scored_models = Vec::new();
-        
-        for model_id in models {
-            let capabilities = self.get_capabilities(&model_id).await?;
-            let score = self.score_model_for_task(&capabilities, task);
-            scored_models.push((model_id, score));
+        let mut scored_models: Vec<(NxrModelId, f32)> = Vec::new();
+        for (model_id, entry) in entries.iter() {
+            let score = self.score_model_for_task(&entry.capabilities, task);
+            scored_models.push((*model_id, score));
         }
 
         // Sort by score (descending)
@@ -253,11 +243,10 @@ impl NxrModelRegistry {
 
     /// Update model metadata
     pub async fn update_metadata(&self, model_id: &NxrModelId, meta: ModelMeta) -> Result<(), RegistryError> {
-        let mut metadata = self.metadata.write().await;
-        if !metadata.contains_key(model_id) {
-            return Err(RegistryError::NotFound(*model_id));
-        }
-        metadata.insert(*model_id, meta);
+        let mut entries = self.entries.write().await;
+        let entry = entries.get_mut(model_id)
+            .ok_or(RegistryError::NotFound(*model_id))?;
+        entry.metadata = meta;
         Ok(())
     }
 
@@ -266,24 +255,23 @@ impl NxrModelRegistry {
         let cap_lock = CapabilityLock::new();
         cap_lock.enforce(&mut capabilities).await.map_err(|e| RegistryError::Validation(e.to_string()))?;
 
-        let mut caps = self.capabilities.write().await;
-        if !caps.contains_key(model_id) {
-            return Err(RegistryError::NotFound(*model_id));
-        }
-        caps.insert(*model_id, capabilities);
+        let mut entries = self.entries.write().await;
+        let entry = entries.get_mut(model_id)
+            .ok_or(RegistryError::NotFound(*model_id))?;
+        entry.capabilities = capabilities;
         Ok(())
     }
 
     /// Get registry statistics
     pub async fn get_statistics(&self) -> RegistryStatistics {
-        let models = self.models.read().await;
-        let metadata = self.metadata.read().await;
-        
+        let entries = self.entries.read().await;
+
         let mut tier_counts: HashMap<ModelTier, usize> = HashMap::new();
         let mut total_parameters = 0u64;
         let mut experimental_count = 0;
 
-        for meta in metadata.values() {
+        for entry in entries.values() {
+            let meta = &entry.metadata;
             *tier_counts.entry(meta.tier).or_insert(0) += 1;
             if let Some(params) = meta.parameter_count {
                 total_parameters += params;
@@ -294,7 +282,7 @@ impl NxrModelRegistry {
         }
 
         RegistryStatistics {
-            total_models: models.len(),
+            total_models: entries.len(),
             tier_counts,
             total_parameters,
             experimental_count,
@@ -304,24 +292,36 @@ impl NxrModelRegistry {
 
     /// Validate all registered models
     pub async fn validate_all(&self) -> Vec<ValidationResult> {
-        let models = self.models.read().await;
+        let entries = self.entries.read().await;
         let mut results = Vec::new();
 
-        for (model_id, model) in models.iter() {
-            match model.validate().await {
-                Ok(validation) => {
-                    results.push(ValidationResult {
-                        model_id: *model_id,
-                        success: validation.is_valid,
-                        errors: validation.errors,
-                        warnings: validation.warnings,
-                    });
+        for (model_id, entry) in entries.iter() {
+            match &entry.model {
+                Some(model) => {
+                    match model.validate().await {
+                        Ok(validation) => {
+                            results.push(ValidationResult {
+                                model_id: *model_id,
+                                success: validation.is_valid,
+                                errors: validation.errors,
+                                warnings: validation.warnings,
+                            });
+                        }
+                        Err(e) => {
+                            results.push(ValidationResult {
+                                model_id: *model_id,
+                                success: false,
+                                errors: vec![e.to_string()],
+                                warnings: Vec::new(),
+                            });
+                        }
+                    }
                 }
-                Err(e) => {
+                None => {
                     results.push(ValidationResult {
                         model_id: *model_id,
                         success: false,
-                        errors: vec![e.to_string()],
+                        errors: vec!["No model instance registered".to_string()],
                         warnings: Vec::new(),
                     });
                 }
@@ -453,9 +453,12 @@ pub async fn initialize_global_registry() -> Result<(), RegistryError> {
             model_id.fullname().to_string(),
         );
 
-        registry.configurations.write().await.insert(model_id, config);
-        registry.capabilities.write().await.insert(model_id, caps);
-        registry.metadata.write().await.insert(model_id, meta);
+        // Use register_components instead of direct field access.
+        // Note: model instances are not created here; they are loaded
+        // on-demand by the model server. For eager instantiation,
+        // replace with register_model() once all NXR models implement
+        // a uniform no-arg constructor.
+        registry.register_components(model_id, meta, caps, config).await?;
     }
 
     Ok(())

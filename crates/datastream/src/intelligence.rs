@@ -73,7 +73,7 @@ impl DatasetIntelligenceCore {
     }
 
     pub fn curriculum_level(&self, domain: Domain, progress: f64) -> CurriculumLevel {
-        let domain_level = domain.curriculum_level() as f64;
+        let domain_level = domain.curriculum_level() as u8 as f64;
         let adjusted = (domain_level + progress * 3.0).round().max(1.0).min(6.0) as u8;
         match adjusted {
             1 => CurriculumLevel::BasicGrammar,

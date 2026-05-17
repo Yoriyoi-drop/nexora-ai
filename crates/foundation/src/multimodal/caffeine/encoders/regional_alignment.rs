@@ -2,8 +2,8 @@
 //! 
 //! Implements regional-level alignment between image patches and text phrases
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 
 /// Regional alignment module
@@ -98,7 +98,7 @@ impl RegionalAlignment {
         text_phrases: &[ArrayD<f32>],
     ) -> Result<f32> {
         if image_regions.len() != text_phrases.len() {
-            return Err(crate::caffeine::error::CaffeineError::input_validation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::input_validation(
                 "Number of image regions and text phrases must match"
             ));
         }
@@ -145,7 +145,7 @@ impl RegionalAlignment {
     /// Compute similarity between two feature vectors
     fn compute_similarity(&self, a: &ArrayD<f32>, b: &ArrayD<f32>) -> Result<f32> {
         if a.shape() != b.shape() {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Feature shapes don't match for similarity computation"
             ));
         }
@@ -248,7 +248,7 @@ impl SpatialAttention {
     /// Apply spatial attention to regional features
     pub fn apply_attention(&self, regions: &[ArrayD<f32>]) -> Result<ArrayD<f32>> {
         if regions.is_empty() {
-            return Err(crate::caffeine::error::CaffeineError::input_validation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::input_validation(
                 "No regions provided for spatial attention"
             ));
         }

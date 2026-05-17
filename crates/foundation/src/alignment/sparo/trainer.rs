@@ -9,9 +9,10 @@ use uuid::Uuid;
 use rand::seq::SliceRandom;
 
 use super::core::{
-    SparoConfig, PolicyModel, ReasoningTrace, JudgeFeedback, 
-    TrainingBatch, TrainingMetrics, ModelState, SparoLoss
+    SparoConfig, PolicyModel, ReasoningTrace, JudgeFeedback,
+    TrainingMetrics, ModelState, SparoLoss
 };
+use super::data::TrainingBatch;
 use super::dpo::{DpoTrainer, DpoConfig};
 use super::kto::{KtoTrainer, KtoConfig};
 use super::ipo::{IpoTrainer, IpoConfig};
@@ -325,7 +326,7 @@ impl SparoTrainer {
         }
     }
     
-    /// Save training checkpoint
+    /// Save training checkpoint (binary format)
     pub fn save_checkpoint(&self, path: &str) -> Result<()> {
         let checkpoint = TrainingCheckpoint {
             config: self.config.clone(),
@@ -335,16 +336,16 @@ impl SparoTrainer {
             teacher_model: self.teacher_model.clone(),
         };
         
-        let checkpoint_json = serde_json::to_string_pretty(&checkpoint)?;
-        std::fs::write(path, checkpoint_json)?;
+        let encoded = bincode::serialize(&checkpoint)?;
+        std::fs::write(path, encoded)?;
         
         Ok(())
     }
     
-    /// Load training checkpoint
+    /// Load training checkpoint (binary format)
     pub fn load_checkpoint(&mut self, path: &str) -> Result<()> {
-        let checkpoint_json = std::fs::read_to_string(path)?;
-        let checkpoint: TrainingCheckpoint = serde_json::from_str(&checkpoint_json)?;
+        let encoded = std::fs::read(path)?;
+        let checkpoint: TrainingCheckpoint = bincode::deserialize(&encoded)?;
         
         self.config = checkpoint.config;
         self.training_state = checkpoint.training_state;

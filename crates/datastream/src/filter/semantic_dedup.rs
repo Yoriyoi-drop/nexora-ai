@@ -72,7 +72,14 @@ impl SemanticDedupFilter {
             shingle.hash(&mut hasher);
             let hash = hasher.finish();
             for (i, s) in sig.iter_mut().enumerate() {
-                let perm_hash = hash.wrapping_mul(i as u64 + 1);
+                let mut h = hash;
+                h = h.wrapping_mul(0x9e3779b97f4a7c15);
+                h ^= h >> 33;
+                h = h.wrapping_mul(0xff51afd7ed558ccd).wrapping_add(i as u64);
+                h ^= h >> 33;
+                h = h.wrapping_mul(0xc4ceb9fe1a85ec53);
+                h ^= h >> 33;
+                let perm_hash = h;
                 if perm_hash < *s {
                     *s = perm_hash;
                 }
@@ -82,8 +89,10 @@ impl SemanticDedupFilter {
     }
 
     fn jaccard_similarity(a: &[u64], b: &[u64]) -> f64 {
-        let shared = a.iter().filter(|&x| b.contains(x)).count();
-        let total = a.len().max(b.len());
+        use std::collections::HashSet;
+        let set_b: HashSet<&u64> = b.iter().collect();
+        let shared = a.iter().filter(|&x| set_b.contains(x)).count();
+        let total = a.len() + b.len() - shared;
         if total == 0 { return 0.0; }
         shared as f64 / total as f64
     }

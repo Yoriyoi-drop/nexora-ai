@@ -194,7 +194,8 @@ impl CognitiveIsolationLayer {
             access_count: 0,
         });
 
-        region.integrity_hash = format!("{:x}", checksum);
+        let total_checksum: u64 = region.entries.iter().map(|e| e.checksum).sum();
+        region.integrity_hash = format!("{:x}", total_checksum);
         Ok(())
     }
 

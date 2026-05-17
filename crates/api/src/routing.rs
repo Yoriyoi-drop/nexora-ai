@@ -90,28 +90,6 @@ pub struct RouteResponse {
     pub schema: Option<serde_json::Value>,
 }
 
-/// Path matcher for route resolution
-#[derive(Debug)]
-pub struct PathMatcher {
-    _patterns: Vec<PathPattern>,
-}
-
-/// Path pattern for matching
-#[derive(Debug, Clone)]
-pub struct PathPattern {
-    pub pattern: String,
-    pub segments: Vec<PathSegment>,
-    pub param_names: Vec<String>,
-}
-
-/// Path segment
-#[derive(Debug, Clone)]
-pub enum PathSegment {
-    Literal(String),
-    Parameter(String),
-    Wildcard,
-}
-
 /// Route resolution result
 pub struct RouteMatch {
     pub route: Route,
@@ -284,25 +262,6 @@ impl Router {
         
         // Score based on exact matches (higher is better)
         exact_matches as f64 / pattern_segments.len() as f64
-    }
-    
-    /// Get all routes
-    pub fn get_routes(&self) -> Vec<&Route> {
-        self.routes.values().collect()
-    }
-    
-    /// Get routes by method
-    pub fn get_routes_by_method(&self, method: &str) -> Vec<&Route> {
-        self.routes.values()
-            .filter(|route| route.method.as_str() == method)
-            .collect()
-    }
-    
-    /// Get routes by tag
-    pub fn get_routes_by_tag(&self, tag: &str) -> Vec<&Route> {
-        self.routes.values()
-            .filter(|route| route.metadata.tags.contains(&tag.to_string()))
-            .collect()
     }
     
     /// Generate OpenAPI specification

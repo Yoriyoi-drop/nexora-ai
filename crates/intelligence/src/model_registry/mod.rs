@@ -64,17 +64,12 @@ impl ModelRegistry {
     
     /// Register a new model
     pub async fn register_model(&self, metadata: ModelMetadata) -> Result<()> {
-        // Check if model already exists
+        // Acquire write lock directly to avoid TOCTOU race condition
         {
-            let models = self.models.read().await;
+            let mut models = self.models.write().await;
             if models.contains_key(&metadata.id) {
                 warn!("Model {} already registered, updating", metadata.id);
             }
-        }
-        
-        // Register model
-        {
-            let mut models = self.models.write().await;
             models.insert(metadata.id.clone(), metadata.clone());
         }
         

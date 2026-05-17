@@ -31,7 +31,7 @@ impl FoundationComponents {
             atqs: AtqsCompression::new(),
             moe: HasMoeFFN::default(),
             dl_engine: DeepLearningEngine::new(DeepLearningConfig::hybrid())
-                .expect("Failed to initialize DeepLearningEngine"),
+                .expect("Failed to initialize DeepLearningEngine with hybrid config"),
             gnac_engine: GnacEngine::new(GnacIntegrationConfig::default()),
         }
     }
@@ -56,10 +56,11 @@ impl FoundationComponents {
         self
     }
 
-    pub fn with_dl_config(mut self, dl_config: DeepLearningConfig) -> Self {
+    /// Returns a `Result` so callers can handle DL engine initialization failures.
+    pub fn with_dl_config(mut self, dl_config: DeepLearningConfig) -> Result<Self, String> {
         self.dl_engine = DeepLearningEngine::new(dl_config)
-            .expect("Failed to initialize DeepLearningEngine");
-        self
+            .map_err(|e| format!("Failed to initialize DeepLearningEngine: {e}"))?;
+        Ok(self)
     }
 
     pub fn with_gnac_config(mut self, gnac_config: GnacIntegrationConfig) -> Self {

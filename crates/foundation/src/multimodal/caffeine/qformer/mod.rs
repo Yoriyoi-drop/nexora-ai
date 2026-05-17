@@ -13,8 +13,8 @@ pub use tri_query_former::*;
 pub use attention::*;
 pub use cross_modal::*;
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use ndarray::ArrayD;
 use tracing::warn;
 
@@ -24,27 +24,27 @@ pub struct TriQueryFormer {
     spatial_queries: QuerySet,
     temporal_queries: QuerySet,
     attention_mechanism: CrossModalAttention,
-    config: crate::caffeine::config::QFormerConfig,
+    config: crate::multimodal::caffeine::config::QFormerConfig,
 }
 
 impl TriQueryFormer {
     /// Create new Tri-Query Former with validation
-    pub fn new(config: crate::caffeine::config::QFormerConfig) -> Result<Self> {
+    pub fn new(config: crate::multimodal::caffeine::config::QFormerConfig) -> Result<Self> {
         // Validate configuration
         if config.hidden_dim == 0 {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Hidden dimension must be greater than 0"
             ));
         }
         
         if config.num_attention_heads == 0 {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Number of attention heads must be greater than 0"
             ));
         }
         
         if config.hidden_dim % config.num_attention_heads != 0 {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "Hidden dimension must be divisible by number of attention heads"
             ));
         }
@@ -102,7 +102,7 @@ impl TriQueryFormer {
         ].iter().filter(|&&x| x).count();
         
         if modality_count == 0 {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "At least one modality must be present"
             ));
         }
@@ -169,14 +169,14 @@ impl TriQueryFormer {
         
         // Check minimum dimensions
         if shape.len() < 2 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 &format!("{} tensor must be at least 2D", modality)
             ));
         }
         
         // Check for valid dimensions
         if shape[0] == 0 || shape[1] == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 &format!("{} tensor has invalid dimensions: {:?}", modality, shape)
             ));
         }
@@ -184,7 +184,7 @@ impl TriQueryFormer {
         // Check for finite values
         for (idx, &val) in tensor.iter().enumerate() {
             if !val.is_finite() {
-                return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+                return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                     &format!("{} tensor contains non-finite value at index {}", modality, idx)
                 ));
             }
@@ -227,7 +227,7 @@ impl TriQueryFormer {
             let first_batch_size = batch_sizes[0];
             for (i, &batch_size) in batch_sizes.iter().enumerate() {
                 if batch_size != first_batch_size {
-                    return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+                    return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                         &format!("Inconsistent batch sizes: modality {} has batch size {}, expected {}", 
                                 i, batch_size, first_batch_size)
                     ));
@@ -241,7 +241,7 @@ impl TriQueryFormer {
             let min_embed_dim = *embed_dims.iter().min().expect("embed_dims is non-empty");
             
             if max_embed_dim > min_embed_dim * 4 {
-                return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+                return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                     &format!("Embedding dimensions too different: min={}, max={}", min_embed_dim, max_embed_dim)
                 ));
             }
@@ -282,14 +282,14 @@ impl TriQueryFormer {
         }
         
         if semantic_input.is_empty() {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 "No semantic features available for processing"
             ));
         }
         
         // Apply semantic queries with error handling
         self.semantic_queries.forward(&semantic_input)
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Semantic query processing failed: {}", e)
             ))
     }
@@ -300,7 +300,7 @@ impl TriQueryFormer {
         
         // Enhanced input validation
         if shape.len() < 3 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Features must be at least 3D (batch_size, seq_len, embed_dim)"
             ));
         }
@@ -310,13 +310,13 @@ impl TriQueryFormer {
         let embed_dim = shape[2];
         
         if seq_len == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Sequence length cannot be 0"
             ));
         }
         
         if embed_dim == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Embedding dimension cannot be 0"
             ));
         }
@@ -351,7 +351,7 @@ impl TriQueryFormer {
         
         let pooled_shape = vec![batch_size, embed_dim];
         ArrayD::from_shape_vec(pooled_shape, pooled)
-            .map_err(|e| crate::caffeine::error::CaffeineError::tensor_operation(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 &format!("Failed to create pooled tensor: {}", e)
             ))
     }
@@ -381,7 +381,7 @@ impl TriQueryFormer {
         }
         
         self.spatial_queries.forward(&spatial_input)
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Spatial query processing failed: {}", e)
             ))
     }
@@ -392,7 +392,7 @@ impl TriQueryFormer {
         
         // Enhanced validation
         if shape.len() < 3 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Features must be at least 3D (batch_size, seq_len, embed_dim)"
             ));
         }
@@ -402,7 +402,7 @@ impl TriQueryFormer {
         let embed_dim = shape[2];
         
         if seq_len == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Sequence length cannot be 0 for spatial processing"
             ));
         }
@@ -439,7 +439,7 @@ impl TriQueryFormer {
         
         let spatial_shape = vec![batch_size, spatial_size.0, spatial_size.1, embed_dim];
         ArrayD::from_shape_vec(spatial_shape, spatial_features)
-            .map_err(|e| crate::caffeine::error::CaffeineError::tensor_operation(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 &format!("Failed to create spatial tensor: {}", e)
             ))
     }
@@ -469,7 +469,7 @@ impl TriQueryFormer {
         }
         
         self.temporal_queries.forward(&temporal_input)
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Temporal query processing failed: {}", e)
             ))
     }
@@ -479,7 +479,7 @@ impl TriQueryFormer {
         let shape = features.shape();
         
         if shape.len() < 3 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Features must be at least 3D (batch_size, seq_len, embed_dim)"
             ));
         }
@@ -489,7 +489,7 @@ impl TriQueryFormer {
         let embed_dim = shape[2];
         
         if seq_len == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Sequence length cannot be 0 for temporal processing"
             ));
         }
@@ -513,7 +513,7 @@ impl TriQueryFormer {
         
         let temporal_shape = vec![batch_size, seq_len, embed_dim];
         ArrayD::from_shape_vec(temporal_shape, temporal_features)
-            .map_err(|e| crate::caffeine::error::CaffeineError::tensor_operation(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 &format!("Failed to create temporal tensor: {}", e)
             ))
     }
@@ -532,15 +532,15 @@ impl TriQueryFormer {
         
         // Flatten all query features with error handling
         let semantic_flat = semantic.view().into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Failed to convert semantic to 2D: {}", e)
             ))?;
         let spatial_flat = spatial.view().into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Failed to convert spatial to 2D: {}", e)
             ))?;
         let temporal_flat = temporal.view().into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Failed to convert temporal to 2D: {}", e)
             ))?;
         
@@ -565,7 +565,7 @@ impl TriQueryFormer {
         
         // Validate combined size
         if combined.len() != total_queries * self.config.hidden_dim {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Combined features size {} doesn't match expected {}x{}", 
                         combined.len(), total_queries, self.config.hidden_dim)
             ));
@@ -579,7 +579,7 @@ impl TriQueryFormer {
         
         // Validate attention weights
         if attention_weights.len() != total_queries * total_queries {
-            return Err(crate::caffeine::error::CaffeineError::qformer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Attention weights size {} doesn't match expected {}x{}", 
                         attention_weights.len(), total_queries, total_queries)
             ));
@@ -587,7 +587,7 @@ impl TriQueryFormer {
         
         let shape = vec![total_queries, total_queries];
         ArrayD::from_shape_vec(shape, attention_weights)
-            .map_err(|e| crate::caffeine::error::CaffeineError::qformer(
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::qformer(
                 &format!("Failed to create attention weights tensor: {}", e)
             ))
     }
@@ -607,7 +607,7 @@ impl TriQueryFormer {
         ] {
             for (idx, &val) in tensor.iter().enumerate() {
                 if !val.is_finite() {
-                    return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+                    return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                         &format!("{} output contains non-finite value at index {}", name, idx)
                     ));
                 }
@@ -702,7 +702,7 @@ impl TriQueryFormer {
         
         // Validate input dimensions
         if shape.len() < 3 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Features must be at least 3D (batch_size, seq_len, embed_dim)"
             ));
         }
@@ -712,7 +712,7 @@ impl TriQueryFormer {
         let embed_dim = shape[2];
         
         if seq_len == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Sequence length cannot be 0"
             ));
         }
@@ -748,7 +748,7 @@ impl TriQueryFormer {
         
         // Validate input dimensions
         if shape.len() < 3 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Features must be at least 3D (batch_size, seq_len, embed_dim)"
             ));
         }
@@ -758,7 +758,7 @@ impl TriQueryFormer {
         let embed_dim = shape[2];
         
         if seq_len == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Sequence length cannot be 0"
             ));
         }
@@ -791,7 +791,7 @@ impl TriQueryFormer {
     /// Calculate optimal spatial dimensions from sequence length
     fn calculate_optimal_spatial_size(&self, seq_len: usize) -> Result<(usize, usize)> {
         if seq_len == 0 {
-            return Err(crate::caffeine::error::CaffeineError::tensor_operation(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tensor_operation(
                 "Cannot calculate spatial size for zero sequence length"
             ));
         }
@@ -850,11 +850,11 @@ impl TriQueryFormer {
     ) -> Result<ArrayD<f32>> {
         // Flatten all query features
         let semantic_flat = semantic.view().into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| crate::caffeine::error::CaffeineError::tensor_operation(&format!("Failed to convert semantic to 2D: {}", e)))?;
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::tensor_operation(&format!("Failed to convert semantic to 2D: {}", e)))?;
         let spatial_flat = spatial.view().into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| crate::caffeine::error::CaffeineError::tensor_operation(&format!("Failed to convert spatial to 2D: {}", e)))?;
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::tensor_operation(&format!("Failed to convert spatial to 2D: {}", e)))?;
         let temporal_flat = temporal.view().into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| crate::caffeine::error::CaffeineError::tensor_operation(&format!("Failed to convert temporal to 2D: {}", e)))?;
+            .map_err(|e| crate::multimodal::caffeine::error::CaffeineError::tensor_operation(&format!("Failed to convert temporal to 2D: {}", e)))?;
         
         // Concatenate for cross-attention
         let mut combined = Vec::new();

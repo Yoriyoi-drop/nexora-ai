@@ -121,11 +121,14 @@ impl HasMoeFFN {
             .map(|j| (j, routing_weights[[token_idx, j]]))
             .collect();
         
-        expert_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let k = self.config.top_k.min(expert_scores.len());
+        if k > 1 {
+            expert_scores.select_nth_unstable_by(k - 1, |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
         
         expert_scores
             .iter()
-            .take(self.config.top_k)
+            .take(k)
             .map(|(expert_idx, _)| *expert_idx)
             .collect()
     }

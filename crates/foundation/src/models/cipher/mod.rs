@@ -39,6 +39,7 @@ pub struct NxrCipherModel {
     _agents: CipherAgents,
     capabilities: CipherCapabilities,
     components: FoundationComponents,
+    config: CipherConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +124,7 @@ impl NxrCipherModel {
             _agents: CipherAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
+            config,
         }
     }
 
@@ -234,8 +236,7 @@ impl NxrModel for NxrCipherModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: std::sync::OnceLock<CipherConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(CipherConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -247,6 +248,7 @@ impl NxrModel for NxrCipherModel {
         self.architecture.initialize(&config).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
+        self.config = config;
         Ok(())
     }
 

@@ -54,6 +54,14 @@ struct PooledConnection<T> {
     usage_count: u64,
 }
 
+/// A ticket that preserves connection timing through the get/return cycle
+#[derive(Debug)]
+pub struct ConnectionTicket<T> {
+    pub connection: T,
+    pub created_at: Instant,
+    pub usage_count: u64,
+}
+
 /// Connection factory trait
 #[async_trait::async_trait]
 pub trait ConnectionFactory<T>: Send + Sync {
@@ -132,7 +140,7 @@ impl<T: Clone> GenericConnectionPool<T> {
     }
 
     /// Get connection from pool
-    pub async fn get_connection(&self) -> Result<T> {
+    pub async fn get_connection(&self) -> Result<ConnectionTicket<T>> {
         let start_time = Instant::now();
 
         // Increment waiting requests counter
@@ -152,6 +160,9 @@ impl<T: Clone> GenericConnectionPool<T> {
                     .validate_connection(&pooled.connection)
                     .await
                 {
+                    let created_at = pooled.created_at;
+                    let usage_count = pooled.usage_count;
+
                     pooled.is_active = true;
                     pooled.last_used = Instant::now();
                     pooled.usage_count += 1;
@@ -172,7 +183,11 @@ impl<T: Clone> GenericConnectionPool<T> {
                         0.0
                     };
 
-                    return Ok(pooled.connection);
+                    return Ok(ConnectionTicket {
+                        connection: pooled.connection,
+                        created_at,
+                        usage_count,
+                    });
                 } else {
                     // Connection is invalid, remove it
                     if let Err(e) = self
@@ -198,9 +213,10 @@ impl<T: Clone> GenericConnectionPool<T> {
 
                 match self.connection_factory.create_connection().await {
                     Ok(connection) => {
+                        let created_at = Instant::now();
                         let pooled = PooledConnection {
                             connection,
-                            created_at: Instant::now(),
+                            created_at,
                             last_used: Instant::now(),
                             is_active: true,
                             usage_count: 1,
@@ -225,7 +241,15 @@ impl<T: Clone> GenericConnectionPool<T> {
 
                         // Decrement waiting requests counter
                         *self.waiting_requests.write().await -= 1;
-                        return Ok(connections.last_mut().expect("connection was just added").connection.clone());
+
+                        let last = connections.last_mut()
+                            .expect("connection was just added");
+                        let conn_clone = last.connection.clone();
+                        return Ok(ConnectionTicket {
+                            connection: conn_clone,
+                            created_at: last.created_at,
+                            usage_count: last.usage_count,
+                        });
                     }
                     Err(e) => {
                         let mut stats = self.statistics.write().await;
@@ -251,22 +275,22 @@ impl<T: Clone> GenericConnectionPool<T> {
         ))
     }
 
-    /// Return connection to pool
-    pub async fn return_connection(&self, connection: T) -> Result<()> {
+    /// Return connection to pool with preserved creation time
+    pub async fn return_connection(&self, ticket: ConnectionTicket<T>) -> Result<()> {
         let mut connections = self.connections.write().await;
 
         // Check if connection is still valid
         if self
             .connection_factory
-            .validate_connection(&connection)
+            .validate_connection(&ticket.connection)
             .await
         {
             let pooled = PooledConnection {
-                connection,
-                created_at: Instant::now(),
+                connection: ticket.connection,
+                created_at: ticket.created_at,
                 last_used: Instant::now(),
                 is_active: false,
-                usage_count: 0,
+                usage_count: ticket.usage_count,
             };
 
             connections.push(pooled);
@@ -277,7 +301,7 @@ impl<T: Clone> GenericConnectionPool<T> {
             stats.idle_connections += 1;
         } else {
             // Close invalid connection
-            if let Err(e) = self.connection_factory.close_connection(connection).await {
+            if let Err(e) = self.connection_factory.close_connection(ticket.connection).await {
                 tracing::error!("Failed to close invalid connection: {}", e);
             }
 

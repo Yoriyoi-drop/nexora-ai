@@ -2,8 +2,8 @@
 //! 
 //! Handles interleaved multimodal sequences and special tokens
 
-use crate::caffeine::types::*;
-use crate::caffeine::error::Result;
+use crate::multimodal::caffeine::types::*;
+use crate::multimodal::caffeine::error::Result;
 use std::collections::HashMap;
 
 /// Token sequence processor
@@ -268,14 +268,14 @@ impl TokenSequenceProcessor {
     /// Validate token sequence
     pub fn validate_sequence(&self, tokens: &[UnifiedToken]) -> Result<()> {
         if tokens.len() > self.max_sequence_length {
-            return Err(crate::caffeine::error::CaffeineError::tokenizer(
+            return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                 &format!("Sequence length {} exceeds maximum {}", tokens.len(), self.max_sequence_length)
             ));
         }
         
         for token in tokens {
             if token.token_id >= self.vocab_size {
-                return Err(crate::caffeine::error::CaffeineError::tokenizer(
+                return Err(crate::multimodal::caffeine::error::CaffeineError::tokenizer(
                     &format!("Token ID {} exceeds vocabulary size {}", token.token_id, self.vocab_size)
                 ));
             }

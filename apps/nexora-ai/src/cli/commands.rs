@@ -172,7 +172,7 @@ pub enum Commands {
         gpu: bool,
 
         /// Resume from last checkpoint
-        #[arg(short = 'R', long, default_value_t = true)]
+        #[arg(short = 'R', long, default_value_t = false)]
         resume: bool,
     },
     

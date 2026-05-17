@@ -187,7 +187,7 @@ impl IntentDetector {
     
     /// Detect intent dari input data
     pub async fn detect_intent(&self, input_data: &InputData) -> CoreResult<IntentResult> {
-        debug!("Detecting intent for input: {}", &input_data.raw_input[..input_data.raw_input.len().min(50)]);
+        debug!("Detecting intent for input: {}", input_data.raw_input.chars().take(50).collect::<String>());
         
         let mut result = IntentResult::new();
         

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ndarray::{Array1, Array2, Axis};
 use rand::Rng;
 
@@ -65,7 +67,7 @@ impl GQA {
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+        let mut q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
             .expect("GQA: q shape mismatch");
         let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA: k shape mismatch");
@@ -83,18 +85,31 @@ impl GQA {
             }
         }
 
-        let (k_cached, v_cached) = if let Some(cache) = cache {
-            let entry = if layer_idx < cache.len() {
-                &cache[layer_idx]
-            } else {
-                return x.to_owned();
-            };
-            (&entry.k, &entry.v)
-        } else {
-            return x.to_owned();
-        };
+        for b in 0..batch_size {
+            let q_slice_view = q.slice(ndarray::s![b, .., ..]);
+            let q_row = q_slice_view.as_slice().unwrap();
+            let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
+            for h in 0..self.num_heads {
+                for d in 0..self.head_dim {
+                    q[[b, h, d]] = rotated_q[h * self.head_dim + d];
+                }
+            }
+        }
 
-        let total_seq = 1;
+        let (k_cached, v_cached, total_seq): (Cow<Array2<f32>>, Cow<Array2<f32>>, usize) = match cache {
+            Some(cache) if layer_idx < cache.len() => {
+                let entry = &cache[layer_idx];
+                let seq = entry.k.shape()[0] / batch_size;
+                (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
+            }
+            _ => {
+                let kf = k.into_shape((batch_size, self.num_kv_heads * self.head_dim))
+                    .expect("GQA: k flat");
+                let vf = v.into_shape((batch_size, self.num_kv_heads * self.head_dim))
+                    .expect("GQA: v flat");
+                (Cow::Owned(kf), Cow::Owned(vf), 1)
+            }
+        };
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
@@ -151,7 +166,7 @@ impl GQA {
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+        let mut q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
             .expect("GQA forward_with_kv: q shape");
         let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA forward_with_kv: k shape");
@@ -173,6 +188,11 @@ impl GQA {
             let q_slice_view = q.slice(ndarray::s![b, .., ..]);
             let q_row = q_slice_view.as_slice().unwrap();
             let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
+            for h in 0..self.num_heads {
+                for d in 0..self.head_dim {
+                    q[[b, h, d]] = rotated_q[h * self.head_dim + d];
+                }
+            }
         }
 
         let seq_len = if layer_idx < cache.len() {

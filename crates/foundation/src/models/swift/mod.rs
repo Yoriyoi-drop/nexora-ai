@@ -38,6 +38,7 @@ pub struct NxrSwiftModel {
     _agents: SwiftAgents,
     capabilities: SwiftCapabilities,
     components: FoundationComponents,
+    config: SwiftConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +123,7 @@ impl NxrSwiftModel {
             _agents: SwiftAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
+            config,
         }
     }
 
@@ -189,8 +191,7 @@ impl NxrModel for NxrSwiftModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: std::sync::OnceLock<SwiftConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(SwiftConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -202,6 +203,7 @@ impl NxrModel for NxrSwiftModel {
         self.architecture.initialize(&config).await
             .map_err(|e| crate::shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
+        self.config = config;
         Ok(())
     }
 

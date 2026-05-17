@@ -1,7 +1,6 @@
 //! Attention mechanisms for HAS-MoE-FFN
 
 use serde::{Serialize, Deserialize};
-use std::f32::consts::SQRT_2;
 
 /// Attention configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,10 +51,11 @@ impl Attention {
     
     /// Initialize projection weights
     fn init_projection(input_size: usize, output_size: usize) -> Vec<Vec<f32>> {
+        let scale = (2.0 / (input_size + output_size) as f32).sqrt();
         let mut weights = Vec::with_capacity(output_size);
         for _ in 0..output_size {
             let row: Vec<f32> = (0..input_size)
-                .map(|i| ((i as f32 * 0.01).sin() * 0.02))
+                .map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale)
                 .collect();
             weights.push(row);
         }
@@ -120,36 +120,48 @@ impl Attention {
         result
     }
     
-    /// Compute scaled dot-product attention
+    /// Compute scaled dot-product attention: [seq_len × seq_len] score matrix
     fn compute_scaled_dot_product_attention(
         &self,
         query: &[f32],
         key: &[f32],
         value: &[f32],
     ) -> Vec<f32> {
-        // Compute attention scores: Q * K^T / sqrt(d_k)
-        let mut scores = Vec::with_capacity(query.len());
-        for i in 0..query.len() {
-            let mut score = 0.0;
-            for j in 0..key.len() {
-                score += query[i] * key[j];
+        let seq_len = query.len() / self.head_dim;
+        let scale = (self.head_dim as f32).sqrt().recip();
+
+        // Compute attention scores: [seq_len × seq_len]
+        let mut scores = Vec::with_capacity(seq_len * seq_len);
+        for qi in 0..seq_len {
+            for kj in 0..seq_len {
+                let q_start = qi * self.head_dim;
+                let k_start = kj * self.head_dim;
+                let dot: f32 = (0..self.head_dim)
+                    .map(|d| query[q_start + d] * key[k_start + d])
+                    .sum();
+                scores.push(dot * scale);
             }
-            scores.push(score / (self.head_dim as f32).sqrt());
         }
-        
-        // Apply softmax
-        let softmax_scores = self.softmax(&scores);
-        
-        // Apply attention to values
-        let mut output = Vec::with_capacity(value.len());
-        for i in 0..value.len() {
-            let mut sum = 0.0;
-            for j in 0..softmax_scores.len() {
-                sum += softmax_scores[j] * value[j];
+
+        // Softmax each row
+        let mut attn_probs = Vec::with_capacity(seq_len * seq_len);
+        for qi in 0..seq_len {
+            let row: Vec<f32> = (0..seq_len).map(|j| scores[qi * seq_len + j]).collect();
+            attn_probs.extend(self.softmax(&row));
+        }
+
+        // Weighted sum of values: output[qi, d] = sum_kj attn_probs[qi, kj] * value[kj, d]
+        let mut output = vec![0.0; seq_len * self.head_dim];
+        for qi in 0..seq_len {
+            for d in 0..self.head_dim {
+                let mut sum = 0.0;
+                for kj in 0..seq_len {
+                    sum += attn_probs[qi * seq_len + kj] * value[kj * self.head_dim + d];
+                }
+                output[qi * self.head_dim + d] = sum;
             }
-            output.push(sum);
         }
-        
+
         output
     }
     

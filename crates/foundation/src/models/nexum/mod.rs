@@ -38,6 +38,7 @@ pub struct NxrNexumModel {
     identity: NexumIdentity,
     capabilities: NexumCapabilities,
     components: FoundationComponents,
+    config: NexumConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +189,7 @@ impl NxrNexumModel {
             identity,
             capabilities,
             components: FoundationComponents::new(),
+            config,
         }
     }
 
@@ -298,8 +300,7 @@ impl NxrModel for NxrNexumModel {
     }
 
     fn config(&self) -> &Self::Config {
-        static DEFAULT_CONFIG: std::sync::OnceLock<NexumConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(NexumConfig::default)
+        &self.config
     }
 
     async fn state(&self) -> Result<Self::State, crate::shared::base_model::NxrModelError> {
@@ -309,6 +310,7 @@ impl NxrModel for NxrNexumModel {
     async fn initialize(&mut self, config: Self::Config) -> Result<(), crate::shared::base_model::NxrModelError> {
         config.validate().map_err(|e| crate::shared::base_model::NxrModelError::Configuration(e))?;
         self.base.mark_initialized().await;
+        self.config = config;
         Ok(())
     }
 

@@ -1470,7 +1470,7 @@ impl AetherArchitecture {
         
         // Generate empathy responses
         for empathy_type in &self.empathy_system.empathy_types {
-            if let Some(model) = self.empathy_system.models.get(&format!("{:?}", empathy_type).to_lowercase()) {
+            if let Some(model) = self.empathy_system.models.get(&format!("{}_empathy", format!("{:?}", empathy_type).to_lowercase())) {
                 let empathy_response = self.generate_empathy_response_type(model, empathy_type, content, emotional_result).await?;
                 response.empathy_responses.insert(empathy_type.clone(), empathy_response);
             }

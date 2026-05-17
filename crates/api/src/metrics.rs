@@ -7,8 +7,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::Serialize;
-
 use crate::{MetricsData, RouteMetrics};
 
 /// Metrics collector for API performance monitoring
@@ -306,11 +304,12 @@ impl MetricsCollector {
         }
         
         // Get utime (user time) and stime (system time) from fields 14 and 15
+        // These values are in clock ticks (CLK_TCK), not seconds
         let utime: u64 = parts[13].parse()?;
         let stime: u64 = parts[14].parse()?;
         let total_time = utime + stime;
         
-        // Get total CPU time from /proc/stat
+        // Get total CPU time from /proc/stat (also in clock ticks)
         let stat_content = std::fs::read_to_string("/proc/stat")?;
         let first_line = stat_content.lines().next().ok_or("No data in /proc/stat")?;
         let cpu_parts: Vec<u64> = first_line.split_whitespace()
@@ -325,214 +324,22 @@ impl MetricsCollector {
         
         let total_cpu_time: u64 = cpu_parts.iter().sum();
         
-        // Calculate CPU usage percentage (simplified)
-        if total_cpu_time > 0 {
-            Ok((total_time as f64 / total_cpu_time as f64) * 100.0)
-        } else {
-            Ok(0.0)
-        }
-    }
-}
-
-/// Performance monitor for detailed analysis
-#[derive(Debug)]
-pub struct PerformanceMonitor {
-    metrics_collector: Arc<MetricsCollector>,
-    alerts: Arc<RwLock<Vec<PerformanceAlert>>>,
-    thresholds: PerformanceThresholds,
-}
-
-/// Performance thresholds for alerting
-#[derive(Debug, Clone)]
-pub struct PerformanceThresholds {
-    pub max_response_time_ms: f64,
-    pub max_error_rate_percent: f64,
-    pub max_memory_usage_mb: f64,
-    pub max_cpu_usage_percent: f64,
-    pub min_requests_per_second: f64,
-}
-
-/// Performance alert
-#[derive(Debug, Clone, Serialize)]
-pub struct PerformanceAlert {
-    pub alert_type: AlertType,
-    pub message: String,
-    pub timestamp: u64,
-    pub severity: AlertSeverity,
-    pub value: f64,
-    pub threshold: f64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum AlertType {
-    HighResponseTime,
-    HighErrorRate,
-    HighMemoryUsage,
-    HighCpuUsage,
-    LowThroughput,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub enum AlertSeverity {
-    Info,
-    Warning,
-    Critical,
-}
-
-impl PerformanceMonitor {
-    /// Create new performance monitor
-    pub fn new(metrics_collector: Arc<MetricsCollector>) -> Self {
-        Self {
-            metrics_collector,
-            alerts: Arc::new(RwLock::new(Vec::new())),
-            thresholds: PerformanceThresholds {
-                max_response_time_ms: 1000.0,
-                max_error_rate_percent: 5.0,
-                max_memory_usage_mb: 1024.0,
-                max_cpu_usage_percent: 80.0,
-                min_requests_per_second: 1.0,
-            },
-        }
-    }
-    
-    /// Check performance and generate alerts
-    pub async fn check_performance(&self) -> Vec<PerformanceAlert> {
-        let metrics = self.metrics_collector.get_current_metrics().await;
-        let mut alerts = Vec::with_capacity(5);
-        
-        // Check response time
-        if metrics.average_response_time_ms > self.thresholds.max_response_time_ms {
-            alerts.push(PerformanceAlert {
-                alert_type: AlertType::HighResponseTime,
-                message: format!("Average response time is {:.2}ms, threshold is {:.2}ms", 
-                    metrics.average_response_time_ms, self.thresholds.max_response_time_ms),
-                timestamp: metrics.timestamp,
-                severity: if metrics.average_response_time_ms > self.thresholds.max_response_time_ms * 2.0 {
-                    AlertSeverity::Critical
-                } else {
-                    AlertSeverity::Warning
-                },
-                value: metrics.average_response_time_ms,
-                threshold: self.thresholds.max_response_time_ms,
-            });
+        if total_cpu_time == 0 {
+            return Ok(0.0);
         }
         
-        // Check error rate
-        if metrics.error_rate_percent > self.thresholds.max_error_rate_percent {
-            alerts.push(PerformanceAlert {
-                alert_type: AlertType::HighErrorRate,
-                message: format!("Error rate is {:.2}%, threshold is {:.2}%", 
-                    metrics.error_rate_percent, self.thresholds.max_error_rate_percent),
-                timestamp: metrics.timestamp,
-                severity: if metrics.error_rate_percent > self.thresholds.max_error_rate_percent * 2.0 {
-                    AlertSeverity::Critical
-                } else {
-                    AlertSeverity::Warning
-                },
-                value: metrics.error_rate_percent,
-                threshold: self.thresholds.max_error_rate_percent,
-            });
-        }
+        // CLK_TCK is typically 100 on Linux (sysconf(_SC_CLK_TCK))
+        let clk_tck = 100.0;
+        let num_cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1) as f64;
         
-        // Check memory usage
-        if metrics.memory_usage_mb > self.thresholds.max_memory_usage_mb {
-            alerts.push(PerformanceAlert {
-                alert_type: AlertType::HighMemoryUsage,
-                message: format!("Memory usage is {:.2}MB, threshold is {:.2}MB", 
-                    metrics.memory_usage_mb, self.thresholds.max_memory_usage_mb),
-                timestamp: metrics.timestamp,
-                severity: if metrics.memory_usage_mb > self.thresholds.max_memory_usage_mb * 1.5 {
-                    AlertSeverity::Critical
-                } else {
-                    AlertSeverity::Warning
-                },
-                value: metrics.memory_usage_mb,
-                threshold: self.thresholds.max_memory_usage_mb,
-            });
-        }
+        // Convert both process time and system time from clock ticks to seconds
+        let process_secs = total_time as f64 / clk_tck;
+        let system_secs = total_cpu_time as f64 / clk_tck;
         
-        // Check CPU usage
-        if metrics.cpu_usage_percent > self.thresholds.max_cpu_usage_percent {
-            alerts.push(PerformanceAlert {
-                alert_type: AlertType::HighCpuUsage,
-                message: format!("CPU usage is {:.2}%, threshold is {:.2}%", 
-                    metrics.cpu_usage_percent, self.thresholds.max_cpu_usage_percent),
-                timestamp: metrics.timestamp,
-                severity: if metrics.cpu_usage_percent > self.thresholds.max_cpu_usage_percent * 1.2 {
-                    AlertSeverity::Critical
-                } else {
-                    AlertSeverity::Warning
-                },
-                value: metrics.cpu_usage_percent,
-                threshold: self.thresholds.max_cpu_usage_percent,
-            });
-        }
-        
-        // Check throughput
-        if metrics.requests_per_second < self.thresholds.min_requests_per_second {
-            alerts.push(PerformanceAlert {
-                alert_type: AlertType::LowThroughput,
-                message: format!("Requests per second is {:.2}, threshold is {:.2}", 
-                    metrics.requests_per_second, self.thresholds.min_requests_per_second),
-                timestamp: metrics.timestamp,
-                severity: AlertSeverity::Info,
-                value: metrics.requests_per_second,
-                threshold: self.thresholds.min_requests_per_second,
-            });
-        }
-        
-        // Store alerts
-        if !alerts.is_empty() {
-            let alerts_clone = alerts.clone();
-            let mut stored_alerts = self.alerts.write().await;
-            stored_alerts.extend(alerts_clone);
-            
-            // Keep only last 1000 alerts
-            let stored_alerts_len = stored_alerts.len();
-            if stored_alerts_len > 1000 {
-                stored_alerts.drain(0..stored_alerts_len - 1000);
-            }
-        }
-        
-        alerts
-    }
-    
-    /// Get recent alerts
-    pub async fn get_recent_alerts(&self, limit: usize) -> Vec<PerformanceAlert> {
-        let alerts = self.alerts.read().await;
-        alerts.iter().rev().take(limit).cloned().collect()
-    }
-    
-    /// Get alerts by severity
-    pub async fn get_alerts_by_severity(&self, severity: AlertSeverity) -> Vec<PerformanceAlert> {
-        let alerts = self.alerts.read().await;
-        alerts.iter()
-            .filter(|alert| alert.severity == severity)
-            .cloned()
-            .collect()
-    }
-    
-    /// Clear alerts
-    pub async fn clear_alerts(&self) {
-        let mut alerts = self.alerts.write().await;
-        alerts.clear();
-    }
-    
-    /// Update thresholds
-    pub fn update_thresholds(&mut self, thresholds: PerformanceThresholds) {
-        self.thresholds = thresholds;
-    }
-}
-
-impl Default for PerformanceThresholds {
-    fn default() -> Self {
-        Self {
-            max_response_time_ms: 1000.0,
-            max_error_rate_percent: 5.0,
-            max_memory_usage_mb: 1024.0,
-            max_cpu_usage_percent: 80.0,
-            min_requests_per_second: 1.0,
-        }
+        // Calculate per-CPU percentage
+        Ok((process_secs / system_secs / num_cpus) * 100.0)
     }
 }
 
