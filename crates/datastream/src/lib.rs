@@ -39,12 +39,21 @@ pub mod intelligence;
 pub mod delivery;
 pub mod types;
 
+#[cfg(feature = "arrow")]
+pub mod arrow_reader;
+
+#[cfg(feature = "arrow")]
+pub mod dataset;
+
 pub use filter::*;
 pub use graph::*;
 pub use intake::*;
 pub use intelligence::*;
 pub use delivery::*;
 pub use types::*;
+
+#[cfg(feature = "arrow")]
+pub use dataset::*;
 
 pub use filter::Filter as FilterTrait;
 
@@ -127,7 +136,7 @@ impl Pipeline {
     pub async fn run(
         &mut self,
         samples: Vec<DataSample>,
-        (cancel_tx, cancel_rx): (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
+        (_cancel_tx, cancel_rx): (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
     ) -> Vec<graph::ExecutionResult> {
         self.graph.finalize();
         let mut results = Vec::with_capacity(samples.len());

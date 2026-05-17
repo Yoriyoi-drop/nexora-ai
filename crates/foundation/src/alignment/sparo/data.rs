@@ -297,7 +297,7 @@ impl SparoDataset {
     }
     
     fn generate_augmented_traces(&self, original_traces: &[ReasoningTrace]) -> Result<Vec<ReasoningTrace>> {
-        let mut augmented = Vec::new();
+        let mut augmented = Vec::with_capacity(original_traces.len() * 2);
         
         for trace in original_traces {
             // Paraphrase augmentation
@@ -315,7 +315,7 @@ impl SparoDataset {
     }
     
     fn generate_augmented_feedback(&self, traces: &[ReasoningTrace]) -> Result<Vec<JudgeFeedback>> {
-        let mut augmented_feedback = Vec::new();
+        let mut augmented_feedback = Vec::with_capacity(traces.len());
         
         for trace in traces {
             // Generate synthetic feedback
@@ -327,7 +327,7 @@ impl SparoDataset {
     }
     
     fn paraphrase_trace(&self, original: &ReasoningTrace) -> Result<ReasoningTrace> {
-        let mut paraphrased_steps = Vec::new();
+        let mut paraphrased_steps = Vec::with_capacity(original.steps.len());
         
         for step in &original.steps {
             let paraphrased_content = self.paraphrase_text(&step.content)?;
@@ -397,9 +397,8 @@ impl SparoDataset {
     }
     
     fn generate_synthetic_feedback(&self, trace: &ReasoningTrace) -> Result<Vec<JudgeFeedback>> {
-        let mut synthetic_feedback = Vec::new();
+        let mut synthetic_feedback = Vec::with_capacity(trace.steps.len());
         
-        // Generate independent feedback for each step
         for step in &trace.steps {
             let confidence = 0.5 + rand::random::<f32>() * 0.5;
             let is_good = confidence > 0.5;
@@ -475,17 +474,17 @@ pub struct FeedbackDistribution {
 
 /// Data processor for preprocessing
 pub struct DataProcessor {
-    config: DatasetConfig,
+    _config: DatasetConfig,
 }
 
 impl DataProcessor {
     pub fn new(config: DatasetConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
     
     /// Preprocess traces
     pub fn preprocess_traces(&self, traces: &[ReasoningTrace]) -> Result<Vec<ReasoningTrace>> {
-        let mut processed = Vec::new();
+        let mut processed = Vec::with_capacity(traces.len());
         
         for trace in traces {
             let cleaned = self.clean_trace(trace)?;
@@ -515,7 +514,7 @@ impl DataProcessor {
     
     /// Normalize trace format
     fn normalize_trace(&self, trace: &ReasoningTrace) -> Result<ReasoningTrace> {
-        let mut normalized_steps = Vec::new();
+        let mut normalized_steps = Vec::with_capacity(trace.steps.len());
         
         for (i, step) in trace.steps.iter().enumerate() {
             let normalized_step = ReasoningStep {
@@ -560,8 +559,8 @@ pub mod utils {
     
     /// Generate sample data for testing
     pub fn generate_sample_data(num_traces: usize) -> (Vec<ReasoningTrace>, Vec<JudgeFeedback>) {
-        let mut traces = Vec::new();
-        let mut feedback = Vec::new();
+        let mut traces = Vec::with_capacity(num_traces);
+        let mut feedback = Vec::with_capacity(num_traces);
         
         for i in 0..num_traces {
             let trace = ReasoningTrace {

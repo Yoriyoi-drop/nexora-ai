@@ -183,12 +183,12 @@ impl SamplingEngine {
 
 /// Diversity calculator for sampling candidates
 pub struct DiversityCalculator {
-    threshold: f32,
+    _threshold: f32,
 }
 
 impl DiversityCalculator {
     fn new(threshold: f32) -> Self {
-        Self { threshold }
+        Self { _threshold: threshold }
     }
     
     async fn calculate_diversity(&self, candidate: &SamplingCandidate, all_candidates: &[SamplingCandidate]) -> SACAResult<f32> {

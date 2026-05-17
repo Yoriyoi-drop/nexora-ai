@@ -24,7 +24,7 @@ pub struct LoRACalibrationConfig {
 /// LoRA adapter for a single layer
 #[derive(Debug, Clone)]
 pub struct LoRAAdapter {
-    pub layer_idx: usize,
+    pub _layer_idx: usize,
     pub rank: usize,
     pub alpha: f32,
     pub lora_a: ArrayD<f32>,
@@ -141,7 +141,7 @@ fn create_layer_adapter(
     let trainable_params = in_dim * rank + rank * out_dim;
     
     Ok(LoRAAdapter {
-        layer_idx,
+        _layer_idx: layer_idx,
         rank,
         alpha: config.alpha,
         lora_a: lora_a.into_dyn(),
@@ -201,13 +201,13 @@ fn apply_single_adapter(
     adapter: &LoRAAdapter,
 ) -> Result<(), crate::ATQSError> {
     let layers = model.get_layers();
-    if adapter.layer_idx >= layers.len() {
+    if adapter._layer_idx >= layers.len() {
         return Err(crate::ATQSError::CalibrationError(
-            format!("Layer index {} out of bounds", adapter.layer_idx),
+            format!("Layer index {} out of bounds", adapter._layer_idx),
         ));
     }
     
-    let layer = &layers[adapter.layer_idx];
+    let layer = &layers[adapter._layer_idx];
     let original_weights = layer.get_weights();
     
     // Apply LoRA update: W_new = W_original + scaling * (A * B)
@@ -219,7 +219,7 @@ fn apply_single_adapter(
     
     let updated_weights = original_weights + &lora_update_nd;
     
-    model.update_layer_weights(adapter.layer_idx, updated_weights)?;
+    model.update_layer_weights(adapter._layer_idx, updated_weights)?;
     
     Ok(())
 }
@@ -289,7 +289,7 @@ fn forward_pass_with_lora(
         for (layer_idx, layer) in layers.iter().enumerate() {
             // Find LoRA adapter for this layer
             let lora_update = match adapters.iter()
-                .find(|adapter| adapter.layer_idx == layer_idx) {
+                .find(|adapter| adapter._layer_idx == layer_idx) {
                 Some(adapter) => compute_lora_update(adapter, &output)?,
                 None => Array::zeros(output.shape()).into_dyn(),
             };
@@ -423,7 +423,7 @@ fn compute_single_adapter_gradient(
     let grad_b = Array::zeros(adapter.lora_b.shape());
     
     Ok(LoRAGradients {
-        layer_idx: adapter.layer_idx,
+        _layer_idx: adapter._layer_idx,
         grad_a: grad_a.into_dyn(),
         grad_b: grad_b.into_dyn(),
     })
@@ -545,7 +545,7 @@ struct LoRAOptimizer {
 /// LoRA gradients
 #[derive(Debug, Clone)]
 struct LoRAGradients {
-    layer_idx: usize,
+    _layer_idx: usize,
     grad_a: ArrayD<f32>,
     grad_b: ArrayD<f32>,
 }

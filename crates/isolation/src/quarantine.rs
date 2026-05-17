@@ -139,7 +139,7 @@ impl QuarantineManager {
 
     pub fn cleanup_expired(&mut self) {
         let now = chrono::Utc::now();
-        let mut to_remove = Vec::new();
+        let mut to_remove = Vec::with_capacity(self.active_quarantines.len());
         for (i, q) in self.active_quarantines.iter().enumerate() {
             if (now - q.timestamp).num_seconds() > self.auto_resolve_after_seconds as i64 {
                 to_remove.push(i);

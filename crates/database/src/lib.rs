@@ -773,7 +773,7 @@ impl Value {
     }
 
     /// Parse timestamp string with multiple format support
-    fn parse_timestamp(&self, timestamp_str: &str) -> Self {
+    fn _parse_timestamp(&self, timestamp_str: &str) -> Self {
         use chrono::{DateTime, NaiveDateTime, Utc};
 
         // Try different timestamp formats

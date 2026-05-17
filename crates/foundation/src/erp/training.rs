@@ -17,7 +17,7 @@ use std::collections::HashMap;
 pub struct ERPTrainer {
     config: ERPConfig,
     training_strategy: TrainingStrategy,
-    calibration_data: CalibrationDataset,
+    _calibration_data: CalibrationDataset,
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ impl ERPTrainer {
         Self {
             config,
             training_strategy: strategy,
-            calibration_data: CalibrationDataset::new(),
+            _calibration_data: CalibrationDataset::new(),
         }
     }
 
@@ -241,7 +241,7 @@ impl ERPTrainer {
     }
 
     /// Update gate weights
-    fn update_gate_weights(&self, gate_network: &mut crate::erp::reconstruction::GateNetwork, gradient: &Array2<f32>, learning_rate: f32) {
+    fn _update_gate_weights(&self, gate_network: &mut crate::erp::reconstruction::GateNetwork, gradient: &Array2<f32>, learning_rate: f32) {
         gate_network.update_weights(gradient, learning_rate);
     }
 

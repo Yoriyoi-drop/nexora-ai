@@ -72,7 +72,8 @@ impl FeatureExtractor {
     
     fn extract_ngrams(&self, text: &str, n: usize) -> Vec<String> {
         let words: Vec<&str> = text.split_whitespace().collect();
-        let mut ngrams = Vec::new();
+        let count = words.len().saturating_sub(n) + 1;
+        let mut ngrams = Vec::with_capacity(count);
         
         if words.len() < n {
             return ngrams;

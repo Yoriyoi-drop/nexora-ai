@@ -90,7 +90,7 @@ impl ModelProcessor {
         result.push_str(&format!("Word Count: {}\n", word_count));
         
         // Direct keyword extraction
-        let mut keywords = Vec::new();
+        let mut keywords = Vec::with_capacity(5);
         let important_words = ["important", "urgent", "critical", "normal", "low"];
         for word in important_words {
             if input_lower.contains(word) {
@@ -136,7 +136,7 @@ impl ModelProcessor {
         result.push_str(&format!("Conditions: {}\n", condition_count));
         
         // Direct fallacy detection
-        let mut fallacies = Vec::new();
+        let mut fallacies = Vec::with_capacity(3);
         if input_lower.contains("always") {
             fallacies.push("Hasty Generalization (always)");
         }
@@ -162,7 +162,7 @@ impl ModelProcessor {
         
         // Direct step breakdown
         let words: Vec<&str> = input.split_whitespace().collect();
-        let mut steps = Vec::new();
+        let mut steps = Vec::with_capacity(8);
         
         for (i, word) in words.iter().enumerate().take(8) {
             steps.push(format!("Step {}: Process '{}'", i + 1, word));
@@ -227,9 +227,8 @@ impl ModelProcessor {
         
         // Direct keyword extraction
         let words: Vec<&str> = input.split_whitespace().collect();
-        let mut keywords = Vec::new();
+        let mut keywords = Vec::with_capacity(10);
         
-        // Extract important-looking words
         for word in words.iter().take(10) {
             let word_lower = word.to_lowercase();
             if word.len() > 3 && !word_lower.contains("the") && !word_lower.contains("and") && !word_lower.contains("for") {
@@ -264,7 +263,7 @@ impl ModelProcessor {
         let mut result = String::from("VALIDATION:\n");
         
         // Direct input checks
-        let mut issues = Vec::new();
+        let mut issues = Vec::with_capacity(5);
         
         if input.is_empty() {
             issues.push("Input is empty");
@@ -343,7 +342,7 @@ impl ModelProcessor {
         let mut result = String::from("OPTIMIZATION:\n");
         
         // Direct optimization analysis
-        let mut suggestions = Vec::new();
+        let mut suggestions = Vec::with_capacity(4);
         
         if input.len() > 500 {
             suggestions.push("Consider breaking down into smaller parts");

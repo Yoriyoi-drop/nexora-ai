@@ -24,19 +24,19 @@ mod tests {
     #[test]
     fn test_plan_creation() {
         let step = PlanStep {
-            id: "step-1".into(),
+            id: uuid::Uuid::new_v4(),
             action: "process".into(),
             parameters: serde_json::json!({}),
             dependencies: vec![],
             estimated_duration_ms: 100,
         };
         let plan = Plan {
-            id: "plan-1".into(),
+            id: uuid::Uuid::new_v4(),
             steps: vec![step],
             dependencies: vec![],
             estimated_duration_ms: 100,
         };
-        assert_eq!(plan.id, "plan-1");
+        assert_ne!(plan.id, uuid::Uuid::nil());
         assert_eq!(plan.steps.len(), 1);
     }
 
@@ -47,15 +47,15 @@ mod tests {
             content: "test entry".into(),
             entry_type: ContextType::UserInput,
             importance: 0.8,
-            timestamp: chrono::Utc::now(),
+                timestamp: chrono::Utc::now().timestamp(),
             embeddings: None,
         };
         let window = ContextWindow {
             id: uuid::Uuid::new_v4(),
             entries: vec![entry],
             metadata: ContextMetadata {
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
+                created_at: chrono::Utc::now().timestamp(),
+                updated_at: chrono::Utc::now().timestamp(),
                 total_entries: 1,
                 tags: vec![],
             },
@@ -92,7 +92,7 @@ mod tests {
             learning_insights: vec![],
             metadata: ReflectionMetadata {
                 reflection_type: ReflectionType::Performance,
-                timestamp: chrono::Utc::now(),
+            timestamp: chrono::Utc::now().timestamp(),
                 context: "test".into(),
             },
         };

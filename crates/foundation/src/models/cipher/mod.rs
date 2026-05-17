@@ -36,7 +36,7 @@ pub struct NxrCipherModel {
     base: crate::shared::base_model::BaseNxrModel<CipherConfig, CipherMetrics, CipherState>,
     identity: CipherIdentity,
     architecture: CipherArchitecture,
-    agents: CipherAgents,
+    _agents: CipherAgents,
     capabilities: CipherCapabilities,
     components: FoundationComponents,
 }
@@ -120,7 +120,7 @@ impl NxrCipherModel {
             ),
             identity,
             architecture: CipherArchitecture::new(&config),
-            agents: CipherAgents::new(&config),
+            _agents: CipherAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
         }

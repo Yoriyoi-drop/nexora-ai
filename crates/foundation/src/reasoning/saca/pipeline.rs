@@ -13,7 +13,7 @@ use chrono::Utc;
 /// Pipeline orchestrator for SACA
 pub struct SACAPipeline {
     config: SACAConfig,
-    executor: Arc<AsyncTaskExecutor>,
+    _executor: Arc<AsyncTaskExecutor>,
     
     // Phase engines
     cot_engine: Arc<CoTEngine>,
@@ -51,7 +51,7 @@ impl SACAPipeline {
         
         Ok(Self {
             config,
-            executor,
+            _executor: executor,
             cot_engine,
             decompose_engine,
             context_engine,

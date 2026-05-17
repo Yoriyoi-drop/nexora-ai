@@ -245,7 +245,7 @@ fn apply_hybrid_recovery(
     config: &AccuracyRecoveryConfig,
 ) -> Result<(f32, usize, Vec<LayerImprovement>), crate::ATQSError> {
     let mut all_improvements = Vec::new();
-    let mut current_accuracy = evaluate_model_accuracy(model, validation_data)?;
+    let mut _current_accuracy = evaluate_model_accuracy(model, validation_data)?;
     
     // Phase 1: Knowledge distillation
     let kd_config = AccuracyRecoveryConfig {
@@ -259,7 +259,7 @@ fn apply_hybrid_recovery(
     let (kd_accuracy, kd_iterations, mut kd_improvements) = 
         apply_knowledge_distillation(model, validation_data, &kd_config)?;
     all_improvements.append(&mut kd_improvements);
-    current_accuracy = kd_accuracy;
+    _current_accuracy = kd_accuracy;
     
     // Phase 2: Layer-wise fine-tuning
     let lft_config = AccuracyRecoveryConfig {
@@ -273,7 +273,7 @@ fn apply_hybrid_recovery(
     let (lft_accuracy, lft_iterations, mut lft_improvements) = 
         apply_layerwise_finetuning(model, validation_data, &lft_config)?;
     all_improvements.append(&mut lft_improvements);
-    current_accuracy = lft_accuracy;
+    _current_accuracy = lft_accuracy;
     
     // Phase 3: Adaptive calibration
     let ac_config = AccuracyRecoveryConfig {
@@ -287,11 +287,11 @@ fn apply_hybrid_recovery(
     let (ac_accuracy, ac_iterations, mut ac_improvements) = 
         apply_adaptive_calibration(model, validation_data, &ac_config)?;
     all_improvements.append(&mut ac_improvements);
-    current_accuracy = ac_accuracy;
+    _current_accuracy = ac_accuracy;
     
     let total_iterations = kd_iterations + lft_iterations + ac_iterations;
     
-    Ok((current_accuracy, total_iterations, all_improvements))
+    Ok((_current_accuracy, total_iterations, all_improvements))
 }
 
 /// Evaluate model accuracy on validation data
@@ -833,7 +833,7 @@ fn compute_mse_loss(
     Ok(mse)
 }
 
-fn compute_weight_standard_deviation(weights: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
+fn _compute_weight_standard_deviation(weights: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
     let mean = weights.iter().sum::<f32>() / weights.len() as f32;
     let variance = weights.iter()
         .map(|w| (w - mean).powi(2))

@@ -50,7 +50,7 @@ impl Default for OracleBackboneConfig {
 
 /// Sparse Mixture of Experts Layer
 pub struct SparseMoELayer {
-    config: OracleBackboneConfig,
+    _config: OracleBackboneConfig,
     experts: Vec<MLPExpert>,
     gate: LinearLayer,
     router: Router,
@@ -64,7 +64,7 @@ impl SparseMoELayer {
         }
         
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             experts,
             gate: LinearLayer::new(config.d_model, config.n_experts),
             router: Router::new(config.n_experts, config.top_k),

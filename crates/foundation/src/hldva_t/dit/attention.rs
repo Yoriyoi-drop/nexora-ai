@@ -18,7 +18,7 @@ pub struct MultiHeadAttention {
     out_projection: Linear,
     
     // Dropout
-    dropout: f32,
+    _dropout: f32,
 }
 
 impl MultiHeadAttention {
@@ -38,7 +38,7 @@ impl MultiHeadAttention {
             k_projection,
             v_projection,
             out_projection,
-            dropout: 0.1,
+            _dropout: 0.1,
         })
     }
     
@@ -306,7 +306,7 @@ impl Linear {
 
 /// Layer Normalization
 pub struct LayerNorm {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     weight: Tensor,
     bias: Tensor,
     eps: f32,
@@ -318,7 +318,7 @@ impl LayerNorm {
         let bias = Tensor::new(vec![0.0; hidden_dim], vec![hidden_dim]);
         
         Ok(Self {
-            hidden_dim,
+            _hidden_dim: hidden_dim,
             weight,
             bias,
             eps: 1e-6,

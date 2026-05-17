@@ -86,6 +86,39 @@ nexora-ai (app)      # depends on core, foundation, tokenizer, intelligence, mem
 nexora-dashboard     # standalone TUI (ratatui)
 ```
 
+## Training
+
+Real training via `cargo run --bin nexora -- train --data <file> --output <model>`. Key components:
+
+| Component | Location | Status |
+|---|---|---|
+| Autograd engine | `crates/deeplearning/src/autograd/` | Tape-based reverse-mode, 25+ ops, full test suite |
+| AdamW optimizer | `crates/deeplearning/src/autograd/mod.rs:150` | Bias correction, gradient clipping, decoupled weight decay |
+| Trainer | `crates/foundation/src/training/mod.rs` | Gradient accumulation (batch_size), LR warmup + cosine decay, checkpoint at save_every |
+| CLI | `apps/nexora-ai/src/cli/training.rs` | `train` + `evaluate` commands, DataStream filter pipeline |
+| Data pipeline | `crates/datastream/src/` | DAG-based streaming, length/quality/dedup filters |
+
+### Training features
+- **Gradient accumulation**: `batch_size` controls how many forward/backward passes accumulate before optimizer step.
+- **Learning rate schedule**: Linear warmup (`warmup_steps`) followed by cosine decay to 0.
+- **Weight decay (AdamW)**: Decoupled weight decay via `weight_decay` param (default 0.01 in CLI).
+- **Gradient clipping**: Global L2 norm clipping via `max_grad_norm` (default 1.0 in CLI).
+- **Data shuffling**: Each epoch shuffles samples.
+- **Loss reporting**: Average loss per-token (not per-step), reported each optimizer step.
+- **Graceful shutdown**: Ctrl+C completes current batch before saving.
+- **BLAS acceleration**: Add `"blas"` to ndarray features in `crates/deeplearning/Cargo.toml` and install `libopenblas-dev` for 5-10x CPU matmul speedup.
+
+### Example
+```sh
+cargo run --bin nexora -- train \
+  --data training_data.txt \
+  --output ./checkpoints/model \
+  --tokenizer ./checkpoints/tokenizer.json \
+  --epochs 3 \
+  --batch-size 8 \
+  --learning-rate 0.001
+```
+
 ## Notable quirks
 
 - `Cargo.lock` in `.gitignore` — every `cargo build` resolves from scratch unless a lockfile exists locally.

@@ -123,20 +123,20 @@ impl CausalLM {
             }
         }
 
-        for (layer_idx, block) in self.blocks.iter().enumerate() {
-            let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
-            let half = self.config.head_dim() / 2;
-            let cos_slice = if pos * half < self.precomputed_cos.len() {
-                self.precomputed_cos.slice(ndarray::s![pos * half..(pos + 1) * half]).to_owned()
-            } else {
-                Array1::zeros(half)
-            };
-            let sin_slice = if pos * half < self.precomputed_sin.len() {
-                self.precomputed_sin.slice(ndarray::s![pos * half..(pos + 1) * half]).to_owned()
-            } else {
-                Array1::zeros(half)
-            };
+        let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+        let half = self.config.head_dim() / 2;
+        let cos_slice = if pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos.slice(ndarray::s![pos * half..(pos + 1) * half]).to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+        let sin_slice = if pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin.slice(ndarray::s![pos * half..(pos + 1) * half]).to_owned()
+        } else {
+            Array1::zeros(half)
+        };
 
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward(&h, kv_cache, layer_idx, &cos_slice, &sin_slice);
         }
 

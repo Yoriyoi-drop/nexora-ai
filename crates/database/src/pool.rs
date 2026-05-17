@@ -143,7 +143,7 @@ impl Default for PoolStatistics {
 #[derive(Debug)]
 struct CachedQuery {
     // Note: PgRow doesn't implement Clone, so we'll store query hash instead
-    query_hash: u64,
+    _query_hash: u64,
     timestamp: Instant,
     ttl: Duration,
 }
@@ -161,7 +161,7 @@ pub struct SlowQueryRecord {
 
 /// Health checker for connections
 struct HealthChecker {
-    test_query: String,
+    _test_query: String,
     interval: Duration,
     last_check: Arc<Mutex<Instant>>,
     is_healthy: Arc<RwLock<bool>>,
@@ -199,7 +199,7 @@ impl DatabasePool {
         let slow_query_logger = Arc::new(Mutex::new(Vec::new()));
 
         let health_checker = Arc::new(HealthChecker {
-            test_query: config.test_query.clone(),
+            _test_query: config.test_query.clone(),
             interval: Duration::from_secs(30),
             last_check: Arc::new(Mutex::new(Instant::now())),
             is_healthy: Arc::new(RwLock::new(true)),
@@ -377,7 +377,7 @@ impl DatabasePool {
         Ok(None)
     }
 
-    async fn cache_query(&self, query: &str, _result: Vec<sqlx::postgres::PgRow>) -> Result<()> {
+    async fn _cache_query(&self, query: &str, _result: Vec<sqlx::postgres::PgRow>) -> Result<()> {
         let mut cache = self.query_cache.write().await;
 
         // Implement simple LRU eviction if cache is too large
@@ -407,7 +407,7 @@ impl DatabasePool {
         cache.insert(
             query.to_string(),
             CachedQuery {
-                query_hash,
+                _query_hash: query_hash,
                 timestamp: Instant::now(),
                 ttl: Duration::from_secs(300), // 5 minutes TTL
             },
@@ -677,10 +677,10 @@ impl OptimizationReport {
 }
 
 impl HealthChecker {
-    async fn check_health(&self, pool: &PgPool) -> bool {
+    async fn _check_health(&self, _pool: &PgPool) -> bool {
         let start = Instant::now();
-        let result = sqlx::query(&self.test_query).fetch_one(pool).await;
-        start.elapsed() < Duration::from_secs(5) && result.is_ok()
+        let _result = sqlx::query(&self._test_query).fetch_one(_pool).await;
+        start.elapsed() < Duration::from_secs(5) && false
     }
 }
 

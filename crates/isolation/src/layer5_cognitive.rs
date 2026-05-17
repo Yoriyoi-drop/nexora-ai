@@ -300,7 +300,7 @@ impl CognitiveIsolationLayer {
     }
 
     pub fn quarantine_agent_memory(&mut self, agent_id: Uuid) -> Vec<Uuid> {
-        let mut quarantined = Vec::new();
+        let mut quarantined = Vec::with_capacity(self.memory_isolation.agent_memory_regions.len());
         for (id, region) in self.memory_isolation.agent_memory_regions.iter_mut() {
             if region.agent_id == agent_id {
                 region.is_quarantined = true;

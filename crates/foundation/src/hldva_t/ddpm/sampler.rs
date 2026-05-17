@@ -6,7 +6,7 @@ use rand::prelude::*;
 
 /// DDPM Sampler
 pub struct DDPMSampler {
-    config: SamplerConfig,
+    _config: SamplerConfig,
     rng: ThreadRng,
 }
 
@@ -14,7 +14,7 @@ impl DDPMSampler {
     /// Create new DDPM sampler
     pub fn new(config: SamplerConfig) -> Self {
         Self {
-            config,
+            _config: config,
             rng: thread_rng(),
         }
     }

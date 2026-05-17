@@ -15,7 +15,7 @@ pub struct PatchEmbedding {
     projection: Linear,
     
     // VAE compression factor
-    compression_factor: usize,
+    _compression_factor: usize,
 }
 
 impl PatchEmbedding {
@@ -27,7 +27,7 @@ impl PatchEmbedding {
             patch_size,
             hidden_dim,
             projection,
-            compression_factor: 8, // Standard VAE compression
+            _compression_factor: 8, // Standard VAE compression
         })
     }
     
@@ -285,7 +285,7 @@ impl PositionEmbedding {
 /// CLIP Conditioning Projection
 pub struct ClipConditioningProjection {
     hidden_dim: usize,
-    clip_dim: usize,
+    _clip_dim: usize,
     
     // Projections
     text_projection: Linear,
@@ -299,15 +299,15 @@ pub struct ClipConditioningProjection {
 }
 
 impl ClipConditioningProjection {
-    pub fn new(hidden_dim: usize, clip_dim: usize) -> HLDVAResult<Self> {
-        let text_projection = Linear::new(clip_dim, hidden_dim)?;
-        let image_projection = Linear::new(clip_dim, hidden_dim)?;
-        let cross_attention_proj = Linear::new(clip_dim, hidden_dim)?;
+    pub fn new(hidden_dim: usize, _clip_dim: usize) -> HLDVAResult<Self> {
+        let text_projection = Linear::new(_clip_dim, hidden_dim)?;
+        let image_projection = Linear::new(_clip_dim, hidden_dim)?;
+        let cross_attention_proj = Linear::new(_clip_dim, hidden_dim)?;
         let layer_norm = LayerNorm::new(hidden_dim)?;
         
         Ok(Self {
             hidden_dim,
-            clip_dim,
+            _clip_dim,
             text_projection,
             image_projection,
             cross_attention_proj,

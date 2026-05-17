@@ -173,7 +173,7 @@ impl QuerySet {
 /// Individual query token
 #[derive(Debug, Clone)]
 pub struct QueryToken {
-    id: usize,
+    _id: usize,
     embedding: Vec<f32>,
     position_encoding: Vec<f32>,
 }
@@ -197,7 +197,7 @@ impl QueryToken {
         }
         
         Ok(Self {
-            id,
+            _id: id,
             embedding,
             position_encoding,
         })
@@ -227,16 +227,16 @@ impl QueryToken {
 pub struct QueryProcessor {
     hidden_dim: usize,
     num_heads: usize,
-    dropout_rate: f32,
+    _dropout_rate: f32,
 }
 
 impl QueryProcessor {
     /// Create new query processor
-    pub fn new(hidden_dim: usize, num_heads: usize, dropout_rate: f32) -> Self {
+    pub fn new(hidden_dim: usize, num_heads: usize, _dropout_rate: f32) -> Self {
         Self {
             hidden_dim,
             num_heads,
-            dropout_rate,
+            _dropout_rate,
         }
     }
     

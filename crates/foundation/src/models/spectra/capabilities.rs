@@ -11,7 +11,7 @@ use crate::shared::{
 
 /// NXR-SPECTRA Capabilities Manager
 #[derive(Clone)]
-pub struct SpectraCapabilities {
+pub struct _SpectraCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -39,7 +39,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl SpectraCapabilities {
+impl _SpectraCapabilities {
     /// Create new capabilities for NXR-SPECTRA
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -390,7 +390,7 @@ impl SpectraCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &SpectraCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &_SpectraCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::new();
 
         for domain in &self.vector.specializations {
@@ -454,7 +454,7 @@ impl SpectraCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> SpectraCapabilities {
+    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _SpectraCapabilities {
         let mut new_capabilities = self.clone();
         
         for (domain, improvement) in improvements {
@@ -472,8 +472,8 @@ impl SpectraCapabilities {
     }
 
     /// Get creative intelligence metrics
-    pub fn get_creative_intelligence_metrics(&self) -> CreativeIntelligenceMetrics {
-        CreativeIntelligenceMetrics {
+    pub fn get_creative_intelligence_metrics(&self) -> _CreativeIntelligenceMetrics {
+        _CreativeIntelligenceMetrics {
             creativity_score: self.performance_metrics.creative_generation_accuracy,
             style_adaptation: self.performance_metrics.style_adaptation_accuracy,
             multimodal_synthesis: self.performance_metrics.multimodal_synthesis_quality,
@@ -847,7 +847,7 @@ pub enum ResourceCost {
 
 /// Creative intelligence metrics
 #[derive(Debug, Clone)]
-pub struct CreativeIntelligenceMetrics {
+pub struct _CreativeIntelligenceMetrics {
     pub creativity_score: f32,
     pub style_adaptation: f32,
     pub multimodal_synthesis: f32,
@@ -928,7 +928,7 @@ impl CreativeGenerationCapabilities {
     }
 }
 
-impl Default for SpectraCapabilities {
+impl Default for _SpectraCapabilities {
     fn default() -> Self {
         Self::new()
     }

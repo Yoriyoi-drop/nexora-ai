@@ -83,6 +83,7 @@ pub type Result<T> = std::result::Result<T, AgentError>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base_agent::ResponseStatus;
 
     #[test]
     fn test_agent_error_display() {
@@ -107,28 +108,28 @@ mod tests {
     #[test]
     fn test_agent_message_creation() {
         let msg = AgentMessage::new("test-type", serde_json::json!("payload"));
-        assert_eq!(msg.message_type(), "test-type");
+        assert_eq!(msg.message_type, "test-type");
     }
 
     #[test]
     fn test_agent_message_with_priority() {
         let msg = AgentMessage::new("test", serde_json::json!({}))
             .with_priority(MessagePriority::High);
-        assert_eq!(msg.priority(), MessagePriority::High);
+        assert_eq!(msg.priority, MessagePriority::High);
     }
 
     #[test]
     fn test_agent_response_success() {
         let req_id = uuid::Uuid::new_v4();
         let resp = AgentResponse::success(req_id, serde_json::json!("ok"), 10);
-        assert!(resp.is_success());
+        assert_eq!(resp.status, ResponseStatus::Success);
     }
 
     #[test]
     fn test_agent_response_error() {
         let req_id = uuid::Uuid::new_v4();
         let resp = AgentResponse::error(req_id, "fail", 5);
-        assert!(!resp.is_success());
+        assert_ne!(resp.status, ResponseStatus::Success);
     }
 
     #[test]

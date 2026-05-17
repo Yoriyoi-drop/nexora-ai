@@ -1,6 +1,5 @@
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-use std::sync::Arc;
 use tracing::{debug, info};
 
 use crate::types::{DataSample, BatchConfig};

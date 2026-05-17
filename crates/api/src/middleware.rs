@@ -421,32 +421,32 @@ impl Middleware for RateLimitingMiddleware {
 #[derive(Debug)]
 pub struct CorsMiddleware {
     allowed_origins: Vec<String>,
-    allowed_methods: Vec<String>,
-    allowed_headers: Vec<String>,
-    expose_headers: Vec<String>,
-    allow_credentials: bool,
-    max_age: u64,
+    _allowed_methods: Vec<String>,
+    _allowed_headers: Vec<String>,
+    _expose_headers: Vec<String>,
+    _allow_credentials: bool,
+    _max_age: u64,
 }
 
 impl CorsMiddleware {
     pub fn new() -> Self {
         Self {
             allowed_origins: vec!["*".to_string()],
-            allowed_methods: vec![
+            _allowed_methods: vec![
                 "GET".to_string(),
                 "POST".to_string(),
                 "PUT".to_string(),
                 "DELETE".to_string(),
                 "OPTIONS".to_string(),
             ],
-            allowed_headers: vec![
+            _allowed_headers: vec![
                 "Content-Type".to_string(),
                 "Authorization".to_string(),
                 "X-Requested-With".to_string(),
             ],
-            expose_headers: Vec::new(),
-            allow_credentials: false,
-            max_age: 86400, // 24 hours
+            _expose_headers: Vec::new(),
+            _allow_credentials: false,
+            _max_age: 86400, // 24 hours
         }
     }
     
@@ -497,7 +497,7 @@ impl Middleware for CorsMiddleware {
 pub struct CompressionMiddleware {
     enable_compression: bool,
     min_size: usize,
-    compression_level: u32,
+    _compression_level: u32,
 }
 
 impl CompressionMiddleware {
@@ -505,7 +505,7 @@ impl CompressionMiddleware {
         Self {
             enable_compression,
             min_size,
-            compression_level,
+            _compression_level: compression_level,
         }
     }
     

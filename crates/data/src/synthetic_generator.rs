@@ -12,8 +12,8 @@ use crate::DataEntry;
 pub struct SyntheticGenerator {
     strategies: Vec<Box<dyn GenerationStrategy>>,
     config: GeneratorConfig,
-    templates: Vec<Template>,
-    vocabulary: HashMap<String, Vec<String>>,
+    _templates: Vec<Template>,
+    _vocabulary: HashMap<String, Vec<String>>,
 }
 
 /// Generator configuration
@@ -459,8 +459,8 @@ impl SyntheticGenerator {
         Self {
             strategies,
             config,
-            templates: Vec::new(),
-            vocabulary: HashMap::new(),
+            _templates: Vec::new(),
+            _vocabulary: HashMap::new(),
         }
     }
     

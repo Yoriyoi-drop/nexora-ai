@@ -35,7 +35,7 @@ pub struct NxrSwiftModel {
     base: crate::shared::base_model::BaseNxrModel<SwiftConfig, SwiftMetrics, SwiftState>,
     identity: SwiftIdentity,
     architecture: SwiftArchitecture,
-    agents: SwiftAgents,
+    _agents: SwiftAgents,
     capabilities: SwiftCapabilities,
     components: FoundationComponents,
 }
@@ -119,7 +119,7 @@ impl NxrSwiftModel {
             ),
             identity,
             architecture: SwiftArchitecture::new(&config),
-            agents: SwiftAgents::new(&config),
+            _agents: SwiftAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
         }

@@ -11,7 +11,7 @@ use crate::DataEntry;
 pub struct QualityClassifier {
     algorithms: Vec<Box<dyn QualityAlgorithm>>,
     weights: HashMap<String, f32>,
-    config: QualityConfig,
+    _config: QualityConfig,
 }
 
 /// Quality configuration
@@ -379,7 +379,7 @@ impl QualityClassifier {
         Self {
             algorithms,
             weights,
-            config,
+            _config: config,
         }
     }
     

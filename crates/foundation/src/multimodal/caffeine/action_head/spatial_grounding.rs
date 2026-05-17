@@ -9,7 +9,7 @@ use ndarray::ArrayD;
 
 /// Spatial grounding module
 pub struct SpatialGroundingModule {
-    config: crate::caffeine::config::ActionConfig,
+    _config: crate::caffeine::config::ActionConfig,
     bbox_detector: BoundingBoxDetector,
     segmentor: SegmentationModule,
 }
@@ -21,7 +21,7 @@ impl SpatialGroundingModule {
         let segmentor = SegmentationModule::new(config.clone())?;
         
         Ok(Self {
-            config,
+            _config: config,
             bbox_detector,
             segmentor,
         })
@@ -363,7 +363,7 @@ impl BoundingBoxDetector {
 
 /// Segmentation module
 pub struct SegmentationModule {
-    config: crate::caffeine::config::ActionConfig,
+    _config: crate::caffeine::config::ActionConfig,
     num_classes: usize,
 }
 
@@ -371,7 +371,7 @@ impl SegmentationModule {
     /// Create new segmentation module
     pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
         Ok(Self {
-            config,
+            _config: config,
             num_classes: 20, // Common number of classes
         })
     }

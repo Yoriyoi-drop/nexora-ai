@@ -170,7 +170,7 @@ pub struct MetricsHandler {
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
-struct HandlerMetrics {
+pub struct HandlerMetrics {
     total_requests: u64,
     successful_requests: u64,
     failed_requests: u64,

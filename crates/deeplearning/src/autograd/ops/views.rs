@@ -30,7 +30,7 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
         Box::new(move |grad, saved| {
             let sizes: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
             let mut offset = 0usize;
-            let mut grads = Vec::new();
+            let mut grads = Vec::with_capacity(sizes.len());
             for &len in &sizes {
                 let indices: Vec<usize> = (offset..offset + len).collect();
                 let g = grad.select(Axis(axis), &indices).to_owned().into_dyn();

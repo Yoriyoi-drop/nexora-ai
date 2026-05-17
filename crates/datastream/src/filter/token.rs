@@ -46,10 +46,6 @@ impl TokenFilter {
         }
     }
 
-    fn encode_tokens(&self, text: &str) -> Option<Vec<u32>> {
-        self.tokenizer.as_ref().map(|tk| tk.read().encode(text))
-    }
-
     fn has_blocked_tokens(&self, text: &str) -> Option<String> {
         for token in &self.block_tokens {
             if text.contains(token) {

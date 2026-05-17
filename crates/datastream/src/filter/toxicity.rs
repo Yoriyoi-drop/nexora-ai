@@ -30,7 +30,7 @@ impl ToxicityFilter {
     }
 
     fn score_toxicity(&self, text: &str) -> (f64, Option<String>) {
-        let text_lower = text.to_lowercase();
+        let _text_lower = text.to_lowercase();
         let mut score = 0.0;
 
         for pattern in &self.blocklist {

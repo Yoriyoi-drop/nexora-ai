@@ -8,7 +8,6 @@
 
 // Import from foundation modules
 use nexora_foundation::reasoning::{
-    SACA,
     SACAConfig,
     CodingTask,
     SACASolution,
@@ -68,7 +67,7 @@ impl ExpertRouter {
     }
 }
 use std::sync::{Arc, Mutex};
-use tracing::{info, debug, warn};
+use tracing::{info, debug};
 
 // Explicit Result type to avoid ambiguity
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -103,7 +102,7 @@ pub struct UnifiedModel {
     config: UnifiedConfig,
     saca_integration: SACAIntegration,
     caffeine_model: Option<Arc<Mutex<Caffeine>>>,
-    has_moe_model: Option<Arc<HasMoeFfn>>,
+    _has_moe_model: Option<Arc<HasMoeFfn>>,
 }
 
 impl UnifiedModel {
@@ -168,7 +167,7 @@ impl UnifiedModel {
             config,
             saca_integration,
             caffeine_model,
-            has_moe_model,
+            _has_moe_model: has_moe_model,
         })
     }
     
@@ -208,7 +207,7 @@ impl UnifiedModel {
                     video: None,
                     context: None,
                 };
-                let output = self.process_multimodal(&multimodal_input).await?;
+                let _output = self.process_multimodal(&multimodal_input).await?;
             }
             IntegrationMode::SACAWithHasMoe => {
                 self.apply_has_moe_routing(&mut solution, &task).await?;
@@ -230,7 +229,7 @@ impl UnifiedModel {
     }
     
     /// Apply full integration processing
-    async fn apply_full_integration_processing(&self, solution: &mut UnifiedSolution, task: &CodingTask) -> Result<()> {
+    async fn apply_full_integration_processing(&self, solution: &mut UnifiedSolution, _task: &CodingTask) -> Result<()> {
         debug!("Applying full integration processing");
         
         // Apply cross-model optimizations
@@ -251,7 +250,7 @@ impl UnifiedModel {
     }
     
     /// Apply CAFFEINE post-processing
-    async fn apply_caffeine_multimodal(&self, solution: &mut UnifiedSolution, task: &CodingTask) -> Result<()> {
+    async fn _apply_caffeine_multimodal(&self, solution: &mut UnifiedSolution, _task: &CodingTask) -> Result<()> {
         debug!("Applying CAFFEINE post-processing");
         
         // Additional multimodal enhancements could be applied here
@@ -264,7 +263,7 @@ impl UnifiedModel {
     }
     
     /// Apply HAS-MoE-FFN post-processing
-    async fn apply_has_moe_routing(&self, solution: &mut UnifiedSolution, task: &CodingTask) -> Result<()> {
+    async fn apply_has_moe_routing(&self, solution: &mut UnifiedSolution, _task: &CodingTask) -> Result<()> {
         debug!("Applying HAS-MoE-FFN post-processing");
         
         // Additional routing optimizations could be applied here

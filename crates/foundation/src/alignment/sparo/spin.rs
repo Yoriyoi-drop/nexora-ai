@@ -102,10 +102,8 @@ impl SpinGenerator {
     
     /// Generate reasoning steps
     fn generate_reasoning_steps(&self, model: &PolicyModel, prompt: &str) -> Result<Vec<super::core::ReasoningStep>> {
-        let mut steps = Vec::new();
-        
-        // Simulate step-by-step reasoning
         let step_count = (prompt.len() / 50).max(1).min(self.config.max_steps);
+        let mut steps = Vec::with_capacity(step_count);
         
         for i in 1..=step_count {
             let step_content = format!("Step {}: Reasoning about {}", i, prompt);
@@ -134,7 +132,7 @@ impl SpinGenerator {
     }
     
     /// Sampling dengan temperature dan top-p
-    fn sample_with_temperature(&self, logits: &[f32]) -> Result<usize> {
+    fn _sample_with_temperature(&self, logits: &[f32]) -> Result<usize> {
         // Apply temperature
         let scaled_logits: Vec<f32> = logits.iter()
             .map(|&x| x / self.config.temperature)
@@ -159,7 +157,7 @@ impl SpinGenerator {
         indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
         let mut cumulative_prob = 0.0;
-        let mut filtered_indices = Vec::new();
+        let mut filtered_indices = Vec::with_capacity(indexed_probs.len());
         
         for (idx, prob) in indexed_probs {
             cumulative_prob += prob;
@@ -198,12 +196,12 @@ impl SpinGenerator {
 
 /// SPIN Evaluator untuk mengevaluasi kualitas traces
 pub struct SpinEvaluator {
-    config: SpinConfig,
+    _config: SpinConfig,
 }
 
 impl SpinEvaluator {
     pub fn new(config: SpinConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
     
     /// Evaluasi reasoning trace
@@ -331,7 +329,7 @@ impl SpinTrainer {
     
     /// Jalankan self-play tournament
     pub fn run_tournament(&mut self, prompts: &[String]) -> Result<SelfPlayTournament> {
-        let mut games = Vec::new();
+        let mut games = Vec::with_capacity(prompts.len() * self.config.rounds_per_iteration);
         let mut student_wins = 0;
         let mut teacher_wins = 0;
         let mut draws = 0;

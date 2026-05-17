@@ -696,7 +696,7 @@ struct ImageEncoder {
 
 struct TextEncoder {
     vocab_size: usize,
-    embed_dim: usize,
+    _embed_dim: usize,
     max_length: usize,
     num_layers: usize,
 }
@@ -712,7 +712,7 @@ impl ClipModel {
             },
             text_encoder: TextEncoder {
                 vocab_size: 49408, // CLIP vocabulary size
-                embed_dim: 512,
+                _embed_dim: 512,
                 max_length: 77,
                 num_layers: 12,
             },

@@ -2,6 +2,7 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{info, warn, error};
 
 use crate::{NexoraAI, NexoraConfig};
@@ -23,7 +24,7 @@ impl Cli {
                 }
             }
         } else {
-            warn!("Configuration file not found, using defaults");
+            info!("No config file found, using defaults");
             NexoraConfig::default()
         };
         
@@ -65,8 +66,8 @@ impl Cli {
             Commands::Codegen { description, language, output } => {
                 self.run_codegen(&nexora, description, language, output).await
             }
-            Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu } => {
-                self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu).await
+            Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, resume } => {
+                self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *resume).await
                     .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
             }
             Commands::Evaluate { model, test_data, tokenizer, output } => {
@@ -150,14 +151,14 @@ impl Cli {
     /// Run server command
     async fn run_server(
         &self,
-        _nexora: &NexoraAI,
+        nexora: &NexoraAI,
         host: &str,
         port: u16,
         tls: bool,
         cert_path: &Option<PathBuf>,
         key_path: &Option<PathBuf>,
     ) -> NexoraResult<()> {
-        info!("Starting Nexora AI server on {}:{}", host, port);
+        info!("Starting Nexora AI server on http://{}:{}", host, port);
         
         let config = crate::ServerConfig {
             host: host.to_string(),
@@ -172,8 +173,9 @@ impl Cli {
         };
         
         let server = crate::NexoraServer::new(config);
+        let nexora = Arc::new(nexora.clone());
         
-        server.start().await
+        server.start(nexora).await
             .map_err(|e| NexoraError::system(format!("Server start failed: {}", e)))
     }
     

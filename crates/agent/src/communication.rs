@@ -85,9 +85,9 @@ pub struct MessageTracking {
 /// Message bus untuk inter-agent communication
 pub struct MessageBus {
     /// Channel untuk incoming messages
-    message_tx: mpsc::UnboundedSender<InterAgentMessage>,
+    _message_tx: mpsc::UnboundedSender<InterAgentMessage>,
     /// Receiver untuk incoming messages
-    message_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<InterAgentMessage>>>>,
+    _message_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<InterAgentMessage>>>>,
     /// Agent subscribers (agent_id -> sender)
     subscribers: Arc<RwLock<HashMap<Uuid, mpsc::UnboundedSender<InterAgentMessage>>>>,
     /// Topic subscribers (topic -> vec of agent IDs)
@@ -124,8 +124,8 @@ impl MessageBus {
         let (event_tx, _) = broadcast::channel(1000);
         
         Self {
-            message_tx,
-            message_rx: Arc::new(RwLock::new(Some(message_rx))),
+            _message_tx: message_tx,
+            _message_rx: Arc::new(RwLock::new(Some(message_rx))),
             subscribers: Arc::new(RwLock::new(HashMap::new())),
             topic_subscribers: Arc::new(RwLock::new(HashMap::new())),
             role_subscribers: Arc::new(RwLock::new(HashMap::new())),

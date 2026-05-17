@@ -21,7 +21,7 @@ pub struct ConsistencyLearning {
     /// Statistik untuk monitoring
     statistics: ConsistencyStatistics,
     /// Cache untuk augmentasi yang mahal
-    augmentation_cache: HashMap<u64, Array2<f32>>,
+    _augmentation_cache: HashMap<u64, Array2<f32>>,
 }
 
 /// Konfigurasi untuk consistency learning
@@ -87,7 +87,7 @@ impl ConsistencyLearning {
                 avg_augmentation_similarity: 0.0,
                 expansion_factor: 1.0,
             },
-            augmentation_cache: HashMap::new(),
+            _augmentation_cache: HashMap::new(),
         }
     }
 
@@ -491,7 +491,7 @@ pub struct TemporalConsistency {
     /// Temporal window size
     window_size: usize,
     /// Enable temporal smoothing
-    enable_temporal_smoothing: bool,
+    _enable_temporal_smoothing: bool,
 }
 
 impl TemporalConsistency {
@@ -500,7 +500,7 @@ impl TemporalConsistency {
         Self {
             base_consistency: ConsistencyLearning::new(config),
             window_size,
-            enable_temporal_smoothing: true,
+            _enable_temporal_smoothing: true,
         }
     }
 

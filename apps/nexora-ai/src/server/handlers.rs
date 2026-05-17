@@ -457,6 +457,34 @@ struct ConfigUpdateResult {
     timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+pub async fn get_train_metrics(
+    Extension(nexora): Extension<Arc<NexoraAI>>,
+) -> Json<Value> {
+    match nexora.train_metrics.read() {
+        Ok(metrics) => Json(metrics.clone()),
+        Err(e) => {
+            error!("Failed to read train metrics: {}", e);
+            Json(json!({ "error": e.to_string() }))
+        }
+    }
+}
+
+pub async fn post_train_metrics(
+    Extension(nexora): Extension<Arc<NexoraAI>>,
+    Json(payload): Json<Value>,
+) -> Json<Value> {
+    match nexora.train_metrics.write() {
+        Ok(mut metrics) => {
+            *metrics = payload.clone();
+            Json(json!({ "success": true }))
+        }
+        Err(e) => {
+            error!("Failed to update train metrics: {}", e);
+            Json(json!({ "success": false, "error": e.to_string() }))
+        }
+    }
+}
+
 pub async fn index() -> Html<&'static str> {
     Html(include_str!("../../static/index.html"))
 }

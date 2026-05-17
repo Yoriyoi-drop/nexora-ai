@@ -269,7 +269,7 @@ impl Trie {
         }
         
         // Use a helper function to avoid borrowing issues
-        let mut removed = false;
+        let removed;
         {
             fn remove_recursive(node: &mut TrieNode, token_ids: &[u32], index: usize) -> bool {
                 if index == token_ids.len() {
@@ -311,7 +311,7 @@ impl Trie {
     }
     
     /// Clean up empty nodes after removal (simplified version)
-    fn cleanup_empty_nodes(&mut self, _path: &mut Vec<(&mut TrieNode, Option<u32>)>, _token_ids: &[u32]) {
+    fn _cleanup_empty_nodes(&mut self, _path: &mut Vec<(&mut TrieNode, Option<u32>)>, _token_ids: &[u32]) {
         // Simplified cleanup - the recursive removal already handles most cleanup
         // In a more complex implementation, you would iterate through the path
         // and remove empty nodes while preserving the trie structure

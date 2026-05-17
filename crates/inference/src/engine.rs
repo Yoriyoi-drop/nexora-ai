@@ -14,7 +14,7 @@ use crate::streaming::StreamingEngine;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
-use nexora_foundation::models::transformer::{CausalLM, KVCacheEntry, TransformerConfig};
+use nexora_foundation::models::transformer::{CausalLM, TransformerConfig};
 use nexora_tokenizer::BpeTokenizer;
 
 #[derive(Debug, Clone)]
@@ -217,8 +217,8 @@ impl InferenceEngine {
         let (stream_id, rx) = se.write().await.create_stream().await?;
         let model = self.model.clone();
         let tokenizer = self.tokenizer.clone();
-        let cfg = self.config.clone();
-        let scheduler = self.scheduler.clone();
+        let _cfg = self.config.clone();
+        let _scheduler = self.scheduler.clone();
         let se_clone = se.clone();
         let active = self.active_requests.clone();
 
@@ -249,15 +249,16 @@ impl InferenceEngine {
             let max_gen = max_tokens.min(2048) as usize;
 
             for pos in 0..max_gen {
-                let input = if pos == 0 {
-                    all_ids.clone()
+                let input: &[u32] = if pos == 0 {
+                    &prompt_ids
                 } else {
-                    vec![*all_ids.last().unwrap_or(&0)]
+                    core::slice::from_ref(all_ids.last().unwrap_or(&0))
                 };
 
-                let logits = model.forward(&input, &mut kv_state);
+                let logits = model.forward(input, &mut kv_state);
+                let logits_slice = logits.as_slice().unwrap_or(&[]);
 
-                let token_id = match sampler.sample(&logits.to_vec()) {
+                let token_id = match sampler.sample(logits_slice) {
                     Ok(idx) => idx as u32,
                     Err(_) => {
                         logits
@@ -342,15 +343,16 @@ impl InferenceEngine {
         });
 
         for pos in 0..max_gen {
-            let input = if pos == 0 {
-                all_ids.clone()
+            let input: &[u32] = if pos == 0 {
+                &prompt_ids
             } else {
-                vec![*all_ids.last().unwrap_or(&0)]
+                core::slice::from_ref(all_ids.last().unwrap_or(&0))
             };
 
-            let logits = self.model.forward(&input, &mut kv_state);
+            let logits = self.model.forward(input, &mut kv_state);
+            let logits_slice = logits.as_slice().unwrap_or(&[]);
 
-            let token_id = match sampler.sample(&logits.to_vec()) {
+            let token_id = match sampler.sample(logits_slice) {
                 Ok(idx) => idx as u32,
                 Err(_) => logits
                     .iter()
@@ -531,15 +533,15 @@ impl InferenceEngine {
             // Try to pop a batch first
             if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                 let engine = InferenceEngineHandle {
-                    config: self.config.clone(),
-                    runtime: self.runtime.clone(),
+                    _config: self.config.clone(),
+                    _runtime: self.runtime.clone(),
                     scheduler: self.scheduler.clone(),
-                    kv_cache: self.kv_cache.clone(),
-                    session_manager: self.session_manager.clone(),
+                    _kv_cache: self.kv_cache.clone(),
+                    _session_manager: self.session_manager.clone(),
                     model: self.model.clone(),
                     tokenizer: self.tokenizer.clone(),
-                    streaming_engine: self.streaming_engine.clone(),
-                    active_requests: self.active_requests.clone(),
+                    _streaming_engine: self.streaming_engine.clone(),
+                    _active_requests: self.active_requests.clone(),
                     state: self.state.clone(),
                 };
                 let task = tokio::spawn(async move {
@@ -560,22 +562,22 @@ impl InferenceEngine {
 
             match request {
                 Ok(Some(req)) => {
-                    let rid = req.request_id;
+                    let _rid = req.request_id;
                     // Add to batch collector
                     self.scheduler.write().await.add_to_batch_collector(&req).await;
 
                     // Try to form a batch with the newly arrived request
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                         let engine = InferenceEngineHandle {
-                            config: self.config.clone(),
-                            runtime: self.runtime.clone(),
+                            _config: self.config.clone(),
+                            _runtime: self.runtime.clone(),
                             scheduler: self.scheduler.clone(),
-                            kv_cache: self.kv_cache.clone(),
-                            session_manager: self.session_manager.clone(),
+                            _kv_cache: self.kv_cache.clone(),
+                            _session_manager: self.session_manager.clone(),
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
-                            streaming_engine: self.streaming_engine.clone(),
-                            active_requests: self.active_requests.clone(),
+                            _streaming_engine: self.streaming_engine.clone(),
+                            _active_requests: self.active_requests.clone(),
                             state: self.state.clone(),
                         };
                         let task = tokio::spawn(async move {
@@ -590,15 +592,15 @@ impl InferenceEngine {
                     // Timeout — try to flush timed-out batches
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                         let engine = InferenceEngineHandle {
-                            config: self.config.clone(),
-                            runtime: self.runtime.clone(),
+                            _config: self.config.clone(),
+                            _runtime: self.runtime.clone(),
                             scheduler: self.scheduler.clone(),
-                            kv_cache: self.kv_cache.clone(),
-                            session_manager: self.session_manager.clone(),
+                            _kv_cache: self.kv_cache.clone(),
+                            _session_manager: self.session_manager.clone(),
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
-                            streaming_engine: self.streaming_engine.clone(),
-                            active_requests: self.active_requests.clone(),
+                            _streaming_engine: self.streaming_engine.clone(),
+                            _active_requests: self.active_requests.clone(),
                             state: self.state.clone(),
                         };
                         let task = tokio::spawn(async move {
@@ -664,20 +666,20 @@ fn token_id_to_text_fallback(token_id: u32) -> String {
 
 /// Handle used inside spawned tasks to avoid borrowing self
 struct InferenceEngineHandle {
-    config: InferenceConfig,
-    runtime: Arc<InferenceRuntime>,
+    _config: InferenceConfig,
+    _runtime: Arc<InferenceRuntime>,
     scheduler: Arc<RwLock<RequestScheduler>>,
-    kv_cache: Arc<RwLock<KVCache>>,
-    session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
+    _kv_cache: Arc<RwLock<KVCache>>,
+    _session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     model: CausalLM,
     tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
-    streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
-    active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
+    _streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
+    _active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     state: Arc<RwLock<EngineState>>,
 }
 
 impl InferenceEngineHandle {
-    async fn generate_internal(&self, request: InferenceRequest) -> Result<InferenceResponse> {
+    async fn _generate_internal(&self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start = std::time::Instant::now();
         let mut response = InferenceResponse::new(request.request_id);
 

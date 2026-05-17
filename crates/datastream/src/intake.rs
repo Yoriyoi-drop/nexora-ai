@@ -1,16 +1,14 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::time::{sleep, Duration};
-use futures::stream::StreamExt;
-use tracing::{info, debug, warn};
+use tracing::{debug, warn};
 
-use crate::types::{DataSample, BatchConfig, SourceInfo, SampleStats, SourceCategory};
+use crate::types::{DataSample, BatchConfig, SourceInfo, SampleStats};
 use uuid::Uuid;
 
 pub struct StreamIntakeEngine {
     pub batch_config: BatchConfig,
     semaphore: Arc<Semaphore>,
-    source_reputation: std::collections::HashMap<String, f64>,
 }
 
 impl Default for StreamIntakeEngine {
@@ -24,7 +22,6 @@ impl StreamIntakeEngine {
         Self {
             semaphore: Arc::new(Semaphore::new(batch_config.prefetch_count)),
             batch_config,
-            source_reputation: std::collections::HashMap::new(),
         }
     }
 

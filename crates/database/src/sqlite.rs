@@ -18,7 +18,7 @@ use crate::{
 
 /// SQLite database implementation
 pub struct SQLiteDatabase {
-    config: DatabaseConfig,
+    _config: DatabaseConfig,
     connection_pool: Arc<dyn ConnectionPool>,
     sqlite_pool: Arc<SQLiteConnectionPool>,
     connection_info: Arc<RwLock<ConnectionInfo>>,
@@ -36,7 +36,7 @@ struct ConnectionInfo {
 /// SQLite connection
 pub struct SQLiteConnection {
     id: String,
-    connection_info: ConnectionInfo,
+    _connection_info: ConnectionInfo,
     is_active: bool,
     transaction_depth: u32,
     #[cfg(feature = "sqlite")]
@@ -140,7 +140,7 @@ impl SQLiteDatabase {
         }));
 
         Ok(Self {
-            config,
+            _config: config,
             connection_pool,
             sqlite_pool,
             connection_info,
@@ -410,7 +410,7 @@ impl SQLiteConnection {
 
         Ok(Self {
             id,
-            connection_info: ConnectionInfo {
+            _connection_info: ConnectionInfo {
                 database_path: database_path.to_string(),
                 is_connected: true,
                 created_at: Instant::now(),
@@ -730,7 +730,7 @@ impl ConnectionPool for SQLiteConnectionPool {
             let mut connections = self.connections.write().await;
             let stat = SQLiteConnection {
                 id,
-                connection_info: ConnectionInfo {
+                _connection_info: ConnectionInfo {
                     database_path: self.database_path.clone(),
                     is_connected: false,
                     created_at: Instant::now(),

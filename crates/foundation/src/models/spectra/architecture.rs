@@ -19,7 +19,7 @@ pub struct SpectraArchitecture {
     /// Innovation generation engine
     innovation_engine: InnovationEngine,
     /// Cross-modal attention network
-    cross_modal_attention: CrossModalAttentionNetwork,
+    _cross_modal_attention: CrossModalAttentionNetwork,
 }
 
 /// Creative Transformer Network
@@ -111,7 +111,7 @@ pub struct MultimodalFusionEngine {
     /// Fusion network
     pub fusion_network: FusionNetwork,
     /// Cross-modal attention
-    pub cross_modal_attention: CrossModalAttention,
+    pub _cross_modal_attention: CrossModalAttention,
 }
 
 /// Modality Fusion Strategy
@@ -1130,7 +1130,7 @@ impl SpectraArchitecture {
                         memory_usage_mb: 256.0,
                     },
                 },
-                cross_modal_attention: CrossModalAttention {
+                _cross_modal_attention: CrossModalAttention {
                     attention_mechanism: AttentionMechanism::CrossModal,
                     attention_heads: 16,
                     attention_span: 512,
@@ -1203,7 +1203,7 @@ impl SpectraArchitecture {
                 ],
                 constraints: config.innovation.creative_constraints.clone().into_iter().map(Into::into).collect(),
             },
-            cross_modal_attention: CrossModalAttentionNetwork {
+            _cross_modal_attention: CrossModalAttentionNetwork {
                 attention_layers: vec![
                     CrossModalAttentionLayer {
                         id: "layer_1".to_string(),

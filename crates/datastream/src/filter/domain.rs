@@ -51,7 +51,7 @@ impl Default for DomainClassifier {
 
 impl DomainClassifier {
     pub fn classify(&self, text: &str) -> Vec<(Domain, f64)> {
-        let mut scores = Vec::new();
+        let mut scores = Vec::with_capacity(6);
 
         let code_score = self.score_patterns(text, &self.code_patterns);
         if code_score > 0.0 {

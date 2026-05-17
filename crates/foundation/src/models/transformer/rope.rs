@@ -60,7 +60,7 @@ impl RoPE {
     }
 
     pub fn apply_single(
-        x: &Array1<f32>,
+        x: &[f32],
         cos: &Array1<f32>,
         sin: &Array1<f32>,
         head_dim: usize,
@@ -68,7 +68,7 @@ impl RoPE {
     ) -> Array1<f32> {
         let dim = x.len();
         let half = head_dim / 2;
-        let mut output = x.clone();
+        let mut output = ndarray::Array::from(x.to_vec());
 
         for i in 0..half.min(dim / 2) {
             let idx1 = i;

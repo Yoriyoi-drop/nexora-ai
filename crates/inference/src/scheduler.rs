@@ -27,10 +27,10 @@ pub struct SchedulerStats {
 }
 
 struct ScheduledRequest {
-    request_id: Uuid,
+    _request_id: Uuid,
     response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
     status: RequestStatus,
-    submitted_at: chrono::DateTime<chrono::Utc>,
+    _submitted_at: chrono::DateTime<chrono::Utc>,
     batch_key: Option<BatchKey>,
 }
 
@@ -78,10 +78,10 @@ impl RequestScheduler {
         let mut queue = self.queue.write().await;
 
         requests.insert(request_id, ScheduledRequest {
-            request_id,
+            _request_id: request_id,
             response_tx,
             status: RequestStatus::Queued,
-            submitted_at: chrono::Utc::now(),
+            _submitted_at: chrono::Utc::now(),
             batch_key: None,
         });
         queue.push_back(request_id);
@@ -100,10 +100,10 @@ impl RequestScheduler {
 
         let key = BatchKey::from_request(request);
         requests.insert(request.request_id, ScheduledRequest {
-            request_id: request.request_id,
+            _request_id: request.request_id,
             response_tx,
             status: RequestStatus::Queued,
-            submitted_at: chrono::Utc::now(),
+            _submitted_at: chrono::Utc::now(),
             batch_key: Some(key.clone()),
         });
         queue.push_back(request.request_id);

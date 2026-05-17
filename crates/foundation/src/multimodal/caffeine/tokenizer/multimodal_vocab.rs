@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// Multimodal vocabulary
 pub struct MultimodalVocabulary {
     vocab_size: usize,
-    token_dim: usize,
+    _token_dim: usize,
     token_to_id: HashMap<String, usize>,
     id_to_token: HashMap<usize, String>,
     modality_tokens: HashMap<ModalityType, Vec<usize>>,
@@ -18,7 +18,7 @@ pub struct MultimodalVocabulary {
 
 impl MultimodalVocabulary {
     /// Create new multimodal vocabulary
-    pub fn new(vocab_size: usize, token_dim: usize) -> Result<Self> {
+    pub fn new(vocab_size: usize, _token_dim: usize) -> Result<Self> {
         let mut token_to_id = HashMap::new();
         let mut id_to_token = HashMap::new();
         let mut modality_tokens = HashMap::new();
@@ -58,7 +58,7 @@ impl MultimodalVocabulary {
         
         Ok(Self {
             vocab_size,
-            token_dim,
+            _token_dim,
             token_to_id,
             id_to_token,
             modality_tokens,
@@ -299,10 +299,10 @@ pub struct VocabularyBuilder {
 
 impl VocabularyBuilder {
     /// Create new vocabulary builder
-    pub fn new(vocab_size: usize, token_dim: usize) -> Self {
+    pub fn new(vocab_size: usize, _token_dim: usize) -> Self {
         Self {
             vocab_size,
-            token_dim,
+            token_dim: _token_dim,
             custom_tokens: Vec::new(),
         }
     }

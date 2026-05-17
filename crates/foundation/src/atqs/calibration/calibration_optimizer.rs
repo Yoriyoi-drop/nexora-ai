@@ -660,7 +660,7 @@ trait CalibrationOptimizer {
 
 /// Adam optimizer implementation
 struct AdamOptimizer {
-    config: CalibrationOptimizerConfig,
+    _config: CalibrationOptimizerConfig,
     beta1: f32,
     beta2: f32,
     epsilon: f32,
@@ -672,7 +672,7 @@ struct AdamOptimizer {
 impl AdamOptimizer {
     fn new(config: &CalibrationOptimizerConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             beta1: 0.9,
             beta2: 0.999,
             epsilon: 1e-8,
@@ -725,7 +725,7 @@ impl CalibrationOptimizer for AdamOptimizer {
 
 /// SGD with Momentum optimizer implementation
 struct SGDMomentumOptimizer {
-    config: CalibrationOptimizerConfig,
+    _config: CalibrationOptimizerConfig,
     momentum: f32,
     velocity: HashMap<String, ArrayD<f32>>,
 }
@@ -733,7 +733,7 @@ struct SGDMomentumOptimizer {
 impl SGDMomentumOptimizer {
     fn new(config: &CalibrationOptimizerConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             momentum: 0.9,
             velocity: HashMap::new(),
         }
@@ -773,7 +773,7 @@ impl CalibrationOptimizer for SGDMomentumOptimizer {
 /// AdaGrad accumulates squared gradients and adapts learning rates per parameter.
 /// Particularly effective for sparse gradients and non-stationary objectives.
 pub struct AdaGradOptimizer {
-    config: CalibrationOptimizerConfig,
+    _config: CalibrationOptimizerConfig,
     accumulated_gradients: HashMap<String, ArrayD<f32>>,
     epsilon: f32, // Small constant to avoid division by zero
 }
@@ -782,7 +782,7 @@ impl AdaGradOptimizer {
     /// Create new AdaGrad optimizer
     pub fn new(config: &CalibrationOptimizerConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             accumulated_gradients: HashMap::new(),
             epsilon: 1e-8,
         }
@@ -847,7 +847,7 @@ impl CalibrationOptimizer for AdaGradOptimizer {
 /// RMSProp uses exponential moving average of squared gradients to adapt learning rates.
 /// Particularly effective for non-stationary objectives and deep networks.
 pub struct RMSPropOptimizer {
-    config: CalibrationOptimizerConfig,
+    _config: CalibrationOptimizerConfig,
     squared_gradients: HashMap<String, ArrayD<f32>>,
     decay_rate: f32, // Exponential moving average decay
     epsilon: f32, // Small constant to avoid division by zero
@@ -857,7 +857,7 @@ impl RMSPropOptimizer {
     /// Create new RMSProp optimizer
     pub fn new(config: &CalibrationOptimizerConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             squared_gradients: HashMap::new(),
             decay_rate: 0.9, // Standard RMSProp decay rate
             epsilon: 1e-8,
@@ -922,13 +922,13 @@ impl CalibrationOptimizer for RMSPropOptimizer {
 }
 
 struct LAMBOptimizer {
-    config: CalibrationOptimizerConfig,
+    _config: CalibrationOptimizerConfig,
 }
 
 impl LAMBOptimizer {
     fn new(config: &CalibrationOptimizerConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
         }
     }
 }

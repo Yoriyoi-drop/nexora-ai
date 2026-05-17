@@ -1,18 +1,15 @@
 //! BLAA integration untuk inference engine
 
-use anyhow::Result;
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
-use uuid::Uuid;
+use tracing::{error, info, warn};
 
 use crate::{InferenceEngine, InferenceRequest, InferenceResponse, InferenceError, FinishReason, GeneratedToken, Result as InferenceResult};
-use nexora_blaa::{BlaaClient, BlaaConfig, ChatMessage, MessageRole, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk, EmbeddingRequest, Usage};
+use nexora_blaa::{BlaaClient, BlaaConfig, ChatMessage, MessageRole, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk, EmbeddingRequest};
 
 /// BLAA integration untuk inference engine
 #[derive(Debug, Clone)]
@@ -66,9 +63,8 @@ impl BlaaInferenceEngine {
     
     /// Convert inference request to BLAA chat completion request
     fn to_blaa_request(&self, request: &InferenceRequest) -> ChatCompletionRequest {
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(2);
         
-        // Add system prompt if present in metadata
         if let Some(system_prompt) = request.metadata.get("system_prompt") {
             if let Some(system_text) = system_prompt.as_str() {
                 messages.push(ChatMessage {

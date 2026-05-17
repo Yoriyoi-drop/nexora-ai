@@ -73,14 +73,12 @@ impl GQA {
             .expect("GQA: v shape mismatch");
 
         for b in 0..batch_size {
-            let k_row = k.slice(ndarray::s![b, .., ..]).to_owned()
-                .into_shape(self.num_kv_heads * self.head_dim).expect("GQA: k_row flatten");
-            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated_k = rotated_k.into_shape((self.num_kv_heads, self.head_dim))
-                .expect("GQA: rotated k reshape");
+            let k_slice_view = k.slice(ndarray::s![b, .., ..]);
+            let k_row = k_slice_view.as_slice().unwrap();
+            let rotated_k = RoPE::apply_single(k_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
-                    k[[b, h, d]] = rotated_k[[h, d]];
+                    k[[b, h, d]] = rotated_k[h * self.head_dim + d];
                 }
             }
         }
@@ -161,24 +159,20 @@ impl GQA {
             .expect("GQA forward_with_kv: v shape");
 
         for b in 0..batch_size {
-            let k_row = k.slice(ndarray::s![b, .., ..]).to_owned()
-                .into_shape(self.num_kv_heads * self.head_dim).expect("GQA: k_row flatten");
-            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated_k = rotated_k.into_shape((self.num_kv_heads, self.head_dim))
-                .expect("GQA: rotated k reshape");
+            let k_slice_view = k.slice(ndarray::s![b, .., ..]);
+            let k_row = k_slice_view.as_slice().unwrap();
+            let rotated_k = RoPE::apply_single(k_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
-                    k[[b, h, d]] = rotated_k[[h, d]];
+                    k[[b, h, d]] = rotated_k[h * self.head_dim + d];
                 }
             }
         }
 
         for b in 0..batch_size {
-            let q_row = q.slice(ndarray::s![b, .., ..]).to_owned()
-                .into_shape(self.num_heads * self.head_dim).expect("GQA: q_row flatten");
-            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            let rotated_q = rotated_q.into_shape((self.num_heads, self.head_dim))
-                .expect("GQA: rotated q reshape");
+            let q_slice_view = q.slice(ndarray::s![b, .., ..]);
+            let q_row = q_slice_view.as_slice().unwrap();
+            let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
         }
 
         let seq_len = if layer_idx < cache.len() {
@@ -215,12 +209,13 @@ impl GQA {
         let total_seq = k_cached.shape()[0];
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
+        let mut scores = Vec::with_capacity(total_seq);
 
         for b in 0..batch_size {
             for h in 0..self.num_heads {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
 
-                let mut scores = Vec::with_capacity(total_seq);
+                scores.clear();
                 let mut max_score = f32::NEG_INFINITY;
 
                 for t in 0..total_seq {

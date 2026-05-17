@@ -6,6 +6,14 @@ use nexora_deeplearning::autograd::ops::cross_entropy_loss;
 
 use crate::models::transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct EvalMetrics {
+    pub avg_loss: f64,
+    pub perplexity: f64,
+    pub total_tokens: usize,
+}
+
+#[derive(Clone)]
 pub struct TrainerConfig {
     pub learning_rate: f32,
     pub max_steps: usize,
@@ -14,6 +22,12 @@ pub struct TrainerConfig {
     pub save_path: Option<String>,
     pub save_every: usize,
     pub report_every: usize,
+    pub batch_size: usize,
+    pub weight_decay: f32,
+    pub max_grad_norm: Option<f32>,
+    pub warmup_steps: usize,
+    pub val_every_steps: usize,
+    pub early_stop_patience: usize,
 }
 
 impl Default for TrainerConfig {
@@ -26,6 +40,12 @@ impl Default for TrainerConfig {
             save_path: None,
             save_every: 100,
             report_every: 10,
+            batch_size: 1,
+            weight_decay: 0.0,
+            max_grad_norm: None,
+            warmup_steps: 0,
+            val_every_steps: 100,
+            early_stop_patience: 3,
         }
     }
 }
@@ -37,6 +57,11 @@ pub struct Trainer {
     pub optimizer: Option<Adam>,
     pub step: usize,
     pub total_loss: f64,
+    pub total_tokens: usize,
+    pub accumulation_counter: usize,
+    pub best_val_loss: Option<f64>,
+    pub patience_counter: usize,
+    pub completed_epochs: usize,
     pub stop_flag: Arc<AtomicBool>,
 }
 
@@ -55,6 +80,11 @@ impl Trainer {
             optimizer: None,
             step: 0,
             total_loss: 0.0,
+            total_tokens: 0,
+            accumulation_counter: 0,
+            best_val_loss: None,
+            patience_counter: 0,
+            completed_epochs: 0,
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -67,6 +97,11 @@ impl Trainer {
             optimizer: None,
             step: 0,
             total_loss: 0.0,
+            total_tokens: 0,
+            accumulation_counter: 0,
+            best_val_loss: None,
+            patience_counter: 0,
+            completed_epochs: 0,
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -90,9 +125,25 @@ impl Trainer {
     pub fn prepare(&mut self) {
         let trainable = TrainableCausalLM::from_inference(&self.model);
         let params = trainable.parameters();
-        let optimizer = Adam::new(params, self.config.learning_rate);
+        let mut optimizer = Adam::new(params, self.config.learning_rate);
+        if self.config.weight_decay > 0.0 {
+            optimizer.set_weight_decay(self.config.weight_decay);
+        }
+        if self.config.max_grad_norm.is_some() {
+            optimizer.set_max_grad_norm(self.config.max_grad_norm);
+        }
         self.trainable = Some(trainable);
         self.optimizer = Some(optimizer);
+    }
+
+    fn lr_at_step(step: usize, base_lr: f32, warmup_steps: usize, max_steps: usize) -> f32 {
+        if step < warmup_steps {
+            base_lr * (step as f32 / warmup_steps.max(1) as f32)
+        } else {
+            let progress = (step - warmup_steps) as f32
+                / (max_steps - warmup_steps).max(1) as f32;
+            base_lr * 0.5 * (1.0 + (std::f32::consts::PI * progress).cos())
+        }
     }
 
     pub fn train_batch(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
@@ -121,18 +172,35 @@ impl Trainer {
         let loss = cross_entropy_loss(&logits, &target_t).mean();
 
         loss.backward();
-        optimizer.step();
-        optimizer.zero_grad();
 
         let loss_val = loss.data()[0];
-        self.step += 1;
         self.total_loss += loss_val as f64;
+        self.total_tokens += targets.len();
+        self.accumulation_counter += 1;
 
-        if let Some(ref path) = self.config.save_path {
-            if self.step % self.config.save_every == 0 {
-                trainable.sync_to_inference(&mut self.model);
-                let save_file = format!("{}.step-{}.safetensors", path, self.step);
-                let _ = trainable.save_checkpoint(&save_file);
+        if self.accumulation_counter >= self.config.batch_size {
+            optimizer.step();
+            optimizer.zero_grad();
+            self.step += 1;
+            self.accumulation_counter = 0;
+
+            optimizer.lr = Self::lr_at_step(
+                self.step,
+                self.config.learning_rate,
+                self.config.warmup_steps,
+                self.config.max_steps,
+            );
+
+            if let Some(ref path) = self.config.save_path {
+                if self.step % self.config.save_every == 0 {
+                    trainable.sync_to_inference(&mut self.model);
+                    let save_file = format!("{}.step-{}.safetensors", path, self.step);
+                    let _ = trainable.save_checkpoint(&save_file);
+                }
+            }
+
+            if self.should_stop() {
+                return None;
             }
         }
 
@@ -150,7 +218,7 @@ impl Trainer {
     }
 
     pub fn avg_loss(&self) -> f64 {
-        if self.step == 0 { 0.0 } else { self.total_loss / self.step as f64 }
+        if self.total_tokens == 0 { 0.0 } else { self.total_loss / self.total_tokens as f64 }
     }
 
     pub fn save_checkpoint(&self) {
@@ -180,6 +248,102 @@ impl Trainer {
             let mut model_clone = self.model.clone();
             trainable.sync_to_inference(&mut model_clone);
             self.model = model_clone;
+        }
+    }
+
+    pub fn evaluate_loss(&self, sequences: &[Vec<u32>], seq_length: usize) -> EvalMetrics {
+        let trainable = match self.trainable.as_ref() {
+            Some(t) => t,
+            None => {
+                let t = TrainableCausalLM::from_inference(&self.model);
+                let mut total_loss = 0.0f64;
+                let mut total_tokens = 0usize;
+                for tokens in sequences {
+                    if tokens.len() < 2 { continue; }
+                    for chunk in tokens.chunks(seq_length + 1) {
+                        if chunk.len() < 2 { continue; }
+                        let input_t = Tensor::from_slice(
+                            &chunk[..chunk.len()-1].iter().map(|&x| x as f32).collect::<Vec<_>>(),
+                            &[chunk.len()-1],
+                        );
+                        let target_t = Tensor::from_slice(
+                            &chunk[1..].iter().map(|&x| x as f32).collect::<Vec<_>>(),
+                            &[chunk.len()-1],
+                        );
+                        let logits = t.forward(&input_t);
+                        let loss = cross_entropy_loss(&logits, &target_t).mean();
+                        total_loss += loss.data()[0] as f64 * (chunk.len()-1) as f64;
+                        total_tokens += chunk.len() - 1;
+                    }
+                }
+                return EvalMetrics {
+                    avg_loss: if total_tokens > 0 { total_loss / total_tokens as f64 } else { 0.0 },
+                    perplexity: if total_tokens > 0 { (total_loss / total_tokens as f64).exp() } else { 0.0 },
+                    total_tokens,
+                };
+            }
+        };
+
+        let mut total_loss = 0.0f64;
+        let mut total_tokens = 0usize;
+
+        for tokens in sequences {
+            if tokens.len() < 2 { continue; }
+            for chunk in tokens.chunks(seq_length + 1) {
+                if chunk.len() < 2 { continue; }
+                let input_t = Tensor::from_slice(
+                    &chunk[..chunk.len()-1].iter().map(|&x| x as f32).collect::<Vec<_>>(),
+                    &[chunk.len()-1],
+                );
+                let target_t = Tensor::from_slice(
+                    &chunk[1..].iter().map(|&x| x as f32).collect::<Vec<_>>(),
+                    &[chunk.len()-1],
+                );
+                let logits = trainable.forward(&input_t);
+                let loss = cross_entropy_loss(&logits, &target_t).mean();
+                total_loss += loss.data()[0] as f64 * (chunk.len()-1) as f64;
+                total_tokens += chunk.len() - 1;
+            }
+        }
+
+        EvalMetrics {
+            avg_loss: if total_tokens > 0 { total_loss / total_tokens as f64 } else { 0.0 },
+            perplexity: if total_tokens > 0 { (total_loss / total_tokens as f64).exp() } else { 0.0 },
+            total_tokens,
+        }
+    }
+
+    pub fn should_early_stop(&self) -> bool {
+        self.patience_counter >= self.config.early_stop_patience
+    }
+
+    pub fn update_val_loss(&mut self, val_loss: f64) -> bool {
+        match self.best_val_loss {
+            Some(best) if val_loss < best => {
+                self.best_val_loss = Some(val_loss);
+                self.patience_counter = 0;
+                true
+            }
+            None => {
+                self.best_val_loss = Some(val_loss);
+                self.patience_counter = 0;
+                false
+            }
+            Some(_) => {
+                self.patience_counter += 1;
+                false
+            }
+        }
+    }
+
+    pub fn epoch_checkpoint(&self, epoch: usize) {
+        if let Some(ref path) = self.config.save_path {
+            if let Some(ref trainable) = self.trainable {
+                let mut model_clone = self.model.clone();
+                trainable.sync_to_inference(&mut model_clone);
+                let save_file = format!("{}.epoch-{}.safetensors", path, epoch);
+                let _ = trainable.save_checkpoint(&save_file);
+            }
         }
     }
 }

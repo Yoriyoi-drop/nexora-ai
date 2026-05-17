@@ -255,16 +255,16 @@ impl MultiHeadAttention {
 /// Query attention mechanism
 pub struct QueryAttention {
     hidden_dim: usize,
-    num_queries: usize,
+    _num_queries: usize,
     attention_weights: Option<ArrayD<f32>>,
 }
 
 impl QueryAttention {
     /// Create new query attention
-    pub fn new(hidden_dim: usize, num_queries: usize) -> Self {
+    pub fn new(hidden_dim: usize, _num_queries: usize) -> Self {
         Self {
             hidden_dim,
-            num_queries,
+            _num_queries,
             attention_weights: None,
         }
     }

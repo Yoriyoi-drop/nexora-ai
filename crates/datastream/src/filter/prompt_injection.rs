@@ -38,7 +38,7 @@ impl PromptInjectionFilter {
     }
 
     fn detect_injection(&self, text: &str) -> (f64, Option<String>) {
-        let text_lower = text.to_lowercase();
+        let _text_lower = text.to_lowercase();
         let first_line = text.lines().next().unwrap_or("").to_lowercase();
         for prefix in &self.ignore_prefixes {
             if first_line.starts_with(prefix) {

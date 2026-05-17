@@ -272,7 +272,7 @@ impl KVCache {
             if entry.is_expired() {
                 let entry_size = entry.size_bytes;
                 let key_owned = key.to_string(); // Clone key for removal
-                drop(entry); // Drop the borrow before modifying shard
+                let _ = entry; // Drop the borrow before modifying shard
                 shard.entries.remove(&key_owned);
                 shard.lru_order.retain(|k| k != &key_owned);
                 shard.current_size_bytes -= entry_size;

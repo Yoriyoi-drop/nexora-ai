@@ -5,13 +5,13 @@ use crate::atqs::Tensor;
 
 /// Upsampler for increasing resolution
 pub struct Upsampler {
-    config: UpsamplerConfig,
+    _config: UpsamplerConfig,
 }
 
 impl Upsampler {
     /// Create new upsampler
     pub fn new(config: UpsamplerConfig) -> HLDVAResult<Self> {
-        Ok(Self { config })
+        Ok(Self { _config: config })
     }
     
     /// Upsample input tensor

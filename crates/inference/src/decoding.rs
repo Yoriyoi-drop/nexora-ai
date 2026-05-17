@@ -128,7 +128,7 @@ impl DecodingStrategy for GreedyDecoding {
             
             return Ok(TokenSelection {
                 token_id: next_index as u32,
-                token_text: format!("[token_{}]", next_index),
+                token_text: alloc_token_text(next_index),
                 log_prob,
                 selection_prob,
                 metadata: HashMap::new(),
@@ -140,7 +140,7 @@ impl DecodingStrategy for GreedyDecoding {
         
         Ok(TokenSelection {
             token_id: max_index as u32,
-            token_text: format!("[token_{}]", max_index),
+            token_text: alloc_token_text(max_index),
             log_prob,
             selection_prob,
             metadata: HashMap::new(),
@@ -163,9 +163,9 @@ impl DecodingStrategy for GreedyDecoding {
 
 impl GreedyDecoding {
     fn adjust_logits(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<Vec<f32>> {
-        let mut adjusted = logits.to_vec();
+        let mut adjusted = Vec::with_capacity(logits.len());
+        adjusted.extend_from_slice(logits);
         
-        // Apply presence penalty
         if config.presence_penalty != 0.0 {
             for token_id in context.token_frequencies.keys() {
                 if let Some(logit) = adjusted.get_mut(*token_id as usize) {
@@ -256,7 +256,7 @@ impl DecodingStrategy for TemperatureSampling {
         
         Ok(TokenSelection {
             token_id: token_id as u32,
-            token_text: format!("[token_{}]", token_id),
+            token_text: alloc_token_text(token_id),
             log_prob,
             selection_prob,
             metadata: HashMap::new(),
@@ -276,59 +276,58 @@ impl DecodingStrategy for TemperatureSampling {
 
 impl TemperatureSampling {
     fn compute_softmax(&self, logits: &[f32]) -> Result<Vec<f32>> {
-        // Find max logit for numerical stability
         let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        
-        // Compute exp and sum
-        let exp_values: Vec<f32> = logits
-            .iter()
-            .map(|&logit| (logit - max_logit).exp())
-            .collect();
-        
-        let sum: f32 = exp_values.iter().sum();
-        
+        let mut probs = Vec::with_capacity(logits.len());
+        let mut sum = 0.0;
+        for &l in logits {
+            let e = (l - max_logit).exp();
+            sum += e;
+            probs.push(e);
+        }
         if sum == 0.0 {
             return Err(InferenceError::DecodingError("Softmax sum is zero".to_string()));
         }
-        
-        // Normalize
-        let probs: Vec<f32> = exp_values.iter().map(|&val| val / sum).collect();
+        for p in probs.iter_mut() {
+            *p /= sum;
+        }
         Ok(probs)
     }
     
     fn apply_top_k(&self, probs: &[f32], top_k: u32) -> Result<Vec<f32>> {
         let k = std::cmp::min(top_k as usize, probs.len());
+        let n = probs.len();
         
-        // Find top-k indices
-        let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
-        indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut indexed_probs: Vec<(usize, f32)> = Vec::with_capacity(n);
+        for (i, &p) in probs.iter().enumerate() {
+            indexed_probs.push((i, p));
+        }
+        indexed_probs.select_nth_unstable_by(k.saturating_sub(1), |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
-        // Create filtered probabilities (zero out others)
-        let mut filtered = vec![0.0; probs.len()];
-        for (_i, &(idx, prob)) in indexed_probs.iter().take(k).enumerate() {
+        let threshold = indexed_probs[k.saturating_sub(1)].1;
+        let mut filtered = vec![0.0; n];
+        for &(idx, prob) in indexed_probs.iter().take(k) {
             filtered[idx] = prob;
         }
         
-        // Renormalize
         let sum: f32 = filtered.iter().sum();
         if sum > 0.0 {
             for prob in filtered.iter_mut() {
                 *prob /= sum;
             }
         }
-        
         Ok(filtered)
     }
     
     fn apply_top_p(&self, probs: &[f32], top_p: f32) -> Result<Vec<f32>> {
-        // Sort probabilities in descending order
-        let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
-        indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let n = probs.len();
+        let mut indexed_probs: Vec<(usize, f32)> = Vec::with_capacity(n);
+        for (i, &p) in probs.iter().enumerate() {
+            indexed_probs.push((i, p));
+        }
+        indexed_probs.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         
-        // Find cumulative sum threshold
         let mut cumulative_sum = 0.0;
         let mut cutoff_index = 0;
-        
         for (i, (_, prob)) in indexed_probs.iter().enumerate() {
             cumulative_sum += prob;
             if cumulative_sum >= top_p {
@@ -337,20 +336,17 @@ impl TemperatureSampling {
             }
         }
         
-        // Create filtered probabilities
-        let mut filtered = vec![0.0; probs.len()];
+        let mut filtered = vec![0.0; n];
         for (idx, prob) in indexed_probs.iter().take(cutoff_index) {
             filtered[*idx] = *prob;
         }
         
-        // Renormalize
         let sum: f32 = filtered.iter().sum();
         if sum > 0.0 {
             for prob in filtered.iter_mut() {
                 *prob /= sum;
             }
         }
-        
         Ok(filtered)
     }
     
@@ -424,12 +420,7 @@ impl DecodingStrategy for NucleusSampling {
     fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection> {
         debug!("Nucleus sampling: top_p={:.2}", config.top_p);
         
-        // Create temperature sampling config with temperature=1.0
-        let mut temp_config = config.clone();
-        temp_config.temperature = 1.0;
-        temp_config.top_k = 0; // Disable top-k
-        
-        TemperatureSampling.select_token(logits, &temp_config, context)
+        TemperatureSampling.select_token(logits, config, context)
     }
     
     fn validate_config(&self, config: &DecodingConfig) -> Result<()> {
@@ -451,11 +442,7 @@ impl DecodingStrategy for TopKSampling {
     fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection> {
         debug!("Top-k sampling: top_k={}", config.top_k);
         
-        // Create temperature sampling config with top_p=1.0
-        let mut temp_config = config.clone();
-        temp_config.top_p = 1.0; // Disable top-p
-        
-        TemperatureSampling.select_token(logits, &temp_config, context)
+        TemperatureSampling.select_token(logits, config, context)
     }
     
     fn validate_config(&self, config: &DecodingConfig) -> Result<()> {
@@ -495,8 +482,8 @@ impl DecodingContext {
     /// Add generated token
     pub fn add_token(&mut self, token: GeneratedToken) {
         let _token_id = token.token_id as usize;
-        self.generated_tokens.push(token.clone());
         *self.token_frequencies.entry(token.token_id).or_insert(0) += 1;
+        self.generated_tokens.push(token);
         self.step += 1;
     }
     
@@ -524,4 +511,24 @@ impl DecodingContext {
     pub fn is_required(&self, token_id: u32) -> bool {
         self.required_tokens.contains(&token_id)
     }
+}
+
+pub(crate) fn alloc_token_text(token_id: usize) -> String {
+    let mut buf = String::with_capacity(12);
+    buf.push_str("[t");
+    let mut n = token_id;
+    if n == 0 {
+        buf.push('0');
+    } else {
+        let mut digits = [0u8; 10];
+        let mut i = digits.len();
+        while n > 0 {
+            i -= 1;
+            digits[i] = (n % 10) as u8 + b'0';
+            n /= 10;
+        }
+        buf.push_str(unsafe { core::str::from_utf8_unchecked(&digits[i..]) });
+    }
+    buf.push(']');
+    buf
 }

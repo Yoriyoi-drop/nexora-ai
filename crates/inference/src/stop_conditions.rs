@@ -334,13 +334,13 @@ pub mod custom_conditions {
     /// Length-based stop condition
     #[derive(Debug)]
     pub struct LengthStopCondition {
-        min_length: usize,
+        _min_length: usize,
         max_length: usize,
     }
     
     impl LengthStopCondition {
         pub fn new(min_length: usize, max_length: usize) -> Self {
-            Self { min_length, max_length }
+            Self { _min_length: min_length, max_length }
         }
     }
     

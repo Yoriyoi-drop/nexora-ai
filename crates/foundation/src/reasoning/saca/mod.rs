@@ -43,7 +43,7 @@ use tracing::{info, debug, warn};
 #[derive(Clone)]
 pub struct SACA {
     config: SACAConfig,
-    executor: Arc<AsyncTaskExecutor>,
+    _executor: Arc<AsyncTaskExecutor>,
     
     // 6 core phases
     cot_engine: Arc<super::cot::CoTEngine>,
@@ -101,7 +101,7 @@ impl SACA {
         
         Ok(Self {
             config,
-            executor,
+            _executor: executor,
             cot_engine,
             decompose_engine,
             context_engine,

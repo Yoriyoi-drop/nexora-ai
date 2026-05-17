@@ -7,11 +7,11 @@ use crate::shared::{
 };
 
 /// NXR-VORTEX Identity Manager
-pub struct VortexIdentity {
+pub struct _VortexIdentity {
     meta: ModelMeta,
 }
 
-impl VortexIdentity {
+impl _VortexIdentity {
     /// Create new NXR-VORTEX identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -134,7 +134,7 @@ pub struct PerformanceSpecs {
     pub specializations: Vec<String>,
 }
 
-impl Default for VortexIdentity {
+impl Default for _VortexIdentity {
     fn default() -> Self {
         Self::new()
     }

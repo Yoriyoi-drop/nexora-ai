@@ -27,9 +27,9 @@ use crate::{
 pub struct ApiServer {
     config: ApiConfig,
     router: Router,
-    handlers: Arc<HandlerRegistry>,
-    middleware: Arc<MiddlewareStack>,
-    metrics: Arc<MetricsCollector>,
+    _handlers: Arc<HandlerRegistry>,
+    _middleware: Arc<MiddlewareStack>,
+    _metrics: Arc<MetricsCollector>,
     statistics: Arc<tokio::sync::RwLock<ApiStatistics>>,
     start_time: Instant,
 }
@@ -53,9 +53,9 @@ impl ApiServer {
         Ok(Self {
             config,
             router,
-            handlers,
-            middleware,
-            metrics,
+            _handlers: handlers,
+            _middleware: middleware,
+            _metrics: metrics,
             statistics,
             start_time: Instant::now(),
         })
@@ -148,7 +148,7 @@ impl ApiServer {
     }
     
     /// Create Axum application
-    async fn create_app(self) -> axum::Router {
+    async fn _create_app(self) -> axum::Router {
         self.router
     }
     
@@ -165,7 +165,7 @@ impl ApiServer {
             let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
             
             // Create HTTPS router
-            let app = self.create_app().await;
+            let app = self._create_app().await;
             
             // Serve HTTPS with TLS
             axum_server::bind_rustls(listener, tls_acceptor)

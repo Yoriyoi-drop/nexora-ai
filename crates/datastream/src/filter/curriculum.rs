@@ -28,7 +28,7 @@ impl CurriculumRanker {
         Self::default()
     }
 
-    pub fn rank(&self, sample: &DataSample, domain: Domain) -> (CurriculumLevel, u8) {
+    pub fn rank(&self, _sample: &DataSample, domain: Domain) -> (CurriculumLevel, u8) {
         let domain_level = domain.curriculum_level();
 
         let level = self.curriculum.iter()

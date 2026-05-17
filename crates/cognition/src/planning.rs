@@ -43,7 +43,7 @@ pub struct HierarchicalPlanner;
 
 #[async_trait]
 impl PlanningStrategy for HierarchicalPlanner {
-    async fn create_plan(&self, goal: &str, context: serde_json::Value) -> FoundationResult<Plan> {
+    async fn create_plan(&self, goal: &str, _context: serde_json::Value) -> FoundationResult<Plan> {
         let sentences: Vec<&str> = goal.split(|c: char| c == '.' || c == '!' || c == '?')
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())

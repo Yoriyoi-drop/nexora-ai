@@ -5,14 +5,14 @@ use crate::atqs::Tensor;
 
 /// FID Metric implementation
 pub struct FIDMetric {
-    config: FIDConfig,
+    _config: FIDConfig,
 }
 
 impl FIDMetric {
     /// Create new FID metric
     pub fn new() -> HLDVAResult<Self> {
         Ok(Self {
-            config: FIDConfig::default(),
+            _config: FIDConfig::default(),
         })
     }
     

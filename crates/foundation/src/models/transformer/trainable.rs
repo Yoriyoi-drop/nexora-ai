@@ -243,21 +243,27 @@ impl TrainableCausalLM {
     }
 
     pub fn save_checkpoint(&self, path: &str) -> crate::FoundationResult<()> {
-        let mut tensors: Vec<(String, ndarray::ArrayD<f32>)> = Vec::new();
+        let suffix_names = ["attention_norm.weight", "ffn_norm.weight", "attention.wq", "attention.wk", "attention.wv", "attention.wo", "ffn.w1", "ffn.w2", "ffn.w3"];
+        let mut tensors: Vec<(String, ndarray::ArrayD<f32>)> = Vec::with_capacity(3 + 9 * self.blocks.len());
         tensors.push(("token_embedding".into(), self.token_embedding.data()));
         tensors.push(("lm_head".into(), self.lm_head.data()));
         tensors.push(("norm.weight".into(), self.norm.weight.data()));
         for (i, block) in self.blocks.iter().enumerate() {
-            let prefix = format!("blocks.{}.", i);
-            tensors.push((format!("{}attention_norm.weight", prefix), block.attention_norm.weight.data()));
-            tensors.push((format!("{}ffn_norm.weight", prefix), block.ffn_norm.weight.data()));
-            tensors.push((format!("{}attention.wq", prefix), block.attention.wq.data()));
-            tensors.push((format!("{}attention.wk", prefix), block.attention.wk.data()));
-            tensors.push((format!("{}attention.wv", prefix), block.attention.wv.data()));
-            tensors.push((format!("{}attention.wo", prefix), block.attention.wo.data()));
-            tensors.push((format!("{}ffn.w1", prefix), block.ffn.w1.data()));
-            tensors.push((format!("{}ffn.w2", prefix), block.ffn.w2.data()));
-            tensors.push((format!("{}ffn.w3", prefix), block.ffn.w3.data()));
+            let data_refs = [
+                block.attention_norm.weight.data(),
+                block.ffn_norm.weight.data(),
+                block.attention.wq.data(),
+                block.attention.wk.data(),
+                block.attention.wv.data(),
+                block.attention.wo.data(),
+                block.ffn.w1.data(),
+                block.ffn.w2.data(),
+                block.ffn.w3.data(),
+            ];
+            for (j, suffix) in suffix_names.iter().enumerate() {
+                let key = format!("blocks.{}.{}", i, suffix);
+                tensors.push((key, data_refs[j].clone()));
+            }
         }
         let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors.iter()
             .map(|(name, arr)| (name.as_str(), arr.clone()))
@@ -279,48 +285,26 @@ impl TrainableCausalLM {
                 .map_err(|e| crate::FoundationError::Implementation(format!("Shape mismatch for {}: {}", name, e)))
         }
 
-        model.token_embedding = to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?.to_owned();
-        model.lm_head = to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?.to_owned();
-        model.norm.weight = to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned();
+        model.token_embedding = to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?;
+        model.lm_head = to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?;
+        model.norm.weight = to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?;
 
         for (i, block) in model.blocks.iter_mut().enumerate() {
-            let prefix = format!("blocks.{}.", i);
-            block.attention_norm.weight = to_fixed::<ndarray::Ix1>(
-                get_arr(&format!("{}attention_norm.weight", prefix))?,
-                &format!("{}attention_norm.weight", prefix),
-            )?.to_owned();
-            block.ffn_norm.weight = to_fixed::<ndarray::Ix1>(
-                get_arr(&format!("{}ffn_norm.weight", prefix))?,
-                &format!("{}ffn_norm.weight", prefix),
-            )?.to_owned();
-            block.attention.wq = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wq", prefix))?,
-                &format!("{}attention.wq", prefix),
-            )?.to_owned();
-            block.attention.wk = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wk", prefix))?,
-                &format!("{}attention.wk", prefix),
-            )?.to_owned();
-            block.attention.wv = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wv", prefix))?,
-                &format!("{}attention.wv", prefix),
-            )?.to_owned();
-            block.attention.wo = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wo", prefix))?,
-                &format!("{}attention.wo", prefix),
-            )?.to_owned();
-            block.ffn.w1 = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}ffn.w1", prefix))?,
-                &format!("{}ffn.w1", prefix),
-            )?.to_owned();
-            block.ffn.w2 = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}ffn.w2", prefix))?,
-                &format!("{}ffn.w2", prefix),
-            )?.to_owned();
-            block.ffn.w3 = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}ffn.w3", prefix))?,
-                &format!("{}ffn.w3", prefix),
-            )?.to_owned();
+            macro_rules! load {
+                ($field:expr, $name:expr, $dim:ty) => {{
+                    let key = format!("blocks.{}.{}", i, $name);
+                    $field = to_fixed::<$dim>(get_arr(&key)?, &key)?;
+                }};
+            }
+            load!(block.attention_norm.weight, "attention_norm.weight", ndarray::Ix1);
+            load!(block.ffn_norm.weight, "ffn_norm.weight", ndarray::Ix1);
+            load!(block.attention.wq, "attention.wq", ndarray::Ix2);
+            load!(block.attention.wk, "attention.wk", ndarray::Ix2);
+            load!(block.attention.wv, "attention.wv", ndarray::Ix2);
+            load!(block.attention.wo, "attention.wo", ndarray::Ix2);
+            load!(block.ffn.w1, "ffn.w1", ndarray::Ix2);
+            load!(block.ffn.w2, "ffn.w2", ndarray::Ix2);
+            load!(block.ffn.w3, "ffn.w3", ndarray::Ix2);
         }
 
         Ok(())

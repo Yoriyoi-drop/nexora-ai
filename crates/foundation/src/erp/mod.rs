@@ -62,7 +62,7 @@ impl Default for ERPConfig {
 
 /// Main ERP Engine
 pub struct ERPEngine {
-    config: ERPConfig,
+    _config: ERPConfig,
     resonance_mapper: ResonanceMapper,
     compressor: SuperpositionCompressor,
     reconstructor: ContextReconstructor,
@@ -72,7 +72,7 @@ pub struct ERPEngine {
 impl ERPEngine {
     pub fn new(config: ERPConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             resonance_mapper: ResonanceMapper::new(config.clone()),
             compressor: SuperpositionCompressor::new(config.clone()),
             reconstructor: ContextReconstructor::new(config.clone()),

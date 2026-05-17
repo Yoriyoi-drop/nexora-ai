@@ -13,76 +13,22 @@ use std::time::Instant;
 
 /// Performance benchmark untuk ERP
 pub struct ERPBenchmark {
-    config: ERPConfig,
+    _config: ERPConfig,
 }
 
 impl ERPBenchmark {
     pub fn new(config: ERPConfig) -> Self {
-        Self { config }
-    }
-
-    /// Benchmark inference performance
-    pub fn benchmark_inference(&self, compressed_layers: &[CompressedLayer], test_inputs: &[Array1<f32>]) -> BenchmarkResults {
-        let mut inference_times = Vec::new();
-        let mut memory_usage = Vec::new();
-
-        for input in test_inputs {
-            let start_time = Instant::now();
-            
-            // Simulate inference
-            let mut current_input = input.clone();
-            for layer in compressed_layers {
-                let output = layer.compressed_weights.dot(&current_input);
-                current_input = output;
-            }
-            
-            let inference_time = start_time.elapsed();
-            inference_times.push(inference_time);
-            
-            // Estimate memory usage for all layers
-            let total_memory: usize = compressed_layers.iter()
-                .map(|layer| self.estimate_layer_memory_usage(layer))
-                .sum();
-            memory_usage.push(total_memory);
-        }
-
-        BenchmarkResults {
-            avg_inference_time: inference_times.iter().sum::<std::time::Duration>() / inference_times.len() as u32,
-            min_inference_time: inference_times.iter().min().copied().unwrap_or(std::time::Duration::ZERO),
-            max_inference_time: inference_times.iter().max().copied().unwrap_or(std::time::Duration::ZERO),
-            total_memory_usage: memory_usage.iter().sum(),
-            compression_ratio: self.compute_overall_compression_ratio(compressed_layers),
-        }
-    }
-
-    /// Estimate memory usage untuk layer
-    fn estimate_layer_memory_usage(&self, layer: &CompressedLayer) -> usize {
-        let compressed_size = layer.compressed_weights.len() * std::mem::size_of::<f32>();
-        let resonance_overhead = layer.resonance_representations.len() * std::mem::size_of::<crate::erp::compression::ResonanceRepresentation>();
-        compressed_size + resonance_overhead
-    }
-
-    /// Compute overall compression ratio
-    fn compute_overall_compression_ratio(&self, layers: &[CompressedLayer]) -> f32 {
-        let total_original: usize = layers.iter().map(|l| l.original_weights.len()).sum();
-        let total_compressed: usize = layers.iter().map(|l| l.compressed_weights.len()).sum();
-        
-        if total_original > 0 {
-            1.0 - (total_compressed as f32 / total_original as f32)
-        } else {
-            0.0
-        }
+        Self { _config: config }
     }
 }
 
-/// Validation utilities untuk ERP
 pub struct ERPValidator {
-    config: ERPConfig,
+    _config: ERPConfig,
 }
 
 impl ERPValidator {
     pub fn new(config: ERPConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     /// Validate compressed model

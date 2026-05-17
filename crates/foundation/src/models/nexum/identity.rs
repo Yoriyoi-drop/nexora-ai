@@ -7,11 +7,11 @@ use crate::shared::{
 };
 
 /// NXR-NEXUM Identity Manager
-pub struct NexumIdentity {
+pub struct _NexumIdentity {
     meta: ModelMeta,
 }
 
-impl NexumIdentity {
+impl _NexumIdentity {
     /// Create new NXR-NEXUM identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -221,7 +221,7 @@ pub struct OrchestrationCapabilities {
     pub swarm_orchestration: bool,
 }
 
-impl Default for NexumIdentity {
+impl Default for _NexumIdentity {
     fn default() -> Self {
         Self::new()
     }

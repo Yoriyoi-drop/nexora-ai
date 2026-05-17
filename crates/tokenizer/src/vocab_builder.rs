@@ -49,7 +49,7 @@ pub struct VocabBuilder {
     config: VocabBuilderConfig,
     vocab: HashMap<String, VocabEntry>,
     next_id: u32,
-    special_tokens: SpecialTokens,
+    _special_tokens: SpecialTokens,
 }
 
 impl VocabBuilder {
@@ -108,7 +108,7 @@ impl VocabBuilder {
             config,
             vocab,
             next_id,
-            special_tokens,
+            _special_tokens: special_tokens,
         }
     }
     

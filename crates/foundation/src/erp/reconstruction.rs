@@ -267,7 +267,7 @@ impl ContextReconstructor {
 
 /// Gate network untuk context-gated reconstruction
 pub struct GateNetwork {
-    config: ERPConfig,
+    _config: ERPConfig,
     gate_weights: Array2<f32>,
     gate_bias: Array1<f32>,
 }
@@ -281,7 +281,7 @@ impl GateNetwork {
         let gate_bias = Array1::zeros(1);
 
         Self {
-            config,
+            _config: config,
             gate_weights,
             gate_bias,
         }

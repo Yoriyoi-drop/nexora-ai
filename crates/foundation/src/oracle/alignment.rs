@@ -351,13 +351,13 @@ impl CodeModel {
 
 /// Code analyzer
 pub struct CodeAnalyzer {
-    quality_metrics: Vec<String>,
+    _quality_metrics: Vec<String>,
 }
 
 impl CodeAnalyzer {
     pub fn new() -> Self {
         Self {
-            quality_metrics: vec![
+            _quality_metrics: vec![
                 "lines_of_code".to_string(),
                 "cyclomatic_complexity".to_string(),
                 "maintainability_index".to_string(),

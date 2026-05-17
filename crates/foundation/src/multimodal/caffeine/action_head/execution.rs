@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 /// Execution engine
 pub struct ExecutionEngine {
-    config: crate::caffeine::config::ActionConfig,
+    _config: crate::caffeine::config::ActionConfig,
     action_handlers: HashMap<ActionType, Box<dyn ActionHandler>>,
     execution_history: Vec<ExecutionRecord>,
 }
@@ -29,7 +29,7 @@ impl ExecutionEngine {
         action_handlers.insert(ActionType::Analyze, Box::new(AnalyzeHandler::new()));
         
         Ok(Self {
-            config,
+            _config: config,
             action_handlers,
             execution_history: Vec::new(),
         })
@@ -338,13 +338,13 @@ impl ActionHandler for WaitHandler {
 
 /// Navigate action handler
 pub struct NavigateHandler {
-    navigation_timeout_ms: u64,
+    _navigation_timeout_ms: u64,
 }
 
 impl NavigateHandler {
     pub fn new() -> Self {
         Self {
-            navigation_timeout_ms: 5000,
+            _navigation_timeout_ms: 5000,
         }
     }
 }
@@ -381,13 +381,13 @@ impl ActionHandler for NavigateHandler {
 
 /// Extract action handler
 pub struct ExtractHandler {
-    extraction_timeout_ms: u64,
+    _extraction_timeout_ms: u64,
 }
 
 impl ExtractHandler {
     pub fn new() -> Self {
         Self {
-            extraction_timeout_ms: 3000,
+            _extraction_timeout_ms: 3000,
         }
     }
 }
@@ -429,13 +429,13 @@ impl ActionHandler for ExtractHandler {
 
 /// Analyze action handler
 pub struct AnalyzeHandler {
-    analysis_timeout_ms: u64,
+    _analysis_timeout_ms: u64,
 }
 
 impl AnalyzeHandler {
     pub fn new() -> Self {
         Self {
-            analysis_timeout_ms: 2000,
+            _analysis_timeout_ms: 2000,
         }
     }
 }

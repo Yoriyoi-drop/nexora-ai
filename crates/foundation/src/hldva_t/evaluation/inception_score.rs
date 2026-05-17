@@ -5,14 +5,14 @@ use crate::atqs::Tensor;
 
 /// Inception Score metric
 pub struct InceptionScoreMetric {
-    config: InceptionScoreConfig,
+    _config: InceptionScoreConfig,
 }
 
 impl InceptionScoreMetric {
     /// Create new Inception Score metric
     pub fn new() -> HLDVAResult<Self> {
         Ok(Self {
-            config: InceptionScoreConfig::default(),
+            _config: InceptionScoreConfig::default(),
         })
     }
     

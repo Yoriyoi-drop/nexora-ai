@@ -51,7 +51,7 @@ impl Batch {
         Self {
             batch_id: Uuid::new_v4(),
             key,
-            requests: Vec::new(),
+            requests: Vec::with_capacity(32),
             created_at: Instant::now(),
         }
     }
@@ -104,11 +104,12 @@ impl BatchCollector {
     /// Drain all ready batches (full or timed out).
     /// Returns batches that are ready for processing.
     pub fn drain_ready(&mut self) -> Vec<Batch> {
-        let mut ready = Vec::new();
+        let pending_len = self.pending.len();
+        let mut ready = Vec::with_capacity(pending_len);
         let now = Instant::now();
 
-        let mut to_retain: Vec<BatchKey> = Vec::new();
-        let mut to_drain: Vec<BatchKey> = Vec::new();
+        let mut to_retain: Vec<BatchKey> = Vec::with_capacity(pending_len);
+        let mut to_drain: Vec<BatchKey> = Vec::with_capacity(pending_len);
         for (key, batch) in &self.pending {
             if batch.is_full(self.max_batch_size) || now.duration_since(batch.created_at).as_millis() as u64 >= self.max_collect_time_ms {
                 to_drain.push(key.clone());

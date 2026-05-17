@@ -214,7 +214,7 @@ impl VAEEncoder {
 
 /// VAE Decoder
 pub struct VAEDecoder {
-    config: VAEConfig,
+    _config: VAEConfig,
     
     // Input layers
     input_projection: Linear,
@@ -255,7 +255,7 @@ impl VAEDecoder {
         let final_conv = Conv2D::new(32, 3, 3, 1, 1)?; // RGB output
         
         Ok(Self {
-            config: config.clone(),
+            _config: config.clone(),
             input_projection,
             reshape_size,
             residual_blocks,
@@ -566,7 +566,7 @@ impl Conv2D {
                                 let in_y = out_y * self.stride + ky - self.padding;
                                 let in_x = out_x * self.stride + kx - self.padding;
                                 
-                                if in_y >= 0 && in_y < height && in_x >= 0 && in_x < width {
+                                if true && in_y < height && true && in_x < width {
                                     let in_idx = (in_y * width + in_x) * channels + in_c;
                                     let weight_idx = (out_c * self.in_channels + in_c) * self.kernel_size * self.kernel_size + ky * self.kernel_size + kx;
                                     
@@ -593,7 +593,7 @@ impl Conv2D {
 
 /// LayerNorm2D
 pub struct LayerNorm2D {
-    num_channels: usize,
+    _num_channels: usize,
     weight: Tensor,
     bias: Tensor,
     eps: f32,
@@ -605,7 +605,7 @@ impl LayerNorm2D {
         let bias = Tensor::new(vec![0.0; num_channels], vec![num_channels]);
         
         Ok(Self {
-            num_channels,
+            _num_channels: num_channels,
             weight,
             bias,
             eps: 1e-6,

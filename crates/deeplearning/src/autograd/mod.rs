@@ -119,7 +119,7 @@ pub struct MLP {
 
 impl MLP {
     pub fn new(layer_sizes: &[usize], activation: &str) -> Self {
-        let mut layers: Vec<Box<dyn Module>> = Vec::new();
+        let mut layers: Vec<Box<dyn Module>> = Vec::with_capacity(layer_sizes.len() - 1);
         for i in 0..layer_sizes.len() - 1 {
             layers.push(Box::new(Linear::new(layer_sizes[i], layer_sizes[i + 1], true)));
         }
@@ -146,13 +146,15 @@ impl Module for MLP {
     fn name(&self) -> &str { "MLP" }
 }
 
-/// Adam Optimizer
+/// AdamW Optimizer (Adam with decoupled weight decay)
 pub struct Adam {
     pub parameters: Vec<Tensor>,
     pub lr: f32,
     pub beta1: f32,
     pub beta2: f32,
     pub eps: f32,
+    pub weight_decay: f32,
+    pub max_grad_norm: Option<f32>,
     step: usize,
     m: Vec<ArrayD<f32>>,
     v: Vec<ArrayD<f32>>,
@@ -162,7 +164,7 @@ impl Adam {
     pub fn new(parameters: Vec<Tensor>, lr: f32) -> Self {
         let m = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
         let v = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
-        Self { parameters, lr, beta1: 0.9, beta2: 0.999, eps: 1e-8, step: 0, m, v }
+        Self { parameters, lr, beta1: 0.9, beta2: 0.999, eps: 1e-8, weight_decay: 0.0, max_grad_norm: None, step: 0, m, v }
     }
 
     pub fn zero_grad(&self) {
@@ -171,22 +173,60 @@ impl Adam {
         }
     }
 
+    pub fn set_weight_decay(&mut self, wd: f32) {
+        self.weight_decay = wd;
+    }
+
+    pub fn set_max_grad_norm(&mut self, max_norm: Option<f32>) {
+        self.max_grad_norm = max_norm;
+    }
+
+    fn clip_gradients(&self, max_norm: f32) {
+        let mut total_norm_sq = 0.0f32;
+        for p in &self.parameters {
+            if let Some(g) = p.grad() {
+                total_norm_sq += g.iter().map(|x| x * x).sum::<f32>();
+            }
+        }
+        let total_norm = total_norm_sq.sqrt();
+        if total_norm > max_norm && total_norm > 0.0 {
+            let scale = max_norm / total_norm;
+            for p in &self.parameters {
+                if let Some(g) = p.grad() {
+                    let mut scaled = g;
+                    scaled.mapv_inplace(|x| x * scale);
+                    p.set_grad(scaled);
+                }
+            }
+        }
+    }
+
     pub fn step(&mut self) {
         self.step += 1;
         let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
         let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
 
+        if let Some(max_norm) = self.max_grad_norm {
+            self.clip_gradients(max_norm);
+        }
+
         for (i, p) in self.parameters.iter().enumerate() {
             if let Some(g) = p.grad() {
-                self.m[i] = &self.m[i] * self.beta1 + g.clone() * (1.0 - self.beta1);
-                self.v[i] = &self.v[i] * self.beta2 + (g.clone() * &g) * (1.0 - self.beta2);
+                self.m[i] = &self.m[i] * self.beta1 + &g * (1.0 - self.beta1);
+                self.v[i] = &self.v[i] * self.beta2 + (&g * &g) * (1.0 - self.beta2);
 
-                let m_hat = self.m[i].clone() / bias_corr1;
-                let v_hat = self.v[i].clone() / bias_corr2;
+                let m_hat = &self.m[i] / bias_corr1;
+                let v_hat = &self.v[i] / bias_corr2;
                 let denom = v_hat.mapv(|x| x.sqrt()) + self.eps;
 
                 let lr_arr = ArrayD::from_elem(denom.shape().to_vec(), self.lr);
-                let update = m_hat * (lr_arr / &denom);
+                let mut update = &m_hat * (&lr_arr / &denom);
+
+                if self.weight_decay > 0.0 {
+                    let decay = p.data().mapv(|x| x * self.lr * self.weight_decay);
+                    update = update + &decay;
+                }
+
                 p.subtract_from_data(&update);
             }
         }
@@ -427,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_adam_step() {
-        let mut layer = Linear::new(4, 2, true);
+        let layer = Linear::new(4, 2, true);
         let x = Tensor::randn(&[2, 4], false);
         let y = layer.forward(&x).sum();
         y.backward();
@@ -459,7 +499,7 @@ mod tests {
         let y = Tensor::from_slice(&y_data, &[n, 1]);
         let model = Linear::new(d, 1, true);
 
-        let mut losses = Vec::new();
+        let mut losses = Vec::with_capacity(50);
         let mut opt = SGD::new(model.parameters(), 0.01, 0.9);
 
         for _step in 0..50 {
@@ -490,7 +530,7 @@ mod tests {
         let y = Tensor::from_slice(&y_data, &[n, 1]);
         let model = Linear::new(d, 1, true);
 
-        let mut losses = Vec::new();
+        let mut losses = Vec::with_capacity(100);
         let mut opt = SGD::new(model.parameters(), 0.1, 0.9);
 
         for _step in 0..100 {

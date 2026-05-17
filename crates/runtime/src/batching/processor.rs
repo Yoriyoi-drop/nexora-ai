@@ -41,9 +41,9 @@ pub struct BatchProcessor {
     /// State
     state: Arc<RwLock<ProcessorState>>,
     /// Sender for batch completion notifications
-    batch_sender: mpsc::UnboundedSender<Batch>,
+    batch_sender: mpsc::Sender<Batch>,
     /// Receiver for batch completion notifications
-    batch_receiver: Arc<RwLock<Option<mpsc::UnboundedReceiver<Batch>>>>,
+    batch_receiver: Arc<RwLock<Option<mpsc::Receiver<Batch>>>>,
 }
 
 impl Clone for BatchProcessor {
@@ -64,7 +64,8 @@ impl Clone for BatchProcessor {
 impl BatchProcessor {
     /// Create new batch processor
     pub fn new(config: BatchConfig) -> Self {
-        let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
+        let capacity = config.max_batch_size.max(1) * 4;
+        let (batch_sender, batch_receiver) = mpsc::channel(capacity);
         
         Self {
             config,
@@ -154,7 +155,7 @@ impl BatchProcessor {
     
     /// Try to form a batch from pending requests
     async fn try_form_batch(&self) -> Result<()> {
-        let mut batch_items = {
+        let batch_items = {
             let mut queue = self.pending_queue.write().await;
             if queue.is_empty() {
                 return Ok(());
@@ -202,7 +203,7 @@ impl BatchProcessor {
         self.active_batches.write().await.insert(batch_id, batch.clone());
         self.stats.write().await.increment_in_progress();
 
-        if let Err(e) = self.batch_sender.send(batch.clone()) {
+        if let Err(e) = self.batch_sender.send(batch.clone()).await {
             error!("Failed to send batch for processing: {}", e);
             self.active_batches.write().await.remove(&batch_id);
             let mut stats = self.stats.write().await;

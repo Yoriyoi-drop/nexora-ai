@@ -15,7 +15,7 @@ use anyhow::Result;
 /// Repository Context engine
 pub struct ContextEngine {
     config: ContextConfig,
-    executor: Arc<AsyncTaskExecutor>,
+    _executor: Arc<AsyncTaskExecutor>,
     context_cache: Arc<RwLock<std::collections::HashMap<String, RepositoryContext>>>,
     file_analyzers: Vec<Arc<dyn FileAnalyzer>>,
 }
@@ -36,7 +36,7 @@ impl ContextEngine {
         
         Ok(Self {
             config,
-            executor,
+            _executor: executor,
             context_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
             file_analyzers,
         })

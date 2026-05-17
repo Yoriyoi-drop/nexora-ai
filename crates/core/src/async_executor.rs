@@ -151,8 +151,8 @@ pub struct AsyncTaskExecutor {
     active_tasks: Arc<RwLock<HashMap<String, TaskInfo>>>,
     completed_tasks: Arc<RwLock<HashMap<String, TaskResult>>>,
     semaphore: Arc<Semaphore>,
-    task_sender: mpsc::UnboundedSender<AsyncTask>,
-    task_receiver: Arc<RwLock<Option<mpsc::UnboundedReceiver<AsyncTask>>>>,
+    task_sender: mpsc::Sender<AsyncTask>,
+    task_receiver: Arc<RwLock<Option<mpsc::Receiver<AsyncTask>>>>,
     metrics: Arc<RwLock<ExecutorMetrics>>,
     shutdown: Arc<RwLock<bool>>,
 }
@@ -195,7 +195,7 @@ pub struct ExecutorMetrics {
 
 impl AsyncTaskExecutor {
     pub fn new(config: ExecutorConfig) -> Self {
-        let (task_sender, task_receiver) = mpsc::unbounded_channel();
+        let (task_sender, task_receiver) = mpsc::channel(config.max_queue_size);
         
         Self {
             config: config.clone(),
@@ -329,7 +329,7 @@ impl AsyncTaskExecutor {
     }
     
     /// Main worker loop
-    async fn worker_loop(&self, mut receiver: mpsc::UnboundedReceiver<AsyncTask>) {
+    async fn worker_loop(&self, mut receiver: mpsc::Receiver<AsyncTask>) {
         info!("Worker loop started");
         
         loop {

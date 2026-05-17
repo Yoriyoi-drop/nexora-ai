@@ -3,7 +3,6 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use axum::{
     Router, routing::get, extract::{State, Request}, response::Json,
-    http::StatusCode,
 };
 use serde_json::Value;
 use tower_http::cors::{CorsLayer, Any};

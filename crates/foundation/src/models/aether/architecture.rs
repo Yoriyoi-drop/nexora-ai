@@ -10,7 +10,7 @@ use super::config::AetherConfig;
 /// NXR-ÆTHER Architecture Implementation
 pub struct AetherArchitecture {
     /// Configuration
-    config: AetherConfig,
+    _config: AetherConfig,
     /// Emotion recognition networks
     emotion_networks: HashMap<String, EmotionNetwork>,
     /// Psychological analysis engine
@@ -1056,7 +1056,7 @@ impl AetherArchitecture {
         });
 
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             emotion_networks,
             psychological_engine: PsychologicalAnalysisEngine {
                 framework: config.psychological.psychological_framework.clone().into(),
@@ -1104,7 +1104,7 @@ impl AetherArchitecture {
     }
 
     /// Initialize architecture
-    pub async fn initialize(&mut self, config: &AetherConfig) -> NxrModelResult<()> {
+    pub async fn initialize(&mut self, _config: &AetherConfig) -> NxrModelResult<()> {
         // Initialize emotion networks
         for network in self.emotion_networks.values_mut() {
             network.performance_metrics.accuracy = 0.95;
@@ -1723,7 +1723,7 @@ impl AetherArchitecture {
     }
 
     /// Adjust emotional intensity based on cultural norms
-    fn adjust_emotional_intensity(&self, response: &str, cultural_context: &CulturalContext) -> String {
+    fn _adjust_emotional_intensity(&self, response: &str, cultural_context: &CulturalContext) -> String {
         let intensity_factor = cultural_context.emotional_norms.preferred_intensity;
         
         if intensity_factor < 0.5 {

@@ -240,7 +240,7 @@ fn unfold_tensor(
 }
 
 /// Compute factor matrix for specific mode using SVD
-fn compute_factor_matrix(
+fn _compute_factor_matrix(
     tensor: &ArrayD<f32>,
     mode: usize,
     rank: usize,
@@ -282,7 +282,7 @@ fn mode_n_product(
 }
 
 /// Mode-n unfolding of tensor
-fn mode_n_unfold(tensor: &ArrayD<f32>, mode: usize) -> Result<Array<f32, ndarray::Ix2>, crate::ATQSError> {
+fn _mode_n_unfold(tensor: &ArrayD<f32>, mode: usize) -> Result<Array<f32, ndarray::Ix2>, crate::ATQSError> {
     let shape = tensor.shape();
     let ndim = tensor.ndim();
     

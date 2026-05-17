@@ -452,7 +452,7 @@ mod core_controller_tests {
         let controller = std::sync::Arc::new(create_test_controller());
         
         // Spawn multiple concurrent requests
-        let mut handles = Vec::new();
+        let mut handles = Vec::with_capacity(10);
         
         for i in 0..10 {
             let controller_clone = controller.clone();
@@ -563,7 +563,7 @@ mod performance_tests {
         let start_time = Instant::now();
         
         // Process requests concurrently
-        let mut handles = Vec::new();
+        let mut handles = Vec::with_capacity(num_requests);
         
         for i in 0..num_requests {
             let controller_clone = controller.clone();

@@ -13,7 +13,7 @@ use anyhow::Result;
 /// Chain-of-Thought reasoning engine
 pub struct CoTEngine {
     config: CoTConfig,
-    executor: Arc<AsyncTaskExecutor>,
+    _executor: Arc<AsyncTaskExecutor>,
     reasoning_cache: Arc<RwLock<std::collections::HashMap<String, CoTResult>>>,
 }
 
@@ -26,7 +26,7 @@ impl CoTEngine {
         
         Ok(Self {
             config,
-            executor,
+            _executor: executor,
             reasoning_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
         })
     }

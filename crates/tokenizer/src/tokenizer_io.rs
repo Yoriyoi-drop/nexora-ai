@@ -217,14 +217,13 @@ impl TokenizerIO {
         tokenizer2: &TokenizerCore,
     ) -> Result<f64> {
         let overlap = 0;
-        let mut total = 0;
         
         // This is a simplified implementation
         // In practice, you'd need access to the vocabularies
         let stats1 = tokenizer1.get_vocab_stats();
         let stats2 = tokenizer2.get_vocab_stats();
         
-        total = stats1.vocab_size.max(stats2.vocab_size);
+        let total = stats1.vocab_size.max(stats2.vocab_size);
         
         if total > 0 {
             Ok(overlap as f64 / total as f64)

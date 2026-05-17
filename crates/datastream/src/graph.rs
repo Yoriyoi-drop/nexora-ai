@@ -1,8 +1,7 @@
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::sync::Arc;
 use parking_lot::RwLock;
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::filter::Filter;
 use crate::types::{DataSample, FilterResult, FilterAction, PipelineMetrics, FilterMetric};
@@ -25,6 +24,7 @@ pub struct ExecutionGraph {
     pub entry_points: Vec<String>,
     pub exit_points: Vec<String>,
     pub metrics: Arc<RwLock<PipelineMetrics>>,
+    cached_order: Arc<RwLock<Option<Vec<String>>>>,
 }
 
 impl ExecutionGraph {
@@ -34,6 +34,7 @@ impl ExecutionGraph {
             entry_points: Vec::new(),
             exit_points: Vec::new(),
             metrics: Arc::new(RwLock::new(PipelineMetrics::default())),
+            cached_order: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -53,7 +54,7 @@ impl ExecutionGraph {
     pub fn finalize(&mut self) {
         let mut is_entry = HashSet::new();
         let mut has_deps = HashSet::new();
-        let mut child_updates: Vec<(String, String)> = Vec::new();
+        let mut child_updates: Vec<(String, String)> = Vec::with_capacity(self.nodes.len());
 
         for (id, node) in &self.nodes {
             if node.depends_on.is_empty() {
@@ -85,6 +86,9 @@ impl ExecutionGraph {
             .cloned()
             .collect();
 
+        let order = self.topological_order_inner();
+        *self.cached_order.write() = Some(order);
+
         info!(
             "Execution graph finalized: {} nodes, {} entry, {} exit",
             self.nodes.len(),
@@ -93,7 +97,7 @@ impl ExecutionGraph {
         );
     }
 
-    pub fn topological_order(&self) -> Vec<String> {
+    fn topological_order_inner(&self) -> Vec<String> {
         let mut in_degree: HashMap<String, usize> = self.nodes.keys()
             .map(|k| (k.clone(), self.nodes[k].depends_on.len()))
             .collect();
@@ -103,7 +107,7 @@ impl ExecutionGraph {
             .map(|(id, _)| id.clone())
             .collect();
 
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(self.nodes.len());
         while let Some(node_id) = queue.pop_front() {
             result.push(node_id.clone());
             if let Some(node) = self.nodes.get(&node_id) {
@@ -120,13 +124,17 @@ impl ExecutionGraph {
         result
     }
 
+    pub fn topological_order(&self) -> Vec<String> {
+        self.cached_order.read().clone().unwrap_or_else(|| self.topological_order_inner())
+    }
+
     pub async fn execute(
         &self,
         sample: DataSample,
         cancel: tokio::sync::watch::Receiver<bool>,
     ) -> ExecutionResult {
         let order = self.topological_order();
-        let mut results: Vec<FilterResult> = Vec::new();
+        let mut results: Vec<FilterResult> = Vec::with_capacity(order.len());
         let start = std::time::Instant::now();
 
         for node_id in &order {

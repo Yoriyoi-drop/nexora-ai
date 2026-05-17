@@ -8,12 +8,10 @@
 //! 2. Target model M_p (besar) → verifikasi semua K token dalam SATU forward pass
 //! 3. Accept/reject berdasarkan rejection sampling untuk menjaga distribusi identik
 
-use std::collections::HashMap;
-use tracing::{debug, info};
 use rand::Rng;
 
-use crate::{Result, InferenceError, GeneratedToken, FinishReason};
-use crate::decoding::{DecodingConfig, DecodingContext, DecodingStrategy, TokenSelection};
+use crate::{Result, GeneratedToken};
+use crate::decoding::{self, DecodingConfig, DecodingContext, DecodingStrategy};
 use crate::sampler::Sampler;
 
 /// Configuration untuk speculative decoding
@@ -116,7 +114,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
         let k = self.current_draft_length;
 
         // Phase 1: Draft generation (autoregressive, model kecil)
-        let draft_tokens = self.generate_draft_tokens(
+        let (draft_tokens, draft_logits) = self.generate_draft_tokens(
             draft_logits_fn,
             input_ids,
             k,
@@ -134,7 +132,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
         // target_logits: Vec<Vec<f32>> — logits untuk setiap posisi setelah input
 
         // Phase 3: Rejection sampling per token position
-        let mut accepted = Vec::new();
+        let mut accepted = Vec::with_capacity(k + 1);
         let mut rng = rand::thread_rng();
 
         for (i, draft_token) in draft_tokens.iter().enumerate() {
@@ -143,12 +141,12 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
             }
 
             let target_logit = &target_logits[i];
-            let draft_logit = &target_logits[i]; // Gunakan target logit sebagai proxy untuk draft
+            let draft_logit = if i < draft_logits.len() { &draft_logits[i] } else { target_logit };
 
             if self.config.use_rejection_sampling {
                 // Rejection sampling: accept if p_target / p_draft > uniform(0,1)
                 let p_target = self.compute_token_probability(target_logit, draft_token.token_id);
-                let p_draft = self.compute_token_probability(target_logit, draft_token.token_id);
+                let p_draft = self.compute_token_probability(draft_logit, draft_token.token_id);
                 let ratio = if p_draft > 1e-10 { p_target / p_draft } else { 0.0 };
                 let u: f32 = rng.gen();
 
@@ -167,7 +165,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                     let log_prob = target_logit.get(resampled_id).copied().unwrap_or(0.0);
                     let token = GeneratedToken::new(
                         resampled_id as u32,
-                        format!("[resampled_{}]", resampled_id),
+                        decoding::alloc_token_text(resampled_id),
                         log_prob,
                         context.step + accepted.len(),
                     );
@@ -182,7 +180,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                 } else {
                     let token = GeneratedToken::new(
                         target_argmax,
-                        format!("[corrected_{}]", target_argmax),
+                        decoding::alloc_token_text(target_argmax as usize),
                         target_logit[target_argmax as usize],
                         context.step + accepted.len(),
                     );
@@ -212,7 +210,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                 )?;
                 let bonus_token = GeneratedToken::new(
                     bonus_selection.token_id,
-                    format!("[bonus_{}]", bonus_selection.token_id),
+                    decoding::alloc_token_text(bonus_selection.token_id as usize),
                     bonus_selection.log_prob,
                     context.step + accepted.len(),
                 );
@@ -238,6 +236,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
     }
 
     /// Generate K draft tokens menggunakan draft model (autoregressive)
+    /// Returns (draft_tokens, draft_logits_per_step)
     fn generate_draft_tokens(
         &self,
         draft_logits_fn: &impl Fn(&[u32]) -> Result<Vec<f32>>,
@@ -245,8 +244,9 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
         k: usize,
         decoding_config: &DecodingConfig,
         context: &DecodingContext,
-    ) -> Result<Vec<GeneratedToken>> {
+    ) -> Result<(Vec<GeneratedToken>, Vec<Vec<f32>>)> {
         let mut draft_tokens = Vec::with_capacity(k);
+        let mut draft_logits = Vec::with_capacity(k);
         let mut current_ids = input_ids.to_vec();
 
         for i in 0..k {
@@ -259,16 +259,17 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
 
             let token = GeneratedToken::new(
                 selection.token_id,
-                format!("[draft_{}]", selection.token_id),
+                decoding::alloc_token_text(selection.token_id as usize),
                 selection.log_prob * self.config.draft_scale_factor,
                 context.step + i,
             );
 
             draft_tokens.push(token);
+            draft_logits.push(logits);
             current_ids.push(selection.token_id);
         }
 
-        Ok(draft_tokens)
+        Ok((draft_tokens, draft_logits))
     }
 
     /// Compute probability of a specific token from logits
@@ -327,6 +328,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
 mod tests {
     use super::*;
     use crate::decoding::TokenSelection;
+    use std::collections::HashMap;
 
     /// Mock decoding strategy untuk testing
     struct MockStrategy;

@@ -26,4 +26,5 @@ Thumbs.db
 .tmp/
 temp/
 crates/data/raw/*.arrow
+training_data/
 session-*.md

@@ -94,8 +94,7 @@ impl Router {
     }
     
     /// Compute gating weight for a specific expert
-    fn compute_gating_weight(&self, input: &ndarray::Array1<f32>, expert_idx: usize) -> f32 {
-        // Simple gating: use expert index as a bias and compute dot product
+    fn compute_gating_weight(&self, input: &[f32], expert_idx: usize) -> f32 {
         let expert_bias = expert_idx as f32 * 0.1;
         let dot_product: f32 = input.iter().enumerate()
             .map(|(i, &x)| x * ((i + expert_idx) as f32 * 0.01).cos())
@@ -140,12 +139,11 @@ impl Router {
         let (batch_size, hidden_size) = input.dim();
         let mut gating_weights = ndarray::Array2::zeros((batch_size, self.config.num_experts));
         
-        // Compute gating weights for each token
         for i in 0..batch_size {
+            let row_view = input.row(i);
+            let token_slice = row_view.as_slice().unwrap_or(&[]);
             for j in 0..self.config.num_experts {
-                // Simple gating: compute similarity between token and expert
-                let token_vec = input.slice(ndarray::s![i, ..]).to_owned();
-                let expert_weight = self.compute_gating_weight(&token_vec, j);
+                let expert_weight = self.compute_gating_weight(token_slice, j);
                 gating_weights[[i, j]] = expert_weight;
             }
             
@@ -156,12 +154,11 @@ impl Router {
         gating_weights
     }
     
-    /// Route single input
     pub fn route_single(&self, input: &ndarray::Array1<f32>) -> Result<Vec<usize>, String> {
-        // Compute gating weights for this input
+        let input_slice = input.as_slice().unwrap_or(&[]);
         let mut gating_weights = Vec::with_capacity(self.config.num_experts);
         for j in 0..self.config.num_experts {
-            let weight = self.compute_gating_weight(input, j);
+            let weight = self.compute_gating_weight(input_slice, j);
             gating_weights.push(weight);
         }
         
@@ -189,13 +186,13 @@ impl Router {
     /// Route batch of inputs dengan Capped Routing + Load Balancing Loss
     pub fn route(&mut self, input: &ndarray::Array2<f32>) -> Result<Vec<Vec<usize>>, String> {
         let (batch_size, _) = input.dim();
-        let mut all_routes = Vec::new();
+        let mut all_routes = Vec::with_capacity(batch_size);
         let mut routing_weights: Vec<Vec<(usize, f32)>> = Vec::with_capacity(batch_size);
         
-        // Phase 1: Compute routing weights untuk semua token
         for i in 0..batch_size {
-            let row = input.slice(ndarray::s![i, ..]).to_owned();
-            let (route, weights) = self.route_single_with_weights(&row)?;
+            let row_view = input.row(i);
+            let row_slice = row_view.as_slice().unwrap_or(&[]);
+            let (route, weights) = self.route_single_with_weights(row_slice)?;
             let weights_with_indices: Vec<(usize, f32)> = weights.into_iter().enumerate().collect();
             routing_weights.push(weights_with_indices);
             all_routes.push(route);
@@ -208,7 +205,7 @@ impl Router {
             
             let mut expert_counts = vec![0usize; self.config.num_experts];
             let mut capped_routes: Vec<Vec<usize>> = vec![Vec::new(); batch_size];
-            let mut capacity_violations = 0;
+            let mut _capacity_violations = 0;
             
             // Sort tokens by routing confidence untuk fair capacity allocation
             for i in 0..batch_size {
@@ -224,7 +221,7 @@ impl Router {
                         capped_routes[i].push(expert_id);
                         expert_counts[expert_id] += 1;
                     } else {
-                        capacity_violations += 1;
+                        _capacity_violations += 1;
                     }
                 }
             }
@@ -243,12 +240,11 @@ impl Router {
         Ok(all_routes)
     }
     
-    /// Route single input with Z-loss (stabilizes router logits)
-    /// Z-loss = log(Σ exp(x_i))² → mencegah logits terlalu besar
     pub fn route_single_with_zloss(&self, input: &ndarray::Array1<f32>) -> Result<(Vec<usize>, Vec<f32>, f32), String> {
+        let input_slice = input.as_slice().unwrap_or(&[]);
         let mut gating_weights = Vec::with_capacity(self.config.num_experts);
         for j in 0..self.config.num_experts {
-            let weight = self.compute_gating_weight(input, j);
+            let weight = self.compute_gating_weight(input_slice, j);
             gating_weights.push(weight);
         }
         
@@ -279,8 +275,7 @@ impl Router {
         Ok((top_experts, softmax_weights, z_loss))
     }
 
-    /// Route single input (returns experts + softmax weights)
-    fn route_single_with_weights(&self, input: &ndarray::Array1<f32>) -> Result<(Vec<usize>, Vec<f32>), String> {
+    fn route_single_with_weights(&self, input: &[f32]) -> Result<(Vec<usize>, Vec<f32>), String> {
         let mut gating_weights = Vec::with_capacity(self.config.num_experts);
         for j in 0..self.config.num_experts {
             let weight = self.compute_gating_weight(input, j);

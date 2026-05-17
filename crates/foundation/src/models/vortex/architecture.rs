@@ -4,12 +4,12 @@
 
 use std::collections::HashMap;
 use crate::shared::base_model::NxrModelResult;
-use super::config::VortexConfig;
+use super::config::_VortexConfig;
 
 /// NXR-VORTEX Architecture Implementation
-pub struct VortexArchitecture {
+pub struct _VortexArchitecture {
     /// Configuration
-    config: VortexConfig,
+    config: _VortexConfig,
     /// Expert networks for code analysis
     code_experts: HashMap<String, CodeExpertNetwork>,
     /// Sparse routing network
@@ -617,9 +617,9 @@ pub struct QualityThresholds {
     pub poor: f32,
 }
 
-impl VortexArchitecture {
+impl _VortexArchitecture {
     /// Create new architecture with configuration
-    pub fn new(config: &VortexConfig) -> Self {
+    pub fn new(config: &_VortexConfig) -> Self {
         let mut code_experts = HashMap::new();
         
         // Initialize code expert networks
@@ -830,7 +830,7 @@ impl VortexArchitecture {
     }
 
     /// Initialize architecture
-    pub async fn initialize(&mut self, config: &VortexConfig) -> NxrModelResult<()> {
+    pub async fn initialize(&mut self, config: &_VortexConfig) -> NxrModelResult<()> {
         // Initialize expert networks
         for expert in self.code_experts.values_mut() {
             expert.utilization = 0.0;
@@ -1570,8 +1570,8 @@ pub enum MetricStatus {
     Poor,
 }
 
-impl Default for VortexArchitecture {
+impl Default for _VortexArchitecture {
     fn default() -> Self {
-        Self::new(&VortexConfig::default())
+        Self::new(&_VortexConfig::default())
     }
 }

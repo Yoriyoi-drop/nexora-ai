@@ -13,7 +13,7 @@ nexora-memory = { path = "../../crates/memory" }
 nexora-inference = { path = "../../crates/inference" }
 nexora-blaa = { path = "../../crates/blaa" }
 nexora-infrastructure = { path = "../../crates/infrastructure" }
-nexora-datastream = { path = "../../crates/datastream" }
+nexora-datastream = { path = "../../crates/datastream", features = ["arrow", "compression-zstd", "compression-lz4", "mmap"] }
 nexora-deeplearning = { path = "../../crates/deeplearning" }
 nexora-monitoring = { path = "../../crates/monitoring" }
 
@@ -48,10 +48,15 @@ hex = "0.4"
 sysinfo = "0.30"
 psutil = "3.2"
 reqwest.workspace = true
+arrow = { version = "53", default-features = false, features = ["ipc"] }
 
 [[bin]]
 name = "nexora"
 path = "src/main.rs"
+
+[[bin]]
+name = "generate-training-data"
+path = "src/bin/generate_training_data.rs"
 
 [[example]]
 name = "basic_usage"

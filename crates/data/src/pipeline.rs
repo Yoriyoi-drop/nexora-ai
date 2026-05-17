@@ -12,9 +12,9 @@ use crate::{DataEntry, CorpusCollector, DataDeduplicator, DeduplicationAlgorithm
 
 /// Data processing pipeline with configurable stages
 pub struct DataPipeline {
-    name: String,
+    _name: String,
     stages: Vec<Box<dyn PipelineStage>>,
-    config: PipelineConfig,
+    _config: PipelineConfig,
     statistics: PipelineStatistics,
 }
 
@@ -73,14 +73,14 @@ pub trait PipelineStage: Send + Sync {
 /// Collection stage - gathers data from sources
 #[derive(Debug)]
 pub struct CollectionStage {
-    source_type: String,
+    _source_type: String,
     collector: Arc<RwLock<CorpusCollector>>,
 }
 
 impl CollectionStage {
     pub fn new(source_type: String, capacity: usize) -> Self {
         Self {
-            source_type: source_type.clone(),
+            _source_type: source_type.clone(),
             collector: Arc::new(RwLock::new(CorpusCollector::new(source_type, capacity))),
         }
     }
@@ -292,9 +292,9 @@ impl DataPipeline {
     /// Create new data pipeline
     pub fn new(name: String, config: PipelineConfig) -> Self {
         Self {
-            name,
+            _name: name,
             stages: Vec::new(),
-            config,
+            _config: config,
             statistics: PipelineStatistics::default(),
         }
     }
@@ -639,8 +639,8 @@ mod tests {
         assert_eq!(pipeline.get_stage_names().len(), 3);
         
         // Should have optimized config
-        assert_eq!(pipeline.config.batch_size, 1000);
-        assert_eq!(pipeline.config.max_workers, 8);
-        assert!(pipeline.config.enable_parallel);
+        assert_eq!(pipeline._config.batch_size, 1000);
+        assert_eq!(pipeline._config.max_workers, 8);
+        assert!(pipeline._config.enable_parallel);
     }
 }

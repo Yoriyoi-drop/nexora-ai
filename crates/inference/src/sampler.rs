@@ -1,6 +1,5 @@
 use rand::Rng;
 use rand::SeedableRng;
-use std::collections::HashMap;
 use tracing::debug;
 
 use crate::{InferenceError, Result};
@@ -134,25 +133,25 @@ impl Sampler {
     // --- private ---
 
     fn sample_temperature(&self, logits: &[f32]) -> Result<Vec<f32>> {
-        let scaled = apply_temperature(logits, self.config.temperature);
-        Ok(softmax(&scaled))
+        Ok(scaled_softmax(logits, self.config.temperature))
     }
 
     fn sample_topk(&self, logits: &[f32]) -> Result<Vec<f32>> {
-        let probs = softmax(logits);
-        Ok(top_k_filter(&probs, self.config.top_k))
+        Ok(top_k_filter(&softmax(logits), self.config.top_k))
     }
 
     fn sample_topp(&self, logits: &[f32]) -> Result<Vec<f32>> {
-        let probs = softmax(logits);
-        Ok(top_p_filter(&probs, self.config.top_p))
+        Ok(top_p_filter(&softmax(logits), self.config.top_p))
     }
 
     fn sample_full(&self, logits: &[f32]) -> Result<Vec<f32>> {
-        let scaled = apply_temperature(logits, self.config.temperature);
-        let probs = softmax(&scaled);
-        let probs = top_k_filter(&probs, self.config.top_k);
-        let probs = top_p_filter(&probs, self.config.top_p);
+        let mut probs = scaled_softmax(logits, self.config.temperature);
+        if self.config.top_k > 0 && self.config.top_k < probs.len() {
+            probs = top_k_filter(&probs, self.config.top_k);
+        }
+        if self.config.top_p > 0.0 && self.config.top_p < 1.0 {
+            probs = top_p_filter(&probs, self.config.top_p);
+        }
         Ok(probs)
     }
 
@@ -219,7 +218,7 @@ impl AdvancedSampler {
     pub fn new(sampler: Sampler, max_history: usize, repetition_penalty: f32) -> Self {
         Self {
             base: sampler,
-            history: Vec::new(),
+            history: Vec::with_capacity(max_history),
             max_history,
             repetition_penalty,
         }
@@ -267,16 +266,49 @@ pub fn softmax(logits: &[f32]) -> Vec<f32> {
         .iter()
         .copied()
         .fold(f32::NEG_INFINITY, f32::max);
-    let exps: Vec<f32> = logits
-        .iter()
-        .map(|&l| (l - max_val).exp())
-        .collect();
-    let sum: f32 = exps.iter().sum();
+    let mut result = Vec::with_capacity(logits.len());
+    let mut sum = 0.0;
+    for &l in logits {
+        let e = (l - max_val).exp();
+        sum += e;
+        result.push(e);
+    }
     if sum <= 0.0 || !sum.is_finite() {
         let n = logits.len() as f32;
-        return vec![1.0 / n; logits.len()];
+        result.iter_mut().for_each(|v| *v = 1.0 / n);
+    } else {
+        for v in result.iter_mut() {
+            *v /= sum;
+        }
     }
-    exps.iter().map(|&e| e / sum).collect()
+    result
+}
+
+/// Combines temperature scaling + softmax into a single pass (one Vec allocation)
+fn scaled_softmax(logits: &[f32], temperature: f32) -> Vec<f32> {
+    if temperature <= 0.0 || (temperature - 1.0).abs() < f32::EPSILON {
+        return softmax(logits);
+    }
+    let max_val = logits
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let mut result = Vec::with_capacity(logits.len());
+    let mut sum = 0.0;
+    for &l in logits {
+        let e = ((l - max_val) / temperature).exp();
+        sum += e;
+        result.push(e);
+    }
+    if sum <= 0.0 || !sum.is_finite() {
+        let n = logits.len() as f32;
+        result.iter_mut().for_each(|v| *v = 1.0 / n);
+    } else {
+        for v in result.iter_mut() {
+            *v /= sum;
+        }
+    }
+    result
 }
 
 pub fn top_k_filter(probs: &[f32], k: usize) -> Vec<f32> {
@@ -284,7 +316,7 @@ pub fn top_k_filter(probs: &[f32], k: usize) -> Vec<f32> {
         return probs.to_vec();
     }
     let mut indexed: Vec<(usize, f32)> = probs.iter().copied().enumerate().collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.select_nth_unstable_by(k.saturating_sub(1), |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let threshold = indexed[k.saturating_sub(1)].1;
     let mut filtered: Vec<f32> = probs
@@ -306,7 +338,7 @@ pub fn top_p_filter(probs: &[f32], p: f32) -> Vec<f32> {
         return probs.to_vec();
     }
     let mut indexed: Vec<(usize, f32)> = probs.iter().copied().enumerate().collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut cum = 0.0;
     let mut cutoff = probs.len();

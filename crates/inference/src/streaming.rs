@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::GeneratedToken;
 

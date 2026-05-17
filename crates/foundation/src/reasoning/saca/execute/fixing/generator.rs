@@ -102,7 +102,7 @@ impl FixGenerator {
     }
     
     /// Fix bracket mismatches with proper counting
-    fn fix_bracket_mismatches(&self, code: &str) -> Option<String> {
+    fn _fix_bracket_mismatches(&self, code: &str) -> Option<String> {
         let mut result = code.to_string();
         let mut brace_count = 0;
         let mut paren_count = 0;

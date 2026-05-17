@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{info, debug};
 use chrono::Utc;
+use serde_json::Value;
 
 pub mod cli;
 pub mod config;
@@ -65,6 +66,9 @@ pub struct NexoraAI {
     
     /// Request processor for handling incoming requests
     request_processor: RequestProcessor,
+
+    /// Shared training metrics store (written by CLI, served to dashboard)
+    pub train_metrics: Arc<RwLock<Value>>,
 }
 
 impl NexoraAI {
@@ -101,6 +105,11 @@ impl NexoraAI {
             system_info_cache.clone(),
             request_count.clone(),
         );
+
+        let train_metrics = Arc::new(RwLock::new(serde_json::json!({
+            "status": "idle",
+            "history": { "steps": [], "losses": [], "lrs": [], "val_losses": [] }
+        })));
         
         Ok(Self {
             registry,
@@ -111,6 +120,7 @@ impl NexoraAI {
             request_count: request_count.clone(),
             system_monitor,
             request_processor: RequestProcessor::new(request_count.clone()),
+            train_metrics,
         })
     }
     

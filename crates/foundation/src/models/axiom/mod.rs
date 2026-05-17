@@ -35,7 +35,7 @@ pub struct NxrAxiomModel {
     base: crate::shared::base_model::BaseNxrModel<AxiomConfig, AxiomMetrics, AxiomState>,
     identity: AxiomIdentity,
     architecture: AxiomArchitecture,
-    agents: AxiomAgents,
+    _agents: AxiomAgents,
     capabilities: AxiomCapabilities,
     components: FoundationComponents,
 }
@@ -141,7 +141,7 @@ impl NxrAxiomModel {
             ),
             identity,
             architecture: AxiomArchitecture::new(&config),
-            agents: AxiomAgents::new(&config),
+            _agents: AxiomAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
         }

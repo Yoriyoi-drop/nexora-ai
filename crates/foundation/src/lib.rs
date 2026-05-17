@@ -1,3 +1,8 @@
+#![allow(ambiguous_glob_reexports)]
+#![allow(non_camel_case_types)]
+#![allow(hidden_glob_reexports)]
+#![allow(unused_imports)]
+#![allow(unreachable_patterns)]
 //! Foundation AI Components for Nexora
 //! 
 //! Shared tensor operations, validation, and core utilities

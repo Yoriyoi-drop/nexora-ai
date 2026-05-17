@@ -61,8 +61,8 @@ impl SystemMonitor {
         let mut system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()));
         system.refresh_all();
         
-        let active_model_ids = self.registry.list_models().await;
-        let active_models: Vec<String> = active_model_ids.iter().map(|id| format!("{}", id)).collect();
+        let model_ids = nexora_foundation::shared::model_identity::NxrModelId::all();
+        let active_models: Vec<String> = model_ids.iter().map(|id| format!("{:?}", id)).collect();
         
         // Calculate uptime
         let uptime = (Utc::now() - self.start_time).num_seconds() as u64;
@@ -117,8 +117,8 @@ impl SystemMonitor {
         // Core component health
         let core_status = if system.total_memory() > 0 { "healthy" } else { "critical" };
         
-        // Models health (check if models are loaded)
-        let model_ids = self.registry.list_models().await;
+        // Models health (check if model definitions exist)
+        let model_ids = nexora_foundation::shared::model_identity::NxrModelId::all();
         let models_status = if !model_ids.is_empty() { "healthy" } else { "warning" };
         
         // Memory health

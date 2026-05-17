@@ -13,7 +13,7 @@ use uuid::Uuid;
 /// Modular Decomposition engine
 pub struct DecomposeEngine {
     config: DecomposeConfig,
-    executor: Arc<AsyncTaskExecutor>,
+    _executor: Arc<AsyncTaskExecutor>,
     decomposition_cache: Arc<RwLock<std::collections::HashMap<String, Vec<Module>>>>,
 }
 
@@ -26,7 +26,7 @@ impl DecomposeEngine {
         
         Ok(Self {
             config,
-            executor,
+            _executor: executor,
             decomposition_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
         })
     }

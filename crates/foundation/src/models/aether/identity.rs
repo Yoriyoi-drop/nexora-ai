@@ -7,11 +7,11 @@ use crate::shared::{
 };
 
 /// NXR-ÆTHER Identity Manager
-pub struct AetherIdentity {
+pub struct _AetherIdentity {
     meta: ModelMeta,
 }
 
-impl AetherIdentity {
+impl _AetherIdentity {
     /// Create new NXR-ÆTHER identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -221,7 +221,7 @@ pub struct EmpathyCapabilities {
     pub developmental_empathy: bool,
 }
 
-impl Default for AetherIdentity {
+impl Default for _AetherIdentity {
     fn default() -> Self {
         Self::new()
     }

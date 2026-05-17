@@ -11,7 +11,7 @@ use crate::shared::{
 
 /// NXR-ÆTHER Capabilities Manager
 #[derive(Clone)]
-pub struct AetherCapabilities {
+pub struct _AetherCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -39,7 +39,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl AetherCapabilities {
+impl _AetherCapabilities {
     /// Create new capabilities for NXR-ÆTHER
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -409,7 +409,7 @@ impl AetherCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &AetherCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &_AetherCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::new();
 
         for domain in &self.vector.specializations {
@@ -473,7 +473,7 @@ impl AetherCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> AetherCapabilities {
+    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _AetherCapabilities {
         let mut new_capabilities = self.clone();
         
         for (domain, improvement) in improvements {
@@ -491,8 +491,8 @@ impl AetherCapabilities {
     }
 
     /// Get emotional intelligence metrics
-    pub fn get_emotional_intelligence_metrics(&self) -> EmotionalIntelligenceMetrics {
-        EmotionalIntelligenceMetrics {
+    pub fn get_emotional_intelligence_metrics(&self) -> _EmotionalIntelligenceMetrics {
+        _EmotionalIntelligenceMetrics {
             empathy_score: self.performance_metrics.empathy_accuracy,
             emotional_recognition: self.performance_metrics.emotional_recognition_accuracy,
             psychological_analysis: self.performance_metrics.psychological_analysis_accuracy,
@@ -853,7 +853,7 @@ pub enum ResourceCost {
 
 /// Emotional intelligence metrics
 #[derive(Debug, Clone)]
-pub struct EmotionalIntelligenceMetrics {
+pub struct _EmotionalIntelligenceMetrics {
     pub empathy_score: f32,
     pub emotional_recognition: f32,
     pub psychological_analysis: f32,
@@ -923,7 +923,7 @@ impl PsychologicalAnalysisCapabilities {
     }
 }
 
-impl Default for AetherCapabilities {
+impl Default for _AetherCapabilities {
     fn default() -> Self {
         Self::new()
     }

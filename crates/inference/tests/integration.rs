@@ -25,11 +25,12 @@ async fn test_kv_cache_sampler_pipeline() {
     assert!(cached.is_some());
     assert_eq!(cached.as_ref().unwrap(), &logits);
 
-    let sampler = Sampler::new(SamplingConfig {
+    let mut sampler = Sampler::new(SamplingConfig {
         method: SamplingMethod::Greedy,
         temperature: 1.0,
         top_k: 10,
         top_p: 1.0,
+        min_prob: 0.0,
         seed: Some(42),
     });
 
@@ -37,7 +38,7 @@ async fn test_kv_cache_sampler_pipeline() {
     assert_eq!(sample, 9);
 
     let stats = cache.get_stats();
-    assert!(stats.hits >= 1);
+    assert!(stats.cache_hits >= 1);
 }
 
 #[tokio::test]
@@ -232,29 +233,32 @@ async fn test_batch_collector_max_size_flush() {
 async fn test_sampler_steers_tokens() {
     let logits: Vec<f32> = vec![0.0, 0.0, 10.0, 0.0, 0.0];
 
-    let greedy = Sampler::new(SamplingConfig {
+    let mut greedy = Sampler::new(SamplingConfig {
         method: SamplingMethod::Greedy,
         temperature: 1.0,
         top_k: 10,
         top_p: 1.0,
+        min_prob: 0.0,
         seed: None,
     });
     assert_eq!(greedy.sample(&logits).unwrap(), 2);
 
-    let temp = Sampler::new(SamplingConfig {
+    let mut temp = Sampler::new(SamplingConfig {
         method: SamplingMethod::Temperature,
         temperature: 0.1,
         top_k: 10,
         top_p: 1.0,
+        min_prob: 0.0,
         seed: Some(42),
     });
     assert_eq!(temp.sample(&logits).unwrap(), 2);
 
-    let topk = Sampler::new(SamplingConfig {
+    let mut topk = Sampler::new(SamplingConfig {
         method: SamplingMethod::TopK,
         temperature: 1.0,
         top_k: 1,
         top_p: 1.0,
+        min_prob: 0.0,
         seed: Some(42),
     });
     assert_eq!(topk.sample(&logits).unwrap(), 2);
@@ -308,11 +312,12 @@ async fn test_cache_ttl_eviction_lifecycle() {
 
 #[tokio::test]
 async fn test_sampler_edge_cases() {
-    let sampler = Sampler::new(SamplingConfig {
+    let mut sampler = Sampler::new(SamplingConfig {
         method: SamplingMethod::Greedy,
         temperature: 1.0,
         top_k: 10,
         top_p: 1.0,
+        min_prob: 0.0,
         seed: None,
     });
 

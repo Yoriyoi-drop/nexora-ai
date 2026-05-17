@@ -8,7 +8,7 @@ use ndarray::ArrayD;
 
 /// Semantic output generator
 pub struct SemanticOutputGenerator {
-    config: crate::caffeine::config::ActionConfig,
+    _config: crate::caffeine::config::ActionConfig,
     text_generator: TextOutputGenerator,
     image_generator: ImageOutputGenerator,
     audio_generator: AudioOutputGenerator,
@@ -24,7 +24,7 @@ impl SemanticOutputGenerator {
         let video_generator = VideoOutputGenerator::new()?;
         
         Ok(Self {
-            config,
+            _config: config,
             text_generator,
             image_generator,
             audio_generator,
@@ -105,7 +105,7 @@ pub struct SemanticOutputs {
 /// Text output generator
 pub struct TextOutputGenerator {
     max_length: usize,
-    temperature: f32,
+    _temperature: f32,
 }
 
 impl TextOutputGenerator {
@@ -113,7 +113,7 @@ impl TextOutputGenerator {
     pub fn new() -> Result<Self> {
         Ok(Self {
             max_length: 512,
-            temperature: 0.7,
+            _temperature: 0.7,
         })
     }
     

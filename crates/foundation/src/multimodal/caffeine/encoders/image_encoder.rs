@@ -13,7 +13,7 @@ pub struct ImageEncoder {
     model_loaded: bool,
     // Pre-computed embeddings for efficient encoding
     // In production, this would contain trained model weights
-    embeddings: HashMap<String, ArrayD<f32>>,
+    _embeddings: HashMap<String, ArrayD<f32>>,
 }
 
 impl ImageEncoder {
@@ -22,7 +22,7 @@ impl ImageEncoder {
         Ok(Self {
             config,
             model_loaded: false,
-            embeddings: HashMap::new(),
+            _embeddings: HashMap::new(),
         })
     }
     

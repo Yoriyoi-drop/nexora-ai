@@ -106,7 +106,7 @@ struct LoopInfo {
     /// Stream ID (if streaming)
     stream_id: Option<Uuid>,
     /// Loop metadata
-    metadata: HashMap<String, serde_json::Value>,
+    _metadata: HashMap<String, serde_json::Value>,
 }
 
 /// Token loop statistics
@@ -202,7 +202,7 @@ impl TokenLoop {
             token_count: 0,
             tokens: Vec::new(),
             stream_id: None,
-            metadata: request.metadata.clone(),
+            _metadata: request.metadata.clone(),
         };
         
         // Add to active loops
@@ -260,11 +260,10 @@ impl TokenLoop {
         stream_id: Option<Uuid>,
         start_time: chrono::DateTime<Utc>,
     ) -> Result<InferenceResponse> {
-        let mut tokens = Vec::new();
+        let mut tokens = Vec::with_capacity(initial_logits.len());
         let mut token_frequencies = HashMap::new();
         let mut finish_reason = FinishReason::Unknown;
         
-        // Create decoding context
         let mut decoding_context = DecodingContext::new(initial_logits[0].len());
         
         for (step, logits) in initial_logits.iter().enumerate() {
@@ -335,39 +334,34 @@ impl TokenLoop {
                 }
             }
             
-            // Create generated token
-            let generated_token = GeneratedToken::new(
+            // Create generated token and store in vec first
+            tokens.push(GeneratedToken::new(
                 token_selection.token_id,
                 token_selection.token_text.clone(),
                 token_selection.log_prob,
                 step,
-            );
+            ));
+            let gen = tokens.last().unwrap();
             
-            // Update decoding context
-            decoding_context.add_token(generated_token.clone());
-            *token_frequencies.entry(generated_token.token_id).or_insert(0) += 1;
+            decoding_context.add_token(gen.clone());
+            *token_frequencies.entry(gen.token_id).or_insert(0) += 1;
             
-            // Add to tokens
-            tokens.push(generated_token.clone());
-            
-            // Send to stream if streaming
             if let Some(stream_id) = stream_id {
                 if let Some(streaming_engine) = &self.streaming_engine {
-                    streaming_engine.write().await.send_token(stream_id, generated_token.clone()).await?;
+                    streaming_engine.write().await.send_token(stream_id, gen.clone()).await?;
                 }
             }
             
-            // Update loop info
             {
                 let mut active_loops = self.active_loops.write().await;
                 if let Some(info) = active_loops.get_mut(&loop_id) {
                     info.token_count = tokens.len();
-                    info.tokens.push(generated_token.clone());
+                    info.tokens.push(gen.clone());
                 }
             }
             
             debug!("Generated token {} at step {}: {}", 
-                   generated_token.token_id, step, generated_token.token_text);
+                   gen.token_id, step, gen.token_text);
         }
         
         // Create response

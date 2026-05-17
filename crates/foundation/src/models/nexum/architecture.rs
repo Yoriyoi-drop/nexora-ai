@@ -9,7 +9,7 @@ use super::config::NexumConfig;
 /// NXR-NEXUM Architecture Implementation
 pub struct NexumArchitecture {
     /// Configuration
-    config: NexumConfig,
+    _config: NexumConfig,
     /// Orchestration engine
     orchestration_engine: OrchestrationEngine,
     /// Consensus building system
@@ -1368,7 +1368,7 @@ impl NexumArchitecture {
         };
 
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             orchestration_engine,
             consensus_system,
             conflict_resolution_system,
@@ -1378,7 +1378,7 @@ impl NexumArchitecture {
     }
 
     /// Initialize architecture
-    pub async fn initialize(&mut self, config: &NexumConfig) -> NxrModelResult<()> {
+    pub async fn initialize(&mut self, _config: &NexumConfig) -> NxrModelResult<()> {
         // Initialize orchestration engine
         self.orchestration_engine.metrics.coordination_accuracy = 0.932;
         self.orchestration_engine.metrics.response_time_ms = 380.0;

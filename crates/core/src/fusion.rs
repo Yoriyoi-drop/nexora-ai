@@ -25,8 +25,8 @@ impl ResponseFusion {
     pub async fn fuse_responses(&self, tasks: &[TaskExecution]) -> CoreResult<FusionResult> {
         debug!("Fusing responses from {} tasks", tasks.len());
         
-        let mut model_responses = Vec::new();
-        let mut response_sources = Vec::new();
+        let mut model_responses = Vec::with_capacity(tasks.len());
+        let mut response_sources = Vec::with_capacity(tasks.len());
         
         for task in tasks {
             if let Some(output) = &task.task_output {

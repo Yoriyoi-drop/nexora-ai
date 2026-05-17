@@ -158,10 +158,6 @@ impl UnicodeNormalizer {
             '`' => "'".to_string(),
             '–' => "-".to_string(),      // en dash
             '—' => "-".to_string(),      // em dash
-            '"' => "\"".to_string(),      // left double quote
-            '"' => "\"".to_string(),      // right double quote
-            '\'' => "'".to_string(),       // left single quote
-            '\'' => "'".to_string(),       // right single quote
             '…' => "...".to_string(),    // ellipsis
             '©' => "(c)".to_string(),    // copyright
             '®' => "(r)".to_string(),    // registered

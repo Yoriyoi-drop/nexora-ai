@@ -10,7 +10,7 @@ use std::fmt;
 pub struct Tensor {
     data: Vec<f32>,
     shape: Vec<usize>,
-    compression_engine: Option<crate::atqs::compression::CompressionEngine>,
+    _compression_engine: Option<crate::atqs::compression::CompressionEngine>,
 }
 
 impl Tensor {
@@ -19,7 +19,7 @@ impl Tensor {
         Self {
             data,
             shape,
-            compression_engine: None,
+            _compression_engine: None,
         }
     }
 

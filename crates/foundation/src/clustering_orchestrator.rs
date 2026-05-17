@@ -85,7 +85,7 @@ pub struct ClusterQuality {
 #[derive(Debug, Clone)]
 pub struct ClusteringOrchestrator {
     pub history: Vec<OrchestratorEntry>,
-    quality_threshold: f32,
+    _quality_threshold: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -101,7 +101,7 @@ impl ClusteringOrchestrator {
     pub fn new() -> Self {
         Self {
             history: Vec::with_capacity(100),
-            quality_threshold: 0.5,
+            _quality_threshold: 0.5,
         }
     }
 

@@ -16,6 +16,10 @@ pub mod genesis;
 
 pub mod transformer;
 
+// Foundation model types — each wraps OnceLock<CausalLM> as the core transformer backbone.
+// These are the primary model implementations used by the training pipeline.
+pub mod foundation;
+
 // Re-export all models
 pub use omnis::*;
 #[allow(unused_imports)]
@@ -66,18 +70,19 @@ pub struct EvaluationReport {
     pub detailed_results: Vec<EvaluationResult>,
 }
 
-/// Get model implementation by ID
+/// Get model implementation by ID — returns the foundation (CausalLM-backed) model.
+/// Per-directory agent-based models are still available via their module paths.
 pub fn get_model_implementation(model_id: NxrModelId) -> Box<dyn std::any::Any> {
     match model_id {
-        NxrModelId::Omnis => Box::new(omnis::NxrOmnisModel::new()),
-        NxrModelId::Vortex => Box::new(vortex::NxrVortexModel::new()),
-        NxrModelId::Aether => Box::new(aether::NxrAetherModel::new()),
-        NxrModelId::Spectra => Box::new(spectra::NxrSpectraModel::new()),
-        NxrModelId::Nexum => Box::new(nexum::NxrNexumModel::new()),
-        NxrModelId::Axiom => Box::new(axiom::NxrAxiomModel::new()),
-        NxrModelId::Cipher => Box::new(cipher::NxrCipherModel::new()),
-        NxrModelId::Swift => Box::new(swift::NxrSwiftModel::new()),
-        NxrModelId::Kronos => Box::new(kronos::NxrKronosModel::new()),
-        NxrModelId::Genesis => Box::new(genesis::NxrGenesisModel::new()),
+        NxrModelId::Omnis => Box::new(foundation::NxrOmnisModel::new()),
+        NxrModelId::Vortex => Box::new(foundation::NxrVortexModel::new()),
+        NxrModelId::Aether => Box::new(foundation::NxrAetherModel::new()),
+        NxrModelId::Spectra => Box::new(foundation::NxrSpectraModel::new()),
+        NxrModelId::Nexum => Box::new(foundation::NxrNexumModel::new()),
+        NxrModelId::Axiom => Box::new(foundation::NxrAxiomModel::new()),
+        NxrModelId::Cipher => Box::new(foundation::NxrCipherModel::new()),
+        NxrModelId::Swift => Box::new(foundation::NxrSwiftModel::new()),
+        NxrModelId::Kronos => Box::new(foundation::NxrKronosModel::new()),
+        NxrModelId::Genesis => Box::new(foundation::NxrGenesisModel::new()),
     }
 }

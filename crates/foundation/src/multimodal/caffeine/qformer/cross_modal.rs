@@ -12,14 +12,14 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 struct MemoryPool {
     buffers: Arc<std::sync::Mutex<Vec<Vec<f32>>>>,
-    max_pool_size: usize,
+    _max_pool_size: usize,
 }
 
 impl MemoryPool {
     fn new(max_pool_size: usize) -> Self {
         Self {
             buffers: Arc::new(std::sync::Mutex::new(Vec::with_capacity(max_pool_size))),
-            max_pool_size,
+            _max_pool_size: max_pool_size,
         }
     }
     
@@ -38,9 +38,9 @@ impl MemoryPool {
         }
     }
     
-    fn return_buffer(&self, buffer: Vec<f32>) {
+    fn _return_buffer(&self, buffer: Vec<f32>) {
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
-        if buffers.len() < self.max_pool_size {
+        if buffers.len() < self._max_pool_size {
             buffers.push(buffer);
         }
     }
@@ -50,14 +50,14 @@ impl MemoryPool {
 pub struct CrossModalAttention {
     hidden_dim: usize,
     num_heads: usize,
-    dropout_rate: f32,
+    _dropout_rate: f32,
     projection_weights: HashMap<String, Vec<f32>>,
     memory_pool: MemoryPool,
 }
 
 impl CrossModalAttention {
     /// Create new cross-modal attention with memory optimization
-    pub fn new(hidden_dim: usize, num_heads: usize, dropout_rate: f32) -> Result<Self> {
+    pub fn new(hidden_dim: usize, num_heads: usize, _dropout_rate: f32) -> Result<Self> {
         if hidden_dim == 0 || num_heads == 0 {
             return Err(crate::caffeine::error::CaffeineError::qformer(
                 "Hidden dimension and number of heads must be greater than 0"
@@ -93,7 +93,7 @@ impl CrossModalAttention {
         Ok(Self {
             hidden_dim,
             num_heads,
-            dropout_rate,
+            _dropout_rate,
             projection_weights,
             memory_pool,
         })

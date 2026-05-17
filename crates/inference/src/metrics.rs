@@ -638,9 +638,8 @@ pub mod analysis {
             return Vec::new();
         }
         
-        let mut anomalies = Vec::new();
+        let mut anomalies = Vec::with_capacity(metrics.len());
         
-        // Simple anomaly detection using standard deviation
         for i in 1..metrics.len() - 1 {
             let prev = &metrics[i - 1];
             let curr = &metrics[i];

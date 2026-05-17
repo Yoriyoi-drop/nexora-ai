@@ -1,11 +1,16 @@
 use parking_lot::RwLock;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use uuid::Uuid;
 
 use crate::layer1_mode::ModeId;
 use crate::layer6_permission::Capability;
+
+static REGEX_CACHE: LazyLock<std::sync::Mutex<HashMap<String, Regex>>> = LazyLock::new(|| {
+    std::sync::Mutex::new(HashMap::new())
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterAgentFirewall {
@@ -130,7 +135,7 @@ pub struct AgentBus {
 
 impl AgentBus {
     pub fn new(max_history: usize) -> Self {
-        Self { messages: Vec::new(), max_history }
+        Self { messages: Vec::with_capacity(max_history), max_history }
     }
 
     pub fn send(&mut self, msg: AgentBusMessage) {
@@ -249,24 +254,25 @@ impl InterAgentFirewall {
         }
 
         let payload_str = String::from_utf8_lossy(payload);
+        let mut cache = REGEX_CACHE.lock().unwrap();
         for pattern in &self.suspicious_patterns {
-            if let Ok(re) = regex::Regex::new(&pattern.pattern) {
-                if re.is_match(&payload_str) {
-                    if pattern.auto_block {
-                        self.audit_log.push(FirewallAuditEntry {
-                            id: Uuid::new_v4(),
-                            timestamp: chrono::Utc::now(),
-                            source_id,
-                            source_label: source_label.to_string(),
-                            destination_id: dest_id,
-                            destination_label: dest_label.to_string(),
-                            message_type: msg_type.to_string(),
-                            action_taken: FirewallAction::Deny,
-                            reason: format!("Suspicious pattern: {}", pattern.name),
-                            message_size_bytes: payload.len() as u64,
-                        });
-                        return FirewallAction::Deny;
-                    }
+            let re = cache.entry(pattern.pattern.clone())
+                .or_insert_with(|| Regex::new(&pattern.pattern).expect("Invalid regex pattern"));
+            if re.is_match(&payload_str) {
+                if pattern.auto_block {
+                    self.audit_log.push(FirewallAuditEntry {
+                        id: Uuid::new_v4(),
+                        timestamp: chrono::Utc::now(),
+                        source_id,
+                        source_label: source_label.to_string(),
+                        destination_id: dest_id,
+                        destination_label: dest_label.to_string(),
+                        message_type: msg_type.to_string(),
+                        action_taken: FirewallAction::Deny,
+                        reason: format!("Suspicious pattern: {}", pattern.name),
+                        message_size_bytes: payload.len() as u64,
+                    });
+                    return FirewallAction::Deny;
                 }
             }
         }

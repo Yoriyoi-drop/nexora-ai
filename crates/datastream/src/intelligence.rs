@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use parking_lot::RwLock;
-use tracing::info;
 
-use crate::types::{DataSample, Domain, SourceCategory, CurriculumLevel, SampleStats, TrustScoreMap};
+use crate::types::{DataSample, Domain, CurriculumLevel, TrustScoreMap};
 
 pub struct DatasetIntelligenceCore {
     pub trust_scores: TrustScoreMap,

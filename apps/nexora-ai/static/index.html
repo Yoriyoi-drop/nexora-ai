@@ -1,10 +1,365 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nexora AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        header {
+            width: 100%;
+            padding: 2rem 1rem;
+            text-align: center;
+            background: linear-gradient(180deg, #111118 0%, #0a0a0f 100%);
+            border-bottom: 1px solid #1a1a2e;
+        }
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+        header p {
+            color: #888;
+            margin-top: 0.5rem;
+            font-size: 1.1rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+        .badge.online { background: #065f46; color: #6ee7b7; }
+        .badge.offline { background: #7f1d1d; color: #fca5a5; }
+        main { max-width: 960px; width: 100%; padding: 2rem 1rem; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .card {
+            background: #111118;
+            border: 1px solid #1a1a2e;
+            border-radius: 12px;
+            padding: 1.25rem;
+            transition: border-color 0.2s;
+        }
+        .card:hover { border-color: #6366f1; }
+        .card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
+        .card .value { font-size: 1.5rem; font-weight: 700; margin-top: 0.25rem; }
+        .card .value.green { color: #6ee7b7; }
+        .card .value.red { color: #fca5a5; }
+        .card .value.purple { color: #a78bfa; }
+        .card .value.orange { color: #fbbf24; }
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 2rem 0 1rem;
+        }
+        .chart-container {
+            background: #111118;
+            border: 1px solid #1a1a2e;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+        .chart-container canvas {
+            width: 100% !important;
+            height: 280px !important;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .endpoints {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 0.5rem;
+        }
+        .endpoint {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: #111118;
+            border: 1px solid #1a1a2e;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+        .endpoint:hover { border-color: #6366f1; }
+        .endpoint .method {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .method.get { background: #1e3a5f; color: #93c5fd; }
+        .method.post { background: #3b1f4e; color: #c4a7e7; }
+        .method.put { background: #1e3a2f; color: #6ee7b7; }
+        .method.delete { background: #4a1a1a; color: #fca5a5; }
+        .train-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: #111118;
+            border: 1px solid #1a1a2e;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .train-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .train-dot.running { background: #6ee7b7; animation: pulse 1.5s infinite; }
+        .train-dot.idle { background: #444; }
+        .train-dot.done { background: #6366f1; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .train-info { font-size: 0.85rem; color: #aaa; }
+        .train-info strong { color: #e0e0e0; }
+        .footer {
+            text-align: center;
+            color: #444;
+            font-size: 0.8rem;
+            padding: 2rem 1rem;
+            width: 100%;
+            border-top: 1px solid #1a1a2e;
+            margin-top: 2rem;
+        }
+        @media (max-width: 640px) { .chart-grid { grid-template-columns: 1fr; } }
+    </style>
 </head>
 <body>
-    <h1>Welcome to Nexora AI</h1>
-    <p>Advanced Language Model System</p>
+    <header>
+        <h1>Nexora AI</h1>
+        <p>Advanced Language Model System</p>
+        <span class="badge online" id="statusBadge">● Online</span>
+    </header>
+
+    <main>
+        <!-- System Stats -->
+        <div class="grid">
+            <div class="card">
+                <div class="label">Status</div>
+                <div class="value green" id="healthStatus">—</div>
+            </div>
+            <div class="card">
+                <div class="label">Performance</div>
+                <div class="value purple" id="perfScore">—</div>
+            </div>
+            <div class="card">
+                <div class="label">Uptime</div>
+                <div class="value" id="uptime">—</div>
+            </div>
+            <div class="card">
+                <div class="label">Operations</div>
+                <div class="value" id="operations">—</div>
+            </div>
+        </div>
+
+        <!-- Components -->
+        <div class="section-title">Components</div>
+        <div class="grid" id="components"></div>
+
+        <!-- Training Section -->
+        <div class="section-title">Training Metrics</div>
+        <div class="train-status">
+            <span class="train-dot idle" id="trainDot"></span>
+            <span class="train-info" id="trainStatus">Status: <strong>Idle</strong></span>
+            <span class="train-info" id="trainEpoch" style="margin-left:auto;">Epoch: <strong>—</strong></span>
+            <span class="train-info" id="trainStep">Step: <strong>—</strong></span>
+            <span class="train-info" id="trainLoss">Loss: <strong>—</strong></span>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-container">
+                <canvas id="lossChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="lrChart"></canvas>
+            </div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr;">
+            <div class="card"><div class="label">Best Loss</div><div class="value purple" id="bestLoss">—</div></div>
+            <div class="card"><div class="label">Perplexity</div><div class="value orange" id="perplexity">—</div></div>
+            <div class="card"><div class="label">Speed</div><div class="value green" id="trainSpeed">—</div></div>
+            <div class="card"><div class="label">Tokens</div><div class="value" id="totalTokens">—</div></div>
+        </div>
+
+        <!-- API Endpoints -->
+        <div class="section-title">API Endpoints</div>
+        <div class="endpoints">
+            <a href="/health" class="endpoint"><span class="method get">GET</span> /health</a>
+            <a href="/health/detailed" class="endpoint"><span class="method get">GET</span> /health/detailed</a>
+            <a href="/info" class="endpoint"><span class="method get">GET</span> /info</a>
+            <a href="/metrics" class="endpoint"><span class="method get">GET</span> /metrics</a>
+            <a href="/config" class="endpoint"><span class="method get">GET</span> /config</a>
+            <span class="endpoint"><span class="method post">POST</span> /process</span>
+            <span class="endpoint"><span class="method post">POST</span> /generate</span>
+            <span class="endpoint"><span class="method post">POST</span> /chat</span>
+            <span class="endpoint"><span class="method post">POST</span> /code/analyze</span>
+            <span class="endpoint"><span class="method get">GET</span> /static/*</span>
+        </div>
+    </main>
+
+    <div class="footer">Nexora AI v0.1.0</div>
+
+    <script>
+        // === Charts ===
+        const ctxLoss = document.getElementById('lossChart').getContext('2d');
+        const ctxLr = document.getElementById('lrChart').getContext('2d');
+
+        const lossChart = new Chart(ctxLoss, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Train Loss',
+                    data: [],
+                    borderColor: '#a78bfa',
+                    backgroundColor: 'rgba(167, 139, 250, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    borderWidth: 2
+                }, {
+                    label: 'Val Loss',
+                    data: [],
+                    borderColor: '#fbbf24',
+                    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    borderWidth: 2,
+                    borderDash: [5, 5]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 300 },
+                plugins: { legend: { labels: { color: '#888', boxWidth: 12, padding: 12 } } },
+                scales: {
+                    x: { ticks: { color: '#555', maxTicksLimit: 10 }, grid: { color: '#1a1a2e' } },
+                    y: { ticks: { color: '#555' }, grid: { color: '#1a1a2e' }, title: { display: true, text: 'Loss', color: '#666' } }
+                }
+            }
+        });
+
+        const lrChart = new Chart(ctxLr, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Learning Rate',
+                    data: [],
+                    borderColor: '#6ee7b7',
+                    backgroundColor: 'rgba(110, 231, 183, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 300 },
+                plugins: { legend: { labels: { color: '#888', boxWidth: 12, padding: 12 } } },
+                scales: {
+                    x: { ticks: { color: '#555', maxTicksLimit: 10 }, grid: { color: '#1a1a2e' } },
+                    y: { ticks: { color: '#555' }, grid: { color: '#1a1a2e' }, title: { display: true, text: 'LR', color: '#666' } }
+                }
+            }
+        });
+
+        // === Health Polling ===
+        async function fetchHealth() {
+            try {
+                const res = await fetch('/health/detailed');
+                const data = await res.json();
+                document.getElementById('healthStatus').textContent = data.healthy ? 'Healthy' : 'Unhealthy';
+                document.getElementById('healthStatus').className = 'value ' + (data.healthy ? 'green' : 'red');
+                document.getElementById('perfScore').textContent = data.performance_score.toFixed(1) + '/100';
+                const u = data.uptime_seconds;
+                document.getElementById('uptime').textContent = Math.floor(u/3600)+'h '+Math.floor((u%3600)/60)+'m '+(u%60)+'s';
+                document.getElementById('operations').textContent = data.total_operations;
+                const badge = document.getElementById('statusBadge');
+                badge.className = 'badge ' + (data.healthy ? 'online' : 'offline');
+                badge.textContent = data.healthy ? '● Online' : '● Degraded';
+                const container = document.getElementById('components');
+                container.innerHTML = '';
+                for (const [name, ok] of Object.entries(data.component_health)) {
+                    const div = document.createElement('div'); div.className = 'card';
+                    div.innerHTML = '<div class="label">'+name+'</div><div class="value '+(ok?'green':'red')+'">'+(ok?'✓':'✗')+'</div>';
+                    container.appendChild(div);
+                }
+            } catch {}
+        }
+
+        // === Training Metrics Polling (dari /train/metrics) ===
+        async function fetchTraining() {
+            try {
+                const res = await fetch('/train/metrics');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                const dot = document.getElementById('trainDot');
+                const status = data.status || 'idle';
+                dot.className = 'train-dot ' + status;
+                document.getElementById('trainStatus').innerHTML = 'Status: <strong>' + status.charAt(0).toUpperCase() + status.slice(1) + '</strong>';
+
+                if (data.epoch !== undefined) document.getElementById('trainEpoch').innerHTML = 'Epoch: <strong>' + data.epoch + '/' + (data.total_epochs || '?') + '</strong>';
+                if (data.step !== undefined) document.getElementById('trainStep').innerHTML = 'Step: <strong>' + data.step + '</strong>';
+                if (data.loss !== undefined) document.getElementById('trainLoss').innerHTML = 'Loss: <strong>' + Number(data.loss).toFixed(4) + '</strong>';
+                if (data.best_loss !== undefined) document.getElementById('bestLoss').textContent = Number(data.best_loss).toFixed(4);
+                if (data.perplexity !== undefined) document.getElementById('perplexity').textContent = Number(data.perplexity).toFixed(2);
+                if (data.speed !== undefined) document.getElementById('trainSpeed').textContent = Number(data.speed).toFixed(0) + ' s/s';
+                if (data.tokens !== undefined) document.getElementById('totalTokens').textContent = Number(data.tokens).toLocaleString();
+
+                if (data.history && data.history.losses) {
+                    const steps = data.history.steps || data.history.losses.map((_, i) => i);
+                    lossChart.data.labels = steps;
+                    lossChart.data.datasets[0].data = data.history.losses;
+                    if (data.history.val_losses) lossChart.data.datasets[1].data = data.history.val_losses;
+                    lossChart.update('none');
+                }
+                if (data.history && data.history.lrs) {
+                    lrChart.data.labels = data.history.steps || data.history.lrs.map((_, i) => i);
+                    lrChart.data.datasets[0].data = data.history.lrs;
+                    lrChart.update('none');
+                }
+            } catch {}
+        }
+
+        fetchHealth(); setInterval(fetchHealth, 5000);
+        fetchTraining(); setInterval(fetchTraining, 3000);
+    </script>
 </body>
 </html>

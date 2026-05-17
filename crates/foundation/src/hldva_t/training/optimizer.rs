@@ -12,7 +12,7 @@ pub trait Optimizer {
 
 /// Adam Optimizer
 pub struct AdamOptimizer {
-    config: AdamConfig,
+    _config: AdamConfig,
     learning_rate: f32,
     beta1: f32,
     beta2: f32,
@@ -31,7 +31,7 @@ impl AdamOptimizer {
         let epsilon = config.epsilon;
         
         Self {
-            config,
+            _config: config,
             learning_rate,
             beta1,
             beta2,
@@ -114,7 +114,7 @@ impl Optimizer for AdamOptimizer {
 
 /// SGD Optimizer
 pub struct SGDOptimizer {
-    config: SGDConfig,
+    _config: SGDConfig,
     learning_rate: f32,
     momentum: f32,
     velocity: Vec<Vec<f32>>,
@@ -127,7 +127,7 @@ impl SGDOptimizer {
         let momentum = config.momentum;
         
         Self {
-            config,
+            _config: config,
             learning_rate,
             momentum,
             velocity: Vec::new(),

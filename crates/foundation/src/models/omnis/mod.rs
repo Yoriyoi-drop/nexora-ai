@@ -361,7 +361,7 @@ impl NxrOmnisModel {
     }
 
     /// Perform meta-reasoning
-    async fn meta_reason(&self, problem: &str) -> NxrModelResult<MetaReasoningState> {
+    async fn _meta_reason(&self, problem: &str) -> NxrModelResult<MetaReasoningState> {
         let meta_analysis = self.agents.meta_reasoner().analyze_problem(problem).await?;
         
         Ok(MetaReasoningState {

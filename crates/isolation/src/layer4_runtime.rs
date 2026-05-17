@@ -205,7 +205,7 @@ impl RuntimeIsolationSpec {
     }
 
     pub fn validate(&self) -> Vec<String> {
-        let mut violations = Vec::new();
+        let mut violations = Vec::with_capacity(4);
         if self.container.privileged {
             violations.push("Privileged container is not allowed".into());
         }

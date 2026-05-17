@@ -30,6 +30,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Start the Nexora AI server
+    #[command(aliases = &["dev", "serve"])]
     Start {
         /// Host to bind to
         #[arg(short = 'H', long, default_value = "127.0.0.1")]
@@ -140,6 +141,7 @@ pub enum Commands {
     },
     
     /// Train a model
+    #[command(aliases = &["t"])]
     Train {
         /// Training data file
         #[arg(short, long)]
@@ -150,42 +152,47 @@ pub enum Commands {
         output: PathBuf,
         
         /// Tokenizer path (load or save)
-        #[arg(long)]
+        #[arg(short = 'T', long)]
         tokenizer: Option<PathBuf>,
         
         /// Number of epochs
-        #[arg(long, default_value = "10")]
+        #[arg(short = 'e', long, default_value = "10")]
         epochs: usize,
         
         /// Batch size
-        #[arg(long, default_value = "32")]
+        #[arg(short = 'b', long, default_value = "32")]
         batch_size: usize,
         
         /// Learning rate
-        #[arg(long, default_value = "0.001")]
+        #[arg(short = 'l', long, default_value = "0.001")]
         learning_rate: f32,
         
-        /// Enable GPU acceleration
-        #[arg(long)]
+        /// Enable acceleration (ROCm GPU or CPU BLAS)
+        #[arg(short = 'g', long)]
         gpu: bool,
+
+        /// Resume from last checkpoint
+        #[arg(short = 'R', long, default_value_t = true)]
+        resume: bool,
     },
     
     /// Evaluate model
+    #[command(aliases = &["e", "eval"])]
     Evaluate {
         /// Model path
-        #[arg(short, long)]
+        #[arg(short = 'm', long)]
         model: PathBuf,
         
         /// Test data file
-        #[arg(short, long)]
+        #[arg(short = 'd', long)]
         test_data: PathBuf,
         
         /// Tokenizer path (required for proper encoding)
-        #[arg(short, long)]
+        #[arg(short = 'T', long)]
         tokenizer: PathBuf,
         
         /// Output file for results
-        #[arg(short, long)]
+        #[arg(short = 'o', long)]
         output: Option<PathBuf>,
     },
     

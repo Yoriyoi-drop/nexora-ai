@@ -269,7 +269,7 @@ impl ImageEncoder {
 
 /// CLIP Tokenizer
 pub struct ClipTokenizer {
-    vocab_size: usize,
+    _vocab_size: usize,
     max_length: usize,
     
     // Simplified vocabulary mapping
@@ -294,7 +294,7 @@ impl ClipTokenizer {
         }
         
         Ok(Self {
-            vocab_size: 49408,
+            _vocab_size: 49408,
             max_length: config.max_length,
             vocab,
         })
@@ -380,7 +380,7 @@ use super::dit::{
 
 /// Text Transformer Layer
 struct TextTransformerLayer {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     
     self_attention: MultiHeadAttention,
     attention_norm: LayerNorm,
@@ -395,7 +395,7 @@ impl TextTransformerLayer {
         let feed_forward = FeedForward::new(hidden_dim)?;
         
         Ok(Self {
-            hidden_dim,
+            _hidden_dim: hidden_dim,
             self_attention,
             attention_norm: LayerNorm::new(hidden_dim)?,
             feed_forward,
@@ -418,7 +418,7 @@ impl TextTransformerLayer {
 
 /// Vision Transformer
 struct VisionTransformer {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     
     transformer_layers: Vec<VisionTransformerLayer>,
 }
@@ -434,7 +434,7 @@ impl VisionTransformer {
         }
         
         Ok(Self {
-            hidden_dim: config.embedding_dim,
+            _hidden_dim: config.embedding_dim,
             transformer_layers,
         })
     }
@@ -452,7 +452,7 @@ impl VisionTransformer {
 
 /// Vision Transformer Layer
 struct VisionTransformerLayer {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     
     self_attention: MultiHeadAttention,
     attention_norm: LayerNorm,
@@ -467,7 +467,7 @@ impl VisionTransformerLayer {
         let feed_forward = FeedForward::new(hidden_dim)?;
         
         Ok(Self {
-            hidden_dim,
+            _hidden_dim: hidden_dim,
             self_attention,
             attention_norm: LayerNorm::new(hidden_dim)?,
             feed_forward,
@@ -496,14 +496,14 @@ struct TokenEmbedding {
 }
 
 impl TokenEmbedding {
-    fn new(vocab_size: usize, embedding_dim: usize) -> HLDVAResult<Self> {
+    fn new(vocab_size: usize, _embedding_dim: usize) -> HLDVAResult<Self> {
         // Initialize random embeddings
-        let embedding_data = vec![0.0; vocab_size * embedding_dim];
-        let embeddings = Tensor::new(embedding_data, vec![vocab_size, embedding_dim]);
+        let embedding_data = vec![0.0; vocab_size * _embedding_dim];
+        let embeddings = Tensor::new(embedding_data, vec![vocab_size, _embedding_dim]);
         
         Ok(Self {
             vocab_size,
-            embedding_dim,
+            embedding_dim: _embedding_dim,
             embeddings,
         })
     }
@@ -533,7 +533,7 @@ impl TokenEmbedding {
 /// Image Patch Embedding
 struct PatchEmbedding {
     patch_size: usize,
-    embedding_dim: usize,
+    _embedding_dim: usize,
     
     projection: Linear,
 }
@@ -546,7 +546,7 @@ impl PatchEmbedding {
         
         Ok(Self {
             patch_size,
-            embedding_dim: config.embedding_dim,
+            _embedding_dim: config.embedding_dim,
             projection,
         })
     }

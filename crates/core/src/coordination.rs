@@ -222,13 +222,11 @@ impl MultiModelCoordinator {
     }
     
     fn select_models(&self, primary_intent: IntentType, secondary_intents: &[IntentType]) -> CoreResult<Vec<ModelId>> {
-        let mut selected_models = Vec::new();
+        let mut selected_models = Vec::with_capacity(1 + secondary_intents.len());
         
-        // Find model for primary intent
         let primary_model = self.find_model_for_intent(primary_intent)?;
         selected_models.push(primary_model);
         
-        // Find models for secondary intents
         for &intent in secondary_intents {
             if let Ok(model) = self.find_model_for_intent(intent) {
                 if !selected_models.contains(&model) {
@@ -281,7 +279,7 @@ impl MultiModelCoordinator {
     }
     
     fn create_execution_plan(&self, models: &[ModelId]) -> CoreResult<Vec<ExecutionStep>> {
-        let mut plan = Vec::new();
+        let mut plan = Vec::with_capacity(models.len());
         let mut completed = HashSet::new();
         
         while completed.len() < models.len() {
@@ -316,7 +314,7 @@ impl MultiModelCoordinator {
     }
     
     async fn execute_plan(&self, plan: &[ExecutionStep], input: &str, context: &str) -> CoreResult<Vec<ModelResult>> {
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(plan.len());
         
         for step in plan {
             debug!("Executing step: model={:?}", step.model);
@@ -408,8 +406,8 @@ impl MultiModelCoordinator {
                 active_tasks.remove(&task_id);
             }
             
-            let mut model_responses = Vec::new();
-            let mut response_sources = Vec::new();
+            let mut model_responses = Vec::with_capacity(results.len());
+            let mut response_sources = Vec::with_capacity(results.len());
             let mut success_count = 0;
             
             for result in &results {
@@ -503,9 +501,8 @@ impl MultiModelCoordinator {
     }
     
     fn describe_conflicts(&self, results: &[ModelResult]) -> Vec<String> {
-        let mut conflicts = Vec::new();
-        
         let successful_results: Vec<_> = results.iter().filter(|r| r.success).collect();
+        let mut conflicts = Vec::with_capacity(successful_results.len().saturating_pow(2));
         
         for i in 0..successful_results.len() {
             for j in (i + 1)..successful_results.len() {

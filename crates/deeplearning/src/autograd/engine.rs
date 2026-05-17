@@ -65,7 +65,7 @@ pub(crate) fn backward_engine(output: &Tensor) {
                             grads.entry(inp.id())
                                 .and_modify(|existing| {
                                     if existing.shape() == g.shape() {
-                                        *existing = existing.clone() + &g;
+                                        *existing += &g;
                                     } else {
                                         *existing = g.clone();
                                     }

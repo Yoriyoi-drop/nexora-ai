@@ -55,7 +55,7 @@ pub struct HasMoeFFN {
 impl HasMoeFFN {
     /// Create new HAS-MoE-FFN
     pub fn new(config: HasMoeFFNConfig) -> Self {
-        let mut experts = Vec::new();
+        let mut experts = Vec::with_capacity(config.num_experts);
         for _ in 0..config.num_experts {
             experts.push(crate::has_moe_ffn::experts::Expert::new(
                 config.hidden_size,
@@ -88,27 +88,17 @@ impl HasMoeFFN {
         // Initialize output tensor
         let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
         
-        // For each token in the batch
         for i in 0..batch_size {
-            let token_input = input.slice(ndarray::s![i, ..]).to_owned();
+            let row_view = input.row(i);
+            let token_slice = row_view.as_slice().unwrap_or(&[]);
             let mut token_output = vec![0.0; hidden_size];
             
-            // Get top-k experts for this token
             let top_experts = self.get_top_experts(&routing_weights, i);
             
-            // Combine expert outputs with routing weights
             for &expert_idx in &top_experts {
                 let routing_weight = routing_weights[[i, expert_idx]];
                 
-                // Forward through expert
-                let token_slice = match token_input.as_slice() {
-            Some(slice) => slice,
-            None => {
-                // Return zeros for failed slice access
-                continue;
-            }
-        };
-        let expert_output = self.experts[expert_idx].forward(token_slice);
+                let expert_output = self.experts[expert_idx].forward(token_slice);
                 
                 // Add weighted contribution to output
                 for (j, &val) in expert_output.iter().enumerate() {

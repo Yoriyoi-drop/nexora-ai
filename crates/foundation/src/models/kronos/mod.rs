@@ -35,7 +35,7 @@ pub struct NxrKronosModel {
     base: crate::shared::base_model::BaseNxrModel<KronosConfig, KronosMetrics, KronosState>,
     identity: KronosIdentity,
     architecture: KronosArchitecture,
-    agents: KronosAgents,
+    _agents: KronosAgents,
     capabilities: KronosCapabilities,
     components: FoundationComponents,
 }
@@ -132,7 +132,7 @@ impl NxrKronosModel {
             ),
             identity,
             architecture: KronosArchitecture::new(&config),
-            agents: KronosAgents::new(&config),
+            _agents: KronosAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
         }

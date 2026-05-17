@@ -90,7 +90,7 @@ pub struct StreamingEngine {
 #[derive(Debug)]
 struct StreamInfo {
     /// Stream ID
-    stream_id: Uuid,
+    _stream_id: Uuid,
     /// Request ID
     request_id: Uuid,
     /// Token sender
@@ -117,13 +117,13 @@ struct StreamStats {
     /// Bytes sent
     pub bytes_sent: usize,
     /// Average tokens per second
-    pub avg_tokens_per_second: f64,
+    pub _avg_tokens_per_second: f64,
     /// Stream duration (ms)
-    pub duration_ms: u64,
+    pub _duration_ms: u64,
     /// Buffer flushes
-    pub buffer_flushes: u64,
+    pub _buffer_flushes: u64,
     /// Errors encountered
-    pub errors: u64,
+    pub _errors: u64,
 }
 
 /// Streaming statistics
@@ -215,7 +215,7 @@ impl StreamingEngine {
         let (token_tx, token_rx) = mpsc::unbounded_channel();
         
         let stream_info = StreamInfo {
-            stream_id,
+            _stream_id: stream_id,
             request_id: request.request_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()).unwrap_or_else(Uuid::new_v4),
             token_tx,
             config: self.config.clone(),

@@ -8,7 +8,7 @@ pub struct AnalysisProcessor;
 impl AnalysisProcessor {
     /// Advanced code analysis dengan comprehensive language detection
     pub async fn analyze_code_request_advanced(input: &str) -> CoreResult<String> {
-        let mut analysis = Vec::new();
+        let mut analysis = Vec::with_capacity(6);
         
         let language = Self::detect_programming_language(input);
         analysis.push(format!("🔍 Detected Language: {}", language));
@@ -153,7 +153,7 @@ impl AnalysisProcessor {
 
     /// Analyze security issues
     fn analyze_security_issues(code: &str) -> Vec<String> {
-        let mut issues = Vec::new();
+        let mut issues = Vec::with_capacity(8);
         
         let security_patterns = [
             ("eval(", "Use of eval() can lead to code injection"),
@@ -177,7 +177,7 @@ impl AnalysisProcessor {
 
     /// Analyze performance issues
     fn analyze_performance(code: &str) -> Vec<String> {
-        let mut suggestions = Vec::new();
+        let mut suggestions = Vec::with_capacity(5);
         
         let performance_patterns = [
             ("for.*for", "Nested loops detected - consider optimization"),
@@ -198,7 +198,7 @@ impl AnalysisProcessor {
 
     /// Advanced memory analysis
     pub async fn process_memory_request_advanced(input: &str) -> CoreResult<String> {
-        let mut analysis = Vec::new();
+        let mut analysis = Vec::with_capacity(6);
         
         let memory_type = Self::categorize_memory_request(input);
         analysis.push(format!("🧠 Memory Type: {}", memory_type));
@@ -285,7 +285,7 @@ impl AnalysisProcessor {
     }
 
     fn extract_memory_associations(input: &str) -> Vec<String> {
-        let mut associations = Vec::new();
+        let mut associations = Vec::with_capacity(8);
         
         let association_keywords = [
             ("code", "Programming"),
@@ -309,7 +309,7 @@ impl AnalysisProcessor {
     }
 
     fn suggest_memory_optimizations(input: &str) -> Vec<String> {
-        let mut suggestions = Vec::new();
+        let mut suggestions = Vec::with_capacity(3);
         
         if input.len() > 1000 {
             suggestions.push("Consider compressing large memory entries".to_string());
@@ -328,7 +328,7 @@ impl AnalysisProcessor {
 
     /// Advanced logical reasoning analysis
     pub async fn apply_logical_reasoning_advanced(input: &str) -> CoreResult<String> {
-        let mut analysis = Vec::new();
+        let mut analysis = Vec::with_capacity(5);
         
         let reasoning_type = Self::detect_reasoning_type(input);
         analysis.push(format!("🧠 Reasoning Type: {}", reasoning_type));
@@ -403,9 +403,8 @@ impl AnalysisProcessor {
     }
 
     fn extract_inference_chain(input: &str) -> Vec<String> {
-        let mut inferences = Vec::new();
-        
         let sentences: Vec<&str> = input.split(&['.', '!', '?'][..]).collect();
+        let mut inferences = Vec::with_capacity(sentences.len());
         
         for (i, sentence) in sentences.iter().enumerate() {
             let sentence = sentence.trim();
@@ -426,7 +425,7 @@ impl AnalysisProcessor {
     }
 
     fn detect_logical_fallacies(input: &str) -> Vec<String> {
-        let mut fallacies = Vec::new();
+        let mut fallacies = Vec::with_capacity(7);
         let input_lower = input.to_lowercase();
         
         let fallacy_patterns = [
@@ -471,7 +470,7 @@ impl AnalysisProcessor {
     }
 
     fn suggest_reasoning_improvements(input: &str) -> Vec<String> {
-        let mut suggestions = Vec::new();
+        let mut suggestions = Vec::with_capacity(3);
         
         if !input.contains("because") && !input.contains("therefore") {
             suggestions.push("Add explicit reasoning connectors (because, therefore)".to_string());

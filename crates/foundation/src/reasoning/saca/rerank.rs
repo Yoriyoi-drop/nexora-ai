@@ -14,7 +14,7 @@ use rayon::prelude::*;
 /// Mathematical Reranking engine
 pub struct RerankEngine {
     config: RerankConfig,
-    executor: Arc<AsyncTaskExecutor>,
+    _executor: Arc<AsyncTaskExecutor>,
     metric_calculators: Vec<Arc<dyn MetricCalculator>>,
     normalizer: Arc<dyn ScoreNormalizer>,
 }
@@ -44,7 +44,7 @@ impl RerankEngine {
         
         Ok(Self {
             config,
-            executor,
+            _executor: executor,
             metric_calculators,
             normalizer,
         })
@@ -312,13 +312,13 @@ impl RerankEngine {
     }
     
     /// Safe test coverage calculation
-    fn calculate_test_coverage_safe(&self, execution_result: &SACAExecutionResult) -> f32 {
-        if execution_result.test_results.is_empty() {
+    fn calculate_test_coverage_safe(&self, _execution_result: &SACAExecutionResult) -> f32 {
+        if _execution_result.test_results.is_empty() {
             return 0.0;
         }
         
-        let passed_tests = execution_result.test_results.iter().filter(|t| t.passed).count();
-        let total_tests = execution_result.test_results.len();
+        let passed_tests = _execution_result.test_results.iter().filter(|t| t.passed).count();
+        let total_tests = _execution_result.test_results.len();
         
         let coverage = passed_tests as f32 / total_tests as f32;
         coverage.clamp(0.0, 1.0)
@@ -361,7 +361,7 @@ impl RerankEngine {
         
         Ok(ScoredCandidate {
             candidate_id: execution_result.candidate_id,
-            execution_result: execution_result.clone(),
+            _execution_result: execution_result.clone(),
             metrics,
             final_score: 0.0, // Will be calculated after weighting
         })
@@ -476,13 +476,13 @@ impl RerankEngine {
     }
     
     /// Calculate test coverage percentage
-    async fn calculate_test_coverage(&self, execution_result: &SACAExecutionResult) -> f32 {
-        if execution_result.test_results.is_empty() {
+    async fn calculate_test_coverage(&self, _execution_result: &SACAExecutionResult) -> f32 {
+        if _execution_result.test_results.is_empty() {
             return 0.0;
         }
         
-        let passed_tests = execution_result.test_results.iter().filter(|t| t.passed).count();
-        let total_tests = execution_result.test_results.len();
+        let passed_tests = _execution_result.test_results.iter().filter(|t| t.passed).count();
+        let total_tests = _execution_result.test_results.len();
         
         passed_tests as f32 / total_tests as f32
     }
@@ -507,7 +507,7 @@ impl RerankEngine {
 #[derive(Debug, Clone)]
 struct ScoredCandidate {
     candidate_id: uuid::Uuid,
-    execution_result: SACAExecutionResult,
+    _execution_result: SACAExecutionResult,
     metrics: std::collections::HashMap<String, f32>,
     final_score: f32,
 }
@@ -515,7 +515,7 @@ struct ScoredCandidate {
 /// Trait for metric calculators
 trait MetricCalculator: Send + Sync {
     fn metric_name(&self) -> String;
-    fn calculate(&self, execution_result: &SACAExecutionResult, context: &RepositoryContext) -> SACAResult<f32>;
+    fn calculate(&self, _execution_result: &SACAExecutionResult, context: &RepositoryContext) -> SACAResult<f32>;
 }
 
 /// Base metric calculator to reduce code duplication
@@ -541,12 +541,12 @@ impl BaseMetricCalculator {
 
 /// Correctness metric calculator
 struct CorrectnessCalculator {
-    base: BaseMetricCalculator,
+    _base: BaseMetricCalculator,
 }
 
 impl CorrectnessCalculator {
     fn new() -> Self {
-        Self { base: BaseMetricCalculator::new() }
+        Self { _base: BaseMetricCalculator::new() }
     }
 }
 
@@ -555,36 +555,36 @@ impl MetricCalculator for CorrectnessCalculator {
         "correctness".to_string()
     }
     
-    fn calculate(&self, execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
-        if !execution_result.success {
+    fn calculate(&self, _execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
+        if !_execution_result.success {
             return Ok(0.0);
         }
         
-        if execution_result.test_results.is_empty() {
+        if _execution_result.test_results.is_empty() {
             return Ok(0.5); // Neutral score if no tests
         }
         
-        Ok(BaseMetricCalculator::calculate_pass_rate(&execution_result.test_results))
+        Ok(BaseMetricCalculator::calculate_pass_rate(&_execution_result.test_results))
     }
 }
 
 /// Performance metric calculator with configurable thresholds
 struct PerformanceCalculator {
-    base: BaseMetricCalculator,
+    _base: BaseMetricCalculator,
     thresholds: PerformanceThresholds,
 }
 
 impl PerformanceCalculator {
     fn new() -> Self {
         Self { 
-            base: BaseMetricCalculator::new(),
+            _base: BaseMetricCalculator::new(),
             thresholds: PerformanceThresholds::default(),
         }
     }
     
-    fn with_thresholds(thresholds: PerformanceThresholds) -> Self {
+    fn _with_thresholds(thresholds: PerformanceThresholds) -> Self {
         Self { 
-            base: BaseMetricCalculator::new(),
+            _base: BaseMetricCalculator::new(),
             thresholds,
         }
     }
@@ -595,12 +595,12 @@ impl MetricCalculator for PerformanceCalculator {
         "performance".to_string()
     }
     
-    fn calculate(&self, execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
+    fn calculate(&self, _execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
         // Score based on execution time (lower is better)
-        let time_score = self.thresholds.get_time_score(execution_result.execution_time_ms);
+        let time_score = self.thresholds.get_time_score(_execution_result.execution_time_ms);
         
         // Memory usage score
-        let memory_score = self.thresholds.get_memory_score(execution_result.memory_usage_mb as f32);
+        let memory_score = self.thresholds.get_memory_score(_execution_result.memory_usage_mb as f32);
         
         Ok((time_score + memory_score) / 2.0)
     }
@@ -622,10 +622,10 @@ impl MetricCalculator for ReadabilityCalculator {
         "readability".to_string()
     }
     
-    fn calculate(&self, execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
+    fn calculate(&self, _execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
         // Simple readability scoring based on error logs
         // Fewer errors = better readability
-        let error_count = execution_result.error_logs.len();
+        let error_count = _execution_result.error_logs.len();
         let readability_score = if error_count == 0 {
             1.0
         } else if error_count <= 2 {
@@ -658,9 +658,9 @@ impl MetricCalculator for MaintainabilityCalculator {
         "maintainability".to_string()
     }
     
-    fn calculate(&self, execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
+    fn calculate(&self, _execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
         // Score based on performance metrics complexity
-        let metrics = &execution_result.performance_metrics;
+        let metrics = &_execution_result.performance_metrics;
         
         // Simple complexity scoring
         let time_complexity_score = match metrics.time_complexity.as_str() {
@@ -703,15 +703,15 @@ impl MetricCalculator for TestCoverageCalculator {
         "test_coverage".to_string()
     }
     
-    fn calculate(&self, execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
+    fn calculate(&self, _execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
         // Score based on number and quality of tests
-        let test_count = execution_result.test_results.len();
+        let test_count = _execution_result.test_results.len();
         
         if test_count == 0 {
             return Ok(0.0);
         }
         
-        let passed_tests = execution_result.test_results.iter()
+        let passed_tests = _execution_result.test_results.iter()
             .filter(|t| t.passed)
             .count();
         
@@ -748,13 +748,13 @@ impl MetricCalculator for DocumentationCalculator {
         "documentation".to_string()
     }
     
-    fn calculate(&self, execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
+    fn calculate(&self, _execution_result: &SACAExecutionResult, _context: &RepositoryContext) -> SACAResult<f32> {
         // Simple documentation scoring based on error message quality
         // Well-documented code should have meaningful error messages
-        let has_meaningful_errors = execution_result.error_logs.iter()
+        let has_meaningful_errors = _execution_result.error_logs.iter()
             .any(|error| error.len() > 10); // Errors with some detail
         
-        let doc_score = if execution_result.error_logs.is_empty() {
+        let doc_score = if _execution_result.error_logs.is_empty() {
             0.8 // Good, but could have more documentation
         } else if has_meaningful_errors {
             0.6 // Some documentation present

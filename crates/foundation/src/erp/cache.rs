@@ -189,7 +189,8 @@ impl ContextHasher {
 
     /// Hash dengan sliding window untuk temporal patterns
     pub fn hash_sliding_window(&self, input: &Array1<f32>, window_size: usize) -> Vec<ContextHash> {
-        let mut hashes = Vec::new();
+        let count = input.len().saturating_sub(window_size) + 1;
+        let mut hashes = Vec::with_capacity(count);
         
         for start in 0..=input.len().saturating_sub(window_size) {
             let end = (start + window_size).min(input.len());
@@ -310,7 +311,7 @@ pub struct PatternCache {
     pattern_clusters: HashMap<PatternCluster, Vec<ContextHash>>,
     cluster_cache: HashMap<PatternCluster, GatePattern>,
     context_cache: HashMap<ContextHash, Array1<f32>>,
-    similarity_threshold: f32,
+    _similarity_threshold: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -334,7 +335,7 @@ impl PatternCache {
             pattern_clusters: HashMap::new(),
             cluster_cache: HashMap::new(),
             context_cache: HashMap::new(),
-            similarity_threshold,
+            _similarity_threshold: similarity_threshold,
         }
     }
 

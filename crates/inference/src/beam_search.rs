@@ -8,6 +8,7 @@ use uuid::Uuid;
 use tracing::{debug, info};
 
 use crate::{Result, InferenceError, GeneratedToken};
+use crate::decoding;
 
 /// Configuration untuk beam search
 #[derive(Debug, Clone)]
@@ -151,17 +152,16 @@ impl BeamSearchEngine {
         debug!("Initializing beam search with beam size {}", self.config.beam_size);
         
         // Create initial hypotheses
-        let mut hypotheses = Vec::new();
+        let mut hypotheses = Vec::with_capacity(self.config.beam_size);
         
-        // Select top-k tokens for initial beam
-        let _top_k = std::cmp::min(self.config.beam_size * 2, initial_logits.len());
         let mut indexed_logits: Vec<(usize, f32)> = initial_logits.iter().enumerate().map(|(i, &l)| (i, l)).collect();
-        indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        let k = self.config.beam_size.min(indexed_logits.len());
+        indexed_logits.select_nth_unstable_by(k, |a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
         
         for (_i, &(token_id, logit)) in indexed_logits.iter().take(self.config.beam_size).enumerate() {
             let token = GeneratedToken::new(
                 token_id as u32,
-                format!("[token_{}]", token_id),
+                decoding::alloc_token_text(token_id),
                 logit,
                 0,
             );
@@ -175,8 +175,8 @@ impl BeamSearchEngine {
         let state = BeamSearchState {
             hypotheses,
             step: 1,
-            converged_hypotheses: Vec::new(),
-            diverged_hypotheses: Vec::new(),
+            converged_hypotheses: Vec::with_capacity(self.config.beam_size),
+            diverged_hypotheses: Vec::with_capacity(self.config.beam_size / 2),
             metadata: HashMap::new(),
         };
         
@@ -195,9 +195,8 @@ impl BeamSearchEngine {
             ));
         }
         
-        let mut new_candidates = Vec::new();
+        let mut new_candidates = Vec::with_capacity(state.hypotheses.len());
         
-        // Expand each hypothesis
         for (hypothesis_idx, hypothesis) in state.hypotheses.iter().enumerate() {
             if hypothesis.finished {
                 // Keep finished hypotheses as-is
@@ -214,12 +213,13 @@ impl BeamSearchEngine {
             );
             
             let mut indexed_logits: Vec<(usize, f32)> = logits.iter().enumerate().map(|(i, &l)| (i, l)).collect();
-            indexed_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+            let k = candidates_per_hypothesis.min(indexed_logits.len());
+            indexed_logits.select_nth_unstable_by(k, |a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
             
             for &(token_id, logit) in indexed_logits.iter().take(candidates_per_hypothesis) {
                 let token = GeneratedToken::new(
                     token_id as u32,
-                    format!("[token_{}]", token_id),
+                    decoding::alloc_token_text(token_id),
                     logit,
                     state.step,
                 );
@@ -237,9 +237,9 @@ impl BeamSearchEngine {
         }
         
         // Select best candidates for next beam
-        new_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
+        let beam_size = self.config.beam_size.min(new_candidates.len());
+        new_candidates.select_nth_unstable_by(beam_size, |a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
         
-        let beam_size = std::cmp::min(self.config.beam_size, new_candidates.len());
         state.hypotheses = new_candidates.into_iter().take(beam_size).collect();
         
         // Check for convergence
@@ -301,7 +301,7 @@ impl BeamSearchEngine {
             return Ok(candidates);
         }
         
-        let mut pruned = Vec::new();
+        let mut pruned = Vec::with_capacity(candidates.len().min(self.config.max_candidates));
         let mut diversity_tracker = HashMap::new();
         
         for candidate in candidates {
@@ -332,55 +332,37 @@ impl BeamSearchEngine {
             return Ok(());
         }
         
-        let mut converged = Vec::new();
-        let mut remaining: Vec<BeamHypothesis> = Vec::new();
+        let mut converged = Vec::with_capacity(state.hypotheses.len() / 2);
+        let mut remaining: Vec<BeamHypothesis> = Vec::with_capacity(state.hypotheses.len());
         
-        // Group similar hypotheses
-        let mut groups = Vec::new();
-        let mut used = std::collections::HashSet::new();
+        let hyp_len = state.hypotheses.len();
+        let mut used = vec![false; hyp_len];
+        let hyp_text: Vec<String> = state.hypotheses.iter().map(|h| h.get_text()).collect();
         
-        // Collect hypotheses to avoid borrow checker issues
-        let hypotheses: Vec<BeamHypothesis> = state.hypotheses.clone();
-        
-        for (i, hypothesis) in hypotheses.iter().enumerate() {
-            if used.contains(&i) {
+        for i in 0..hyp_len {
+            if used[i] {
                 continue;
             }
+            used[i] = true;
             
-            let mut group = vec![hypothesis];
-            used.insert(i);
-            
-            for (j, other_hypothesis) in hypotheses.iter().enumerate() {
-                if i != j && !used.contains(&j) {
-                    let similarity = self.calculate_similarity(&hypothesis.get_text(), &other_hypothesis.get_text());
+            let mut group = vec![i];
+            for j in (i + 1)..hyp_len {
+                if !used[j] {
+                    let similarity = self.calculate_similarity(&hyp_text[i], &hyp_text[j]);
                     if similarity > (1.0 - self.config.convergence_threshold) {
-                        group.push(other_hypothesis);
-                        used.insert(j);
+                        group.push(j);
+                        used[j] = true;
                     }
                 }
             }
             
-            groups.push(group);
-        }
-        
-        // Move converged groups to converged_hypotheses
-        for group in groups {
-            if group.len() > 1 {
-                // Keep the best from the group, move others to converged
-                let mut sorted_group = group.clone();
-                sorted_group.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
-                
-                if let Some(best) = sorted_group.first() {
-                    remaining.push((*best).clone());
-                }
-                
-                for hypothesis in sorted_group.iter().skip(1) {
-                    let mut converged_hypothesis = (*hypothesis).clone();
-                    converged_hypothesis.finish("converged".to_string());
-                    converged.push(converged_hypothesis);
-                }
-            } else {
-                remaining.push(group[0].clone());
+            group.sort_by(|&a, &b| state.hypotheses[b].score.partial_cmp(&state.hypotheses[a].score).unwrap_or(Ordering::Equal));
+            
+            remaining.push(state.hypotheses[group[0]].clone());
+            for &idx in group.iter().skip(1) {
+                let mut converged_hypothesis = state.hypotheses[idx].clone();
+                converged_hypothesis.finish("converged".to_string());
+                converged.push(converged_hypothesis);
             }
         }
         

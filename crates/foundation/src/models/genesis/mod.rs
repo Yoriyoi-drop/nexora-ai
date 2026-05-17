@@ -36,7 +36,7 @@ pub struct NxrGenesisModel {
     base: crate::shared::base_model::BaseNxrModel<GenesisConfig, GenesisMetrics, GenesisState>,
     identity: GenesisIdentity,
     architecture: GenesisArchitecture,
-    agents: GenesisAgents,
+    _agents: GenesisAgents,
     capabilities: GenesisCapabilities,
     components: FoundationComponents,
 }
@@ -144,7 +144,7 @@ impl NxrGenesisModel {
             ),
             identity,
             architecture: GenesisArchitecture::new(&config),
-            agents: GenesisAgents::new(&config),
+            _agents: GenesisAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
         }

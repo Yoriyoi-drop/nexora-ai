@@ -281,7 +281,7 @@ impl LatencyTracker {
             return Ok(Vec::new()); // Not enough data
         }
         
-        let mut outliers = Vec::new();
+        let mut outliers = Vec::with_capacity(measurements.len());
         
         for measurement in measurements.iter() {
             if measurement.is_outlier(
@@ -449,7 +449,8 @@ pub mod analysis {
             return Vec::new();
         }
         
-        let mut averages = Vec::new();
+        let count = measurements.len().saturating_sub(window_size) + 1;
+        let mut averages = Vec::with_capacity(count);
         
         for i in window_size..=measurements.len() {
             let window = &measurements[i - window_size..i];
@@ -493,7 +494,7 @@ pub mod analysis {
         
         let bin_width = (max_latency - min_latency) / bins as f64;
         
-        let mut distribution = Vec::new();
+        let mut distribution = Vec::with_capacity(bins);
         
         for i in 0..bins {
             let bin_start = min_latency + (i as f64 * bin_width);

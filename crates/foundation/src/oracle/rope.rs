@@ -143,7 +143,7 @@ impl ExtendedRope {
                     let x_j = x_row[[j]];
                     let x_j_rotated = if j % 2 == 0 && j + 1 < head_dim {
                         x_row[[j + 1]] * -1.0
-                    } else if j % 2 == 1 && j - 1 >= 0 {
+                    } else if j % 2 == 1 && true {
                         x_row[[j - 1]]
                     } else {
                         x_j

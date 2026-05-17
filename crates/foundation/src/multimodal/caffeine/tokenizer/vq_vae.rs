@@ -72,7 +72,7 @@ impl FSQuantizer {
         let mut codes = vec![0.0f32; codebook_dim];
         let mut rounding_error = 0.0f32;
         let mut id = 0usize;
-        let mut stride = 1usize;
+        let mut _stride = 1usize;
 
         for d in 0..codebook_dim {
             let input_idx = (offset + d) % self.input_dim.max(1);
@@ -94,7 +94,7 @@ impl FSQuantizer {
             
             // Encode ke single integer ID (base-level encoding)
             id = id * level + rounded_idx.min(level - 1);
-            stride *= level;
+            _stride *= level;
         }
 
         Ok((codes, id, rounding_error))
@@ -386,15 +386,15 @@ impl VectorQuantizedVAE {
 /// VQ-VAE training utilities
 pub struct VQVAETrainer {
     learning_rate: f32,
-    decay: f32,
+    _decay: f32,
 }
 
 impl VQVAETrainer {
     /// Create new trainer
-    pub fn new(learning_rate: f32, decay: f32) -> Self {
+    pub fn new(learning_rate: f32, _decay: f32) -> Self {
         Self {
             learning_rate,
-            decay,
+            _decay,
         }
     }
     

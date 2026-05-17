@@ -8,7 +8,7 @@ use crate::atqs::Tensor;
 /// Transformer Block Configuration
 #[derive(Debug, Clone)]
 pub struct TransformerConfig {
-    pub hidden_dim: usize,
+    pub _hidden_dim: usize,
     pub num_heads: usize,
     pub num_layers: usize,
     pub dropout: f32,
@@ -18,7 +18,7 @@ pub struct TransformerConfig {
 impl Default for TransformerConfig {
     fn default() -> Self {
         Self {
-            hidden_dim: 768,
+            _hidden_dim: 768,
             num_heads: 12,
             num_layers: 12,
             dropout: 0.1,
@@ -171,13 +171,13 @@ impl TransformerEncoder {
         let mut layers = Vec::with_capacity(config.num_layers);
         
         for _ in 0..config.num_layers {
-            let layer = TransformerLayer::new(config.hidden_dim, config.num_heads)?;
+            let layer = TransformerLayer::new(config._hidden_dim, config.num_heads)?;
             layers.push(layer);
         }
         
         Ok(Self {
             layers,
-            hidden_dim: config.hidden_dim,
+            hidden_dim: config._hidden_dim,
             num_layers: config.num_layers,
         })
     }
@@ -207,7 +207,7 @@ impl TransformerEncoder {
 
 /// Adaptive Computation Time (ACT) untuk dynamic depth
 pub struct AdaptiveComputationTime {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     
     // Halting probabilities
     halting_proj: Linear,
@@ -224,7 +224,7 @@ impl AdaptiveComputationTime {
         let halting_proj = Linear::new(hidden_dim, 1)?;
         
         Ok(Self {
-            hidden_dim,
+            _hidden_dim: hidden_dim,
             halting_proj,
             threshold: 0.5,
             max_ponder: 10,
@@ -280,7 +280,7 @@ impl AdaptiveComputationTime {
 /// Mixture of Experts (MoE) untuk conditional computation
 pub struct MixtureOfExperts {
     hidden_dim: usize,
-    num_experts: usize,
+    _num_experts: usize,
     top_k: usize,
     
     // Expert networks
@@ -305,7 +305,7 @@ impl MixtureOfExperts {
         
         Ok(Self {
             hidden_dim,
-            num_experts,
+            _num_experts: num_experts,
             top_k,
             experts,
             gate,

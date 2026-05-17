@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use anyhow::Result;
 use axum::{Router, routing::get, routing::post, Extension};
+use axum::http::{Method, HeaderName};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
@@ -23,6 +24,9 @@ pub async fn create_router(
         .route("/info/performance", get(performance_metrics))
         .route("/info/memory", get(memory_stats))
 
+        .route("/train/metrics", get(get_train_metrics))
+        .route("/train/metrics", post(post_train_metrics))
+
         .route("/process", post(process_request))
         .route("/generate", post(generate_text))
         .route("/chat", post(chat))
@@ -44,30 +48,31 @@ pub async fn create_router(
 
     app = app.layer(TraceLayer::new_for_http());
 
-    info!("Router configured with 13 endpoints");
+    info!("Router configured with 15 endpoints");
     Ok(app)
 }
 
 fn add_cors_layer(mut app: Router, config: &ServerConfig) -> Result<Router> {
-    let origins: Result<Vec<_>, _> = config.cors_origins.clone()
-        .into_iter()
-        .map(|origin| origin.parse().map_err(|e| anyhow::anyhow!("Invalid origin '{}': {}", origin, e)))
-        .collect();
+    let is_wildcard = config.cors_origins.iter().any(|o| o == "*");
 
-    let methods: Result<Vec<_>, _> = vec!["GET", "POST", "PUT", "DELETE"]
-        .into_iter()
-        .map(|method| method.parse().map_err(|e| anyhow::anyhow!("Invalid method '{}': {}", method, e)))
-        .collect();
-
-    let headers: Result<Vec<_>, _> = vec!["Content-Type", "Authorization"]
-        .into_iter()
-        .map(|header| header.parse().map_err(|e| anyhow::anyhow!("Invalid header '{}': {}", header, e)))
-        .collect();
-
-    let cors = CorsLayer::new()
-        .allow_origin(origins.map_err(|e| anyhow::anyhow!("Failed to parse CORS origins: {}", e))?)
-        .allow_methods(methods.map_err(|e| anyhow::anyhow!("Failed to parse CORS methods: {}", e))?)
-        .allow_headers(headers.map_err(|e| anyhow::anyhow!("Failed to parse CORS headers: {}", e))?);
+    let cors = if is_wildcard {
+        CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods(tower_http::cors::Any)
+            .allow_headers(tower_http::cors::Any)
+    } else {
+        let origins: Vec<_> = config.cors_origins.iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        let methods: Vec<Method> = vec!["GET", "POST", "PUT", "DELETE"]
+            .into_iter().filter_map(|m| m.parse().ok()).collect();
+        let headers: Vec<HeaderName> = vec!["Content-Type", "Authorization"]
+            .into_iter().filter_map(|h| h.parse().ok()).collect();
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods(methods)
+            .allow_headers(headers)
+    };
 
     app = app.layer(cors);
     Ok(app)

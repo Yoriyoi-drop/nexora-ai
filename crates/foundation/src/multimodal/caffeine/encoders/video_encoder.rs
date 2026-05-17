@@ -11,14 +11,14 @@ pub struct VideoEncoder {
     config: crate::caffeine::config::VideoEncoderConfig,
     model_loaded: bool,
     // Simulated model weights
-    temporal_dim: usize,
+    _temporal_dim: usize,
 }
 
 impl VideoEncoder {
     /// Create new video encoder
     pub fn new(config: crate::caffeine::config::VideoEncoderConfig) -> Result<Self> {
         Ok(Self {
-            temporal_dim: config.num_frames,
+            _temporal_dim: config.num_frames,
             model_loaded: false,
             config,
         })
@@ -178,15 +178,15 @@ impl VideoEncoder {
 /// Temporal modeling utilities
 pub struct TemporalModeler {
     attention_heads: usize,
-    dropout_rate: f32,
+    _dropout_rate: f32,
 }
 
 impl TemporalModeler {
     /// Create new temporal modeler
-    pub fn new(attention_heads: usize, dropout_rate: f32) -> Self {
+    pub fn new(attention_heads: usize, _dropout_rate: f32) -> Self {
         Self {
             attention_heads,
-            dropout_rate,
+            _dropout_rate,
         }
     }
     

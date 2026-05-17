@@ -10,7 +10,7 @@ use crate::shared::{
 
 /// NXR-NEXUM Capabilities Manager
 #[derive(Clone)]
-pub struct NexumCapabilities {
+pub struct _NexumCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -40,7 +40,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl NexumCapabilities {
+impl _NexumCapabilities {
     /// Create new capabilities for NXR-NEXUM
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -420,7 +420,7 @@ impl NexumCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &NexumCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &_NexumCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::new();
 
         for domain in &self.vector.specializations {
@@ -484,7 +484,7 @@ impl NexumCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> NexumCapabilities {
+    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _NexumCapabilities {
         let mut new_capabilities = self.clone();
         
         for (domain, improvement) in improvements {
@@ -1207,7 +1207,7 @@ pub enum MaturityLevel {
     Optimized,
 }
 
-impl Default for NexumCapabilities {
+impl Default for _NexumCapabilities {
     fn default() -> Self {
         Self::new()
     }

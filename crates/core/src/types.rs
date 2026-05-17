@@ -4,7 +4,7 @@
 //! dengan ownership dan type safety yang lebih baik.
 
 use serde::{Deserialize, Serialize};
-use crate::error::{CoreError, CoreResult};
+use crate::error::CoreResult;
 
 // ==================== Input Types ====================
 
@@ -641,7 +641,7 @@ impl ControllerCore {
     
     pub async fn route_to_alternative_model(
         model: ModelId,
-        intent: &IntentResult,
+        _intent: &IntentResult,
         context: &ContextInfo,
     ) -> CoreResult<RoutingDecision> {
         Ok(RoutingDecision {
@@ -660,7 +660,7 @@ impl ControllerCore {
     pub async fn execute_task(
         routing: &RoutingDecision,
         original_input: &str,
-        specialist_models: &std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>>,
+        _specialist_models: &std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>>,
     ) -> CoreResult<String> {
         // For now, return a simple response
         // In a real implementation, this would call the actual specialist model

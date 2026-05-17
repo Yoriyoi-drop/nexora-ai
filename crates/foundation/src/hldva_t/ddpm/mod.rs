@@ -80,7 +80,7 @@ impl DDPM {
         // Add random noise
         let mut current_data = current.data_mut().to_vec();
         for i in 0..current_data.len() {
-            current_data[i] = self.randn();
+            current_data[i] = self._randn();
         }
         current = Tensor::new(current_data, shape.to_vec());
         
@@ -94,7 +94,7 @@ impl DDPM {
     }
     
     /// Generate random normal number
-    fn randn(&self) -> f32 {
+    fn _randn(&self) -> f32 {
         use std::f64::consts::PI;
         let u1: f64 = rand::random();
         let u2: f64 = rand::random();
@@ -330,7 +330,7 @@ pub trait NoisePredictor {
 
 /// DDPM Loss Calculator
 pub struct DDPMLoss {
-    config: DDPMConfig,
+    _config: DDPMConfig,
     noise_schedule: NoiseSchedule,
 }
 
@@ -339,7 +339,7 @@ impl DDPMLoss {
         let noise_schedule = NoiseSchedule::new(config)?;
         
         Ok(Self {
-            config: config.clone(),
+            _config: config.clone(),
             noise_schedule,
         })
     }

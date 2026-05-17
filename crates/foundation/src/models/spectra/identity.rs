@@ -7,11 +7,11 @@ use crate::shared::{
 };
 
 /// NXR-SPECTRA Identity Manager
-pub struct SpectraIdentity {
+pub struct _SpectraIdentity {
     meta: ModelMeta,
 }
 
-impl SpectraIdentity {
+impl _SpectraIdentity {
     /// Create new NXR-SPECTRA identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -221,7 +221,7 @@ pub struct CreativeCapabilities {
     pub performance_creativity: bool,
 }
 
-impl Default for SpectraIdentity {
+impl Default for _SpectraIdentity {
     fn default() -> Self {
         Self::new()
     }

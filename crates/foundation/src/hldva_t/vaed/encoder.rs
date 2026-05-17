@@ -69,7 +69,7 @@ impl VAEDncoder {
     }
     
     /// Apply convolution layers
-    fn apply_convolution(&self, input: &Tensor) -> HLDVAResult<Tensor> {
+    fn _apply_convolution(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let input_data = input.data();
         let mut output_data = Vec::with_capacity(input_data.len());
         

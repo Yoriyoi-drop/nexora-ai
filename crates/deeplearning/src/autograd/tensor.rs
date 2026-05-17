@@ -55,6 +55,10 @@ impl Tensor {
         self.0.borrow().data.len()
     }
 
+    pub fn data_ref(&self) -> std::cell::Ref<ArrayD<f32>> {
+        std::cell::Ref::map(self.0.borrow(), |inner| &inner.data)
+    }
+
     pub fn data(&self) -> ArrayD<f32> {
         self.0.borrow().data.clone()
     }
@@ -114,7 +118,7 @@ impl Tensor {
     pub(crate) fn accumulate_grad(&self, grad: &ArrayD<f32>) {
         let mut inner = self.0.borrow_mut();
         if let Some(ref mut existing) = inner.grad {
-            *existing = existing.clone() + grad;
+            *existing += grad;
         } else {
             inner.grad = Some(grad.clone());
         }
@@ -130,6 +134,10 @@ impl Tensor {
 
     pub fn set_data(&self, new_data: ArrayD<f32>) {
         self.0.borrow_mut().data = new_data;
+    }
+
+    pub fn set_grad(&self, grad: ArrayD<f32>) {
+        self.0.borrow_mut().grad = Some(grad);
     }
 
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {

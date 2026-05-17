@@ -39,7 +39,7 @@ pub use utils::*;
 #[cfg(test)]
 pub mod model_tests {
     use super::*;
-    use crate::autograd::Tensor;
+    
 
     #[test]
     fn test_echo_net_parameters() {

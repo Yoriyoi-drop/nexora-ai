@@ -93,7 +93,7 @@ pub struct RouteResponse {
 /// Path matcher for route resolution
 #[derive(Debug)]
 pub struct PathMatcher {
-    patterns: Vec<PathPattern>,
+    _patterns: Vec<PathPattern>,
 }
 
 /// Path pattern for matching

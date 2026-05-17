@@ -1,14 +1,18 @@
-//! Foundation model implementations (shared base implementation).
-//! Each model now has its own directory-based implementation in the subdirectories.
-//! This file is kept for reference but its types are deprecated in favor of the individual models.
-//! 
-//! To remove this file: delete it and the #[path] attributes in mod.rs
+//! Foundation model implementations.
+//!
+//! Each NXR model wraps a `Mutex<Option<CausalLM>>` as its core transformer backbone.
+//! Training the CausalLM via the training pipeline produces .safetensors weights
+//! that these types can load via `reload()` or `from_checkpoint()`.
+//!
+//! This is the PRIMARY model implementation — inference runs directly on the
+//! trained CausalLM with token-based generation. Per-directory agent-based models
+//! (omnis::NxrOmnisModel, etc.) are available for multi-agent orchestration flows.
 
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::instrument;
 
@@ -103,7 +107,7 @@ macro_rules! define_foundation_model {
     ($name:ident, $id:ident, $tier:ident) => {
         pub struct $name {
             pub tokenizer: Option<NxrTokenizerRef>,
-            model: OnceLock<CausalLM>,
+            model: Mutex<Option<CausalLM>>,
             model_config: TransformerConfig,
             inference_count: AtomicU64,
             total_generated: AtomicU64,
@@ -116,7 +120,7 @@ macro_rules! define_foundation_model {
                 let config = transformer_config_for(NxrModelId::$id);
                 Self {
                     tokenizer: None,
-                    model: OnceLock::new(),
+                    model: Mutex::new(None),
                     model_config: config,
                     inference_count: AtomicU64::new(0),
                     total_generated: AtomicU64::new(0),
@@ -131,8 +135,12 @@ macro_rules! define_foundation_model {
                 m
             }
 
-            fn get_or_init_model(&self) -> &CausalLM {
-                self.model.get_or_init(|| CausalLM::new(self.model_config.clone()))
+            fn get_or_init_model(&self) -> std::sync::MutexGuard<Option<CausalLM>> {
+                let mut guard = self.model.lock().unwrap();
+                if guard.is_none() {
+                    *guard = Some(CausalLM::new(self.model_config.clone()));
+                }
+                guard
             }
 
             fn encode_text(&self, text: &str) -> Vec<u32> {
@@ -154,13 +162,44 @@ macro_rules! define_foundation_model {
             pub async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
                 <Self as NxrModel>::infer(self, input).await
             }
+
+            /// Load trained .safetensors weights into the CausalLM backbone.
+            /// The model must be initialized first (call `initialize` or `get_or_init_model`).
+            /// Note: this takes &mut self since it needs write access to the model Mutex.
+            pub fn reload(&mut self, path: &str) -> Result<(), crate::FoundationError> {
+                let config = transformer_config_for(NxrModelId::$id);
+                let loaded = CausalLM::from_checkpoint(config, path)?;
+                *self.model.lock().unwrap() = Some(loaded);
+                Ok(())
+            }
+
+            /// Create a new instance with weights loaded from a .safetensors checkpoint.
+            /// Falls back to random init if loading fails.
+            pub fn from_checkpoint(path: &str) -> Self {
+                let config = transformer_config_for(NxrModelId::$id);
+                match CausalLM::from_checkpoint(config.clone(), path) {
+                    Ok(loaded) => Self {
+                        tokenizer: None,
+                        model: Mutex::new(Some(loaded)),
+                        model_config: config,
+                        inference_count: AtomicU64::new(0),
+                        total_generated: AtomicU64::new(0),
+                        total_time_ms: AtomicU64::new(0),
+                        start_time: chrono::Utc::now(),
+                    },
+                    Err(e) => {
+                        tracing::warn!(target: stringify!($name), "Checkpoint load failed (will use random init): {}", e);
+                        Self::new()
+                    }
+                }
+            }
         }
 
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct(stringify!($name))
                     .field("tokenizer", &self.tokenizer.is_some())
-                    .field("model_initialized", &self.model.get().is_some())
+                    .field("model_initialized", &self.model.lock().unwrap().is_some())
                     .finish()
             }
         }
@@ -169,7 +208,7 @@ macro_rules! define_foundation_model {
             fn clone(&self) -> Self {
                 Self {
                     tokenizer: self.tokenizer.clone(),
-                    model: OnceLock::new(),
+                    model: Mutex::new(None),
                     model_config: self.model_config.clone(),
                     inference_count: AtomicU64::new(self.inference_count.load(Ordering::Relaxed)),
                     total_generated: AtomicU64::new(self.total_generated.load(Ordering::Relaxed)),
@@ -216,7 +255,7 @@ macro_rules! define_foundation_model {
 
             async fn state(&self) -> Result<Self::State, NxrModelError> {
                 Ok(serde_json::json!({
-                    "status": if self.model.get().is_some() { "ready" } else { "uninitialized" },
+                    "status": if self.model.lock().unwrap().is_some() { "ready" } else { "uninitialized" },
                     "model": stringify!($id),
                     "inferences": self.inference_count.load(Ordering::Relaxed),
                 }))
@@ -243,9 +282,10 @@ macro_rules! define_foundation_model {
                 }))
             }
 
-            #[instrument(skip_all, fields(model_id = %self.identity().model_id()))]
+            #[instrument(skip_all, fields(model_id = %self.identity().model_id))]
             async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
-                let model = self.get_or_init_model();
+                let guard = self.get_or_init_model();
+                let model = guard.as_ref().unwrap();
 
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),
@@ -289,13 +329,14 @@ macro_rules! define_foundation_model {
                 })
             }
 
-            #[instrument(skip_all, fields(model_id = %self.identity().model_id()))]
+            #[instrument(skip_all, fields(model_id = %self.identity().model_id))]
             async fn infer_stream(
                 &self,
                 input: &NxrInput,
                 callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
             ) -> Result<(), NxrModelError> {
-                let model = self.get_or_init_model();
+                let guard = self.get_or_init_model();
+                let model = guard.as_ref().unwrap();
 
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),

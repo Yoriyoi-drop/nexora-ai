@@ -382,13 +382,13 @@ pub struct EnvironmentInfo {
 
 /// Action planner
 pub struct ActionPlanner {
-    config: crate::caffeine::config::ActionConfig,
+    _config: crate::caffeine::config::ActionConfig,
 }
 
 impl ActionPlanner {
     /// Create new action planner
     pub fn new(config: crate::caffeine::config::ActionConfig) -> Result<Self> {
-        Ok(Self { config })
+        Ok(Self { _config: config })
     }
     
     /// Plan action sequence

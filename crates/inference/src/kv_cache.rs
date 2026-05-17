@@ -80,21 +80,22 @@ impl KVCache {
 
     pub async fn get(&self, key: &[u8]) -> Option<Vec<f32>> {
         let hash = self.hash_key(key);
-        let mut entries = self.entries.write().await;
-        if let Some(entry) = entries.get_mut(&hash) {
-            if entry.key == key {
-                if entry.created_at.elapsed() > self.ttl {
-                    entries.remove(&hash);
-                    self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
-                    self.stats_misses.fetch_add(1, Ordering::Relaxed);
-                    return None;
+        {
+            let entries = self.entries.read().await;
+            if let Some(entry) = entries.get(&hash) {
+                if entry.key == key {
+                    if entry.created_at.elapsed() > self.ttl {
+                        self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
+                        self.stats_misses.fetch_add(1, Ordering::Relaxed);
+                        return None;
+                    }
+                    entry.access_count.fetch_add(1, Ordering::Relaxed);
+                    self.stats_hits.fetch_add(1, Ordering::Relaxed);
+                    return Some(entry.value.clone());
                 }
-                entry.access_count.fetch_add(1, Ordering::Relaxed);
-                entry.last_access = Instant::now();
-                self.stats_hits.fetch_add(1, Ordering::Relaxed);
-                return Some(entry.value.clone());
             }
         }
+        // On miss, promote to write lock for eviction path (rare)
         self.stats_misses.fetch_add(1, Ordering::Relaxed);
         None
     }
@@ -300,7 +301,7 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_access() {
         let cache = std::sync::Arc::new(KVCache::new());
-        let mut handles = Vec::new();
+        let mut handles = Vec::with_capacity(100);
         for i in 0..100 {
             let c = cache.clone();
             handles.push(tokio::spawn(async move {

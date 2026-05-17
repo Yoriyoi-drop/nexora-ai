@@ -85,7 +85,7 @@ struct DdosTracker {
 /// Input validator for different types of input
 #[derive(Debug, Clone)]
 struct InputValidator {
-    name: String,
+    _name: String,
     pattern: Regex,
     description: String,
     required: bool,
@@ -236,7 +236,7 @@ impl SecurityMiddleware {
         for (name, pattern_str) in &raw_patterns {
             if let Ok(pattern) = build_validator_pattern(pattern_str) {
                 validators.push(InputValidator {
-                    name: name.to_string(),
+                    _name: name.to_string(),
                     pattern,
                     description: format!("{} patterns", name.replace('_', " ")),
                     required: true,
@@ -608,7 +608,7 @@ mod tests {
         
         // Test SQL injection validator
         let sql_validator = &validators[0];
-        assert_eq!(sql_validator.name, "sql_injection");
+        assert_eq!(sql_validator._name, "sql_injection");
         assert!(sql_validator.pattern.is_match("SELECT * FROM users"));
     }
     

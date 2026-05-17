@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 /// Superposition compression engine untuk resonance groups
 pub struct SuperpositionCompressor {
-    config: ERPConfig,
+    _config: ERPConfig,
     compression_method: CompressionMethod,
 }
 
@@ -32,7 +32,7 @@ impl SuperpositionCompressor {
         };
 
         Self {
-            config,
+            _config: config,
             compression_method,
         }
     }
