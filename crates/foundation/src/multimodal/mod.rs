@@ -173,14 +173,18 @@ impl EnhancedMultimodalResult {
         if !self.combined_insights.is_empty() {
             summary.push_str("Combined Multimodal Insights:\n");
             for insight in &self.combined_insights {
-                summary.push_str(&format!("- {}\n", insight));
+                summary.push_str("- ");
+                summary.push_str(insight);
+                summary.push('\n');
             }
         }
         
         if !self.creative_outputs.is_empty() {
             summary.push_str("\nCreative Cross-Modal Outputs:\n");
             for output in &self.creative_outputs {
-                summary.push_str(&format!("- {}\n", output));
+                summary.push_str("- ");
+                summary.push_str(output);
+                summary.push('\n');
             }
         }
         

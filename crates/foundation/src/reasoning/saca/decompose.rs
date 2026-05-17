@@ -446,20 +446,20 @@ impl DecomposeEngine {
         for i in 1..=3 {
             modules.push(Module {
                 id: Uuid::new_v4().to_string(),
-                name: format!("Stage{}", i),
+                name: "Stage".to_string() + &i.to_string(),
                 description: format!("Pipeline stage {}", i),
                 inputs: vec![
                     ModuleIO {
-                        name: format!("stage{}_input", i),
-                        data_type: format!("Stage{}Input", i),
+                        name: "stage".to_string() + &i.to_string() + "_input",
+                        data_type: "Stage".to_string() + &i.to_string() + "Input",
                         description: format!("Input for stage {}", i),
                         optional: false,
                     },
                 ],
                 outputs: vec![
                     ModuleIO {
-                        name: format!("stage{}_output", i),
-                        data_type: format!("Stage{}Output", i),
+                        name: "stage".to_string() + &i.to_string() + "_output",
+                        data_type: "Stage".to_string() + &i.to_string() + "Output",
                         description: format!("Output from stage {}", i),
                         optional: false,
                     },
@@ -507,7 +507,7 @@ impl DecomposeEngine {
         for i in 0..num_splits {
             split_modules.push(Module {
                 id: Uuid::new_v4().to_string(),
-                name: format!("{}_part{}", module.name, i + 1),
+                name: module.name.clone() + "_part" + &(i + 1).to_string(),
                 description: format!("Part {} of {}", i + 1, module.description),
                 inputs: module.inputs.clone(),
                 outputs: module.outputs.clone(),

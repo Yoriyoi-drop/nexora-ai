@@ -80,7 +80,7 @@ impl ChainOfThoughtReasoner {
             i if i == total_steps - 1 => "Therefore".to_string(),
             _ => "Furthermore".to_string(),
         };
-        format!("{} {}, we can infer that this leads to the next logical step", connective, premise)
+        connective.to_string() + " " + premise + ", we can infer that this leads to the next logical step"
     }
 }
 

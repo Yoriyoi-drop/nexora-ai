@@ -145,14 +145,18 @@ impl EnhancedReasoningResult {
         if !self.combined_insights.is_empty() {
             summary.push_str("Combined Insights:\n");
             for insight in &self.combined_insights {
-                summary.push_str(&format!("- {}\n", insight));
+                summary.push_str("- ");
+                summary.push_str(insight);
+                summary.push('\n');
             }
         }
         
         if !self.emotional_recommendations.is_empty() {
             summary.push_str("\nEmotional Recommendations:\n");
             for rec in &self.emotional_recommendations {
-                summary.push_str(&format!("- {}\n", rec));
+                summary.push_str("- ");
+                summary.push_str(rec);
+                summary.push('\n');
             }
         }
         

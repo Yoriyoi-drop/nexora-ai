@@ -19,14 +19,14 @@ impl AnalysisProcessor {
         let functions = Self::extract_functions(input, &language);
         analysis.push(format!("🔧 Functions Found: {}", functions.len()));
         for func in functions.iter().take(5) {
-            analysis.push(format!("  - {}", func));
+            analysis.push("  - ".to_string() + func);
         }
         
         let security_issues = Self::analyze_security_issues(input);
         if !security_issues.is_empty() {
             analysis.push("⚠️  Security Issues:".to_string());
             for issue in security_issues.iter().take(3) {
-                analysis.push(format!("  - {}", issue));
+                analysis.push("  - ".to_string() + issue);
             }
         }
         
@@ -34,7 +34,7 @@ impl AnalysisProcessor {
         if !perf_suggestions.is_empty() {
             analysis.push("⚡ Performance Suggestions:".to_string());
             for suggestion in perf_suggestions.iter().take(3) {
-                analysis.push(format!("  - {}", suggestion));
+                analysis.push("  - ".to_string() + suggestion);
             }
         }
         
@@ -213,7 +213,7 @@ impl AnalysisProcessor {
         if !associations.is_empty() {
             analysis.push("🔗 Associated Concepts:".to_string());
             for assoc in associations.iter().take(5) {
-                analysis.push(format!("  - {}", assoc));
+                analysis.push("  - ".to_string() + assoc);
             }
         }
         
@@ -221,7 +221,7 @@ impl AnalysisProcessor {
         if !optimizations.is_empty() {
             analysis.push("⚡ Optimization Suggestions:".to_string());
             for opt in optimizations.iter().take(3) {
-                analysis.push(format!("  - {}", opt));
+                analysis.push("  - ".to_string() + opt);
             }
         }
         
@@ -340,7 +340,7 @@ impl AnalysisProcessor {
         if !inferences.is_empty() {
             analysis.push("🔗 Inference Chain:".to_string());
             for (i, inference) in inferences.iter().enumerate().take(5) {
-                analysis.push(format!("  {}. {}", i + 1, inference));
+                analysis.push("  ".to_string() + &(i + 1).to_string() + ". " + inference);
             }
         }
         
@@ -348,7 +348,7 @@ impl AnalysisProcessor {
         if !fallacies.is_empty() {
             analysis.push("⚠️  Potential Fallacies:".to_string());
             for fallacy in fallacies.iter().take(3) {
-                analysis.push(format!("  - {}", fallacy));
+                analysis.push("  - ".to_string() + fallacy);
             }
         }
         
@@ -359,7 +359,7 @@ impl AnalysisProcessor {
         if !improvements.is_empty() {
             analysis.push("💡 Reasoning Improvements:".to_string());
             for improvement in improvements.iter().take(3) {
-                analysis.push(format!("  - {}", improvement));
+                analysis.push("  - ".to_string() + improvement);
             }
         }
         

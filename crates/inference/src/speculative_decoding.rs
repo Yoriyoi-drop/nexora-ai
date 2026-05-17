@@ -343,7 +343,7 @@ mod tests {
                 .unwrap_or((0, 0.0));
             Ok(TokenSelection {
                 token_id: argmax.0,
-                token_text: format!("[token_{}]", argmax.0),
+                token_text: "[token_".to_string() + &argmax.0.to_string() + "]",
                 log_prob: argmax.1,
                 selection_prob: argmax.1,
                 metadata: HashMap::new(),

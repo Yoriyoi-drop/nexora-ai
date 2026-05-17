@@ -165,11 +165,12 @@ impl ModelProcessor {
         let mut steps = Vec::with_capacity(8);
         
         for (i, word) in words.iter().enumerate().take(8) {
-            steps.push(format!("Step {}: Process '{}'", i + 1, word));
+            steps.push("Step ".to_string() + &(i + 1).to_string() + ": Process '" + word + "'");
         }
         
         for step in steps {
-            result.push_str(&format!("{}\n", step));
+            result.push_str(&step);
+            result.push('\n');
         }
         
         // Direct priority assessment
@@ -205,7 +206,11 @@ impl ModelProcessor {
         
         result.push_str("Word Frequency Ranking:\n");
         for (word, count) in sorted_words.iter().take(10) {
-            result.push_str(&format!("  {}: {}\n", word, count));
+            result.push_str("  ");
+            result.push_str(word);
+            result.push_str(": ");
+            result.push_str(&count.to_string());
+            result.push('\n');
         }
         
         // Direct length-based ranking
@@ -215,7 +220,11 @@ impl ModelProcessor {
         if !long_words.is_empty() {
             result.push_str("Longest Words:\n");
             for word in long_words.iter().take(5) {
-                result.push_str(&format!("  {} ({} chars)\n", word, word.len()));
+                result.push_str("  ");
+                result.push_str(word);
+                result.push_str(" (");
+                result.push_str(&word.len().to_string());
+                result.push_str(" chars)\n");
             }
         }
         
@@ -238,7 +247,9 @@ impl ModelProcessor {
         
         result.push_str("Extracted Keywords:\n");
         for keyword in keywords.iter().take(8) {
-            result.push_str(&format!("  - {}\n", keyword));
+            result.push_str("  - ");
+            result.push_str(&keyword);
+            result.push('\n');
         }
         
         // Direct content analysis

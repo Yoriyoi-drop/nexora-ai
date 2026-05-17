@@ -132,7 +132,9 @@ impl EnhancedCodeAnalysis {
         if !self.combined_insights.is_empty() {
             summary.push_str("Combined Insights:\n");
             for insight in &self.combined_insights {
-                summary.push_str(&format!("- {}\n", insight));
+                summary.push_str("- ");
+                summary.push_str(insight);
+                summary.push('\n');
             }
         }
         

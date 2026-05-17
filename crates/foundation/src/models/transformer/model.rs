@@ -194,41 +194,50 @@ impl CausalLM {
         model.norm.weight = to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned();
         for (i, block) in model.blocks.iter_mut().enumerate() {
             let prefix = format!("blocks.{}.", i);
+            let name = prefix.clone() + "attention_norm.weight";
             block.attention_norm.weight = to_fixed::<ndarray::Ix1>(
-                get_arr(&format!("{}attention_norm.weight", prefix))?,
-                &format!("{}attention_norm.weight", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "ffn_norm.weight";
             block.ffn_norm.weight = to_fixed::<ndarray::Ix1>(
-                get_arr(&format!("{}ffn_norm.weight", prefix))?,
-                &format!("{}ffn_norm.weight", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "attention.wq";
             block.attention.wq = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wq", prefix))?,
-                &format!("{}attention.wq", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "attention.wk";
             block.attention.wk = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wk", prefix))?,
-                &format!("{}attention.wk", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "attention.wv";
             block.attention.wv = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wv", prefix))?,
-                &format!("{}attention.wv", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "attention.wo";
             block.attention.wo = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}attention.wo", prefix))?,
-                &format!("{}attention.wo", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "ffn.w1";
             block.ffn.w1 = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}ffn.w1", prefix))?,
-                &format!("{}ffn.w1", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "ffn.w2";
             block.ffn.w2 = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}ffn.w2", prefix))?,
-                &format!("{}ffn.w2", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
+            let name = prefix.clone() + "ffn.w3";
             block.ffn.w3 = to_fixed::<ndarray::Ix2>(
-                get_arr(&format!("{}ffn.w3", prefix))?,
-                &format!("{}ffn.w3", prefix),
+                get_arr(&name)?,
+                &name,
             )?.to_owned();
         }
         Ok(model)

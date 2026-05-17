@@ -649,14 +649,21 @@ impl ResponseFormatter for MarkdownFormatter {
             Value::Object(obj) => {
                 let mut md_content = String::new();
                 for (key, value) in obj {
-                    md_content.push_str(&format!("**{}**: {}\n\n", key, value));
+                    md_content.push_str("**");
+                    md_content.push_str(key);
+                    md_content.push_str("**: ");
+                    md_content.push_str(&value.to_string());
+                    md_content.push_str("\n\n");
                 }
                 md_content
             }
             Value::Array(arr) => {
                 let mut md_content = String::new();
                 for (i, item) in arr.iter().enumerate() {
-                    md_content.push_str(&format!("{}. {}\n\n", i + 1, item));
+                    md_content.push_str(&(i + 1).to_string());
+                    md_content.push_str(". ");
+                    md_content.push_str(&item.to_string());
+                    md_content.push_str("\n\n");
                 }
                 md_content
             }
@@ -695,10 +702,11 @@ impl ResponseFormatter for HtmlFormatter {
                 let mut html_content = String::new();
                 html_content.push_str("<table>\n");
                 for (key, value) in obj {
-                    html_content.push_str(&format!(
-                        "  <tr><td><strong>{}</strong></td><td>{}</td></tr>\n",
-                        key, value
-                    ));
+                    html_content.push_str("  <tr><td><strong>");
+                    html_content.push_str(key);
+                    html_content.push_str("</strong></td><td>");
+                    html_content.push_str(&value.to_string());
+                    html_content.push_str("</td></tr>\n");
                 }
                 html_content.push_str("</table>");
                 html_content
@@ -707,7 +715,9 @@ impl ResponseFormatter for HtmlFormatter {
                 let mut html_content = String::new();
                 html_content.push_str("<ul>\n");
                 for item in arr {
-                    html_content.push_str(&format!("  <li>{}</li>\n", item));
+                    html_content.push_str("  <li>");
+                    html_content.push_str(&item.to_string());
+                    html_content.push_str("</li>\n");
                 }
                 html_content.push_str("</ul>");
                 html_content

@@ -304,7 +304,7 @@ impl ActionPlanningModule {
         
         for token in tokens {
             // Simple token to text conversion
-            let word = format!("word{}", token.token_id % 1000);
+            let word = "word".to_string() + &(token.token_id % 1000).to_string();
             text.push_str(&word);
             text.push(' ');
         }

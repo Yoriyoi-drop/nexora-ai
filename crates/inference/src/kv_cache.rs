@@ -305,7 +305,7 @@ mod tests {
         for i in 0..100 {
             let c = cache.clone();
             handles.push(tokio::spawn(async move {
-                c.insert(format!("k{}", i).into_bytes(), vec![i as f32])
+                c.insert(("k".to_string() + &i.to_string()).into_bytes(), vec![i as f32])
                     .await;
             }));
         }

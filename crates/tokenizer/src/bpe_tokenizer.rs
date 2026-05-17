@@ -133,7 +133,7 @@ impl BpeTokenizer {
                 }
                 
                 // Create new token
-                let new_token = format!("{}{}", pair.0, pair.1);
+                let new_token = pair.0.clone() + &pair.1;
                 
                 // Add to vocabulary and merges
                 current_vocab.insert(new_token.clone());
@@ -199,7 +199,8 @@ impl BpeTokenizer {
             let mut new_word = word.clone();
             
             // Replace all occurrences of the pair
-            while let Some(pos) = new_word.find(&format!("{}{}", pair.0, pair.1)) {
+            let pair_str = pair.0.clone() + &pair.1;
+            while let Some(pos) = new_word.find(&pair_str) {
                 new_word.replace_range(pos..pos + pair.0.len() + pair.1.len(), new_token);
             }
             
@@ -244,7 +245,7 @@ impl BpeTokenizer {
                 if let Some(&byte_val) = self.unicode_to_byte.get(&c) {
                     format!("{:02x}", byte_val)
                 } else {
-                    format!("{:02x}", 0) // Unknown character
+                    "00".to_string() // Unknown character
                 }
             })
             .collect();
@@ -259,7 +260,7 @@ impl BpeTokenizer {
             // Find best merge pair
             for i in 0..tokens.len() - 1 {
                 let pair = (tokens[i].clone(), tokens[i + 1].clone());
-                let merged = format!("{}{}", pair.0, pair.1);
+                let merged = pair.0.clone() + &pair.1;
                 
                 if let Some(&token_id) = self.vocab.get(&merged) {
                     if token_id < best_rank {
@@ -271,7 +272,7 @@ impl BpeTokenizer {
             
             if let Some((i, j)) = best_pair {
                 // Merge tokens
-                let merged = format!("{}{}", tokens[i], tokens[j]);
+                let merged = tokens[i].clone() + &tokens[j];
                 tokens[i] = merged;
                 tokens.remove(j);
             } else {

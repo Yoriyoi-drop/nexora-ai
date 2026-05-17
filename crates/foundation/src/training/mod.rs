@@ -194,7 +194,7 @@ impl Trainer {
             if let Some(ref path) = self.config.save_path {
                 if self.step % self.config.save_every == 0 {
                     trainable.sync_to_inference(&mut self.model);
-                    let save_file = format!("{}.step-{}.safetensors", path, self.step);
+                    let save_file = path.clone() + ".step-" + &self.step.to_string() + ".safetensors";
                     let _ = trainable.save_checkpoint(&save_file);
                 }
             }
@@ -341,7 +341,7 @@ impl Trainer {
             if let Some(ref trainable) = self.trainable {
                 let mut model_clone = self.model.clone();
                 trainable.sync_to_inference(&mut model_clone);
-                let save_file = format!("{}.epoch-{}.safetensors", path, epoch);
+                let save_file = path.clone() + ".epoch-" + &epoch.to_string() + ".safetensors";
                 let _ = trainable.save_checkpoint(&save_file);
             }
         }
