@@ -227,7 +227,7 @@ impl IntentDetector {
     
     fn detect_normal_intents(&self, input: &str, result: &mut IntentResult) {
         let input_lower = input.to_lowercase();
-        let mut intent_scores: HashMap<IntentType, f32> = HashMap::new();
+        let mut intent_scores: HashMap<IntentType, f32> = HashMap::with_capacity(self.keyword_weights.len());
         
         // Calculate weighted scores for each intent
         for (keyword, (intent_type, score, priority_weight)) in &self.keyword_weights {

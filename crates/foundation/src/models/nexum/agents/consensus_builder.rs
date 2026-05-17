@@ -709,7 +709,7 @@ impl ConsensusBuilderAgent {
 
     /// Evaluate reasoning quality
     async fn evaluate_reasoning(&self, input: &ConsensusTaskInput) -> AgentResult<ReasoningEvaluation> {
-        let mut reasoning_scores = HashMap::new();
+        let mut reasoning_scores = HashMap::with_capacity(input.reasoning_traces.len());
         
         for trace in &input.reasoning_traces {
             let score = self.evaluate_reasoning_quality(trace);
@@ -889,7 +889,7 @@ impl ConsensusBuilderAgent {
                                    _disagreement: &DisagreementResult,
                                    reasoning: &ReasoningEvaluation) -> AgentResult<ConsensusResult> {
         // Simple majority vote
-        let mut vote_counts: HashMap<String, usize> = HashMap::new();
+        let mut vote_counts: HashMap<String, usize> = HashMap::with_capacity(input.agent_outputs.len());
         
         for output in &input.agent_outputs {
             *vote_counts.entry(output.content.clone()).or_insert(0) += 1;

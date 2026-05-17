@@ -366,7 +366,7 @@ impl TokenMixer {
     /// Create token source from data entries
     pub fn create_source_from_entries(&self, id: String, name: String, entries: &[DataEntry]) -> TokenSource {
         let mut tokens = Vec::new();
-        let mut word_counts = HashMap::new();
+        let mut word_counts = HashMap::with_capacity(entries.len());
         
         for entry in entries {
             let words: Vec<String> = entry.content.split_whitespace()

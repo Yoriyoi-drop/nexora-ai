@@ -171,7 +171,7 @@ impl BpeTokenizer {
     }
     
     fn find_most_frequent_pair(&self, word_freqs: &HashMap<String, u32>, vocab: &HashSet<String>) -> Option<((String, String), u32)> {
-        let mut pair_freqs: HashMap<(String, String), u32> = HashMap::new();
+        let mut pair_freqs: HashMap<(String, String), u32> = HashMap::with_capacity(word_freqs.len());
         
         for (word, freq) in word_freqs {
             let chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
@@ -193,7 +193,7 @@ impl BpeTokenizer {
     }
     
     fn update_word_freqs(&self, word_freqs: &mut HashMap<String, u32>, pair: &(String, String), new_token: &str) {
-        let mut new_word_freqs = HashMap::new();
+        let mut new_word_freqs = HashMap::with_capacity(word_freqs.len());
         
         for (word, freq) in word_freqs.iter() {
             let mut new_word = word.clone();

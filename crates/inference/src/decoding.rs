@@ -455,7 +455,7 @@ impl DecodingStrategy for TopKSampling {
 
 /// Create default decoding strategies
 pub fn create_default_strategies() -> HashMap<String, Box<dyn DecodingStrategy>> {
-    let mut strategies: HashMap<String, Box<dyn DecodingStrategy>> = HashMap::new();
+    let mut strategies: HashMap<String, Box<dyn DecodingStrategy>> = HashMap::with_capacity(4);
     
     strategies.insert("greedy".to_string(), Box::new(GreedyDecoding) as Box<dyn DecodingStrategy>);
     strategies.insert("temperature".to_string(), Box::new(TemperatureSampling) as Box<dyn DecodingStrategy>);

@@ -280,7 +280,7 @@ impl MultiModelCoordinator {
     
     fn create_execution_plan(&self, models: &[ModelId]) -> CoreResult<Vec<ExecutionStep>> {
         let mut plan = Vec::with_capacity(models.len());
-        let mut completed = HashSet::new();
+        let mut completed = HashSet::with_capacity(models.len());
         
         while completed.len() < models.len() {
             let mut added_this_round = false;

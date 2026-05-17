@@ -10,7 +10,7 @@ pub struct GraphPruner;
 impl GraphPruner {
     /// Prune graf berdasarkan redundancy score
     pub fn prune(graph: &mut NeuralGraph, config: &SwarmConfig) {
-        let mut to_remove = HashSet::new();
+        let mut to_remove = HashSet::with_capacity(graph.nodes.len());
 
         // Prune node dengan kontribusi marginal rendah
         for (id, node) in &graph.nodes {

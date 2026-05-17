@@ -118,7 +118,7 @@ impl StringUtils {
     /// Count word frequency
     pub fn word_frequency(text: &str) -> HashMap<String, usize> {
         let words = Self::extract_keywords(text, 1);
-        let mut freq = HashMap::new();
+        let mut freq = HashMap::with_capacity(words.len());
         
         for word in words {
             *freq.entry(word).or_insert(0) += 1;

@@ -261,7 +261,7 @@ impl TokenLoop {
         start_time: chrono::DateTime<Utc>,
     ) -> Result<InferenceResponse> {
         let mut tokens = Vec::with_capacity(initial_logits.len());
-        let mut token_frequencies = HashMap::new();
+        let mut token_frequencies = HashMap::with_capacity(initial_logits.len());
         let mut finish_reason = FinishReason::Unknown;
         
         let mut decoding_context = DecodingContext::new(initial_logits[0].len());

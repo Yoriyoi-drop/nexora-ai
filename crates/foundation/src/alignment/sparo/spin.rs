@@ -547,7 +547,7 @@ pub mod utils {
     /// Analyze tournament results
     pub fn analyze_tournament(tournament: &SelfPlayTournament) -> Result<TournamentAnalysis> {
         let games_by_round = tournament.games.iter()
-            .fold(HashMap::new(), |mut acc, game| {
+            .fold(HashMap::with_capacity(tournament.games.len()), |mut acc, game| {
                 acc.entry(game.round_number).or_insert_with(Vec::new).push(game);
                 acc
             });

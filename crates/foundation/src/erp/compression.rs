@@ -40,7 +40,8 @@ impl SuperpositionCompressor {
     /// Compress weights menggunakan resonance groups
     pub fn compress_weights(&self, weights: &[Array2<f32>], resonance_groups: &[ResonanceGroup]) -> Result<Vec<CompressedLayer>, ERPError> {
         let mut compressed_layers = Vec::new();
-        let mut global_neuron_map = HashMap::new();
+        let total_neurons: usize = weights.iter().map(|w| w.shape()[0]).sum();
+        let mut global_neuron_map = HashMap::with_capacity(total_neurons);
         let mut neuron_counter = 0;
 
         // Build global neuron mapping

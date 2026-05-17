@@ -246,7 +246,7 @@ impl FirewallAiAgent {
 
     async fn detect_anomalies(&self, traffic: &[String]) -> AgentResult<Vec<String>> {
         let mut anomalies = Vec::new();
-        let mut ip_counts: HashMap<String, usize> = HashMap::new();
+        let mut ip_counts: HashMap<String, usize> = HashMap::with_capacity(traffic.len());
 
         for entry in traffic {
             if let Some(ip) = entry.split_whitespace().next() {

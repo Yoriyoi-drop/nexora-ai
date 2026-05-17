@@ -19,10 +19,10 @@ pub struct MultimodalVocabulary {
 impl MultimodalVocabulary {
     /// Create new multimodal vocabulary
     pub fn new(vocab_size: usize, _token_dim: usize) -> Result<Self> {
-        let mut token_to_id = HashMap::new();
-        let mut id_to_token = HashMap::new();
-        let mut modality_tokens = HashMap::new();
-        let mut special_tokens = HashMap::new();
+        let mut token_to_id = HashMap::with_capacity(12);
+        let mut id_to_token = HashMap::with_capacity(12);
+        let mut modality_tokens = HashMap::with_capacity(12);
+        let mut special_tokens = HashMap::with_capacity(12);
         
         // Add special tokens
         let special_token_list = vec![

@@ -16,7 +16,7 @@ pub struct TokenSequenceProcessor {
 impl TokenSequenceProcessor {
     /// Create new token sequence processor
     pub fn new(vocab_size: usize, max_sequence_length: usize) -> Result<Self> {
-        let mut special_token_ids = HashMap::new();
+        let mut special_token_ids = HashMap::with_capacity(7);
         
         // Initialize special token IDs
         special_token_ids.insert("<PAD>".to_string(), 0);
@@ -131,7 +131,7 @@ impl TokenSequenceProcessor {
     /// Handle interleaving between different modalities
     fn handle_interleaving(&self, tokens: Vec<UnifiedToken>) -> Result<Vec<UnifiedToken>> {
         let mut interleaved = Vec::new();
-        let mut modality_groups = HashMap::new();
+        let mut modality_groups = HashMap::with_capacity(5);
         
         // Group tokens by modality
         for token in &tokens {

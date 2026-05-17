@@ -546,7 +546,7 @@ impl FileUtils {
         let mut files = Vec::new();
         Self::find_files_recursive(path, &mut files)?;
         
-        let mut checksum_map: std::collections::HashMap<String, Vec<PathBuf>> = std::collections::HashMap::new();
+        let mut checksum_map: std::collections::HashMap<String, Vec<PathBuf>> = std::collections::HashMap::with_capacity(files.len());
         
         for file in files {
             if let Ok(checksum) = Self::calculate_checksum(&file) {

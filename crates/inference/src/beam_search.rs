@@ -302,7 +302,7 @@ impl BeamSearchEngine {
         }
         
         let mut pruned = Vec::with_capacity(candidates.len().min(self.config.max_candidates));
-        let mut diversity_tracker = HashMap::new();
+        let mut diversity_tracker = HashMap::with_capacity(candidates.len());
         
         for candidate in candidates {
             // Check diversity

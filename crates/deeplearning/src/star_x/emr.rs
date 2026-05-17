@@ -479,7 +479,7 @@ impl EpisodicMemoryRetention {
         let mut consolidated = Vec::new();
         
         // Group similar memories
-        let mut groups: HashMap<Vec<usize>, Vec<(usize, f32, ArrayD<f32>)>> = HashMap::new();
+        let mut groups: HashMap<Vec<usize>, Vec<(usize, f32, ArrayD<f32>)>> = HashMap::with_capacity(self.memory_entries.len());
         
         for (id, entry) in &self.memory_entries {
             // Simple grouping by priority ranges

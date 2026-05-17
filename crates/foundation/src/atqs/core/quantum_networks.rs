@@ -266,7 +266,8 @@ fn compute_mpo_entanglement(
     // Compute Rényi entropy (α=2): S₂ = -log(∑ λ_i²)
     let renyi_entropy = -eigenvals.iter().map(|&λ| λ * λ).sum::<f32>().ln();
     
-    let mut mutual_information = HashMap::new();
+    let cap = partition.len() * partition.len().saturating_sub(1) / 2;
+    let mut mutual_information = HashMap::with_capacity(cap);
     
     // Compute mutual information between different partitions
     for i in 0..partition.len() {
@@ -341,7 +342,12 @@ fn compute_ipeps_entanglement(
     };
     
     // Compute mutual information untuk partition
-    let mut mutual_information = HashMap::new();
+    let cap = if partition.len() >= 2 {
+        partition.len() * (partition.len() - 1) / 2
+    } else {
+        1
+    };
+    let mut mutual_information = HashMap::with_capacity(cap);
     if partition.len() >= 2 {
         for i in 0..partition.len() - 1 {
             for j in i + 1..partition.len() {

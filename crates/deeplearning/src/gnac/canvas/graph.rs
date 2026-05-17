@@ -91,7 +91,7 @@ impl NeuralGraph {
     }
 
     pub fn topological_order(&self) -> DLResult<Vec<Uuid>> {
-        let mut in_degree: HashMap<Uuid, usize> = HashMap::new();
+        let mut in_degree: HashMap<Uuid, usize> = HashMap::with_capacity(self.nodes.len());
         for node_id in self.nodes.keys() {
             in_degree.entry(*node_id).or_insert(0);
         }

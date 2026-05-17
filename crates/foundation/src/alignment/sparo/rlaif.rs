@@ -555,7 +555,7 @@ impl RlaifManager {
     }
     
     fn aggregate_feedback(&self, feedbacks: Vec<JudgeFeedback>) -> Result<Vec<JudgeFeedback>> {
-        let mut aggregated = HashMap::new();
+        let mut aggregated = HashMap::with_capacity(feedbacks.len());
         
         // Group feedback by step/trace
         for feedback in feedbacks {

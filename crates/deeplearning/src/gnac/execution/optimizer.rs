@@ -36,7 +36,7 @@ impl GraphOptimizer {
     /// Operator fusion: gabungkan operasi berurutan
     fn fuse_operations(&self, ir: &GraphIR) -> GraphIR {
         let mut fused = ir.clone();
-        let mut to_remove = HashSet::new();
+        let mut to_remove = HashSet::with_capacity(fused.operations.len());
         let mut i = 0;
 
         while i + 1 < fused.operations.len() {

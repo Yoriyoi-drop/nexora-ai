@@ -272,8 +272,8 @@ impl TextProcessor {
     
     /// Extract keywords using TF-IDF (simplified)
     pub fn extract_keywords_tfidf(texts: &[&str], top_k: usize) -> Vec<(String, f64)> {
-        let mut word_freq: HashMap<String, usize> = HashMap::new();
-        let mut doc_freq: HashMap<String, usize> = HashMap::new();
+        let mut word_freq: HashMap<String, usize> = HashMap::with_capacity(texts.len());
+        let mut doc_freq: HashMap<String, usize> = HashMap::with_capacity(texts.len());
         let total_docs = texts.len();
         
         // Count word frequencies and document frequencies
@@ -362,7 +362,7 @@ impl TextProcessor {
         
         // Calculate sentence scores based on word frequency
         let words = Self::tokenize(text);
-        let mut word_freq: HashMap<String, usize> = HashMap::new();
+        let mut word_freq: HashMap<String, usize> = HashMap::with_capacity(words.len());
         for word in words {
             *word_freq.entry(word).or_insert(0) += 1;
         }

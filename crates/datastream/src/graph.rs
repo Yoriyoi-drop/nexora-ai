@@ -52,8 +52,8 @@ impl ExecutionGraph {
     }
 
     pub fn finalize(&mut self) {
-        let mut is_entry = HashSet::new();
-        let mut has_deps = HashSet::new();
+        let mut is_entry = HashSet::with_capacity(self.nodes.len());
+        let mut has_deps = HashSet::with_capacity(self.nodes.len());
         let mut child_updates: Vec<(String, String)> = Vec::with_capacity(self.nodes.len());
 
         for (id, node) in &self.nodes {

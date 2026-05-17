@@ -217,7 +217,7 @@ impl ConsensusAiAgent {
             opinions.len() as f32
         };
 
-        let mut counts: HashMap<String, (f32, Vec<&AgentOpinion>)> = HashMap::new();
+        let mut counts: HashMap<String, (f32, Vec<&AgentOpinion>)> = HashMap::with_capacity(opinions.len());
         for opinion in opinions {
             let entry = counts.entry(opinion.position.clone()).or_default();
             entry.0 += if self.weight_by_confidence {
@@ -472,7 +472,7 @@ impl MergeSynthAgent {
                 })
                 .unwrap_or_default(),
             MergeStrategy::MajorityVote => {
-                let mut counts: HashMap<&str, u32> = HashMap::new();
+                let mut counts: HashMap<&str, u32> = HashMap::with_capacity(inputs.len());
                 for input in inputs {
                     *counts.entry(&input.data).or_default() += 1;
                 }

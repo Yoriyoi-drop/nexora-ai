@@ -398,7 +398,7 @@ impl RlvfManager {
             .map(|f| f.overall_score)
             .sum::<f32>() / total_steps.max(1) as f32;
         
-        let mut verification_type_counts = HashMap::new();
+        let mut verification_type_counts = HashMap::with_capacity(step_feedbacks.len());
         for feedback in step_feedbacks {
             for result in &feedback.verification_results {
                 *verification_type_counts.entry(result.verification_type.clone()).or_insert(0) += 1;
@@ -488,7 +488,7 @@ pub mod utils {
     
     /// Aggregate verification results by type
     pub fn aggregate_by_type(results: &[VerificationResult]) -> HashMap<VerificationType, Vec<&VerificationResult>> {
-        let mut aggregated = HashMap::new();
+        let mut aggregated = HashMap::with_capacity(results.len());
         
         for result in results {
             aggregated.entry(result.verification_type.clone())

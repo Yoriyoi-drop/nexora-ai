@@ -300,7 +300,7 @@ impl DataDeduplicator {
         }
         
         // Count word frequencies
-        let mut word_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut word_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::with_capacity(words.len());
         for word in &words {
             *word_counts.entry(word.clone()).or_insert(0) += 1;
         }

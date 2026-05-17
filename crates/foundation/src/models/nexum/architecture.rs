@@ -1650,7 +1650,7 @@ impl NexumArchitecture {
         let mut result = ConsensusResult::new();
         
         // Collect votes
-        let mut votes = HashMap::new();
+        let mut votes = HashMap::with_capacity(participants.len());
         for participant in participants {
             let vote = self.collect_vote(participant, options).await?;
             votes.insert(participant.clone(), vote);
@@ -1702,7 +1702,7 @@ impl NexumArchitecture {
 
     /// Apply majority voting
     async fn apply_majority_voting(&self, votes: &HashMap<String, Vote>, options: &[String]) -> NxrModelResult<ConsensusOutcome> {
-        let mut vote_counts = HashMap::new();
+        let mut vote_counts = HashMap::with_capacity(votes.len());
         
         for vote in votes.values() {
             let count = vote_counts.entry(vote.selected_option.clone()).or_insert(0);
@@ -1741,7 +1741,7 @@ impl NexumArchitecture {
 
     /// Apply weighted voting
     async fn apply_weighted_voting(&self, votes: &HashMap<String, Vote>, options: &[String]) -> NxrModelResult<ConsensusOutcome> {
-        let mut vote_weights = HashMap::new();
+        let mut vote_weights = HashMap::with_capacity(votes.len());
         
         for vote in votes.values() {
             let weight = vote_weights.entry(vote.selected_option.clone()).or_insert(0.0);

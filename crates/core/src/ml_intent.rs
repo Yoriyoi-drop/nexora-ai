@@ -134,7 +134,7 @@ impl NaiveBayesClassifier {
         info!("Training Naive Bayes classifier with {} samples", training_data.len());
         
         // Count intents for priors
-        let mut intent_counts = HashMap::new();
+        let mut intent_counts = HashMap::with_capacity(training_data.len());
         let mut total_samples = 0;
         
         for (_, intent) in training_data {
@@ -157,7 +157,7 @@ impl NaiveBayesClassifier {
         }
         
         // Calculate likelihoods
-        let mut feature_counts: HashMap<IntentType, HashMap<String, usize>> = HashMap::new();
+        let mut feature_counts: HashMap<IntentType, HashMap<String, usize>> = HashMap::with_capacity(training_data.len());
         
         for (text, intent) in training_data {
             let features = extractor.extract_features(text);

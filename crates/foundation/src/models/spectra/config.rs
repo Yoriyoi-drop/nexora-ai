@@ -309,7 +309,7 @@ impl Default for CreativeConfig {
 
 impl Default for MultimodalConfig {
     fn default() -> Self {
-        let mut modality_weights = HashMap::new();
+        let mut modality_weights = HashMap::with_capacity(4);
         modality_weights.insert("text".to_string(), 0.3);
         modality_weights.insert("image".to_string(), 0.3);
         modality_weights.insert("audio".to_string(), 0.2);
@@ -386,7 +386,7 @@ impl Default for InnovationConfig {
                     name: "aesthetic_balance".to_string(),
                     constraint_type: ConstraintType::Style,
                     parameters: {
-                        let mut params = HashMap::new();
+                        let mut params = HashMap::with_capacity(2);
                         params.insert("balance".to_string(), 0.8);
                         params.insert("harmony".to_string(), 0.7);
                         params

@@ -184,7 +184,7 @@ impl ActionPlanningModule {
     
     /// Create click parameters
     fn create_click_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
-        let mut params = HashMap::new();
+        let mut params = HashMap::with_capacity(3);
         
         // Extract click coordinates from tokens
         if let Some(spatial_token) = tokens.iter().find(|t| t.modality == ModalityType::Image) {
@@ -206,7 +206,7 @@ impl ActionPlanningModule {
     
     /// Create type parameters
     fn create_type_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
-        let mut params = HashMap::new();
+        let mut params = HashMap::with_capacity(1);
         
         // Extract text to type from tokens
         let text_tokens: Vec<_> = tokens.iter()
@@ -223,7 +223,7 @@ impl ActionPlanningModule {
     
     /// Create extract parameters
     fn create_extract_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
-        let mut params = HashMap::new();
+        let mut params = HashMap::with_capacity(2);
         
         // Extract what to extract
         if let Some(ref instruction) = context.instruction {
@@ -240,7 +240,7 @@ impl ActionPlanningModule {
     
     /// Create analyze parameters
     fn create_analyze_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
-        let mut params = HashMap::new();
+        let mut params = HashMap::with_capacity(2);
         
         // Add analysis type
         params.insert("analysis_type".to_string(), serde_json::Value::String("classification".to_string()));
@@ -255,7 +255,7 @@ impl ActionPlanningModule {
     
     /// Create navigate parameters
     fn create_navigate_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
-        let mut params = HashMap::new();
+        let mut params = HashMap::with_capacity(2);
         
         // Extract destination
         if let Some(ref instruction) = context.instruction {

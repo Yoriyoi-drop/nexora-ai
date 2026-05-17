@@ -157,8 +157,8 @@ pub struct SpecialTokens {
 impl SpecialTokens {
     /// Create a new special tokens manager
     pub fn new() -> Self {
-        let mut token_to_id = HashMap::new();
-        let mut id_to_token = HashMap::new();
+        let mut token_to_id = HashMap::with_capacity(SpecialTokenID::COUNT);
+        let mut id_to_token = HashMap::with_capacity(SpecialTokenID::COUNT);
         let mut special_ids = [0; SpecialTokenID::COUNT];
         
         // Initialize all special tokens
@@ -356,7 +356,7 @@ impl SpecialTokens {
     /// Validate a sequence of token IDs for proper special token pairing
     pub fn validate_sequence(&self, token_ids: &[u32]) -> Result<()> {
         let pairs = self.find_matching_pairs(token_ids);
-        let mut used_positions = std::collections::HashSet::new();
+        let mut used_positions = std::collections::HashSet::with_capacity(pairs.len() * 2);
         
         for (start, end) in pairs {
             if used_positions.contains(&start) || used_positions.contains(&end) {
