@@ -1,0 +1,21 @@
+# Nexora AI — Cargo build configuration
+#
+# For debug builds:
+#   cargo build
+#
+# For production builds:
+#   RUSTFLAGS="-C target-cpu=native" cargo build --release
+
+[profile.release]
+lto = "fat"                 # Full link-time optimization (20-30% perf gain)
+codegen-units = 1           # Maximize per-function optimization
+opt-level = 3               # Maximum optimization
+strip = "symbols"           # Remove debug symbols from release binary
+panic = "abort"             # Smaller binary, no unwind tables
+overflow-checks = false     # Disable integer overflow checks (perf)
+
+[profile.dev]
+opt-level = 0
+debug = true
+panic = "unwind"
+overflow-checks = true

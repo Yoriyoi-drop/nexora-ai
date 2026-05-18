@@ -50,6 +50,11 @@ sysinfo = "0.30"
 psutil = "3.2"
 reqwest.workspace = true
 arrow = { version = "53", default-features = false, features = ["ipc"] }
+mimalloc = { version = "0.1", optional = true }
+
+[features]
+default = []
+production = ["mimalloc"]
 
 [[bin]]
 name = "nexora"
