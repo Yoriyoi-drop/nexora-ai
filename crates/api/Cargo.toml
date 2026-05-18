@@ -35,7 +35,7 @@ version = "0.24"
 optional = true
 
 [dependencies.axum-server]
-version = "0.6"
+version = "0.8"
 optional = true
 features = ["tls-rustls"]
 
