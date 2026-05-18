@@ -32,7 +32,7 @@ rustls = "0.21"
 tokio-rustls = "0.24"
 rustls-pemfile = "2.0"
 rustls-pki-types = "1.0"
-rcgen = "0.12"
+rcgen = "0.14"
 clap = { version = "4.0", features = ["derive"] }
 toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
