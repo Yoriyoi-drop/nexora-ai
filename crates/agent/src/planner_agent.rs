@@ -23,7 +23,7 @@ pub struct PlannerAgent {
     /// Current status
     status: AgentStatus,
     /// Active plans
-    active_plans: Arc<std::sync::Mutex<HashMap<Uuid, ExecutionPlan>>>,
+    active_plans: Arc<tokio::sync::Mutex<HashMap<Uuid, ExecutionPlan>>>,
     /// Planning strategies
     strategies: Vec<Box<dyn PlanningStrategy>>,
     /// Statistics
@@ -167,7 +167,7 @@ impl PlannerAgent {
             id: Uuid::new_v4(),
             name: "PlannerAgent".to_string(),
             status: AgentStatus::Initializing,
-            active_plans: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            active_plans: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             strategies: Vec::new(),
             stats: AgentStats::default(),
             config,
@@ -189,7 +189,7 @@ impl PlannerAgent {
         
         // Check concurrent plan limit
         {
-            let plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+            let plans = self.active_plans.lock().await;
             if plans.len() >= self.config.max_concurrent_plans {
                 return Err(AgentError::ProcessingError(
                     format!("Maximum concurrent plans ({}) reached", self.config.max_concurrent_plans)
@@ -213,7 +213,7 @@ impl PlannerAgent {
         
         // Add to active plans
         {
-            let mut plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+            let mut plans = self.active_plans.lock().await;
             plans.insert(plan.plan_id, plan.clone());
         }
         
@@ -225,7 +225,7 @@ impl PlannerAgent {
     pub async fn execute_next_step(&self, plan_id: Uuid) -> Result<Option<PlanStep>> {
         debug!("Executing next step for plan: {}", plan_id);
         
-        let mut plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plans = self.active_plans.lock().await;
         if let Some(plan) = plans.get_mut(&plan_id) {
             // Find next executable step
             if let Some(step_index) = self.find_next_executable_step(plan) {
@@ -259,7 +259,7 @@ impl PlannerAgent {
     ) -> Result<()> {
         debug!("Completing step {} for plan {}", step_id, plan_id);
         
-        let mut plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plans = self.active_plans.lock().await;
         if let Some(plan) = plans.get_mut(&plan_id) {
             // Find and update step
             if let Some(step) = plan.steps.iter_mut().find(|s| s.step_id == step_id) {
@@ -286,7 +286,7 @@ impl PlannerAgent {
     ) -> Result<()> {
         debug!("Failing step {} for plan {}: {}", step_id, plan_id, error);
         
-        let mut plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plans = self.active_plans.lock().await;
         if let Some(plan) = plans.get_mut(&plan_id) {
             // Find and update step
             if let Some(step) = plan.steps.iter_mut().find(|s| s.step_id == step_id) {
@@ -309,13 +309,13 @@ impl PlannerAgent {
     
     /// Get plan information
     pub async fn get_plan(&self, plan_id: Uuid) -> Result<Option<ExecutionPlan>> {
-        let plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let plans = self.active_plans.lock().await;
         Ok(plans.get(&plan_id).cloned())
     }
     
     /// List active plans
     pub async fn list_active_plans(&self) -> Vec<ExecutionPlan> {
-        let plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let plans = self.active_plans.lock().await;
         plans.values().cloned().collect()
     }
     
@@ -333,7 +333,7 @@ impl PlannerAgent {
         
         let strategy = self.find_strategy_for_adaptation(feedback).await?;
         
-        let mut plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plans = self.active_plans.lock().await;
         if let Some(plan) = plans.get_mut(&plan_id) {
             strategy.adapt_plan(plan, feedback).await?;
             plan.last_updated = chrono::Utc::now();
@@ -349,7 +349,7 @@ impl PlannerAgent {
     pub async fn cancel_plan(&self, plan_id: Uuid) -> Result<()> {
         debug!("Cancelling plan: {}", plan_id);
         
-        let mut plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plans = self.active_plans.lock().await;
         if let Some(plan) = plans.get_mut(&plan_id) {
             plan.status = PlanStatus::Cancelled;
             plan.last_updated = chrono::Utc::now();
@@ -409,8 +409,8 @@ impl PlannerAgent {
     }
     
     /// Get planning statistics
-    pub fn get_planning_stats(&self) -> PlanningStats {
-        let plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+    pub async fn get_planning_stats(&self) -> PlanningStats {
+        let plans = self.active_plans.lock().await;
         let total_steps: usize = plans.values().map(|p| p.steps.len()).sum();
         let completed_steps: usize = plans.values()
             .flat_map(|p| p.steps.iter())
@@ -608,7 +608,7 @@ impl Agent for PlannerAgent {
             }
             
             "stats" => {
-                let stats = self.get_planning_stats();
+                let stats = self.get_planning_stats().await;
                 json!({
                     "action": "stats",
                     "stats": stats
@@ -648,7 +648,7 @@ impl Agent for PlannerAgent {
         
         // Cancel all active plans
         let plan_ids: Vec<Uuid> = {
-            let plans = self.active_plans.lock().unwrap_or_else(|e| e.into_inner());
+            let plans = self.active_plans.lock().await;
             plans.keys().cloned().collect()
         };
         

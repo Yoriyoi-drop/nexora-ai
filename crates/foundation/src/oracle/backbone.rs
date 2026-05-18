@@ -318,51 +318,49 @@ impl LatentAttentionHead {
         mask: Option<&Array2<f32>>,
     ) -> Result<Array3<f32>> {
         let (batch_size, seq_len, head_dim) = q.dim();
-        
-        // Compute attention scores - reshape to 2D for matrix multiplication
-        let q_2d = q.view().into_shape((batch_size * seq_len, head_dim))?.to_owned();
-        let k_2d = k.view().into_shape((batch_size * seq_len, head_dim))?.to_owned();
-        let k_transposed = k_2d.t();
-        let scores_2d = q_2d.dot(&k_transposed) / (head_dim as f32).sqrt();
-        let scores = scores_2d.into_shape((batch_size, seq_len, seq_len))?;
+        let scale = (head_dim as f32).sqrt();
 
-        // Apply mask if provided (simplified for now)
-        let scores = scores;
+        // Per-batch attention to avoid cross-batch contamination
+        let mut output = Array3::zeros((batch_size, seq_len, head_dim));
 
-        // Softmax
-        let attention_weights = self.softmax_3d(&scores)?;
-        
-        // Apply attention weights to values
-        let (batch_size, seq_len, _) = attention_weights.dim();
-        let (_, _, head_dim) = v.dim();
-        
-        // Reshape for matrix multiplication
-        let aw_2d = attention_weights.view().into_shape((batch_size * seq_len, seq_len))?.to_owned();
-        let v_2d = v.view().into_shape((batch_size * seq_len, head_dim))?.to_owned();
-        let output_2d = aw_2d.dot(&v_2d);
-        let output = output_2d.into_shape((batch_size, seq_len, head_dim))?;
-        
-        Ok(output)
-    }
-    
-    fn softmax_3d(&self, x: &Array3<f32>) -> Result<Array3<f32>> {
-        let (batch_size, seq_len, _) = x.dim();
-        let mut result = Array3::zeros(x.dim());
-        
         for b in 0..batch_size {
+            // Q[b] · K[b]^T  — shape: (seq_len, seq_len)
+            let q_b = q.index_axis(ndarray::Axis(0), b);
+            let k_b = k.index_axis(ndarray::Axis(0), b);
+            let mut scores = q_b.dot(&k_b.t()) / scale;
+
+            // Apply causal mask
+            if let Some(mask) = mask {
+                for i in 0..seq_len {
+                    for j in 0..seq_len {
+                        scores[[i, j]] += mask[[i, j]];
+                    }
+                }
+            } else {
+                // Default causal mask: prevent attending to future tokens
+                for i in 0..seq_len {
+                    for j in i + 1..seq_len {
+                        scores[[i, j]] = f32::NEG_INFINITY;
+                    }
+                }
+            }
+
+            // Softmax over last dimension (per-row)
             for i in 0..seq_len {
-                let row = x.slice(s![b, i, ..]);
+                let row = scores.slice(ndarray::s![i, ..]);
                 let max_val = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
                 let exp_row = row.mapv(|x| (x - max_val).exp());
                 let sum_exp: f32 = exp_row.iter().sum();
-                let softmax_row = exp_row.mapv(|x| x / sum_exp);
-                
-                let mut result_row = result.slice_mut(s![b, i, ..]);
-                result_row.assign(&softmax_row);
+                for j in 0..seq_len {
+                    let attn = (scores[[i, j]] - max_val).exp() / sum_exp;
+                    for d in 0..head_dim {
+                        output[[b, i, d]] += attn * v[[b, j, d]];
+                    }
+                }
             }
         }
-        
-        Ok(result)
+
+        Ok(output)
     }
 }
 

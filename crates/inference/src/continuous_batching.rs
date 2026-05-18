@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use tracing::warn;
+
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
@@ -34,6 +36,8 @@ pub struct ContinuousBatchingEngine<M> {
     next_seq_id: u64,
     /// Maximum sequences to process per step
     max_batch_size: usize,
+    /// Maximum total sequences in the pool
+    max_total_sequences: usize,
     /// Per-sequence sampler
     samplers: HashMap<u64, Sampler>,
 }
@@ -50,13 +54,18 @@ where
             model,
             next_seq_id: 1,
             max_batch_size,
+            max_total_sequences: 1024,
             samplers: HashMap::new(),
         }
     }
 
     /// Add a new request to the batching pool.
-    /// Returns the assigned sequence ID.
+    /// Returns the assigned sequence ID, or 0 if the pool is full.
     pub fn add_request(&mut self, request: InferenceRequest) -> u64 {
+        if self.sequences.len() >= self.max_total_sequences {
+            warn!("ContinuousBatchingEngine: max sequences ({}) reached", self.max_total_sequences);
+            return 0;
+        }
         let seq_id = self.next_seq_id;
         self.next_seq_id += 1;
 
@@ -134,11 +143,12 @@ where
         let cache = self.kv_caches.get_mut(&seq_id)?;
         let logits = self.model.forward(&[input_token], cache);
 
-        let logits_slice: Vec<f32> = logits.as_slice().unwrap_or(&[]).to_vec();
+        let logits_slice: &[f32] = logits.as_slice().unwrap_or(&[]);
         let sampler = self.samplers.get_mut(&seq_id)?;
-        let token_id = match sampler.sample(&logits_slice) {
+        let token_id = match sampler.sample(logits_slice) {
             Ok(idx) => idx as u32,
-            Err(_) => {
+            Err(e) => {
+                warn!("Sampler failed for sequence {}, error: {:?}, falling back to argmax", seq_id, e);
                 let max_idx = logits_slice
                     .iter()
                     .enumerate()
@@ -175,16 +185,16 @@ where
 
         if let Some(reason) = finish_reason {
             seq.finish(reason.clone());
-            Some(self.build_response(seq_id, reason))
+            self.build_response(seq_id, reason)
         } else {
             None
         }
     }
 
-    fn build_response(&self, seq_id: u64, reason: FinishReason) -> InferenceResponse {
-        let seq = self.sequences.get(&seq_id).expect("sequence not found");
-        let text: String = seq.generated.iter().map(|t| t.token_text.as_str()).collect();
-        InferenceResponse {
+    fn build_response(&self, seq_id: u64, reason: FinishReason) -> Option<InferenceResponse> {
+        let seq = self.sequences.get(&seq_id)?;
+                let text: String = seq.generated.iter().map(|t| (&*t.token_text).to_string()).collect();
+        Some(InferenceResponse {
             request_id: uuid::Uuid::new_v4(),
             tokens: seq.generated.clone(),
             text,
@@ -192,7 +202,7 @@ where
             total_tokens: seq.total_tokens(),
             inference_time_ms: 0,
             metadata: HashMap::new(),
-        }
+        })
     }
 
     /// Number of active (non-finished) sequences.
@@ -222,7 +232,7 @@ where
                     _ => continue,
                 };
                 let total_tokens = seq.total_tokens();
-                let text: String = seq.generated.iter().map(|t| t.token_text.as_str()).collect();
+        let text: String = seq.generated.iter().map(|t| (&*t.token_text).to_string()).collect();
                 results.push(InferenceResponse {
                     request_id: uuid::Uuid::new_v4(),
                     tokens: seq.generated,

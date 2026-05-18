@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -99,7 +99,7 @@ pub type SharedPermissionLayer = Arc<RwLock<PermissionLayer>>;
 pub struct PermissionLayer {
     agents: HashMap<Uuid, AgentPermissions>,
     role_defaults: HashMap<AgentRole, HashSet<Capability>>,
-    audit_log: Vec<AccessAuditEntry>,
+    audit_log: VecDeque<AccessAuditEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,7 +136,7 @@ impl PermissionLayer {
         Self {
             agents: HashMap::new(),
             role_defaults,
-            audit_log: Vec::new(),
+            audit_log: VecDeque::new(),
         }
     }
 
@@ -235,9 +235,9 @@ impl PermissionLayer {
     }
 
     fn push_audit_entry(&mut self, entry: AccessAuditEntry) {
-        self.audit_log.push(entry);
+        self.audit_log.push_back(entry);
         if self.audit_log.len() > MAX_AUDIT_LOG {
-            self.audit_log.remove(0);
+            self.audit_log.pop_front();
         }
     }
 

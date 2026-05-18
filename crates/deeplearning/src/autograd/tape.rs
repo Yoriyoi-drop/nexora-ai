@@ -68,6 +68,14 @@ pub fn register_grad_fn(
     })
 }
 
+/// Clear all entries from the autograd tape.
+///
+/// Must be called after each training step to prevent unbounded memory growth.
+/// References: PyTorch clears the tape-equivalent after every `backward()`.
+pub fn clear_tape() {
+    TAPE.with(|tape| tape.borrow_mut().nodes.clear());
+}
+
 pub(crate) fn with_tape_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut AutogradTape) -> R,

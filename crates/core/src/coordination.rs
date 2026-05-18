@@ -334,100 +334,85 @@ impl MultiModelCoordinator {
     }
     
     async fn execute_plan(&self, plan: &[ExecutionStep], input: &str, context: &str) -> CoreResult<Vec<ModelResult>> {
-        let mut results = Vec::with_capacity(plan.len());
-        
-        for step in plan {
-            debug!("Executing step: model={:?}", step.model);
-            
-            // Acquire semaphore permit
-            let _permit = self.task_semaphore.acquire().await.map_err(|e| {
-                CoreError::TaskExecution(format!("Failed to acquire task permit: {}", e))
-            })?;
-            
-            // Create task info
-            let task_id = step.step_id.clone();
-            let task_info = TaskInfo {
-                task_id: task_id.clone(),
-                model: step.model,
-                status: TaskStatus::Pending,
-                created_at: Self::current_timestamp(),
-                dependencies: step.dependencies.iter().map(|m| format!("{:?}", m)).collect(),
-            };
-            
-            // Track task
-            {
-                let mut active_tasks = self.active_tasks.write().await;
-                active_tasks.insert(task_id.clone(), task_info);
+        let total = plan.len();
+        let mut completed: HashSet<usize> = HashSet::new();
+        let mut results: HashMap<usize, ModelResult> = HashMap::new();
+        let input = input.to_string();
+        let context = context.to_string();
+
+        while completed.len() < total {
+            let ready: Vec<usize> = plan.iter().enumerate()
+                .filter(|(i, _)| !completed.contains(&i))
+                .filter(|(_, step)| step.dependencies.iter().all(|dep| {
+                    completed.iter().any(|&j| plan[j].model == *dep)
+                }))
+                .map(|(i, _)| i)
+                .collect();
+
+            if ready.is_empty() {
+                return Err(CoreError::TaskExecution(
+                    "Circular dependency detected in execution plan".to_string()
+                ));
             }
-            
-            // Execute model
-            let start_time = Self::current_timestamp();
-            
-            if let Some(model_instance) = self.model_instances.get(&step.model) {
-                // Update task status to running
-                {
-                    let mut active_tasks = self.active_tasks.write().await;
-                    if let Some(task) = active_tasks.get_mut(&task_id) {
-                        task.status = TaskStatus::Running;
+
+            // Execute ready steps in parallel
+            let mut handles = Vec::with_capacity(ready.len());
+            for &idx in &ready {
+                let step = &plan[idx];
+                let input = input.clone();
+                let context = context.clone();
+                let semaphore = self.task_semaphore.clone();
+                let model = self.model_instances.get(&step.model).cloned();
+                let model_id = step.model;
+
+                handles.push(tokio::spawn(async move {
+                    let _permit = semaphore.acquire_owned().await.map_err(|e| {
+                        CoreError::TaskExecution(format!("Semaphore error: {}", e))
+                    })?;
+                    match model {
+                        Some(executor) => {
+                            let output = executor.execute(&input, &context).await?;
+                            Ok::<_, CoreError>(output)
+                        }
+                        None => Err(CoreError::ModelNotAvailable { model_id: model_id as u8 }),
                     }
-                }
-                
-                match model_instance.execute(input, context).await {
-                    Ok(output) => {
+                }));
+            }
+
+            for (i, handle) in handles.into_iter().enumerate() {
+                let idx = ready[i];
+                let start_time = Self::current_timestamp();
+                match handle.await {
+                    Ok(Ok(output)) => {
                         let end_time = Self::current_timestamp();
-                        
-                        let result = ModelResult {
-                            model: step.model,
+                        results.insert(idx, ModelResult {
+                            model: plan[idx].model,
                             output,
                             execution_time_ms: end_time - start_time,
                             success: true,
                             error: None,
-                        };
-                        
-                        results.push(result);
-                        
-                        // Update task status to completed
-                        {
-                            let mut active_tasks = self.active_tasks.write().await;
-                            if let Some(task) = active_tasks.get_mut(&task_id) {
-                                task.status = TaskStatus::Completed;
-                            }
-                        }
+                        });
+                    }
+                    Ok(Err(e)) => {
+                        warn!("Model execution failed: {:?}, error: {}", plan[idx].model, e);
+                        results.insert(idx, ModelResult {
+                            model: plan[idx].model,
+                            output: String::new(),
+                            execution_time_ms: 0,
+                            success: false,
+                            error: Some(e.to_string()),
+                        });
                     }
                     Err(e) => {
-                        let result = ModelResult {
-                            model: step.model,
-                            output: String::new(),
-                            execution_time_ms: Self::current_timestamp() - start_time,
-                            success: false,
-                            error: Some(format!("{}", e)),
-                        };
-                        
-                        results.push(result);
-                        
-                        // Update task status to failed
-                        {
-                            let mut active_tasks = self.active_tasks.write().await;
-                            if let Some(task) = active_tasks.get_mut(&task_id) {
-                                task.status = TaskStatus::Failed(format!("{}", e));
-                            }
-                        }
-                        
-                        warn!("Model execution failed: {:?}, error: {}", step.model, e);
+                        return Err(CoreError::TaskExecution(format!("Task join error: {}", e)));
                     }
                 }
-            } else {
-                return Err(CoreError::ModelNotAvailable { model_id: step.model as u8 });
-            }
-            
-            // Clean up task
-            {
-                let mut active_tasks = self.active_tasks.write().await;
-                active_tasks.remove(&task_id);
+                completed.insert(idx);
             }
         }
-        
-        Ok(results)
+
+        let ordered: Vec<ModelResult> = (0..total).map(|i| results.remove(&i).unwrap()).collect();
+        Ok(ordered)
     }
     
     fn generate_fused_response(&self, results: &[ModelResult]) -> String {

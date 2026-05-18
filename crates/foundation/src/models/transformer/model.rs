@@ -3,7 +3,7 @@ use rand::Rng;
 
 use super::config::TransformerConfig;
 use super::block::TransformerBlock;
-use super::gqa::KVCacheEntry;
+use super::gqa::{KVCacheEntry, PagedCacheReader};
 use super::rope::RoPE;
 
 fn softmax(logits: &Array1<f32>) -> Array1<f32> {
@@ -117,7 +117,8 @@ impl CausalLM {
         let mut h = Array2::zeros((batch_size, self.config.hidden_size));
 
         if let Some(&token_id) = input_ids.last() {
-            let tid = (token_id as usize).min(self.config.vocab_size - 1);
+            let tid = token_id as usize;
+            assert!(tid < self.config.vocab_size, "Token ID {} out of range [0, {})", tid, self.config.vocab_size);
             for j in 0..self.config.hidden_size {
                 h[[0, j]] = self.token_embedding[[tid, j]];
             }
@@ -157,6 +158,57 @@ impl CausalLM {
 
     pub fn reset_cache(&self) -> Vec<KVCacheEntry> {
         Vec::with_capacity(self.config.num_layers)
+    }
+
+    /// Forward pass using a paged KV cache.
+    /// `token_pos` is the current position being generated.
+    pub fn forward_paged(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut dyn PagedCacheReader,
+        seq_id: u64,
+    ) -> Array1<f32> {
+        let batch_size = 1;
+        let mut h = Array2::zeros((batch_size, self.config.hidden_size));
+
+        if let Some(&token_id) = input_ids.last() {
+            let tid = token_id as usize;
+            assert!(tid < self.config.vocab_size, "Token ID {} out of range [0, {})", tid, self.config.vocab_size);
+            for j in 0..self.config.hidden_size {
+                h[[0, j]] = self.token_embedding[[tid, j]];
+            }
+        }
+
+        let token_pos = kv_cache.num_tokens(seq_id).unwrap_or(0);
+        let half = self.config.head_dim() / 2;
+        let cos_slice = if token_pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos.slice(ndarray::s![token_pos * half..(token_pos + 1) * half]).to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+        let sin_slice = if token_pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin.slice(ndarray::s![token_pos * half..(token_pos + 1) * half]).to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
+            h = block.forward_paged(&h, kv_cache, seq_id, layer_idx, token_pos, &cos_slice, &sin_slice);
+        }
+
+        h = self.norm.forward(&h);
+
+        let h_row = h.row(0);
+        let mut logits = Array1::zeros(self.config.vocab_size);
+        for i in 0..self.config.vocab_size {
+            let mut dot = 0.0;
+            for j in 0..self.config.hidden_size {
+                dot += h_row[j] * self.lm_head[[i, j]];
+            }
+            logits[i] = dot;
+        }
+
+        logits
     }
 
     pub fn parameter_count(&self) -> usize {

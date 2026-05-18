@@ -38,6 +38,7 @@ pub struct KVCache {
     max_entries: usize,
     max_entry_bytes: usize,
     max_memory_bytes: usize,
+    total_memory_used: AtomicUsize,
     stats_hits: AtomicUsize,
     stats_misses: AtomicUsize,
     stats_evictions: AtomicUsize,
@@ -53,6 +54,7 @@ impl KVCache {
             max_entries: 10_000,
             max_entry_bytes: 8_388_608,
             max_memory_bytes: 1_073_741_824,
+            total_memory_used: AtomicUsize::new(0),
             stats_hits: AtomicUsize::new(0),
             stats_misses: AtomicUsize::new(0),
             stats_evictions: AtomicUsize::new(0),
@@ -119,19 +121,19 @@ impl KVCache {
         let hash = self.hash_key(&key);
         let mut entries = self.entries.write().await;
 
-        let total_bytes: usize = entries
-            .values()
-            .map(|e| e.value.len() * std::mem::size_of::<f32>() + e.key.len())
-            .sum();
+        let prev = self.total_memory_used.fetch_add(entry_size, Ordering::Relaxed);
 
-        while entries.len() >= self.max_entries || (total_bytes + entry_size) > self.max_memory_bytes {
+        while entries.len() >= self.max_entries || (prev + entry_size) > self.max_memory_bytes {
             let lru_key = entries
                 .iter()
                 .min_by_key(|(_, e)| e.last_access.load(Ordering::Relaxed))
                 .map(|(k, _)| *k);
             match lru_key {
                 Some(k) => {
-                    entries.remove(&k);
+                    if let Some(removed) = entries.remove(&k) {
+                        let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+                        self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+                    }
                     self.stats_evictions.fetch_add(1, Ordering::Relaxed);
                 }
                 None => break,

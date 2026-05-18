@@ -47,7 +47,7 @@ pub fn get_cpu_usage_percent() -> f64 {
                     for (i, part) in parts.iter().enumerate().skip(1).take(7) {
                         if let Ok(time) = part.parse::<u64>() {
                             total_time += time;
-                            if i == 4 {
+                            if i == 3 {
                                 idle_time = time;
                             }
                         }
@@ -63,15 +63,13 @@ pub fn get_cpu_usage_percent() -> f64 {
 }
 
 pub fn get_load_average() -> (f64, f64, f64) {
-    if let Ok(output) = std::process::Command::new("cat").arg("/proc/loadavg").output() {
-        if let Ok(load_str) = String::from_utf8(output.stdout) {
-            let parts: Vec<&str> = load_str.split_whitespace().collect();
-            if parts.len() >= 3 {
-                let l1: f64 = parts[0].parse().unwrap_or(0.0);
-                let l5: f64 = parts[1].parse().unwrap_or(0.0);
-                let l15: f64 = parts[2].parse().unwrap_or(0.0);
-                return (l1, l5, l15);
-            }
+    if let Ok(load_str) = std::fs::read_to_string("/proc/loadavg") {
+        let parts: Vec<&str> = load_str.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let l1: f64 = parts[0].parse().unwrap_or(0.0);
+            let l5: f64 = parts[1].parse().unwrap_or(0.0);
+            let l15: f64 = parts[2].parse().unwrap_or(0.0);
+            return (l1, l5, l15);
         }
     }
     (0.0, 0.0, 0.0)

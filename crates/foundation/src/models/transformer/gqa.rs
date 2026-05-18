@@ -5,6 +5,17 @@ use rand::Rng;
 
 use super::rope::RoPE;
 
+/// Minimal paged cache interface — avoids hard dependency on the inference crate.
+/// Inference crate's PagedKVCache implements this trait.
+pub trait PagedCacheReader {
+    /// Read KV data for a token position. Returns (k_row, v_row).
+    fn read(&self, seq_id: u64, layer: usize, token_pos: usize) -> Option<(Vec<f32>, Vec<f32>)>;
+    /// Number of tokens stored for a sequence.
+    fn num_tokens(&self, seq_id: u64) -> Option<usize>;
+    /// Append a token's KV data (single position).
+    fn append(&mut self, seq_id: u64, layer: usize, token_pos: usize, k_row: &[f32], v_row: &[f32]);
+}
+
 #[derive(Debug, Clone)]
 pub struct GQA {
     pub num_heads: usize,
@@ -261,6 +272,130 @@ impl GQA {
                     for t in 0..total_seq {
                         let attn = scores[t] / exp_sum;
                         weighted += attn * v_cached[[t, kv_h * self.head_dim + d]];
+                    }
+                    output[[b, h * self.head_dim + d]] = weighted;
+                }
+            }
+        }
+
+        output.dot(&self.wo.t())
+    }
+
+    /// Forward pass using a paged KV cache (reads K/V from blocks per position).
+    /// batch_size is always 1 for autoregressive generation.
+    pub fn forward_with_paged(
+        &self,
+        x: &Array2<f32>,
+        cache: &mut dyn PagedCacheReader,
+        seq_id: u64,
+        layer_idx: usize,
+        token_pos: usize,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+    ) -> Array2<f32> {
+        let (batch_size, _) = x.dim();
+        debug_assert_eq!(batch_size, 1, "forward_with_paged only supports batch_size=1");
+
+        let q_proj = x.dot(&self.wq.t());
+        let k_proj = x.dot(&self.wk.t());
+        let v_proj = x.dot(&self.wv.t());
+
+        let mut q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+            .expect("GQA paged: q shape");
+        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .expect("GQA paged: k shape");
+        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .expect("GQA paged: v shape");
+
+        // RoPE for K
+        for b in 0..batch_size {
+            let k_slice_view = k.slice(ndarray::s![b, .., ..]);
+            let k_row = k_slice_view.as_slice().unwrap();
+            let rotated_k = RoPE::apply_single(k_row, cos, sin, self.head_dim, 0);
+            for h in 0..self.num_kv_heads {
+                for d in 0..self.head_dim {
+                    k[[b, h, d]] = rotated_k[h * self.head_dim + d];
+                }
+            }
+        }
+
+        // RoPE for Q
+        for b in 0..batch_size {
+            let q_slice_view = q.slice(ndarray::s![b, .., ..]);
+            let q_row = q_slice_view.as_slice().unwrap();
+            let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
+            for h in 0..self.num_heads {
+                for d in 0..self.head_dim {
+                    q[[b, h, d]] = rotated_q[h * self.head_dim + d];
+                }
+            }
+        }
+
+        // Append this token's K/V to the paged cache
+        let k_flat: Vec<f32> = k.view().into_shape((batch_size * self.num_kv_heads * self.head_dim,))
+            .expect("GQA paged: k flat")
+            .iter()
+            .copied()
+            .collect();
+        let v_flat: Vec<f32> = v.view().into_shape((batch_size * self.num_kv_heads * self.head_dim,))
+            .expect("GQA paged: v flat")
+            .iter()
+            .copied()
+            .collect();
+        cache.append(seq_id, layer_idx, token_pos, &k_flat, &v_flat);
+
+        // Read all cached positions for attention computation
+        let num_tokens = cache.num_tokens(seq_id).unwrap_or(0);
+        if num_tokens == 0 {
+            return Array2::zeros((batch_size, self.num_heads * self.head_dim));
+        }
+
+        let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
+        let mut scores = Vec::with_capacity(num_tokens);
+
+        for b in 0..batch_size {
+            for h in 0..self.num_heads {
+                let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
+                let kv_offset = kv_h * self.head_dim;
+
+                scores.clear();
+                let mut max_score = f32::NEG_INFINITY;
+
+                for t in 0..num_tokens {
+                    let (k_row, _) = match cache.read(seq_id, layer_idx, t) {
+                        Some(r) => r,
+                        None => continue,
+                    };
+                    let mut score = 0.0;
+                    for d in 0..self.head_dim {
+                        score += q[[b, h, d]] * k_row[kv_offset + d];
+                    }
+                    score /= (self.head_dim as f32).sqrt();
+                    if score > max_score {
+                        max_score = score;
+                    }
+                    scores.push(score);
+                }
+
+                if scores.is_empty() {
+                    continue;
+                }
+
+                let mut exp_sum = 0.0;
+                for s in scores.iter_mut() {
+                    *s = (*s - max_score).exp();
+                    exp_sum += *s;
+                }
+
+                for d in 0..self.head_dim {
+                    let mut weighted = 0.0;
+                    for (t, &s) in scores.iter().enumerate() {
+                        let (_, v_row) = match cache.read(seq_id, layer_idx, t) {
+                            Some(r) => r,
+                            None => continue,
+                        };
+                        let attn = s / exp_sum;
+                        weighted += attn * v_row[kv_offset + d];
                     }
                     output[[b, h * self.head_dim + d]] = weighted;
                 }

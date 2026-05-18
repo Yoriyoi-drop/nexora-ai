@@ -336,11 +336,10 @@ impl DatabasePool {
 
         let mut report = OptimizationReport::new();
 
-        // Analyze tables
-        let tables = self.get_table_names().await?;
-        for table in tables {
-            let table_stats = self.analyze_table(&table).await?;
-            report.add_table_stats(table, table_stats);
+        // Analyze semua table dalam 1 query (JOIN) — fix N+1
+        let all_stats = self.analyze_all_tables().await?;
+        for (table, stats) in all_stats {
+            report.add_table_stats(table, stats);
         }
 
         // Update statistics
@@ -536,6 +535,43 @@ impl DatabasePool {
             .iter()
             .filter_map(|row| row.get::<Option<String>, _>("tablename"))
             .collect())
+    }
+
+    /// Analyze semua tables dalam 1 JOIN query — fix N+1
+    async fn analyze_all_tables(&self) -> Result<Vec<(String, TableStatistics)>> {
+        let rows = self
+            .execute_query(
+                "SELECT p.tablename,
+                        COALESCE(s.n_tup_ins, 0) as inserts,
+                        COALESCE(s.n_tup_upd, 0) as updates,
+                        COALESCE(s.n_tup_del, 0) as deletes,
+                        COALESCE(s.n_live_tup, 0) as live_tuples,
+                        COALESCE(s.n_dead_tup, 0) as dead_tuples
+                 FROM pg_tables p
+                 LEFT JOIN pg_stat_user_tables s ON s.tablename = p.tablename
+                 WHERE p.schemaname = 'public'"
+            )
+            .await?;
+
+        let stats = rows
+            .iter()
+            .filter_map(|row| {
+                let table_name: Option<String> = row.get("tablename");
+                table_name.map(|name| {
+                    let stats = TableStatistics {
+                        table_name: name.clone(),
+                        inserts: row.get::<Option<i64>, _>("inserts").unwrap_or(0),
+                        updates: row.get::<Option<i64>, _>("updates").unwrap_or(0),
+                        deletes: row.get::<Option<i64>, _>("deletes").unwrap_or(0),
+                        live_tuples: row.get::<Option<i64>, _>("live_tuples").unwrap_or(0),
+                        dead_tuples: row.get::<Option<i64>, _>("dead_tuples").unwrap_or(0),
+                    };
+                    (name, stats)
+                })
+            })
+            .collect();
+
+        Ok(stats)
     }
 
     async fn analyze_table(&self, table: &str) -> Result<TableStatistics> {

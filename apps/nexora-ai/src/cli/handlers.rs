@@ -3,7 +3,7 @@
 use crate::error::{NexoraError, NexoraResult};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 
 use crate::{NexoraAI, NexoraConfig};
 use super::commands::{Cli, Commands, ConfigAction, TokenizerAction, MemoryAction};
@@ -36,58 +36,58 @@ impl Cli {
             return Err(NexoraError::config(format!("Configuration validation failed: {}", e)));
         }
         
-        // Initialize Nexora AI
-        let nexora = match NexoraAI::new(config).await {
-            Ok(ai) => ai,
-            Err(e) => {
-                error!("Failed to initialize Nexora AI: {}", e);
-                return Err(NexoraError::initialization(format!("Nexora AI initialization failed: {}", e)));
-            }
-        };
-        
-        // Execute command
+        // Execute command — initialize NexoraAI lazily when needed
         match &self.command {
-            Commands::Start { host, port, tls, cert_path, key_path } => {
-                self.run_server(&nexora, host, *port, *tls, cert_path, key_path).await
-            }
-            Commands::Process { input, format, output } => {
-                self.run_process(&nexora, input, format, output).await
-            }
-            Commands::Generate { prompt, max_tokens, temperature, output } => {
-                self.run_generate(&nexora, prompt, *max_tokens, *temperature, output).await
-            }
-            Commands::Chat { interactive, message, conversation_id, history_file } => {
-                self.run_chat(&nexora, *interactive, message, conversation_id, history_file).await
-                    .map_err(|e| NexoraError::processing(format!("Chat command failed: {}", e)))
-            }
-            Commands::Analyze { file, language, format, output } => {
-                self.run_analyze(&nexora, file, language, format, output).await
-            }
-            Commands::Codegen { description, language, output } => {
-                self.run_codegen(&nexora, description, language, output).await
-            }
-            Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, resume } => {
-                self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *resume).await
-                    .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
-            }
-            Commands::Evaluate { model, test_data, tokenizer, output } => {
-                self.run_evaluate(&nexora, model, test_data, tokenizer, output).await
-                    .map_err(|e| NexoraError::processing(format!("Evaluate command failed: {}", e)))
-            }
-            Commands::Info { performance, memory, models, format } => {
-                self.run_info(&nexora, *performance, *memory, *models, format).await
-            }
-            Commands::Health { detailed } => {
-                self.run_health(&nexora, *detailed).await
-            }
             Commands::Config { action } => {
                 self.run_config(action).await
             }
             Commands::Tokenizer { action } => {
                 self.run_tokenizer(action).await
             }
-            Commands::Memory { action } => {
-                self.run_memory(&nexora, action).await
+            Commands::Health { detailed } => {
+                let nexora = NexoraAI::new(config).await
+                    .map_err(|e| NexoraError::initialization(format!("Nexora AI initialization failed: {}", e)))?;
+                self.run_health(&nexora, *detailed).await
+            }
+            _ => {
+                let nexora = NexoraAI::new(config).await
+                    .map_err(|e| NexoraError::initialization(format!("Nexora AI initialization failed: {}", e)))?;
+                match &self.command {
+                    Commands::Start { host, port, tls, cert_path, key_path } => {
+                        self.run_server(&nexora, host, *port, *tls, cert_path, key_path).await
+                    }
+                    Commands::Process { input, format, output } => {
+                        self.run_process(&nexora, input, format, output).await
+                    }
+                    Commands::Generate { prompt, max_tokens, temperature, output } => {
+                        self.run_generate(&nexora, prompt, *max_tokens, *temperature, output).await
+                    }
+                    Commands::Chat { interactive, message, conversation_id, history_file } => {
+                        self.run_chat(&nexora, *interactive, message, conversation_id, history_file).await
+                            .map_err(|e| NexoraError::processing(format!("Chat command failed: {}", e)))
+                    }
+                    Commands::Analyze { file, language, format, output } => {
+                        self.run_analyze(&nexora, file, language, format, output).await
+                    }
+                    Commands::Codegen { description, language, output } => {
+                        self.run_codegen(&nexora, description, language, output).await
+                    }
+                    Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, resume } => {
+                        self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *resume).await
+                            .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
+                    }
+                    Commands::Evaluate { model, test_data, tokenizer, output } => {
+                        self.run_evaluate(&nexora, model, test_data, tokenizer, output).await
+                            .map_err(|e| NexoraError::processing(format!("Evaluate command failed: {}", e)))
+                    }
+                    Commands::Info { performance, memory, models, format } => {
+                        self.run_info(&nexora, *performance, *memory, *models, format).await
+                    }
+                    Commands::Memory { action } => {
+                        self.run_memory(&nexora, action).await
+                    }
+                    _ => unreachable!(),
+                }
             }
         }
     }
@@ -170,6 +170,8 @@ impl Cli {
             request_timeout_seconds: 30,
             enable_cors: true,
             cors_origins: vec!["*".to_string()],
+            api_keys: vec![],
+            enable_auth: false,
         };
         
         let server = crate::NexoraServer::new(config);

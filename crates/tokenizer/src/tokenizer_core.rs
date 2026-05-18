@@ -2,6 +2,7 @@
 //! 
 //! Core tokenizer functionality with vocabulary and merge rules
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
@@ -149,9 +150,6 @@ impl TokenizerCore {
         
         self.merges.push(merge_rule);
         
-        // Sort merges by priority (descending)
-        self.merges.sort_by(|a, b| b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal));
-        
         Ok(new_id)
     }
     
@@ -165,15 +163,15 @@ impl TokenizerCore {
         let mut tokens = Vec::with_capacity(text.len());
         
         // Add prefix space if configured
-        let processed_text = if self.config.add_prefix_space && !text.starts_with(' ') {
-            format!(" {}", text)
+        let processed_text: Cow<'_, str> = if self.config.add_prefix_space && !text.starts_with(' ') {
+            Cow::Owned(format!(" {text}"))
         } else {
-            text.to_string()
+            Cow::Borrowed(text)
         };
         
         // Convert to lowercase if configured
-        let processed_text = if self.config.lowercase {
-            processed_text.to_lowercase()
+        let processed_text: Cow<'_, str> = if self.config.lowercase {
+            Cow::Owned(processed_text.to_lowercase())
         } else {
             processed_text
         };
@@ -183,8 +181,9 @@ impl TokenizerCore {
         
         // Convert each character to token ID
         for ch in chars {
-            let token_str = ch.to_string();
-            if let Some(&id) = self.vocab.get(&token_str) {
+            let mut buf = [0u8; 4];
+            let s = ch.encode_utf8(&mut buf);
+            if let Some(&id) = self.vocab.get(s) {
                 tokens.push(id);
             } else {
                 // Use unknown token
@@ -194,7 +193,7 @@ impl TokenizerCore {
         
         // Apply BPE merges
         if !self.merges.is_empty() {
-            tokens = self.apply_bpe_merges(tokens)?;
+            tokens = self.apply_bpe_merges(&tokens)?;
         }
         
         // Truncate if too long
@@ -206,44 +205,38 @@ impl TokenizerCore {
     }
     
     /// Apply BPE merge rules to token sequence
-    fn apply_bpe_merges(&self, mut tokens: Vec<u32>) -> Result<Vec<u32>> {
-        if tokens.len() < 2 {
-            return Ok(tokens);
+    fn apply_bpe_merges(&self, tokens: &[u32]) -> Result<Vec<u32>> {
+        if tokens.len() <= 1 {
+            return Ok(tokens.to_vec());
         }
-        
-        // Apply merges iteratively
+
+        let merge_map: HashMap<(u32, u32), u32> = self.merges.iter()
+            .map(|m| ((m.left, m.right), m.new_id))
+            .collect();
+
+        let mut result = tokens.to_vec();
         loop {
-            let mut best_merge = None;
-            let mut best_priority = -1.0;
-            let mut best_pos = 0;
-            
-            // Find best merge to apply
-            for i in 0..tokens.len() - 1 {
-                let left = tokens[i];
-                let right = tokens[i + 1];
-                
-                // Check if this pair can be merged
-                for merge in &self.merges {
-                    if merge.left == left && merge.right == right && merge.priority > best_priority {
-                        best_merge = Some(merge);
-                        best_priority = merge.priority;
-                        best_pos = i;
-                        break;
+            let mut merged = false;
+            let mut new_result = Vec::with_capacity(result.len());
+            let mut i = 0;
+            while i < result.len() {
+                if i + 1 < result.len() {
+                    if let Some(&new_id) = merge_map.get(&(result[i], result[i + 1])) {
+                        new_result.push(new_id);
+                        i += 2;
+                        merged = true;
+                        continue;
                     }
                 }
+                new_result.push(result[i]);
+                i += 1;
             }
-            
-            if let Some(merge) = best_merge {
-                // Apply the merge
-                tokens[best_pos] = merge.new_id;
-                tokens.remove(best_pos + 1);
-            } else {
-                // No more merges to apply
+            result = new_result;
+            if !merged {
                 break;
             }
         }
-        
-        Ok(tokens)
+        Ok(result)
     }
     
     /// Decode token IDs back to text

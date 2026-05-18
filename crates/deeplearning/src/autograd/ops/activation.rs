@@ -106,7 +106,7 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
 
 pub fn sigmoid(input: &Tensor) -> Tensor {
     let data = input.data();
-    let result = data.mapv(|x| 1.0 / (1.0 + (-x).exp()));
+    let result = data.mapv(|x| if x >= 0.0 { 1.0 / (1.0 + (-x).exp()) } else { x.exp() / (1.0 + x.exp()) });
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -128,7 +128,7 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
 
 pub fn silu(input: &Tensor) -> Tensor {
     let data = input.data();
-    let result = data.mapv(|x| x * (1.0 / (1.0 + (-x).exp())));
+    let result = data.mapv(|x| x * if x >= 0.0 { 1.0 / (1.0 + (-x).exp()) } else { x.exp() / (1.0 + x.exp()) });
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -142,7 +142,7 @@ pub fn silu(input: &Tensor) -> Tensor {
         vec![saved],
         Box::new(|grad, saved| {
             let x = &saved[0];
-            let sig = x.mapv(|v| 1.0 / (1.0 + (-v).exp()));
+            let sig = x.mapv(|v| if v >= 0.0 { 1.0 / (1.0 + (-v).exp()) } else { v.exp() / (1.0 + v.exp()) });
             let silu_grad = &sig + x * &sig * (1.0 - &sig);
             vec![grad.clone() * silu_grad]
         }),
@@ -153,7 +153,7 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
     let gate_data = gate.data();
     let x_data = x.data();
 
-    let sig = gate_data.mapv(|g| 1.0 / (1.0 + (-g).exp()));
+    let sig = gate_data.mapv(|g| if g >= 0.0 { 1.0 / (1.0 + (-g).exp()) } else { g.exp() / (1.0 + g.exp()) });
     let silu_gate = &gate_data * &sig;
     let result = &silu_gate * &x_data;
 
@@ -172,7 +172,7 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
             let g = &saved[0];
             let x_val = &saved[1];
 
-            let sig = g.mapv(|v| 1.0 / (1.0 + (-v).exp()));
+            let sig = g.mapv(|v| if v >= 0.0 { 1.0 / (1.0 + (-v).exp()) } else { v.exp() / (1.0 + v.exp()) });
             let dsilu = &sig + g * &sig * (1.0 - &sig);
 
             let d_gate = grad.clone() * x_val * dsilu;

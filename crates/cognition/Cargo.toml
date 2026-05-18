@@ -5,7 +5,7 @@ edition = "2021"
 description = "Cognition layer - planning, reflection, context, reasoning for Nexora AI"
 
 [dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

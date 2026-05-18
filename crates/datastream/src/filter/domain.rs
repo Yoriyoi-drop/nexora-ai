@@ -121,6 +121,6 @@ impl Filter for DomainClassifier {
     }
 
     fn action(&self) -> FilterAction {
-        FilterAction::Reroute(Domain::General)
+        FilterAction::Accept
     }
 }

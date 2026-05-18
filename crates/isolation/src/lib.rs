@@ -61,7 +61,7 @@ impl IsolationOrchestrator {
                     "shell" => crate::layer3_tool::ToolKind::Shell,
                     "compiler" => crate::layer3_tool::ToolKind::Compiler,
                     _ => crate::layer3_tool::ToolKind::Custom(t.clone()),
-                }).collect(),
+                }).collect::<Vec<_>>(),
             ))),
             cognitive: Arc::new(RwLock::new(CognitiveIsolationLayer::new())),
             permission: Arc::new(RwLock::new(PermissionLayer::new())),
@@ -99,8 +99,10 @@ impl IsolationOrchestrator {
         msg_type: &str,
         payload: &[u8],
     ) -> Result<(), IsolationCheckError> {
-        let mut firewall = self.firewall.write();
-        let action = firewall.evaluate(source_id, source_label, dest_id, dest_label, msg_type, payload);
+        let action = {
+            let mut firewall = self.firewall.write();
+            firewall.evaluate(source_id, source_label, dest_id, dest_label, msg_type, payload)
+        };
 
         match action {
             firewall::FirewallAction::Allow | firewall::FirewallAction::AuditAllow => {

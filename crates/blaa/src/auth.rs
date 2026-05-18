@@ -65,7 +65,7 @@ impl AuthMethod {
     ) -> BlaaResult<String> {
         match self {
             Self::HmacSignature { secret_key, .. } => {
-                let _message = format!(
+                let message = format!(
                     "{}\n{}\n{}\n{}",
                     method,
                     path,
@@ -73,10 +73,11 @@ impl AuthMethod {
                     body
                 );
                 
-                let mac = HmacSha256::new_from_slice(secret_key.as_bytes())
+                let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes())
                     .map_err(|e| BlaaError::Authentication(
                         format!("Failed to create HMAC: {}", e)
                     ))?;
+                mac.update(message.as_bytes());
                 
                 let signature = mac.finalize().into_bytes();
                 Ok(BASE64.encode(signature))

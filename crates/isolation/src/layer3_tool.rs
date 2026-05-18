@@ -169,7 +169,7 @@ impl ToolIsolationLayer {
         pod
     }
 
-    pub fn request_execution(
+    pub async fn request_execution(
         &mut self,
         request: ToolExecutionRequest,
     ) -> Result<ToolExecutionResult, ToolIsolationError> {

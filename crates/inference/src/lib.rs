@@ -2,7 +2,7 @@
 //! 
 //! Mesin inference utama untuk sistem Nexora AI.
 
-
+use std::sync::Arc;
 
 pub mod batching;
 pub mod engine;
@@ -107,13 +107,24 @@ pub struct GeneratedToken {
     /// Token ID
     pub token_id: u32,
     /// Token text
-    pub token_text: String,
+    #[serde(serialize_with = "serialize_arc_str", deserialize_with = "deserialize_arc_str")]
+    pub token_text: Arc<str>,
     /// Log probability
     pub log_prob: f32,
     /// Token position
     pub position: usize,
     /// Token metadata
+    #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
+}
+
+fn serialize_arc_str<S: serde::Serializer>(v: &Arc<str>, s: S) -> std::result::Result<S::Ok, S::Error> {
+    s.serialize_str(v)
+}
+
+fn deserialize_arc_str<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Arc<str>, D::Error> {
+    let s: String = serde::Deserialize::deserialize(d)?;
+    Ok(Arc::<str>::from(s.as_ref()))
 }
 
 /// Inference request
@@ -223,7 +234,7 @@ impl GeneratedToken {
     pub fn new(token_id: u32, token_text: String, log_prob: f32, position: usize) -> Self {
         Self {
             token_id,
-            token_text,
+            token_text: Arc::from(token_text.as_ref()),
             log_prob,
             position,
             metadata: std::collections::HashMap::new(),
@@ -317,7 +328,7 @@ impl InferenceResponse {
     
     /// Add token
     pub fn add_token(&mut self, token: GeneratedToken) {
-        self.text.push_str(&token.token_text);
+        self.text.push_str(&*(token.token_text));
         self.tokens.push(token);
         self.total_tokens += 1;
     }

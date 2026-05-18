@@ -72,6 +72,16 @@ impl TrustScoreFilter {
             SourceCategory::Forum => 0.41,
             SourceCategory::SocialMedia => 0.35,
             SourceCategory::SEOFarm => 0.12,
+            SourceCategory::Documentation => 0.85,
+            SourceCategory::News => 0.70,
+            SourceCategory::StackOverflow => 0.82,
+            SourceCategory::Reddit => 0.45,
+            SourceCategory::YouTube => 0.50,
+            SourceCategory::Patents => 0.92,
+            SourceCategory::Government => 0.88,
+            SourceCategory::Medical => 0.95,
+            SourceCategory::Legal => 0.85,
+            SourceCategory::Education => 0.88,
             SourceCategory::Other => self.default_trust,
         }
     }

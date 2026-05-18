@@ -55,14 +55,17 @@ pub struct StopContext {
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
+/// Inner state shared behind a single RwLock
+struct StopConditionInner {
+    conditions: Vec<StopCondition>,
+    stop_sequences: HashSet<String>,
+    eos_tokens: HashSet<u32>,
+}
+
 /// Stop conditions manager
 pub struct StopConditions {
-    /// Active stop conditions
-    conditions: Arc<RwLock<Vec<StopCondition>>>,
-    /// Stop sequence cache
-    stop_sequences: Arc<RwLock<HashSet<String>>>,
-    /// End of sequence tokens
-    eos_tokens: Arc<RwLock<HashSet<u32>>>,
+    /// Inner state behind a single lock
+    inner: Arc<RwLock<StopConditionInner>>,
     /// Statistics
     stats: Arc<RwLock<StopStats>>,
 }
@@ -84,49 +87,47 @@ impl StopConditions {
     /// Create new stop conditions manager
     pub fn new() -> Self {
         Self {
-            conditions: Arc::new(RwLock::new(Vec::new())),
-            stop_sequences: Arc::new(RwLock::new(HashSet::new())),
-            eos_tokens: Arc::new(RwLock::new(HashSet::new())),
+            inner: Arc::new(RwLock::new(StopConditionInner {
+                conditions: Vec::new(),
+                stop_sequences: HashSet::new(),
+                eos_tokens: HashSet::new(),
+            })),
             stats: Arc::new(RwLock::new(StopStats::default())),
         }
     }
     
     /// Add stop condition
     pub async fn add_condition(&self, condition: StopCondition) {
-        let mut conditions = self.conditions.write().await;
+        let mut inner = self.inner.write().await;
         
         // Update caches based on condition type
         match &condition {
             StopCondition::StopSequence(seq) => {
-                let mut stop_sequences = self.stop_sequences.write().await;
-                stop_sequences.insert(seq.clone());
+                inner.stop_sequences.insert(seq.clone());
             }
             StopCondition::EndOfSequence(token) => {
-                let mut eos_tokens = self.eos_tokens.write().await;
-                eos_tokens.insert(*token);
+                inner.eos_tokens.insert(*token);
             }
             _ => {}
         }
         
-        conditions.push(condition);
+        inner.conditions.push(condition);
     }
     
     /// Remove stop condition
     pub async fn remove_condition(&self, index: usize) -> Result<()> {
-        let mut conditions = self.conditions.write().await;
+        let mut inner = self.inner.write().await;
         
-        if index < conditions.len() {
-            let removed = conditions.remove(index);
+        if index < inner.conditions.len() {
+            let removed = inner.conditions.remove(index);
             
             // Update caches
             match removed {
                 StopCondition::StopSequence(seq) => {
-                    let mut stop_sequences = self.stop_sequences.write().await;
-                    stop_sequences.remove(&seq);
+                    inner.stop_sequences.remove(&seq);
                 }
                 StopCondition::EndOfSequence(token) => {
-                    let mut eos_tokens = self.eos_tokens.write().await;
-                    eos_tokens.remove(&token);
+                    inner.eos_tokens.remove(&token);
                 }
                 _ => {}
             }
@@ -139,25 +140,19 @@ impl StopConditions {
     
     /// Clear all conditions
     pub async fn clear(&self) {
-        let mut conditions = self.conditions.write().await;
-        conditions.clear();
-        
-        let mut stop_sequences = self.stop_sequences.write().await;
-        stop_sequences.clear();
-        
-        let mut eos_tokens = self.eos_tokens.write().await;
-        eos_tokens.clear();
+        let mut inner = self.inner.write().await;
+        inner.conditions.clear();
+        inner.stop_sequences.clear();
+        inner.eos_tokens.clear();
     }
     
     /// Check if generation should stop
     pub async fn should_stop(&self, tokens: &[GeneratedToken], context: &StopContext) -> Option<String> {
         let start_time = std::time::Instant::now();
         
-        let conditions = self.conditions.read().await;
-        let stop_sequences = self.stop_sequences.read().await;
-        let eos_tokens = self.eos_tokens.read().await;
+        let inner = self.inner.read().await;
         
-        for condition in conditions.iter() {
+        for condition in inner.conditions.iter() {
             if let Some(reason) = self.check_condition(condition, tokens, context) {
                 // Update statistics
                 {
@@ -265,7 +260,7 @@ impl StopConditions {
             return false;
         }
         
-        let generated_text: String = tokens.iter().map(|t| t.token_text.clone()).collect();
+        let generated_text: String = tokens.iter().map(|t| (&*t.token_text).to_string()).collect();
         generated_text.contains(sequence)
     }
     
@@ -277,7 +272,7 @@ impl StopConditions {
         
         // Extract n-grams from tokens
         let ngrams: Vec<String> = tokens.windows(ngram_size)
-            .map(|window| window.iter().map(|t| t.token_text.clone()).collect::<String>())
+            .map(|window| window.iter().map(|t| (&*t.token_text).to_string()).collect::<String>())
             .collect();
         
         // Check for consecutive repetitions
@@ -321,7 +316,7 @@ impl StopConditions {
     
     /// Get active conditions count
     pub async fn get_conditions_count(&self) -> usize {
-        self.conditions.read().await.len()
+        self.inner.read().await.conditions.len()
     }
 }
 

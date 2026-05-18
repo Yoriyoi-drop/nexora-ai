@@ -12,12 +12,11 @@ static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone)]
 pub struct Tensor(Arc<Mutex<TensorInner>>);
 
-unsafe impl Send for Tensor {}
-unsafe impl Sync for Tensor {}
+
 
 impl std::fmt::Debug for Tensor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.lock().unwrap();
+        let inner = self.0.lock().expect("Tensor mutex poisoned");
         f.debug_struct("Tensor")
             .field("id", &inner.id)
             .field("shape", &inner.storage.shape())
@@ -53,52 +52,52 @@ impl Tensor {
     }
 
     pub fn set_requires_grad(&self, val: bool) {
-        self.0.lock().unwrap().requires_grad = val;
+        self.0.lock().expect("Tensor mutex poisoned").requires_grad = val;
     }
 
     pub fn requires_grad(&self) -> bool {
-        self.0.lock().unwrap().requires_grad
+        self.0.lock().expect("Tensor mutex poisoned").requires_grad
     }
 
     pub fn id(&self) -> usize {
-        self.0.lock().unwrap().id
+        self.0.lock().expect("Tensor mutex poisoned").id
     }
 
     pub fn device(&self) -> Device {
-        self.0.lock().unwrap().device.clone()
+        self.0.lock().expect("Tensor mutex poisoned").device.clone()
     }
 
     pub fn dtype(&self) -> DType {
-        self.0.lock().unwrap().dtype
+        self.0.lock().expect("Tensor mutex poisoned").dtype
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        self.0.lock().unwrap().storage.shape()
+        self.0.lock().expect("Tensor mutex poisoned").storage.shape()
     }
 
     pub fn ndim(&self) -> usize {
-        self.0.lock().unwrap().storage.ndim()
+        self.0.lock().expect("Tensor mutex poisoned").storage.ndim()
     }
 
     pub fn numel(&self) -> usize {
-        self.0.lock().unwrap().storage.numel()
+        self.0.lock().expect("Tensor mutex poisoned").storage.numel()
     }
 
     pub fn storage(&self) -> Storage {
-        self.0.lock().unwrap().storage.clone()
+        self.0.lock().expect("Tensor mutex poisoned").storage.clone()
     }
 
     pub fn data(&self) -> ArrayD<f32> {
-        self.0.lock().unwrap().storage.to_cpu()
+        self.0.lock().expect("Tensor mutex poisoned").storage.to_cpu()
     }
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
-        self.0.lock().unwrap().grad.clone()
+        self.0.lock().expect("Tensor mutex poisoned").grad.clone()
     }
 
     /// Move tensor to a specific device.
     pub fn to_device(&self, target: &Device) -> Self {
-        let inner = self.0.lock().unwrap();
+        let inner = self.0.lock().expect("Tensor mutex poisoned");
         if inner.device == *target {
             return self.clone();
         }
@@ -140,7 +139,7 @@ impl Tensor {
     pub fn is_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]
         {
-            matches!(self.0.lock().unwrap().device, Device::Gpu(_))
+            matches!(self.0.lock().expect("Tensor mutex poisoned").device, Device::Gpu(_))
         }
         #[cfg(not(feature = "gpu"))]
         {
@@ -151,7 +150,22 @@ impl Tensor {
     pub fn randn(shape: &[usize], requires_grad: bool) -> Self {
         let len: usize = shape.iter().product();
         let mut rng = rand::thread_rng();
-        let data: Vec<f32> = (0..len).map(|_| rng.gen::<f32>() * 2.0 - 1.0).collect();
+        let data: Vec<f32> = (0..len).step_by(2).flat_map(|_| {
+            let u1: f32 = rng.gen::<f32>().max(1e-38);
+            let u2: f32 = rng.gen::<f32>().max(1e-38);
+            let r = (-2.0 * u1.ln()).sqrt();
+            let theta = 2.0 * std::f32::consts::PI * u2;
+            [r * theta.cos(), r * theta.sin()]
+        }).collect();
+        let data = if len % 2 == 0 { data } else {
+            let u: f32 = rng.gen::<f32>().max(1e-38);
+            let v: f32 = rng.gen::<f32>().max(1e-38);
+            let r = (-2.0 * u.ln()).sqrt();
+            let theta = 2.0 * std::f32::consts::PI * v;
+            let mut d = data;
+            d.push(r * theta.cos());
+            d
+        };
         let arr = ArrayD::from_shape_vec(shape.to_vec(), data)
             .expect("Failed to create tensor from shape");
         let t = Self::new(arr);
@@ -199,7 +213,7 @@ impl Tensor {
     }
 
     pub(crate) fn accumulate_grad(&self, grad: &ArrayD<f32>) {
-        let mut inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock().expect("Tensor mutex poisoned");
         if let Some(ref mut existing) = inner.grad {
             *existing += grad;
         } else {
@@ -208,38 +222,37 @@ impl Tensor {
     }
 
     pub(crate) fn get_grad_fn_idx(&self) -> Option<usize> {
-        self.0.lock().unwrap().grad_fn_idx
+        self.0.lock().expect("Tensor mutex poisoned").grad_fn_idx
     }
 
     pub fn zero_grad(&self) {
-        self.0.lock().unwrap().grad = None;
+        self.0.lock().expect("Tensor mutex poisoned").grad = None;
     }
 
     pub fn set_data(&self, new_data: ArrayD<f32>) {
-        let mut inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock().expect("Tensor mutex poisoned");
         inner.storage = Storage::Cpu(new_data);
-        inner.device = Device::Cpu;
     }
 
     pub fn set_grad(&self, grad: ArrayD<f32>) {
-        self.0.lock().unwrap().grad = Some(grad);
+        self.0.lock().expect("Tensor mutex poisoned").grad = Some(grad);
     }
 
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
-        let mut inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock().expect("Tensor mutex poisoned");
         let current = inner.storage.to_cpu();
         let new_data = &current - delta;
         inner.storage = Storage::Cpu(new_data);
-        inner.device = Device::Cpu;
     }
 
     pub fn backward(&self) {
         let shape = {
-            let inner = self.0.lock().unwrap();
+            let inner = self.0.lock().expect("Tensor mutex poisoned");
             inner.storage.shape()
         };
         let grad = ArrayD::ones(shape);
         self.accumulate_grad(&grad);
         super::engine::backward_engine(self);
+        super::tape::clear_tape();
     }
 }

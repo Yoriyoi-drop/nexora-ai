@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
+use once_cell::sync::Lazy;
 use tracing::{info, warn};
 use tokio::signal;
 use chrono::Utc;
@@ -16,7 +17,7 @@ use nexora_foundation::models::transformer::{CausalLM, TrainableCausalLM, Transf
 use nexora_foundation::{NxrModelId, NxrModelConfig};
 use nexora_deeplearning::TensorOps;
 use nexora_datastream::{
-    DataSample, SourceInfo, SourceCategory,
+    DataSample, SourceInfo, SourceCategory, ExecutionResult,
     filter::{LengthFilter, QualityFilter, DedupFilter},
     dataset::{
         self, DatasetSplit, DatasetManifest, StreamingLoader, StreamingConfig,
@@ -31,13 +32,11 @@ fn has_manifest(dir: &Path) -> bool {
 }
 
 fn atomic_save(trainer: &mut Trainer, path: &Path, metadata: &serde_json::Value) -> Result<()> {
-    // Simpan ke file .tmp dulu, baru rename biar atomic
     let tmp_path = path.with_extension("safetensors.tmp");
     trainer.save(&tmp_path.to_string_lossy())?;
     std::fs::rename(&tmp_path, path)?;
     info!("  Checkpoint: {}", path.display());
 
-    // Metadata sidecar
     let meta_path = path.with_extension("safetensors.json");
     if let Ok(meta_json) = serde_json::to_string_pretty(metadata) {
         let tmp_meta = meta_path.with_extension("json.tmp");
@@ -45,6 +44,153 @@ fn atomic_save(trainer: &mut Trainer, path: &Path, metadata: &serde_json::Value)
         let _ = std::fs::rename(&tmp_meta, &meta_path);
     }
     Ok(())
+}
+
+const CKPT_STEP_INTERVAL_DEFAULT: usize = 500;
+const CKPT_TIME_INTERVAL_DEFAULT: u64 = 15 * 60;
+
+struct CheckpointManager {
+    step_interval: usize,
+    time_interval: std::time::Duration,
+    keep_last: usize,
+    output_base: PathBuf,
+    last_save_step: usize,
+    last_save_time: std::time::Instant,
+    best_val_loss: Option<f64>,
+    saved_steps: Vec<usize>,
+}
+
+struct CkptMeta<'a> {
+    step: usize,
+    epoch: usize,
+    total_epochs: usize,
+    loss: f64,
+    best_loss: Option<f64>,
+    tokens: usize,
+    lr: f64,
+    elapsed: std::time::Duration,
+    reason: &'a str,
+}
+
+impl CheckpointManager {
+    fn new(output_base: &Path, keep_last: usize) -> Self {
+        Self {
+            step_interval: CKPT_STEP_INTERVAL_DEFAULT,
+            time_interval: std::time::Duration::from_secs(CKPT_TIME_INTERVAL_DEFAULT),
+            keep_last,
+            output_base: output_base.to_path_buf(),
+            last_save_step: 0,
+            last_save_time: std::time::Instant::now(),
+            best_val_loss: None,
+            saved_steps: Vec::with_capacity(keep_last + 1),
+        }
+    }
+
+    fn should_save(&self, step: usize) -> bool {
+        if step == 0 || step == self.last_save_step {
+            return false;
+        }
+        (self.step_interval > 0 && step - self.last_save_step >= self.step_interval)
+            || self.last_save_time.elapsed() >= self.time_interval
+    }
+
+    fn save(&mut self, trainer: &mut Trainer, meta: &CkptMeta) -> Result<()> {
+        self.last_save_step = meta.step;
+        self.last_save_time = std::time::Instant::now();
+
+        trainer.sync_weights();
+
+        let step_path = self.output_base.with_extension(format!(
+            "step_{}.safetensors", meta.step
+        ));
+        let step_meta = serde_json::json!({
+            "step": meta.step, "epoch": meta.epoch,
+            "total_epochs": meta.total_epochs,
+            "loss": meta.loss, "best_loss": meta.best_loss,
+            "tokens": meta.tokens, "learning_rate": meta.lr,
+            "elapsed_secs": meta.elapsed.as_secs_f64(),
+            "timestamp": Utc::now().to_rfc3339(),
+            "reason": meta.reason, "checkpoint_type": "periodic",
+        });
+        atomic_save(trainer, &step_path, &step_meta)?;
+        self.saved_steps.push(meta.step);
+        self.prune_old();
+
+        Ok(())
+    }
+
+    fn save_best(&mut self, trainer: &mut Trainer, meta: &CkptMeta, val_loss: f64) -> Result<()> {
+        self.best_val_loss = Some(val_loss);
+
+        trainer.sync_weights();
+
+        let best_path = self.output_base.with_extension("best.safetensors");
+        let best_meta = serde_json::json!({
+            "step": meta.step, "epoch": meta.epoch,
+            "total_epochs": meta.total_epochs,
+            "loss": meta.loss, "val_loss": val_loss, "best_loss": val_loss,
+            "tokens": meta.tokens, "learning_rate": meta.lr,
+            "elapsed_secs": meta.elapsed.as_secs_f64(),
+            "timestamp": Utc::now().to_rfc3339(),
+            "reason": "best_validation", "checkpoint_type": "best",
+        });
+        atomic_save(trainer, &best_path, &best_meta)?;
+
+        Ok(())
+    }
+
+    fn save_final(&mut self, trainer: &mut Trainer, meta: &CkptMeta) -> Result<()> {
+        trainer.sync_weights();
+
+        let final_path = self.output_base.with_extension("safetensors");
+        let final_meta = serde_json::json!({
+            "step": meta.step, "epoch": meta.epoch,
+            "total_epochs": meta.total_epochs,
+            "loss": meta.loss, "best_loss": meta.best_loss,
+            "tokens": meta.tokens, "learning_rate": meta.lr,
+            "elapsed_secs": meta.elapsed.as_secs_f64(),
+            "timestamp": Utc::now().to_rfc3339(),
+            "reason": meta.reason, "checkpoint_type": "final",
+        });
+        atomic_save(trainer, &final_path, &final_meta)?;
+
+        Ok(())
+    }
+
+    fn prune_old(&mut self) {
+        while self.saved_steps.len() > self.keep_last {
+            if let Some(old_step) = self.saved_steps.first().copied() {
+                let old_path = self.output_base.with_extension(format!("step_{}.safetensors", old_step));
+                let _ = std::fs::remove_file(&old_path);
+                let _ = std::fs::remove_file(old_path.with_extension("safetensors.json"));
+                self.saved_steps.remove(0);
+            }
+        }
+    }
+}
+
+fn available_system_memory_gb() -> f64 {
+    let info = std::fs::read_to_string("/proc/meminfo").ok();
+    let total_kb = info.and_then(|s| {
+        s.lines()
+            .find(|l| l.starts_with("MemTotal:"))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<f64>().ok())
+    });
+    total_kb.unwrap_or(16_000_000.0) / 1_000_000.0
+}
+
+fn estimate_model_memory_gb(hidden_size: usize, num_layers: usize, vocab_size: usize) -> f64 {
+    // Each transformer block: attention + MLP weights
+    // Approx: hidden_size^2 * 12 bytes (f32 weight + f32 grad + f32 optimizer state)
+    // + embedding: vocab_size * hidden_size * 12 bytes
+    let embedding_bytes = vocab_size * hidden_size * 12;
+    let per_layer_attn = hidden_size * hidden_size * 4 * 12; // Q,K,V,O projections
+    let per_layer_mlp = hidden_size * hidden_size * 3 * 12; // gate, up, down
+    let per_layer_norm = hidden_size * 2 * 12; // 2 norms
+    let per_layer = per_layer_attn + per_layer_mlp + per_layer_norm;
+    let total_bytes = embedding_bytes + per_layer * num_layers;
+    total_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
 fn init_gpu(gpu: bool) {
@@ -78,25 +224,34 @@ fn init_gpu(gpu: bool) {
 
     if rocm_available {
         info!("  ROCm GPU acceleration: terdeteksi, {} CPU threads", ncores);
-        info!("  -> Pastikan `hip` dan `rocblas` aktif di Cargo.toml");
+        info!("  -> WARNING: GPU training belum diimplementasikan — semua training akan jalan di CPU");
+        info!("  -> Pastikan `hip` dan `rocblas` aktif di Cargo.toml untuk GPU path di masa depan");
     } else if blas_available {
         info!("  CPU acceleration via BLAS: libopenblas terdeteksi, {} threads aktif", ncores);
     } else {
         info!("  CPU acceleration: {} threads, libopenblas tidak ditemukan", ncores);
         info!("  -> Install libopenblas-dev untuk 5-10x matmul speedup: sudo apt install libopenblas-dev");
     }
+
+    if gpu {
+        info!("  ⚠️  Catatan: flag --gpu hanya mengaktifkan thread BLAS, TIDAK GPU compute.");
+        info!("     Semua tensor masih CPU. GPU training akan datang di rilis berikutnya.");
+    }
 }
 
-async fn post_metrics(payload: &Value) {
-    if let Ok(c) = reqwest::Client::builder()
+static METRICS_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(1))
         .build()
-    {
-        let _ = c.post("http://127.0.0.1:8080/train/metrics")
-            .json(payload)
-            .send()
-            .await;
-    }
+        .expect("Failed to create metrics client")
+});
+
+async fn post_metrics(payload: &Value) {
+    let _ = METRICS_CLIENT
+        .post("http://127.0.0.1:8080/train/metrics")
+        .json(payload)
+        .send()
+        .await;
 }
 
 struct MetricsAccumulator {
@@ -248,33 +403,47 @@ impl crate::cli::commands::Cli {
         };
 
         info!("[2/6] Filter data via DataStream DAG pipeline...");
-        // Gunakan threshold yg lebih rendah untuk line-level filtering
+        info!("  Filter pipeline: length → quality → dedup (MinHash, ngram=13, threshold=0.5)");
+        info!("  Referensi: LLaMA 2 (13-gram), FineWeb (MinHash 5-gram, 75% sim), RedPajama (MinHash LSH)");
         let mut graph = nexora_datastream::ExecutionGraph::new();
         graph.add_node("length", Arc::new(LengthFilter {
-            min_chars: 10,   // default: 50 → terlalu ketat untuk line-level
-            min_words: 3,    // default: 10
+            min_chars: 10,
+            min_words: 3,
             ..Default::default()
         }), vec![], true, 1);
         graph.add_node("quality", Arc::new(QualityFilter {
-            min_quality_score: 0.1,     // default: 0.3
-            min_unique_word_ratio: 0.1,  // default: 0.2
+            min_quality_score: 0.1,
+            min_unique_word_ratio: 0.1,
             ..Default::default()
         }), vec!["length".into()], true, 2);
+        // DedupFilter now uses MinHash-style similarity threshold (≥0.5 = duplicate)
+        // instead of the old "any ngram collision → reject" which caused 99.994% rejection.
+        // Updated defaults: ngram=13, hash_count=13, max_seen=50M, similarity_threshold=0.5
         graph.add_node("dedup", Arc::new(DedupFilter::new()), vec!["quality".into()], false, 3);
         graph.finalize();
 
         let mut samples: Vec<DataSample> = Vec::new();
+        let mut filter_rejected: HashMap<String, u64> = HashMap::new();
         for s in raw_samples {
             let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
             let result = graph.execute(s, cancel_rx).await;
             drop(cancel_tx);
+            if let ExecutionResult::Rejected { filter_name, .. } = &result {
+                *filter_rejected.entry(filter_name.clone()).or_insert(0) += 1;
+            }
             if result.is_accepted() {
                 if let Some(sample) = result.sample() {
                     samples.push(sample.clone());
                 }
             }
         }
-        info!("  {} sampel lolos filter dari {}", samples.len(), loaded_count);
+        let rejection_breakdown: Vec<String> = filter_rejected.iter()
+            .map(|(name, count)| format!("{}: {}", name, count))
+            .collect();
+        info!("  Filter rejection breakdown: {:?}", rejection_breakdown);
+        info!("  {} sampel lolos filter dari {} ({:.2}%)",
+            samples.len(), loaded_count,
+            if loaded_count > 0 { samples.len() as f64 * 100.0 / loaded_count as f64 } else { 0.0 });
 
         if samples.is_empty() {
             return Err(anyhow::anyhow!("Tidak ada data lolos filter"));
@@ -353,15 +522,35 @@ impl crate::cli::commands::Cli {
             stop_flag_c.store(true, Ordering::SeqCst);
         });
 
+        let sys_mem_gb = available_system_memory_gb();
+        info!("  Available system RAM: {:.1} GB", sys_mem_gb);
+
         let all_models: Vec<_> = nexora_foundation::NxrModelId::all().to_vec();
         let total_models = all_models.len();
-        info!("[5/6] Training {} NXR models secara sequential (max 2 jam per model)...", total_models);
+        info!("[5/6] Training {} NXR models secara sequential...", total_models);
 
         let mut model_reports: Vec<serde_json::Value> = Vec::with_capacity(all_models.len());
 
         for (i, model_id) in all_models.into_iter().enumerate() {
-            let model_name = format!("{:?}", model_id).to_lowercase();
             let nxr_config = nexora_foundation::NxrModelConfig::for_model(model_id);
+            let est_mem = estimate_model_memory_gb(
+                nxr_config.architecture.hidden_size,
+                nxr_config.architecture.num_layers,
+                vocab_size,
+            );
+            let model_name = format!("{:?}", model_id).to_lowercase();
+            if est_mem > sys_mem_gb * 0.7 {
+                warn!("  [{}/{}] {} estimated ~{:.1} GB RAM > {:.1} GB available — SKIPPING",
+                    i + 1, total_models, model_name, est_mem, sys_mem_gb * 0.7);
+                model_reports.push(serde_json::json!({
+                    "model": model_name,
+                    "status": "skipped",
+                    "reason": format!("estimated_memory_{:.1}GB_exceeds_{:.1}GB_limit", est_mem, sys_mem_gb * 0.7),
+                }));
+                continue;
+            }
+            info!("  [{}/{}] {} estimated RAM: {:.1} GB (system: {:.1} GB free)",
+                i + 1, total_models, model_name, est_mem, sys_mem_gb);
             let model_id = nxr_config.model_id;
             let tf_config = TransformerConfig {
                 vocab_size,
@@ -388,11 +577,10 @@ impl crate::cli::commands::Cli {
             let out = output.clone();
             let cfg = trainer_config.clone();
             let sf = stop_flag.clone();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2 * 3600);
             let model_name_c = model_name.clone();
 
             let result = tokio::task::spawn_blocking(move || {
-                train_nxr_model(model_id, model_name, tf_config, cfg, &train, &val_seq, &tok, &out, epochs, seq_length, sf, Some(deadline))
+                train_nxr_model(model_id, model_name, tf_config, cfg, &train, &val_seq, &tok, &out, epochs, seq_length, sf)
             }).await;
 
             match result {
@@ -617,26 +805,20 @@ impl crate::cli::commands::Cli {
             stop_flag_c.store(true, Ordering::SeqCst);
         });
 
-        info!("[5/6] Training loop streaming dimulai (Ctrl+C untuk stop, max 2 jam)...");
+        info!("[5/6] Training loop streaming dimulai (Ctrl+C untuk stop)...");
         let start_time = std::time::Instant::now();
         let mut step = 0;
         let total_steps = trainer.config.max_steps;
         let mut progress = ProgressTracker::new(manifest.total_samples, epochs);
         let mut epoch_metrics: Vec<HashMap<String, serde_json::Value>> = Vec::with_capacity((epochs - resume_epoch) as usize);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2 * 3600);
+        let mut ckpt_mgr = CheckpointManager::new(output, 5);
 
         let mut data_exhausted = false;
         let mut metrics_acc = MetricsAccumulator::new();
-        let mut last_save_step = 0usize;
 
         'training: for epoch in resume_epoch..epochs {
             if stop_flag.load(Ordering::SeqCst) {
                 info!("  Training dihentikan oleh pengguna");
-                break;
-            }
-
-            if std::time::Instant::now() >= deadline {
-                info!("  2 jam habis, checkpoint dan selesai...");
                 break;
             }
 
@@ -651,11 +833,6 @@ impl crate::cli::commands::Cli {
 
             loop {
                 if stop_flag.load(Ordering::SeqCst) {
-                    break 'training;
-                }
-
-                if std::time::Instant::now() >= deadline {
-                    info!("  2 jam habis (tengah streaming), checkpoint...");
                     break 'training;
                 }
 
@@ -678,7 +855,7 @@ impl crate::cli::commands::Cli {
                 batch_iter.push(samples);
 
                 // Drain batches from shuffle buffer
-                while batch_iter.remaining() > 0 && !stop_flag.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                while batch_iter.remaining() > 0 && !stop_flag.load(Ordering::SeqCst) {
                     let batch = batch_iter.next_batch();
                     if batch.is_empty() {
                         break;
@@ -722,21 +899,17 @@ impl crate::cli::commands::Cli {
                                             loss as f64, avg_loss, best_loss, lr as f64, speed, trainer.total_tokens, None,
                                         )).await;
 
-                                        // Periodic checkpoint tiap 500 step
-                                        if step - last_save_step >= 500 {
-                                            last_save_step = step;
-                                            trainer.sync_weights();
-                                            let ckpt_meta = serde_json::json!({
-                                                "step": step, "epoch": epoch + 1,
-                                                "total_epochs": epochs, "loss": avg_loss,
-                                                "best_loss": best_loss, "tokens": trainer.total_tokens,
-                                                "elapsed_secs": elapsed.as_secs_f64(),
-                                                "timestamp": Utc::now().to_rfc3339(),
-                                                "reason": "periodic",
-                                            });
-                                            let _ = atomic_save(&mut trainer, &output_safetensors, &ckpt_meta);
+                                        // Periodic checkpoint (step-based + time-based safety net)
+                                        if ckpt_mgr.should_save(step) {
+                                            let tokens = trainer.total_tokens;
+                                            let meta = CkptMeta {
+                                                step, epoch: epoch + 1, total_epochs: epochs,
+                                                loss: avg_loss, best_loss: Some(best_loss),
+                                                tokens, lr: lr as f64,
+                                                elapsed, reason: "periodic",
+                                            };
+                                            let _ = ckpt_mgr.save(&mut trainer, &meta);
                                         }
-
                                     }
                                 }
                                 None => {
@@ -814,8 +987,9 @@ impl crate::cli::commands::Cli {
                 trainer.optimizer.as_ref().map(|o| o.lr).unwrap_or(0.0),
                 progress.speed(), epoch_time);
 
-            epoch_metrics.push(epoch_data.as_object().unwrap().clone()
-                .iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            if let Some(obj) = epoch_data.as_object() {
+                epoch_metrics.push(obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            }
         }
 
         let total_time = start_time.elapsed();
@@ -831,20 +1005,18 @@ impl crate::cli::commands::Cli {
         )).await;
 
         info!("[6/6] Menyimpan final checkpoint...");
-        trainer.sync_weights();
         if final_steps > 0 {
-            let meta = serde_json::json!({
-                "step": final_steps,
-                "epoch": trainer.completed_epochs,
-                "total_epochs": epochs,
-                "loss": final_avg_loss,
-                "best_loss": trainer.best_val_loss,
-                "tokens": trainer.total_tokens,
-                "elapsed_secs": total_time.as_secs_f64(),
-                "timestamp": Utc::now().to_rfc3339(),
-                "reason": "completed",
-            });
-            atomic_save(&mut trainer, &output_safetensors, &meta)?;
+            let completed_epochs = trainer.completed_epochs;
+            let best_loss = trainer.best_val_loss;
+            let tokens = trainer.total_tokens;
+            let meta = CkptMeta {
+                step: final_steps, epoch: completed_epochs,
+                total_epochs: epochs, loss: final_avg_loss,
+                best_loss,
+                tokens, lr: done_lr,
+                elapsed: total_time, reason: "completed",
+            };
+            ckpt_mgr.save_final(&mut trainer, &meta)?;
         }
 
         // Cleanup resume file
@@ -995,14 +1167,9 @@ fn train_nxr_model(
     epochs: usize,
     seq_length: usize,
     stop_flag: Arc<std::sync::atomic::AtomicBool>,
-    deadline: Option<std::time::Instant>,
 ) -> Result<serde_json::Value> {
     info!("    {} config: {} layers, {} hidden, {} heads",
         model_name, tf_config.num_layers, tf_config.hidden_size, tf_config.num_heads);
-
-    fn deadline_hit(deadline: Option<std::time::Instant>) -> bool {
-        deadline.map_or(false, |d| std::time::Instant::now() >= d)
-    }
 
     let mut trainer = {
         let model = CausalLM::new(tf_config);
@@ -1018,12 +1185,10 @@ fn train_nxr_model(
     let total_steps = trainer.config.max_steps;
     let early_stop_patience = trainer.config.early_stop_patience;
 
-    let model_out = output.with_file_name(format!("{}_{}.safetensors",
+    let ckpt_base = output.with_file_name(format!("{}_{}",
         output.file_stem().map(|s| s.to_string_lossy()).unwrap_or(std::borrow::Cow::Borrowed("model")),
         model_name));
-    let best_out = output.with_file_name(format!("{}_{}_best.safetensors",
-        output.file_stem().map(|s| s.to_string_lossy()).unwrap_or(std::borrow::Cow::Borrowed("model")),
-        model_name));
+    let mut ckpt_mgr = CheckpointManager::new(&ckpt_base, 3);
 
     let mut step = 0;
     let mut rng = rand::thread_rng();
@@ -1038,11 +1203,6 @@ fn train_nxr_model(
             break;
         }
 
-        if deadline_hit(deadline) {
-            info!("    {}: 2 jam habis, checkpoint...", model_name);
-            break;
-        }
-
         let mut epoch_samples: Vec<&DataSample> = train_samples.iter().collect();
         epoch_samples.shuffle(&mut rng);
         let epoch_start = std::time::Instant::now();
@@ -1050,11 +1210,6 @@ fn train_nxr_model(
         for sample in epoch_samples {
             if stop_flag.load(Ordering::SeqCst) {
                 info!("    {}: stop signal received", model_name);
-                break 'training;
-            }
-
-            if deadline_hit(deadline) {
-                info!("    {}: 2 jam habis (tengah epoch), checkpoint...", model_name);
                 break 'training;
             }
 
@@ -1076,6 +1231,20 @@ fn train_nxr_model(
                         info!("    {} | Epoch {}/{} | Step {}/{} | loss: {:.4} | lr: {:.2e}",
                             model_name, epoch + 1, epochs, step, total_steps, loss, lr);
 
+                        // Periodic checkpoint (step-based + time-based safety net)
+                        if ckpt_mgr.should_save(step) {
+                            let elapsed = start_time.elapsed();
+                            let avg_loss = trainer.avg_loss();
+                            let tokens = trainer.total_tokens;
+                            let meta = CkptMeta {
+                                step, epoch: epoch + 1, total_epochs: epochs,
+                                loss: avg_loss, best_loss: best_val_loss,
+                                tokens, lr: lr as f64,
+                                elapsed, reason: "periodic",
+                            };
+                            let _ = ckpt_mgr.save(&mut trainer, &meta);
+                        }
+
                         if step % val_every == 0 && !val_sequences.is_empty() {
                             let val_metrics = trainer.evaluate_loss(val_sequences, seq_length);
                             let improved = match best_val_loss {
@@ -1086,7 +1255,16 @@ fn train_nxr_model(
                                 _ => {
                                     best_val_loss = Some(val_metrics.avg_loss);
                                     patience_counter = 0;
-                                    let _ = trainer.save(&best_out.to_string_lossy());
+                                    let elapsed = start_time.elapsed();
+                                    let avg_loss = trainer.avg_loss();
+                                    let tokens = trainer.total_tokens;
+                                    let meta = CkptMeta {
+                                        step, epoch: epoch + 1, total_epochs: epochs,
+                                        loss: avg_loss, best_loss: best_val_loss,
+                                        tokens, lr: lr as f64,
+                                        elapsed, reason: "best_validation",
+                                    };
+                                    let _ = ckpt_mgr.save_best(&mut trainer, &meta, val_metrics.avg_loss);
                                     true
                                 }
                             };
@@ -1103,10 +1281,6 @@ fn train_nxr_model(
                 }
 
                 if trainer.step >= total_steps {
-                    break 'training;
-                }
-                if deadline_hit(deadline) {
-                    info!("    {}: 2 jam habis (mid-chunk), checkpoint...", model_name);
                     break 'training;
                 }
             }
@@ -1140,14 +1314,23 @@ fn train_nxr_model(
     let total_time = start_time.elapsed();
     let final_steps = trainer.step;
     let final_avg_loss = if final_steps > 0 { trainer.avg_loss() } else { 0.0 };
+    let done_lr = trainer.optimizer.as_ref().map(|o| o.lr as f64).unwrap_or(0.0);
 
-    trainer.sync_weights();
     if final_steps > 0 {
-        trainer.save(&model_out.to_string_lossy())?;
-        info!("    {} checkpoint: {}", model_name, model_out.display());
+        let completed_epochs = trainer.completed_epochs;
+        let tokens = trainer.total_tokens;
+        let meta = CkptMeta {
+            step: final_steps, epoch: completed_epochs,
+            total_epochs: epochs, loss: final_avg_loss,
+            best_loss: best_val_loss,
+            tokens, lr: done_lr,
+            elapsed: total_time, reason: "completed",
+        };
+        ckpt_mgr.save_final(&mut trainer, &meta)?;
 
-        // Save metadata sidecar for foundation type loading
-        let meta = serde_json::json!({
+        // Extra NXR-specific metadata sidecar
+        let final_path = ckpt_base.with_extension("safetensors");
+        let extra_meta = serde_json::json!({
             "model_id": format!("{:?}", model_id),
             "model_name": model_name,
             "framework": "nexora",
@@ -1168,10 +1351,10 @@ fn train_nxr_model(
             },
             "load_hint": format!("foundation::Nxr{}Model::from_checkpoint(\"{}\")",
                 format!("{:?}", model_id),
-                model_out.file_name().map(|s| s.to_string_lossy()).unwrap_or_default()),
+                final_path.file_name().map(|s| s.to_string_lossy()).unwrap_or_default()),
         });
-        let meta_path = model_out.with_extension("safetensors.json");
-        if let Ok(meta_json) = serde_json::to_string_pretty(&meta) {
+        let meta_path = final_path.with_extension("safetensors.json");
+        if let Ok(meta_json) = serde_json::to_string_pretty(&extra_meta) {
             let _ = std::fs::write(&meta_path, &meta_json);
         }
     }
@@ -1196,7 +1379,7 @@ fn train_nxr_model(
             "total_tokens": trainer.total_tokens,
             "training_time_secs": total_time.as_secs_f64(),
         },
-        "checkpoint": model_out.to_string_lossy().to_string(),
+        "checkpoint": ckpt_base.with_extension("safetensors").to_string_lossy().to_string(),
         "epoch_metrics": epoch_metrics,
     });
 

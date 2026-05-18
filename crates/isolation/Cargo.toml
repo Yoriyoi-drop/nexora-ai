@@ -9,7 +9,7 @@ description = "Nexora AI — Multi-layered cognitive & infrastructure isolation 
 [dependencies]
 nexora-core = { path = "../core" }
 
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync", "process", "rt"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

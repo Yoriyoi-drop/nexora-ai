@@ -2,7 +2,6 @@
 //! 
 //! Management of special tokens for tokenizer
 
-use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 
@@ -49,7 +48,41 @@ pub enum SpecialTokenID {
 impl SpecialTokenID {
     pub const COUNT: usize = 29;
     
-    /// Get the string representation of this special token
+    pub fn try_from_id(id: u32) -> Option<Self> {
+        match id {
+            0 => Some(Self::Pad),
+            1 => Some(Self::Unk),
+            2 => Some(Self::Bos),
+            3 => Some(Self::Eos),
+            4 => Some(Self::Eod),
+            5 => Some(Self::CodeStart),
+            6 => Some(Self::CodeEnd),
+            7 => Some(Self::MathStart),
+            8 => Some(Self::MathEnd),
+            9 => Some(Self::DocStart),
+            10 => Some(Self::DocEnd),
+            11 => Some(Self::UserStart),
+            12 => Some(Self::UserEnd),
+            13 => Some(Self::AssistantStart),
+            14 => Some(Self::AssistantEnd),
+            15 => Some(Self::SystemStart),
+            16 => Some(Self::SystemEnd),
+            17 => Some(Self::AnswerStart),
+            18 => Some(Self::AnswerEnd),
+            19 => Some(Self::BugStart),
+            20 => Some(Self::BugEnd),
+            21 => Some(Self::FixStart),
+            22 => Some(Self::FixEnd),
+            23 => Some(Self::DiffStart),
+            24 => Some(Self::DiffEnd),
+            25 => Some(Self::TracebackStart),
+            26 => Some(Self::TracebackEnd),
+            27 => Some(Self::ExplainStart),
+            28 => Some(Self::ExplainEnd),
+            _ => None,
+        }
+    }
+    
     pub fn as_str(&self) -> &'static str {
         match self {
             SpecialTokenID::Pad => "<pad>",
@@ -148,126 +181,143 @@ impl SpecialTokenID {
 /// Special tokens manager
 #[derive(Debug, Clone)]
 pub struct SpecialTokens {
-    token_to_id: HashMap<String, u32>,
-    id_to_token: HashMap<u32, String>,
-    special_ids: [u32; SpecialTokenID::COUNT],
+    custom_token_to_id: std::collections::HashMap<String, u32>,
+    custom_id_to_token: std::collections::HashMap<u32, String>,
     next_id: u32,
 }
 
 impl SpecialTokens {
-    /// Create a new special tokens manager
     pub fn new() -> Self {
-        let mut token_to_id = HashMap::with_capacity(SpecialTokenID::COUNT);
-        let mut id_to_token = HashMap::with_capacity(SpecialTokenID::COUNT);
-        let mut special_ids = [0; SpecialTokenID::COUNT];
-        
-        // Initialize all special tokens
-        for (i, _token_id) in (0..SpecialTokenID::COUNT).enumerate() {
-            let special_token = Self::index_to_special_token(i);
-            let token_str = special_token.as_str();
-            
-            token_to_id.insert(token_str.to_string(), i as u32);
-            id_to_token.insert(i as u32, token_str.to_string());
-            special_ids[i] = i as u32;
-        }
-        
         Self {
-            token_to_id,
-            id_to_token,
-            special_ids,
+            custom_token_to_id: std::collections::HashMap::new(),
+            custom_id_to_token: std::collections::HashMap::new(),
             next_id: SpecialTokenID::COUNT as u32,
         }
     }
     
-    /// Convert index to SpecialTokenID
-    fn index_to_special_token(index: usize) -> SpecialTokenID {
-        match index {
-            0 => SpecialTokenID::Pad,
-            1 => SpecialTokenID::Unk,
-            2 => SpecialTokenID::Bos,
-            3 => SpecialTokenID::Eos,
-            4 => SpecialTokenID::Eod,
-            5 => SpecialTokenID::CodeStart,
-            6 => SpecialTokenID::CodeEnd,
-            7 => SpecialTokenID::MathStart,
-            8 => SpecialTokenID::MathEnd,
-            9 => SpecialTokenID::DocStart,
-            10 => SpecialTokenID::DocEnd,
-            11 => SpecialTokenID::UserStart,
-            12 => SpecialTokenID::UserEnd,
-            13 => SpecialTokenID::AssistantStart,
-            14 => SpecialTokenID::AssistantEnd,
-            15 => SpecialTokenID::SystemStart,
-            16 => SpecialTokenID::SystemEnd,
-            17 => SpecialTokenID::AnswerStart,
-            18 => SpecialTokenID::AnswerEnd,
-            19 => SpecialTokenID::BugStart,
-            20 => SpecialTokenID::BugEnd,
-            21 => SpecialTokenID::FixStart,
-            22 => SpecialTokenID::FixEnd,
-            23 => SpecialTokenID::DiffStart,
-            24 => SpecialTokenID::DiffEnd,
-            25 => SpecialTokenID::TracebackStart,
-            26 => SpecialTokenID::TracebackEnd,
-            27 => SpecialTokenID::ExplainStart,
-            28 => SpecialTokenID::ExplainEnd,
-            _ => SpecialTokenID::Unk,
+    fn builtin_id_by_str(s: &str) -> Option<u32> {
+        match s {
+            "<pad>" => Some(0),
+            "<unk>" => Some(1),
+            "<bos>" => Some(2),
+            "<eos>" => Some(3),
+            "<eod>" => Some(4),
+            "<code>" => Some(5),
+            "</code>" => Some(6),
+            "<math>" => Some(7),
+            "</math>" => Some(8),
+            "<doc>" => Some(9),
+            "</doc>" => Some(10),
+            "<user>" => Some(11),
+            "</user>" => Some(12),
+            "<assistant>" => Some(13),
+            "</assistant>" => Some(14),
+            "<system>" => Some(15),
+            "</system>" => Some(16),
+            "<answer>" => Some(17),
+            "</answer>" => Some(18),
+            "<bug>" => Some(19),
+            "</bug>" => Some(20),
+            "<fix>" => Some(21),
+            "</fix>" => Some(22),
+            "<diff>" => Some(23),
+            "</diff>" => Some(24),
+            "<traceback>" => Some(25),
+            "</traceback>" => Some(26),
+            "<explain>" => Some(27),
+            "</explain>" => Some(28),
+            _ => None,
         }
     }
     
-    /// Get the ID for a special token
+    fn builtin_str_by_id(id: u32) -> Option<&'static str> {
+        match id {
+            0 => Some("<pad>"),
+            1 => Some("<unk>"),
+            2 => Some("<bos>"),
+            3 => Some("<eos>"),
+            4 => Some("<eod>"),
+            5 => Some("<code>"),
+            6 => Some("</code>"),
+            7 => Some("<math>"),
+            8 => Some("</math>"),
+            9 => Some("<doc>"),
+            10 => Some("</doc>"),
+            11 => Some("<user>"),
+            12 => Some("</user>"),
+            13 => Some("<assistant>"),
+            14 => Some("</assistant>"),
+            15 => Some("<system>"),
+            16 => Some("</system>"),
+            17 => Some("<answer>"),
+            18 => Some("</answer>"),
+            19 => Some("<bug>"),
+            20 => Some("</bug>"),
+            21 => Some("<fix>"),
+            22 => Some("</fix>"),
+            23 => Some("<diff>"),
+            24 => Some("</diff>"),
+            25 => Some("<traceback>"),
+            26 => Some("</traceback>"),
+            27 => Some("<explain>"),
+            28 => Some("</explain>"),
+            _ => None,
+        }
+    }
+    
     pub fn get_id(&self, token: &SpecialTokenID) -> u32 {
-        self.special_ids[*token as usize]
+        *token as u32
     }
     
-    /// Get the ID for a special token by string
     pub fn get_id_by_str(&self, token_str: &str) -> Option<u32> {
-        self.token_to_id.get(token_str).copied()
+        Self::builtin_id_by_str(token_str)
+            .or_else(|| self.custom_token_to_id.get(token_str).copied())
     }
     
-    /// Get the string representation of a special token by ID
     pub fn get_token_str(&self, id: u32) -> Option<&str> {
-        self.id_to_token.get(&id).map(|s| s.as_str())
+        Self::builtin_str_by_id(id)
+            .or_else(|| self.custom_id_to_token.get(&id).map(|s| s.as_str()))
     }
     
-    /// Get the string representation of a special token
     pub fn get_token(&self, token: &SpecialTokenID) -> &'static str {
         token.as_str()
     }
     
-    /// Check if a token is a special token by ID
     pub fn is_special(&self, id: u32) -> bool {
-        self.id_to_token.contains_key(&id)
+        (id < SpecialTokenID::COUNT as u32) || self.custom_id_to_token.contains_key(&id)
     }
     
-    /// Check if a token is a special token by string
     pub fn is_special_str(&self, token_str: &str) -> bool {
-        self.token_to_id.contains_key(token_str)
+        Self::builtin_id_by_str(token_str).is_some() || self.custom_token_to_id.contains_key(token_str)
     }
     
-    /// Get all special token IDs
     pub fn get_all_ids(&self) -> [u32; SpecialTokenID::COUNT] {
-        self.special_ids
+        let mut ids = [0; SpecialTokenID::COUNT];
+        for i in 0..SpecialTokenID::COUNT {
+            ids[i] = i as u32;
+        }
+        ids
     }
     
-    /// Get all special token strings
     pub fn get_all_tokens(&self) -> Vec<&str> {
         (0..SpecialTokenID::COUNT)
-            .map(|i| Self::index_to_special_token(i).as_str())
+            .map(|i| SpecialTokenID::try_from_id(i as u32).map(|t| t.as_str()).unwrap_or("<unk>"))
             .collect()
     }
     
-    /// Add a custom special token
     pub fn add_custom_token(&mut self, token_str: &str) -> Result<u32> {
-        if self.token_to_id.contains_key(token_str) {
-            return Ok(self.token_to_id[token_str]);
+        if let Some(id) = Self::builtin_id_by_str(token_str) {
+            return Ok(id);
+        }
+        if let Some(&id) = self.custom_token_to_id.get(token_str) {
+            return Ok(id);
         }
         
         let id = self.next_id;
         self.next_id += 1;
         
-        self.token_to_id.insert(token_str.to_string(), id);
-        self.id_to_token.insert(id, token_str.to_string());
+        self.custom_token_to_id.insert(token_str.to_string(), id);
+        self.custom_id_to_token.insert(id, token_str.to_string());
         
         Ok(id)
     }
@@ -337,13 +387,8 @@ impl SpecialTokens {
         pairs
     }
     
-    /// Get SpecialTokenID by ID
     fn get_special_token_by_id(id: u32) -> Option<SpecialTokenID> {
-        if id < SpecialTokenID::COUNT as u32 {
-            Some(Self::index_to_special_token(id as usize))
-        } else {
-            None
-        }
+        SpecialTokenID::try_from_id(id)
     }
     
     /// Validate a sequence of token IDs for proper special token pairing
@@ -382,8 +427,7 @@ impl Default for SpecialTokens {
 
 /// Convenience functions
 pub fn get_special_token_id(token: &SpecialTokenID) -> u32 {
-    let special_tokens = SpecialTokens::new();
-    special_tokens.get_id(token)
+    *token as u32
 }
 
 pub fn get_special_token_str(token: &SpecialTokenID) -> &'static str {
@@ -391,8 +435,7 @@ pub fn get_special_token_str(token: &SpecialTokenID) -> &'static str {
 }
 
 pub fn is_special_token_str(token_str: &str) -> bool {
-    let special_tokens = SpecialTokens::new();
-    special_tokens.is_special_str(token_str)
+    SpecialTokens::builtin_id_by_str(token_str).is_some()
 }
 
 #[cfg(test)]

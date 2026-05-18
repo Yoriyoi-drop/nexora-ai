@@ -266,7 +266,8 @@ impl InferenceEngine {
 
                 let token_id = match sampler.sample(logits_slice) {
                     Ok(idx) => idx as u32,
-                    Err(_) => {
+                    Err(e) => {
+                        warn!("Sampler failed, error: {:?}, falling back to argmax", e);
                         logits
                             .iter()
                             .enumerate()

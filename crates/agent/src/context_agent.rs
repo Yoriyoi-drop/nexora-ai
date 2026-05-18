@@ -835,13 +835,10 @@ impl ContextAgent {
     fn convert_layers_to_memory_results(&self, layers_results: Vec<nexora_memory::layers::MemoryEntry>) -> Vec<MemoryResult<nexora_memory::MemoryEntry>> {
         layers_results
             .into_iter()
-            .map(|entry| {
-                // Generate memory ID from entry content and timestamp
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                format!("{}{}{}", entry.value, entry.timestamp, entry.accessed_at).hash(&mut hasher);
-                let memory_id = (hasher.finish() % u64::MAX) as u64;
+            .enumerate()
+            .map(|(i, entry)| {
+                // Use simple sequential ID — hash was immediately overwritten
+                let memory_id = i as u32;
                 
                 // Determine memory type from entry content and context
                 let memory_type = if entry.value.contains("context") || 
@@ -858,7 +855,7 @@ impl ContextAgent {
                 };
                 
                 let model_entry = nexora_memory::MemoryEntry {
-                    memory_id: memory_id as u32,
+                    memory_id,
                     memory_type,
                     activation: 0.0,
                     relevance: 0.0,

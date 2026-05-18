@@ -97,6 +97,7 @@ impl StreamingEngine {
                 active
                     .sender
                     .send(token)
+                    .await
                     .map_err(|_| anyhow::anyhow!("Stream {} receiver dropped", stream_id))?;
                 drop(streams);
                 // update token_count outside read lock

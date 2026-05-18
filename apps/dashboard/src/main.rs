@@ -81,6 +81,9 @@ struct App {
     last_update: Instant,
     last_test_run: Instant,
     is_running_tests: bool,
+    system: System,
+    dirty: bool,
+
 }
 
 impl App {
@@ -107,6 +110,8 @@ impl App {
             last_update: Instant::now(),
             last_test_run: Instant::now(),
             is_running_tests: false,
+            system: System::new_all(),
+            dirty: true,
         }
     }
 
@@ -199,26 +204,27 @@ impl App {
         if !new_test_results.is_empty() {
             self.test_results = new_test_results;
             self.add_log("INFO", &format!("Updated {} test results", self.test_results.len()));
+            self.dirty = true;
         }
         
         Ok(())
     }
 
     fn update_system_info(&mut self) {
-        let mut system = System::new_all();
-        system.refresh_all();
+        self.system.refresh_all();
         
-        self.system_info.cpu_usage = system.global_cpu_info().cpu_usage();
-        self.system_info.total_memory = system.total_memory();
-        self.system_info.used_memory = system.used_memory();
+        self.system_info.cpu_usage = self.system.global_cpu_info().cpu_usage();
+        self.system_info.total_memory = self.system.total_memory();
+        self.system_info.used_memory = self.system.used_memory();
         self.system_info.memory_usage = (self.system_info.used_memory as f32 / self.system_info.total_memory as f32) * 100.0;
-        self.system_info.processes = system.processes().len();
+        self.system_info.processes = self.system.processes().len();
         
         let uptime = System::uptime();
         let hours = uptime / 3600;
         let minutes = (uptime % 3600) / 60;
         let seconds = uptime % 60;
         self.system_info.uptime = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
+        self.dirty = true;
     }
 
     fn add_log(&mut self, level: &str, message: &str) {
@@ -230,6 +236,7 @@ impl App {
             level: level.to_string(),
             message: message.to_string(),
         });
+        self.dirty = true;
         
         // Keep only last 100 logs
         if self.logs.len() > 100 {
@@ -243,11 +250,13 @@ impl App {
             KeyCode::Up => {
                 if self.selected_test > 0 {
                     self.selected_test -= 1;
+                    self.dirty = true;
                 }
             }
             KeyCode::Down => {
                 if self.selected_test < self.test_results.len().saturating_sub(1) {
                     self.selected_test += 1;
+                    self.dirty = true;
                 }
             }
             KeyCode::Char('r') => {
@@ -469,13 +478,6 @@ async fn run_app(mut terminal: Terminal<CrosstermBackend<io::Stdout>>) -> io::Re
             app.last_update = Instant::now();
         }
 
-        // Auto-run tests every 30 seconds
-        if app.last_test_run.elapsed() >= Duration::from_secs(30) && !app.is_running_tests {
-            if let Err(e) = app.run_tests().await {
-                app.add_log("ERROR", &format!("Failed to run tests: {}", e));
-            }
-        }
-
         // Add periodic logs when not running tests
         if last_log_time.elapsed() >= Duration::from_secs(10) && !app.is_running_tests {
             let messages = vec![
@@ -490,7 +492,10 @@ async fn run_app(mut terminal: Terminal<CrosstermBackend<io::Stdout>>) -> io::Re
             last_log_time = Instant::now();
         }
 
-        terminal.draw(|f| ui(f, &app))?;
+        if app.dirty {
+            terminal.draw(|f| ui(f, &app))?;
+            app.dirty = false;
+        }
 
         // Handle input
         if event::poll(Duration::from_millis(100))? {

@@ -2,7 +2,7 @@
 //! 
 //! Trie data structure for efficient token sequence lookup
 
-use std::collections::HashMap;
+use smallvec::SmallVec;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 
@@ -12,99 +12,90 @@ pub struct TrieNode {
     pub token_id: Option<u32>,
     pub result_id: Option<u32>,
     pub is_leaf: bool,
-    pub children: HashMap<u32, TrieNode>,
+    pub children: SmallVec<[(u32, Box<TrieNode>); 4]>,
     pub frequency: u64,
     pub priority: f32,
 }
 
 impl TrieNode {
-    /// Create a new trie node
     pub fn new() -> Self {
         Self {
             token_id: None,
             result_id: None,
             is_leaf: false,
-            children: HashMap::new(),
+            children: SmallVec::new(),
             frequency: 0,
             priority: 0.0,
         }
     }
     
-    /// Create a new trie node with token ID
     pub fn with_token(token_id: u32) -> Self {
         Self {
             token_id: Some(token_id),
             result_id: None,
             is_leaf: false,
-            children: HashMap::new(),
+            children: SmallVec::new(),
             frequency: 0,
             priority: 0.0,
         }
     }
     
-    /// Create a leaf node with result
     pub fn leaf(token_id: u32, result_id: u32, frequency: u64, priority: f32) -> Self {
         Self {
             token_id: Some(token_id),
             result_id: Some(result_id),
             is_leaf: true,
-            children: HashMap::new(),
+            children: SmallVec::new(),
             frequency,
             priority,
         }
     }
     
-    /// Add a child node
-    pub fn add_child(&mut self, token_id: u32, node: TrieNode) {
-        self.children.insert(token_id, node);
+    pub fn add_child(&mut self, token_id: u32, node: Box<TrieNode>) {
+        if let Some(pos) = self.children.iter().position(|(k, _)| *k == token_id) {
+            self.children[pos] = (token_id, node);
+        } else {
+            self.children.push((token_id, node));
+        }
     }
     
-    /// Get child by token ID
     pub fn get_child(&self, token_id: u32) -> Option<&TrieNode> {
-        self.children.get(&token_id)
+        self.children.iter().find(|(k, _)| *k == token_id).map(|(_, v)| v.as_ref())
     }
     
-    /// Get mutable child by token ID
     pub fn get_child_mut(&mut self, token_id: u32) -> Option<&mut TrieNode> {
-        self.children.get_mut(&token_id)
+        self.children.iter_mut().find(|(k, _)| *k == token_id).map(|(_, v)| v.as_mut())
     }
     
-    /// Check if has child with token ID
     pub fn has_child(&self, token_id: u32) -> bool {
-        self.children.contains_key(&token_id)
+        self.children.iter().any(|(k, _)| *k == token_id)
     }
     
-    /// Get all child token IDs
     pub fn child_token_ids(&self) -> Vec<u32> {
-        self.children.keys().copied().collect()
+        self.children.iter().map(|(k, _)| *k).collect()
     }
     
-    /// Get number of children
     pub fn child_count(&self) -> usize {
         self.children.len()
     }
     
-    /// Remove child
-    pub fn remove_child(&mut self, token_id: u32) -> Option<TrieNode> {
-        self.children.remove(&token_id)
+    pub fn remove_child(&mut self, token_id: u32) -> Option<Box<TrieNode>> {
+        let pos = self.children.iter().position(|(k, _)| *k == token_id)?;
+        Some(self.children.remove(pos).1)
     }
     
-    /// Clear all children
     pub fn clear_children(&mut self) {
         self.children.clear();
     }
     
-    /// Update frequency
     pub fn update_frequency(&mut self, frequency: u64) {
         self.frequency = frequency;
     }
     
-    /// Update priority
     pub fn update_priority(&mut self, priority: f32) {
         self.priority = priority;
     }
     
-    /// Set as leaf
     pub fn set_leaf(&mut self, result_id: u32, frequency: u64, priority: f32) {
         self.is_leaf = true;
         self.result_id = Some(result_id);
@@ -112,7 +103,6 @@ impl TrieNode {
         self.priority = priority;
     }
     
-    /// Unset leaf
     pub fn unset_leaf(&mut self) {
         self.is_leaf = false;
         self.result_id = None;
@@ -157,8 +147,7 @@ impl Trie {
             depth += 1;
             
             if !current.has_child(token_id) {
-                let node = TrieNode::with_token(token_id);
-                current.add_child(token_id, node);
+                current.add_child(token_id, Box::new(TrieNode::with_token(token_id)));
                 self.size += 1;
             }
             
@@ -223,9 +212,9 @@ impl Trie {
             results.push(prefix.to_vec());
         }
         
-        for (&token_id, child) in &node.children {
+        for (token_id, child) in &node.children {
             let mut new_prefix = prefix.to_vec();
-            new_prefix.push(token_id);
+            new_prefix.push(*token_id);
             self.collect_sequences(child, &new_prefix, results);
         }
     }
@@ -281,11 +270,11 @@ impl Trie {
                 }
                 
                 let token_id = token_ids[index];
-                if let Some(child) = node.children.get_mut(&token_id) {
+                if let Some(pos) = node.children.iter().position(|(k, _)| *k == token_id) {
+                    let child = node.children[pos].1.as_mut();
                     if remove_recursive(child, token_ids, index + 1) {
-                        // If child is now empty and not a leaf, remove it
                         if child.children.is_empty() && !child.is_leaf {
-                            node.children.remove(&token_id);
+                            node.children.remove(pos);
                         }
                         return true;
                     }
@@ -360,7 +349,7 @@ impl Trie {
             }
         }
         
-        for child in node.children.values() {
+        for (_, child) in &node.children {
             self.calculate_stats(child, stats, depth + 1);
         }
     }
@@ -381,7 +370,7 @@ impl Trie {
         
         visited.insert(node_ptr);
         
-        for child in node.children.values() {
+        for (_, child) in &node.children {
             self.validate_node(child, visited);
         }
     }

@@ -155,6 +155,7 @@ pub struct AsyncTaskExecutor {
     task_receiver: Arc<RwLock<Option<mpsc::Receiver<AsyncTask>>>>,
     metrics: Arc<RwLock<ExecutorMetrics>>,
     shutdown: Arc<RwLock<bool>>,
+    notifier: Arc<tokio::sync::Notify>,
 }
 
 /// Task information for tracking
@@ -207,6 +208,7 @@ impl AsyncTaskExecutor {
             task_receiver: Arc::new(RwLock::new(Some(task_receiver))),
             metrics: Arc::new(RwLock::new(ExecutorMetrics::default())),
             shutdown: Arc::new(RwLock::new(false)),
+            notifier: Arc::new(tokio::sync::Notify::new()),
         }
     }
     
@@ -266,7 +268,10 @@ impl AsyncTaskExecutor {
             let mut queue = self.task_queue.lock();
             queue.push(task);
         }
-        
+
+        // Notify worker that a new task is available
+        self.notifier.notify_one();
+
         debug!("Task submitted: {}", task_id);
         Ok(task_id)
     }
@@ -362,8 +367,8 @@ impl AsyncTaskExecutor {
                     }
                 }
                 None => {
-                    // No tasks available, wait a bit
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    // No tasks available, wait for notification
+                    self.notifier.notified().await;
                 }
             }
         }
@@ -543,6 +548,7 @@ impl Clone for AsyncTaskExecutor {
             task_receiver: Arc::clone(&self.task_receiver),
             metrics: Arc::clone(&self.metrics),
             shutdown: Arc::clone(&self.shutdown),
+            notifier: Arc::clone(&self.notifier),
         }
     }
 }

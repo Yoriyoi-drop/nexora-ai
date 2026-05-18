@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::types::{DataSample, BatchConfig};
 
@@ -62,7 +62,12 @@ impl TrainingDeliveryLayer {
                 OutputFormat::RawText => {
                     self.write_raw_text(&batch, &output_path).await?;
                 }
-                _ => {
+                OutputFormat::Arrow => {
+                    warn!("Arrow output not yet implemented, falling back to JSON Lines");
+                    self.write_jsonlines(&batch, &output_path, total).await?;
+                }
+                OutputFormat::TensorRecords => {
+                    warn!("TensorRecords output not yet implemented, falling back to JSON Lines");
                     self.write_jsonlines(&batch, &output_path, total).await?;
                 }
             }
@@ -80,12 +85,18 @@ impl TrainingDeliveryLayer {
         output_path: &str,
         offset: u64,
     ) -> Result<(), anyhow::Error> {
+        use tokio::io::AsyncWriteExt;
         let path = if offset == 0 {
             output_path.to_string()
         } else {
             format!("{}.part{}", output_path, offset / self.batch_config.max_batch_size as u64)
         };
 
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .await?;
         let mut content = String::with_capacity(batch.len() * 1024);
         for sample in batch {
             if let Ok(line) = serde_json::to_string(sample) {
@@ -93,7 +104,7 @@ impl TrainingDeliveryLayer {
                 content.push('\n');
             }
         }
-        tokio::fs::write(&path, content).await?;
+        file.write_all(content.as_bytes()).await?;
         Ok(())
     }
 
@@ -102,12 +113,18 @@ impl TrainingDeliveryLayer {
         batch: &[DataSample],
         output_path: &str,
     ) -> Result<(), anyhow::Error> {
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output_path)
+            .await?;
         let mut content = String::with_capacity(batch.len() * 1024);
         for sample in batch {
             content.push_str(&sample.text);
             content.push_str("\n---NEXORA_SEPARATOR---\n");
         }
-        tokio::fs::write(output_path, content).await?;
+        file.write_all(content.as_bytes()).await?;
         Ok(())
     }
 

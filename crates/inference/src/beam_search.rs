@@ -2,8 +2,9 @@
 //! 
 //! Beam search decoding strategy untuk inference.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
+use std::sync::Arc;
 use uuid::Uuid;
 use tracing::{debug, info};
 
@@ -29,6 +30,8 @@ pub struct BeamSearchConfig {
     pub enable_pruning: bool,
     /// Maximum beam candidates
     pub max_candidates: usize,
+    /// Maximum total stored hypotheses (including converged/diverged)
+    pub max_hypotheses: usize,
 }
 
 impl Default for BeamSearchConfig {
@@ -42,6 +45,7 @@ impl Default for BeamSearchConfig {
             convergence_threshold: 0.01,
             enable_pruning: true,
             max_candidates: 100,
+            max_hypotheses: 200,
         }
     }
 }
@@ -52,7 +56,7 @@ pub struct BeamHypothesis {
     /// Unique hypothesis ID
     pub id: Uuid,
     /// Generated tokens
-    pub tokens: Vec<GeneratedToken>,
+    pub tokens: Arc<Vec<GeneratedToken>>,
     /// Cumulative log probability
     pub cumulative_log_prob: f32,
     /// Normalized score
@@ -72,7 +76,7 @@ impl BeamHypothesis {
     pub fn new(length_penalty: f32) -> Self {
         Self {
             id: Uuid::new_v4(),
-            tokens: Vec::new(),
+            tokens: Arc::new(Vec::new()),
             cumulative_log_prob: 0.0,
             score: 0.0,
             length_penalty,
@@ -85,7 +89,9 @@ impl BeamHypothesis {
     /// Add token to hypothesis
     pub fn add_token(&mut self, token: GeneratedToken) {
         self.cumulative_log_prob += token.log_prob;
-        self.tokens.push(token);
+        let mut new_tokens = (*self.tokens).clone();
+        new_tokens.push(token);
+        self.tokens = Arc::new(new_tokens);
         self.update_score();
     }
     
@@ -98,7 +104,7 @@ impl BeamHypothesis {
     
     /// Get generated text
     pub fn get_text(&self) -> String {
-        self.tokens.iter().map(|t| t.token_text.clone()).collect::<String>()
+        self.tokens.iter().map(|t| (*t.token_text).to_string()).collect::<String>()
     }
     
     /// Get token count
@@ -227,8 +233,22 @@ impl BeamSearchEngine {
                     state.step,
                 );
                 
-                let mut new_hypothesis = hypothesis.clone();
-                new_hypothesis.add_token(token);
+                let mut new_tokens = (*hypothesis.tokens).clone();
+                new_tokens.push(token);
+                let new_cumulative_log_prob = hypothesis.cumulative_log_prob + logit;
+                let new_len = new_tokens.len() as f32;
+                let lp = ((new_len + 5.0) / (6.0)).powf(hypothesis.length_penalty);
+                let new_score = new_cumulative_log_prob / lp;
+                let new_hypothesis = BeamHypothesis {
+                    id: hypothesis.id,
+                    tokens: Arc::new(new_tokens),
+                    cumulative_log_prob: new_cumulative_log_prob,
+                    score: new_score,
+                    length_penalty: hypothesis.length_penalty,
+                    finished: hypothesis.finished,
+                    finish_reason: hypothesis.finish_reason.clone(),
+                    metadata: hypothesis.metadata.clone(),
+                };
                 
                 new_candidates.push(new_hypothesis);
             }
@@ -247,6 +267,9 @@ impl BeamSearchEngine {
         
         // Check for convergence
         self.check_convergence(state)?;
+        
+        // Bound total stored hypotheses to prevent unbounded memory growth
+        self.prune_hypothesis_store(state);
         
         state.step += 1;
         
@@ -305,12 +328,12 @@ impl BeamSearchEngine {
         }
         
         let mut pruned = Vec::with_capacity(candidates.len().min(self.config.max_candidates));
-        let mut diversity_tracker = HashMap::with_capacity(candidates.len());
+        let mut diversity_tracker: HashMap<u32, f32> = HashMap::with_capacity(candidates.len());
         
         for candidate in candidates {
-            // Check diversity
-            let text = candidate.get_text();
-            let diversity_score = self.calculate_diversity_score(&text, &diversity_tracker);
+            // Check diversity using first token ID as key (avoids String allocation for dedup)
+            let key = candidate.tokens.first().map(|t| t.token_id).unwrap_or(0);
+            let diversity_score = self.calculate_diversity_score(&candidate.tokens, &diversity_tracker);
             
             // Apply divergence penalty
             let adjusted_score = candidate.score - (self.config.divergence_penalty * diversity_score);
@@ -318,7 +341,7 @@ impl BeamSearchEngine {
             // Keep if score is good enough or not too similar to existing candidates
             if adjusted_score > -10.0 || diversity_score < 0.8 {
                 pruned.push(candidate);
-                diversity_tracker.insert(text.clone(), diversity_score);
+                diversity_tracker.insert(key, diversity_score);
             }
             
             if pruned.len() >= self.config.max_candidates {
@@ -329,7 +352,27 @@ impl BeamSearchEngine {
         Ok(pruned)
     }
     
-    /// Check for convergence among hypotheses
+    /// Prune hypothesis store to bounded capacity
+    fn prune_hypothesis_store(&self, state: &mut BeamSearchState) {
+        let max = self.config.max_hypotheses;
+        let to_prune = state.hypotheses.len()
+            + state.converged_hypotheses.len()
+            + state.diverged_hypotheses.len();
+
+        if to_prune <= max {
+            return;
+        }
+
+        // Sort converged by score, keep highest scorers
+        state.converged_hypotheses.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal)
+        });
+
+        let budget = max.saturating_sub(state.hypotheses.len() + state.diverged_hypotheses.len());
+        state.converged_hypotheses.truncate(budget);
+    }
+
+    /// Check for convergence among hypotheses (token-ID based, no string allocation)
     fn check_convergence(&self, state: &mut BeamSearchState) -> Result<()> {
         if state.hypotheses.len() < 2 {
             return Ok(());
@@ -340,7 +383,6 @@ impl BeamSearchEngine {
         
         let hyp_len = state.hypotheses.len();
         let mut used = vec![false; hyp_len];
-        let hyp_text: Vec<String> = state.hypotheses.iter().map(|h| h.get_text()).collect();
         
         for i in 0..hyp_len {
             if used[i] {
@@ -351,7 +393,10 @@ impl BeamSearchEngine {
             let mut group = vec![i];
             for j in (i + 1)..hyp_len {
                 if !used[j] {
-                    let similarity = self.calculate_similarity(&hyp_text[i], &hyp_text[j]);
+                    let similarity = Self::token_id_similarity(
+                        &state.hypotheses[i].tokens,
+                        &state.hypotheses[j].tokens,
+                    );
                     if similarity > (1.0 - self.config.convergence_threshold) {
                         group.push(j);
                         used[j] = true;
@@ -375,16 +420,15 @@ impl BeamSearchEngine {
         Ok(())
     }
     
-    /// Check if hypotheses are converged
+    /// Check if hypotheses are converged (token-ID based)
     fn are_hypotheses_converged(&self, hypotheses: &[BeamHypothesis]) -> bool {
         if hypotheses.len() < 2 {
             return true;
         }
         
-        let first_text = hypotheses[0].get_text();
-        
+        let first_tokens = &hypotheses[0].tokens;
         for hypothesis in hypotheses.iter().skip(1) {
-            let similarity = self.calculate_similarity(&first_text, &hypothesis.get_text());
+            let similarity = Self::token_id_similarity(first_tokens, &hypothesis.tokens);
             if similarity < (1.0 - self.config.convergence_threshold) {
                 return false;
             }
@@ -393,40 +437,29 @@ impl BeamSearchEngine {
         true
     }
     
-    /// Calculate similarity between two texts
-    fn calculate_similarity(&self, text1: &str, text2: &str) -> f32 {
-        if text1.is_empty() || text2.is_empty() {
+    /// Jaccard similarity on token IDs (avoids String allocation)
+    fn token_id_similarity(a: &Arc<Vec<GeneratedToken>>, b: &Arc<Vec<GeneratedToken>>) -> f32 {
+        if a.is_empty() || b.is_empty() {
             return 0.0;
         }
-        
-        // Simple character-based similarity (could be improved with better metrics)
-        let chars1: std::collections::HashSet<char> = text1.chars().collect();
-        let chars2: std::collections::HashSet<char> = text2.chars().collect();
-        
-        let intersection = chars1.intersection(&chars2).count();
-        let union = chars1.union(&chars2).count();
-        
-        if union == 0 {
-            0.0
-        } else {
-            intersection as f32 / union as f32
-        }
+        let a_ids: HashSet<u32> = a.iter().map(|t| t.token_id).collect();
+        let b_ids: HashSet<u32> = b.iter().map(|t| t.token_id).collect();
+        let intersection = a_ids.intersection(&b_ids).count();
+        let union = a_ids.union(&b_ids).count();
+        if union == 0 { 0.0 } else { intersection as f32 / union as f32 }
     }
     
-    /// Calculate diversity score against existing texts
-    fn calculate_diversity_score(&self, text: &str, existing_texts: &HashMap<String, f32>) -> f32 {
-        if existing_texts.is_empty() {
+    /// Calculate diversity score using token IDs (avoids String allocation)
+    fn calculate_diversity_score(&self, tokens: &Arc<Vec<GeneratedToken>>, _existing: &HashMap<u32, f32>) -> f32 {
+        if _existing.is_empty() {
             return 0.0;
         }
-        
-        let mut max_similarity: f32 = 0.0;
-        
-        for existing_text in existing_texts.keys() {
-            let similarity = self.calculate_similarity(text, existing_text);
-            max_similarity = max_similarity.max(similarity);
+        // Simplified diversity: ratio of unique token IDs
+        if tokens.is_empty() {
+            return 0.0;
         }
-        
-        max_similarity
+        let unique: HashSet<u32> = tokens.iter().map(|t| t.token_id).collect();
+        1.0 - (unique.len() as f32 / tokens.len() as f32)
     }
 }
 

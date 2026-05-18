@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use tracing::{debug, warn};
 
+use tokio::sync::Mutex;
 use crate::{Agent, AgentError, Result, AgentStatus, AgentConfig};
 
 /// Information tentang registered agent
@@ -46,8 +47,8 @@ pub struct IntentMapping {
 
 /// Registry untuk semua agent
 pub struct AgentRegistry {
-    /// Map dari agent ID ke Agent instance
-    agents: Arc<RwLock<HashMap<Uuid, Box<dyn Agent>>>>,
+    /// Map dari agent ID ke Agent instance (shared via Arc + Mutex)
+    agents: Arc<RwLock<HashMap<Uuid, Arc<Mutex<Box<dyn Agent>>>>>>,
     /// Map dari agent ID ke AgentInfo
     agent_info: Arc<RwLock<HashMap<Uuid, AgentInfo>>>,
     /// Intent mapping
@@ -98,10 +99,10 @@ impl AgentRegistry {
             restart_attempts: 0,
         };
         
-        // Register agent
+        // Register agent (wrap in Arc<Mutex> for shared access)
         {
             let mut agents = self.agents.write().await;
-            agents.insert(agent_id, agent);
+            agents.insert(agent_id, Arc::new(Mutex::new(agent)));
         }
         
         // Register info
@@ -158,11 +159,11 @@ impl AgentRegistry {
         }
     }
     
-    /// Get agent instance
-    pub async fn get_agent(&self, _agent_id: Uuid) -> Result<Option<Box<dyn Agent>>> {
-        // Note: We can't return a reference to Box<dyn Agent> from async function
-        // This needs to be redesigned - perhaps store Arc<dyn Agent> instead
-        Err(AgentError::ProcessingError("get_agent needs redesign for async".to_string()))
+    /// Get agent instance (shared handle)
+    pub async fn get_agent(&self, agent_id: Uuid) -> Result<Arc<Mutex<Box<dyn Agent>>>> {
+        self.agents.read().await.get(&agent_id)
+            .cloned()
+            .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))
     }
     
     /// Get agent info

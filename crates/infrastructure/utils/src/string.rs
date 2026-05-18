@@ -1,8 +1,17 @@
 //! String utilities untuk Nexora
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use anyhow::Result;
 use std::collections::HashMap;
+
+static RE_WHITESPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+static RE_WORD: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b[a-zA-Z]+\b").unwrap());
+static RE_SENTENCE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[.!?]+").unwrap());
+static RE_EMAIL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap());
+static RE_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap());
+static RE_DOMAIN: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://([^/]+)").unwrap());
+static RE_SAFE_FILENAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^a-zA-Z0-9._-]").unwrap());
 
 pub struct StringUtils;
 
@@ -32,8 +41,7 @@ impl StringUtils {
     
     /// Remove extra whitespace
     pub fn normalize_whitespace(s: &str) -> String {
-        let re = Regex::new(r"\s+").expect("valid regex pattern");
-        re.replace_all(s.trim(), " ").to_string()
+        RE_WHITESPACE.replace_all(s.trim(), " ").to_string()
     }
     
     /// Calculate similarity between two strings (Jaccard similarity)
@@ -108,8 +116,7 @@ impl StringUtils {
     
     /// Extract keywords from string
     pub fn extract_keywords(text: &str, min_length: usize) -> Vec<String> {
-        let re = Regex::new(r"\b[a-zA-Z]+\b").expect("valid regex pattern");
-        re.find_iter(text)
+        RE_WORD.find_iter(text)
             .map(|m| m.as_str().to_lowercase())
             .filter(|word| word.len() >= min_length)
             .collect()
@@ -166,22 +173,23 @@ impl StringUtils {
     
     /// Count sentences (simple heuristic)
     pub fn count_sentences(s: &str) -> usize {
-        let re = Regex::new(r"[.!?]+").expect("valid regex pattern");
-        re.find_iter(s).count()
+        RE_SENTENCE.find_iter(s).count()
     }
     
     /// Generate slug from string
     pub fn slugify(s: &str) -> String {
         let cleaned = Self::clean(s);
-        let re = Regex::new(r"\s+").expect("valid regex pattern");
-        let slug = re.replace_all(&cleaned, "-");
+        let slug = RE_WHITESPACE.replace_all(&cleaned, "-");
         slug.trim_matches('-').to_string()
     }
     
     /// Generate random string
     pub fn random_string(length: usize) -> String {
-        use uuid::Uuid;
-        Uuid::new_v4().to_string().replace('-', "")[..length.min(32)].to_string()
+        use rand::Rng;
+        let len = length.min(32);
+        let random_bytes: [u8; 16] = rand::thread_rng().gen();
+        let hex: String = random_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        hex[..len].to_string()
     }
     
     /// Mask sensitive information
@@ -197,20 +205,17 @@ impl StringUtils {
     
     /// Validate email format
     pub fn is_valid_email(email: &str) -> bool {
-        let re = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").expect("valid regex pattern");
-        re.is_match(email)
+        RE_EMAIL.is_match(email)
     }
     
     /// Validate URL format
     pub fn is_valid_url(url: &str) -> bool {
-        let re = Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").expect("valid regex pattern");
-        re.is_match(url)
+        RE_URL.is_match(url)
     }
     
     /// Extract domain from URL
     pub fn extract_domain(url: &str) -> Option<String> {
-        let re = Regex::new(r"https?://([^/]+)").expect("valid regex pattern");
-        re.captures(url).map(|caps| caps[1].to_string())
+        RE_DOMAIN.captures(url).map(|caps| caps[1].to_string())
     }
     
     /// Convert to title case
@@ -274,8 +279,7 @@ impl StringUtils {
     
     /// Convert to safe filename
     pub fn to_safe_filename(s: &str) -> String {
-        let re = Regex::new(r"[^a-zA-Z0-9._-]").expect("valid regex pattern");
-        let safe = re.replace_all(s, "_");
+        let safe = RE_SAFE_FILENAME.replace_all(s, "_");
         safe.trim_matches('_').to_string()
     }
 }

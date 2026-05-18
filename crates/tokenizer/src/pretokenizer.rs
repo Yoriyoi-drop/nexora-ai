@@ -9,10 +9,15 @@ use serde::{Serialize, Deserialize};
 /// Pre-tokenized text piece
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreTokenizedPiece {
-    pub text: String,
     pub start: usize,
     pub end: usize,
     pub piece_type: PieceType,
+}
+
+impl PreTokenizedPiece {
+    pub fn text<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.start..self.end]
+    }
 }
 
 /// Types of pre-tokenized pieces
@@ -46,9 +51,8 @@ impl PreTokenized {
         }
     }
     
-    pub fn add_piece(&mut self, text: String, start: usize, end: usize, piece_type: PieceType) {
+    pub fn add_piece(&mut self, start: usize, end: usize, piece_type: PieceType) {
         self.pieces.push(PreTokenizedPiece {
-            text,
             start,
             end,
             piece_type,
@@ -56,11 +60,11 @@ impl PreTokenized {
     }
     
     pub fn get_piece_lengths(&self) -> Vec<usize> {
-        self.pieces.iter().map(|p| p.text.len()).collect()
+        self.pieces.iter().map(|p| p.text(&self.original).len()).collect()
     }
     
     pub fn get_piece_texts(&self) -> Vec<&str> {
-        self.pieces.iter().map(|p| p.text.as_str()).collect()
+        self.pieces.iter().map(|p| p.text(&self.original)).collect()
     }
 }
 
@@ -139,8 +143,8 @@ impl PreTokenizer {
         while i < n {
             let (piece, next_i) = self.extract_next_piece(&chars, i, n)?;
             
-            if !piece.text.is_empty() {
-                result.add_piece(piece.text, piece.start, piece.end, piece.piece_type);
+            if piece.start != piece.end {
+                result.add_piece(piece.start, piece.end, piece.piece_type);
             }
             
             i = next_i;
@@ -155,7 +159,6 @@ impl PreTokenizer {
         
         if i >= n {
             return Ok((PreTokenizedPiece {
-                text: String::new(),
                 start: i,
                 end: i,
                 piece_type: PieceType::Unknown,
@@ -171,9 +174,7 @@ impl PreTokenizer {
                 end += 1;
             }
             
-            let text: String = chars[i..end].iter().collect();
             return Ok((PreTokenizedPiece {
-                text,
                 start: i,
                 end,
                 piece_type: PieceType::Whitespace,
@@ -203,7 +204,6 @@ impl PreTokenizer {
         // Handle punctuation
         if self.is_punctuation(c) {
             return Ok((PreTokenizedPiece {
-                text: c.to_string(),
                 start: i,
                 end: i + 1,
                 piece_type: PieceType::Punctuation,
@@ -217,7 +217,6 @@ impl PreTokenizer {
         
         // Unknown character
         Ok((PreTokenizedPiece {
-            text: c.to_string(),
             start: i,
             end: i + 1,
             piece_type: PieceType::Unknown,
@@ -250,9 +249,7 @@ impl PreTokenizer {
             i = n;
         }
         
-        let text: String = chars[start..i].iter().collect();
         Ok((PreTokenizedPiece {
-            text,
             start,
             end: i,
             piece_type: PieceType::String,
@@ -263,7 +260,6 @@ impl PreTokenizer {
     fn extract_comment(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
         if start + 1 >= n {
             return Ok((PreTokenizedPiece {
-                text: chars[start].to_string(),
                 start,
                 end: start + 1,
                 piece_type: PieceType::Unknown,
@@ -279,9 +275,7 @@ impl PreTokenizer {
                 i += 1;
             }
             
-            let text: String = chars[start..i].iter().collect();
             Ok((PreTokenizedPiece {
-                text,
                 start,
                 end: i,
                 piece_type: PieceType::Comment,
@@ -297,9 +291,7 @@ impl PreTokenizer {
                 i += 1;
             }
             
-            let text: String = chars[start..i].iter().collect();
             Ok((PreTokenizedPiece {
-                text,
                 start,
                 end: i,
                 piece_type: PieceType::Comment,
@@ -307,7 +299,6 @@ impl PreTokenizer {
         } else {
             // Just a slash
             Ok((PreTokenizedPiece {
-                text: chars[start].to_string(),
                 start,
                 end: start + 1,
                 piece_type: PieceType::Operator,
@@ -331,7 +322,6 @@ impl PreTokenizer {
                 
                 if matches {
                     return Ok((PreTokenizedPiece {
-                        text: op.clone(),
                         start,
                         end: start + op_chars.len(),
                         piece_type: PieceType::Operator,
@@ -342,7 +332,6 @@ impl PreTokenizer {
         
         // Single character operator
         Ok((PreTokenizedPiece {
-            text: chars[start].to_string(),
             start,
             end: start + 1,
             piece_type: PieceType::Operator,
@@ -382,9 +371,7 @@ impl PreTokenizer {
             }
         }
         
-        let text: String = chars[start..i].iter().collect();
         Ok((PreTokenizedPiece {
-            text,
             start,
             end: i,
             piece_type: PieceType::Number,
@@ -399,15 +386,7 @@ impl PreTokenizer {
             i += 1;
         }
         
-        let mut text: String = chars[start..i].iter().collect();
-        
-        // Convert to lowercase if not preserving case
-        if !self.config.preserve_case {
-            text = text.to_lowercase();
-        }
-        
         Ok((PreTokenizedPiece {
-            text,
             start,
             end: i,
             piece_type: PieceType::Word,
@@ -519,7 +498,7 @@ mod tests {
         let numbers: Vec<&str> = result.pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Number)
-            .map(|p| p.text.as_str())
+            .map(|p| p.text(&result.original))
             .collect();
         
         assert_eq!(numbers, vec!["42.5", "-10"]);
@@ -532,7 +511,7 @@ mod tests {
         let strings: Vec<&str> = result.pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::String)
-            .map(|p| p.text.as_str())
+            .map(|p| p.text(&result.original))
             .collect();
         
         assert_eq!(strings, vec![r#""Hello, \"world\"!""#]);
@@ -545,7 +524,7 @@ mod tests {
         let operators: Vec<&str> = result.pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Operator)
-            .map(|p| p.text.as_str())
+            .map(|p| p.text(&result.original))
             .collect();
         
         assert_eq!(operators, vec!["<=", "&&", ">="]);
@@ -558,7 +537,7 @@ mod tests {
         let comments: Vec<&str> = result.pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Comment)
-            .map(|p| p.text.as_str())
+            .map(|p| p.text(&result.original))
             .collect();
         
         assert_eq!(comments, vec!["// This is a comment"]);
@@ -576,7 +555,7 @@ mod tests {
         let words: Vec<&str> = result.pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Word)
-            .map(|p| p.text.as_str())
+            .map(|p| p.text(&result.original))
             .collect();
         
         assert_eq!(words, vec!["Hello", "WORLD"]);
@@ -597,7 +576,7 @@ mod tests {
         let operators: Vec<&str> = result.pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Operator)
-            .map(|p| p.text.as_str())
+            .map(|p| p.text(&result.original))
             .collect();
         
         assert_eq!(operators, vec![":::"]);

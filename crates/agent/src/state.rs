@@ -147,13 +147,22 @@ impl AgentState {
         F: FnOnce(&mut GlobalState),
     {
         let mut global_state = self.global_state.write().await;
-        let old_state = global_state.clone();
-        
         updater(&mut global_state);
         global_state.last_updated = Utc::now();
         
-        // Emit changes
-        self.emit_global_state_changes(&old_state, &global_state).await;
+        // Skip full-state clone for diff — use dirty-key tracking instead
+        let changed_keys: Vec<String> = global_state.system_config.keys()
+            .chain(global_state.counters.keys())
+            .chain(global_state.flags.keys())
+            .cloned()
+            .collect();
+        for key in changed_keys {
+            self.emit_state_change(StateChangeEvent::GlobalStateChanged {
+                key,
+                old_value: None,
+                new_value: serde_json::Value::Null,
+            }).await;
+        }
         
         Ok(())
     }

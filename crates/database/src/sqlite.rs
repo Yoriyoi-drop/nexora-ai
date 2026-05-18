@@ -727,6 +727,17 @@ impl ConnectionPool for SQLiteConnectionPool {
         }
 
         if was_active {
+            // BUG: The original SQLite connection's `conn` (rusqlite::Connection) is dropped
+            // here and replaced with `conn: None`. This destroys the live database connection.
+            // A proper fix requires: either (a) downcasting `Box<dyn DatabaseConnection>` to
+            // `SQLiteConnection` via `std::any::Any`, or (b) redesigning the trait to
+            // preserve the concrete connection type through the pool round-trip.
+            tracing::warn!(
+                "return_connection drops active SQLite connection {}. \
+                 Connection handle destroyed — pool gets a stub with conn: None.",
+                id
+            );
+
             let mut connections = self.connections.write().await;
             let stat = SQLiteConnection {
                 id,

@@ -253,52 +253,25 @@ impl PerformanceMonitor {
         {
             use std::fs;
             use std::io::Read;
-            use std::time::{Duration, Instant};
-            
-            let _start_time = Instant::now();
-            
-            // Read initial CPU stats
-            let mut stat_file = fs::File::open("/proc/stat")
-                .map_err(|e| anyhow::anyhow!("Failed to open /proc/stat: {}", e))?;
-            
+
             let mut stat_contents = String::new();
-            stat_file.read_to_string(&mut stat_contents)
+            fs::File::open("/proc/stat")
+                .map_err(|e| anyhow::anyhow!("Failed to open /proc/stat: {}", e))?
+                .read_to_string(&mut stat_contents)
                 .map_err(|e| anyhow::anyhow!("Failed to read /proc/stat: {}", e))?;
-            
-            let initial_cpu_times = Self::parse_cpu_times(&stat_contents)?;
-            
-            // Wait a short duration
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            
-            // Read final CPU stats
-            let mut stat_file = fs::File::open("/proc/stat")
-                .map_err(|e| anyhow::anyhow!("Failed to open /proc/stat: {}", e))?;
-            
-            let mut stat_contents = String::new();
-            stat_file.read_to_string(&mut stat_contents)
-                .map_err(|e| anyhow::anyhow!("Failed to read /proc/stat: {}", e))?;
-            
-            let final_cpu_times = Self::parse_cpu_times(&stat_contents)?;
-            
-            // Calculate CPU usage percentage
-            let total_diff = final_cpu_times.total - initial_cpu_times.total;
-            let idle_diff = final_cpu_times.idle - initial_cpu_times.idle;
-            
-            if total_diff > 0 {
-                let usage = ((total_diff - idle_diff) as f64 / total_diff as f64) * 100.0;
-                Ok(usage)
+
+            let cpu_times = Self::parse_cpu_times(&stat_contents)?;
+            let usage = if cpu_times.total > 0 {
+                ((cpu_times.total - cpu_times.idle) as f64 / cpu_times.total as f64) * 100.0
             } else {
-                Ok(0.0)
-            }
+                0.0
+            };
+            Ok(usage)
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
-            // Fallback for non-Linux systems
-            // In production, you'd use platform-specific APIs like:
-            // - Windows: GetProcessTimes
-            // - macOS: host_processor_info
-            Ok(5.0) // Default 5% fallback
+            Ok(5.0)
         }
     }
     
@@ -321,7 +294,10 @@ impl PerformanceMonitor {
         let idle: u64 = parts[4].parse()
             .map_err(|e| anyhow::anyhow!("Failed to parse idle time: {}", e))?;
         
-        let total = user + nice + system + idle;
+        // Sum all fields for accurate total (includes iowait, irq, softirq, steal)
+        let total: u64 = parts[1..].iter()
+            .filter_map(|s| s.parse::<u64>().ok())
+            .sum();
         
         Ok(CpuTimes { user, nice, system, idle, total })
     }

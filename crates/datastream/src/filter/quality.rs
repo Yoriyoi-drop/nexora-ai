@@ -51,7 +51,7 @@ impl QualityFilter {
             return (0.0, Some(format!("too_much_repetition: unique_ratio={:.2}", unique_ratio)));
         }
 
-        let max_freq = word_freq.values().cloned().max().unwrap_or(0) as f64;
+        let max_freq = *word_freq.values().max().unwrap_or(&0) as f64;
         let repetition_ratio = max_freq / word_count as f64;
         if repetition_ratio > self.max_repetition_ratio {
             return (0.0, Some(format!("high_repetition: {:.2}", repetition_ratio)));

@@ -153,7 +153,7 @@ async fn test_streaming_e2e() {
 
     assert_eq!(received.len(), 2);
     assert_eq!(received[0].token_id, 1);
-    assert_eq!(received[1].token_text, " world");
+    assert_eq!(&*received[1].token_text, " world");
 
     let streams = engine.active_stream_count().await;
     assert_eq!(streams, 0);

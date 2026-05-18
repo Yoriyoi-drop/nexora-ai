@@ -63,9 +63,8 @@ impl Sampler {
 
     /// Sample a token index from logits.
     /// Pipeline: logits → temperature scaling → softmax → top-k filter → top-p filter → sample
-    #[tracing::instrument(skip(self, logits))]
     pub fn sample(&mut self, logits: &[f32]) -> Result<usize> {
-        debug!("Sampling from {} logits with method {:?}", logits.len(), self.config.method);
+        tracing::trace!(len = logits.len(), method = ?self.config.method, "sampling from logits");
 
         if logits.is_empty() {
             return Err(InferenceError::DecodingError("Empty logits".to_string()));
@@ -165,12 +164,10 @@ impl Sampler {
     }
 
     fn sample_from_probs(&mut self, probs: &[f32]) -> Result<usize> {
-        let mut rng: Box<dyn rand::RngCore> = match self.rng.as_mut() {
-            Some(r) => Box::new(r),
-            None => Box::new(rand::thread_rng()),
+        let r: f32 = match &mut self.rng {
+            Some(rng) => rng.gen(),
+            None => rand::thread_rng().gen(),
         };
-
-        let r: f32 = rng.gen();
         let mut cum = 0.0;
         for (i, &p) in probs.iter().enumerate() {
             cum += p;

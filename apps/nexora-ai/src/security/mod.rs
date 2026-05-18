@@ -258,6 +258,7 @@ impl SecurityUtils {
     /// Returns PHC string: $argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>
     pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
         use argon2::password_hash::{SaltString, rand_core::OsRng};
+        use argon2::PasswordHasher;
         let salt = SaltString::generate(&mut OsRng);
         let config = argon2::Argon2::default();
         config.hash_password(password.as_bytes(), &salt).map(|hash| hash.to_string())

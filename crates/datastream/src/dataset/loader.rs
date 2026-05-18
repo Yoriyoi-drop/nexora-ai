@@ -1,12 +1,10 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task;
 use tracing::{info, warn, error, debug};
 
-use crate::types::{DataSample, SourceInfo, SourceCategory, SampleStats};
+use crate::types::{DataSample, SourceInfo, SourceCategory};
 use crate::arrow_reader;
 use super::scanner::{ShardPath, ShardScanner};
 use super::compression::Compression;
@@ -192,28 +190,35 @@ impl StreamingLoader {
         let start_offset = self.current_sample_offset;
 
         let mut shards = self.shard_paths.clone();
-        // Shuffle shards for better mixing each epoch
-        if self.current_epoch > 1 || start_shard == 0 {
+        // Shuffle shards for better mixing each epoch.
+        // When resuming mid-epoch, preserve shard ordering so the skip-by-index is valid.
+        if self.current_epoch > 1 && start_shard == 0 {
+            shuffle_shards(&mut shards);
+        } else if self.current_epoch == 1 && start_shard == 0 {
+            // First epoch, no resume: shuffle
             shuffle_shards(&mut shards);
         }
+        // When start_shard > 0 (resume mid-epoch), we keep the original order
+        // and skip by index, which correctly maps to the already-processed subset.
 
-        let skip_shards = start_shard.min(shards.len());
+        let skip_shards = if start_shard > 0 { start_shard.min(shards.len()) } else { 0 };
+        let mut handles = Vec::with_capacity(shards.len().saturating_sub(skip_shards));
 
         for (idx, shard) in shards.into_iter().enumerate().skip(skip_shards) {
-            let permit = semaphore.clone().acquire_owned().await;
-            if permit.is_err() {
-                warn!("Failed to acquire worker permit for shard {}", idx);
-                continue;
-            }
-
-            let tx = batch_tx.clone();
             let sem = semaphore.clone();
+            let tx = batch_tx.clone();
             let bs = batch_size;
             let recovery_config = self.config.corrupted_shard_action;
             let cache_path = self.config.cache_dir.clone();
 
-            task::spawn(async move {
-                let _permit = permit.unwrap();
+            handles.push(task::spawn(async move {
+                let _permit = match sem.acquire_owned().await {
+                    Ok(permit) => permit,
+                    Err(_) => {
+                        warn!("Worker {}: semaphore closed, skipping shard {}", idx, shard.path.display());
+                        return;
+                    }
+                };
                 info!("Worker {}: loading shard {}", idx, shard.path.display());
 
                 // Wrap with corrupted shard recovery
@@ -235,8 +240,14 @@ impl StreamingLoader {
                         }
                     }
                 }
-                drop(sem);
-            });
+            }));
+        }
+
+        // Wait for all workers to complete
+        for handle in handles {
+            if let Err(e) = handle.await {
+                error!("Worker task join error: {}", e);
+            }
         }
 
         drop(batch_tx);

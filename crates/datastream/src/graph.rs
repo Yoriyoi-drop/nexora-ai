@@ -137,58 +137,108 @@ impl ExecutionGraph {
         let mut results: Vec<FilterResult> = Vec::with_capacity(order.len());
         let start = std::time::Instant::now();
 
+        // Group nodes by topological depth for parallel execution
+        let mut node_depths: HashMap<String, usize> = HashMap::new();
         for node_id in &order {
+            let node = self.nodes.get(node_id.as_str()).unwrap();
+            let depth = node.depends_on.iter()
+                .filter_map(|dep| node_depths.get(dep.as_str()))
+                .max()
+                .copied()
+                .unwrap_or(0) + 1;
+            node_depths.insert(node_id.clone(), depth);
+        }
+
+        let max_depth = node_depths.values().max().copied().unwrap_or(0);
+        let mut sample = Some(sample);
+        for depth in 0..=max_depth {
             if *cancel.borrow() {
                 return ExecutionResult::Cancelled;
             }
 
-            let node = match self.nodes.get(node_id) {
-                Some(n) => n,
-                None => continue,
-            };
+            let level_nodes: Vec<String> = node_depths.iter()
+                .filter(|(_, &d)| d == depth)
+                .map(|(id, _)| id.clone())
+                .collect();
 
-            let filter_result = node.filter.filter(&sample).await;
-            debug!("Filter '{}': passed={}", node_id, filter_result.passed);
-
-            {
-                let mut metrics = self.metrics.write();
-                metrics.samples_in += 1;
-                let entry = metrics.filter_breakdown.entry(node_id.clone())
-                    .or_insert_with(|| FilterMetric {
-                        processed: 0, passed: 0, rejected: 0, avg_latency_us: 0.0,
-                    });
-                entry.processed += 1;
-                if filter_result.passed {
-                    entry.passed += 1;
-                } else {
-                    entry.rejected += 1;
-                }
+            if level_nodes.is_empty() {
+                continue;
             }
 
-            let passed = filter_result.passed;
-            let reason = filter_result.reason.clone();
-            results.push(filter_result);
+            let sample_ref = sample.take().unwrap();
+            let sample_arc = std::sync::Arc::new(sample_ref);
+            let mut filter_results: Vec<(String, FilterResult)> = Vec::with_capacity(level_nodes.len());
 
-            if !passed {
-                let action = node.filter.action();
-                match action {
-                    FilterAction::Reject => {
-                        return ExecutionResult::Rejected {
-                            sample,
-                            results,
-                            filter_name: node_id.clone(),
-                            reason,
-                        };
+            if level_nodes.len() > 1 {
+                let mut handles = Vec::with_capacity(level_nodes.len());
+                for node_id in &level_nodes {
+                    let filter = self.nodes[node_id].filter.clone();
+                    let sample = sample_arc.clone();
+                    let node_id = node_id.clone();
+                    handles.push(tokio::spawn(async move {
+                        (node_id, filter.filter(&*sample).await)
+                    }));
+                }
+                for handle in handles {
+                    match handle.await {
+                        Ok(result) => filter_results.push(result),
+                        Err(_) => return ExecutionResult::Cancelled,
                     }
-                    FilterAction::Reroute(_) => {
-                        return ExecutionResult::Rerouted {
-                            sample,
-                            results,
-                            filter_name: node_id.clone(),
-                            reason,
-                        };
+                }
+            } else {
+                let node_id = &level_nodes[0];
+                let node = &self.nodes[node_id];
+                let filter_result = node.filter.filter(&*sample_arc).await;
+                filter_results.push((node_id.clone(), filter_result));
+            }
+
+            sample = Some(std::sync::Arc::try_unwrap(sample_arc).unwrap());
+
+            for (node_id, filter_result) in &filter_results {
+                debug!("Filter '{}': passed={}", node_id, filter_result.passed);
+
+                {
+                    let mut metrics = self.metrics.write();
+                    metrics.samples_in += 1;
+                    let entry = metrics.filter_breakdown.entry(node_id.clone())
+                        .or_insert_with(|| FilterMetric {
+                            processed: 0, passed: 0, rejected: 0, avg_latency_us: 0.0,
+                        });
+                    entry.processed += 1;
+                    if filter_result.passed {
+                        entry.passed += 1;
+                    } else {
+                        entry.rejected += 1;
                     }
-                    FilterAction::Flag | FilterAction::Accept => {}
+                }
+
+                let passed = filter_result.passed;
+                let reason = filter_result.reason.clone();
+                results.push(filter_result.clone());
+
+                if !passed {
+                    let sample = sample.take().unwrap();
+                    let node = &self.nodes[node_id.as_str()];
+                    let action = node.filter.action();
+                    match action {
+                        FilterAction::Reject => {
+                            return ExecutionResult::Rejected {
+                                sample,
+                                results,
+                                filter_name: node_id.clone(),
+                                reason,
+                            };
+                        }
+                        FilterAction::Reroute(_) => {
+                            return ExecutionResult::Rerouted {
+                                sample,
+                                results,
+                                filter_name: node_id.clone(),
+                                reason,
+                            };
+                        }
+                        FilterAction::Flag | FilterAction::Accept => {}
+                    }
                 }
             }
         }
@@ -200,7 +250,7 @@ impl ExecutionGraph {
             metrics.total_latency_ms += elapsed.as_millis() as u64;
         }
 
-        ExecutionResult::Accepted { sample, results }
+        ExecutionResult::Accepted { sample: sample.take().unwrap(), results }
     }
 
     pub async fn execute_parallel(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {

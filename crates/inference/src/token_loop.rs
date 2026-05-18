@@ -3,6 +3,7 @@
 //! Main token generation loop untuk inference.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -62,15 +63,18 @@ pub enum TokenLoopState {
     Initializing,
     /// Loop sedang berjalan
     Running,
-    /// Loop sedang pause
-    Paused,
-    /// Loop selesai
-    Completed,
+
     /// Loop error
     Error(String),
     /// Loop di-cancel
     Cancelled,
 }
+
+const STATE_UNINITIALIZED: u8 = 0;
+const STATE_INITIALIZING: u8 = 1;
+const STATE_RUNNING: u8 = 2;
+const STATE_ERROR: u8 = 3;
+const STATE_CANCELLED: u8 = 4;
 
 /// Token generation loop
 pub struct TokenLoop {
@@ -83,7 +87,9 @@ pub struct TokenLoop {
     /// Streaming engine (optional)
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     /// Loop state
-    state: Arc<RwLock<TokenLoopState>>,
+    state: AtomicU8,
+    /// Error message for error state
+    state_error: tokio::sync::RwLock<Option<String>>,
     /// Loop statistics
     stats: Arc<RwLock<TokenLoopStats>>,
     /// Active loops
@@ -146,7 +152,8 @@ impl TokenLoop {
             decoding_strategy,
             stop_conditions,
             streaming_engine: None,
-            state: Arc::new(RwLock::new(TokenLoopState::Uninitialized)),
+            state: AtomicU8::new(STATE_UNINITIALIZED),
+            state_error: tokio::sync::RwLock::new(None),
             stats: Arc::new(RwLock::new(TokenLoopStats::default())),
             active_loops: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -163,10 +170,7 @@ impl TokenLoop {
         info!("Initializing token loop");
         
         // Update state
-        {
-            let mut state = self.state.write().await;
-            *state = TokenLoopState::Initializing;
-        }
+        self.state.store(STATE_INITIALIZING, Ordering::Release);
         
         // Initialize streaming engine if provided
         if let Some(streaming_engine) = &self.streaming_engine {
@@ -174,10 +178,7 @@ impl TokenLoop {
         }
         
         // Update state to ready
-        {
-            let mut state = self.state.write().await;
-            *state = TokenLoopState::Running;
-        }
+        self.state.store(STATE_RUNNING, Ordering::Release);
         
         info!("Token loop initialized successfully");
         Ok(())
@@ -265,31 +266,35 @@ impl TokenLoop {
         let mut finish_reason = FinishReason::Unknown;
         
         let mut decoding_context = DecodingContext::new(initial_logits[0].len());
+        let mut last_sample_time = Utc::now();
         
         for (step, logits) in initial_logits.iter().enumerate() {
             // Check loop state
-            {
-                let state = self.state.read().await;
-                match *state {
-                    TokenLoopState::Running => {},
-                    TokenLoopState::Cancelled => {
-                        finish_reason = FinishReason::Cancelled;
-                        break;
-                    }
-                    TokenLoopState::Error(ref msg) => {
-                        return Err(InferenceError::InternalError(format!("Loop error: {}", msg)));
-                    }
-                    _ => {
-                        return Err(InferenceError::InternalError("Loop not in running state".to_string()));
-                    }
+            let run_state = self.state.load(Ordering::Acquire);
+            if run_state != STATE_RUNNING {
+                if run_state == STATE_CANCELLED {
+                    finish_reason = FinishReason::Cancelled;
+                    break;
                 }
+                if run_state == STATE_ERROR {
+                    let msg = self.state_error.read().await.clone().unwrap_or_default();
+                    return Err(InferenceError::InternalError(format!("Loop error: {}", msg)));
+                }
+                return Err(InferenceError::InternalError("Loop not in running state".to_string()));
             }
             
             // Check stop conditions
+            let current_time = if step % 10 == 0 {
+                let t = Utc::now();
+                last_sample_time = t;
+                t
+            } else {
+                last_sample_time
+            };
             let stop_context = StopContext {
                 token_count: tokens.len(),
                 start_time, // Use actual start time from loop creation
-                current_time: Utc::now(),
+                current_time,
                 metadata: HashMap::new(),
             };
             
@@ -477,10 +482,7 @@ impl TokenLoop {
         info!("Shutting down token loop");
         
         // Update state
-        {
-            let mut state = self.state.write().await;
-            *state = TokenLoopState::Cancelled;
-        }
+        self.state.store(STATE_CANCELLED, Ordering::Release);
         
         // Cancel all active loops
         let loop_ids: Vec<Uuid> = {

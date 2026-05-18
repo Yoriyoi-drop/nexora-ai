@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use anyhow::Result;
 use axum::{
     Router, routing::get, routing::post, Extension,
-    http::{Request, Method, HeaderName, StatusCode},
+    extract::Request,
+    http::{Method, HeaderName, StatusCode},
     middleware::{self, Next},
     response::{Response, IntoResponse},
     body::Body,
@@ -76,11 +77,11 @@ struct ErrorResponse {
 }
 
 /// Axum middleware for API key authentication
-async fn auth_middleware_layer<B>(
+async fn auth_middleware_layer(
     Extension(valid_keys): Extension<Arc<HashSet<String>>>,
     Extension(enable_auth): Extension<bool>,
-    req: Request<B>,
-    next: Next<B>,
+    req: Request,
+    next: Next,
 ) -> Result<Response, axum::response::Response> {
     if !enable_auth || valid_keys.is_empty() {
         return Ok(next.run(req).await);
@@ -106,9 +107,9 @@ async fn auth_middleware_layer<B>(
 }
 
 /// Axum middleware for request logging
-async fn request_logging_layer<B>(
-    req: Request<B>,
-    next: Next<B>,
+async fn request_logging_layer(
+    req: Request,
+    next: Next,
 ) -> Result<Response, axum::response::Response> {
     let method = req.method().clone();
     let uri = req.uri().clone();

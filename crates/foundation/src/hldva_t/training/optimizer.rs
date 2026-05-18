@@ -8,6 +8,7 @@ pub trait Optimizer {
     fn step(&mut self, parameters: &mut [Tensor], gradients: &[Tensor]) -> HLDVAResult<()>;
     fn zero_grad(&mut self, gradients: &mut [Tensor]) -> HLDVAResult<()>;
     fn set_learning_rate(&mut self, lr: f32);
+    fn learning_rate(&self) -> f32;
 }
 
 /// Adam Optimizer
@@ -110,6 +111,10 @@ impl Optimizer for AdamOptimizer {
     fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
     }
+
+    fn learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
 }
 
 /// SGD Optimizer
@@ -184,6 +189,10 @@ impl Optimizer for SGDOptimizer {
     
     fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
+    }
+
+    fn learning_rate(&self) -> f32 {
+        self.learning_rate
     }
 }
 

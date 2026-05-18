@@ -66,16 +66,19 @@ pub type FoundationResult<T> = std::result::Result<T, FoundationError>;
 pub enum FoundationError {
     #[error("Implementation error: {0}")]
     Implementation(String),
-    
+
     #[error("Configuration error: {0}")]
     Configuration(String),
-    
+
     #[error("Resource error: {0}")]
     Resource(String),
-    
+
+    #[error("Processing error: {0}")]
+    Processing(String),
+
     #[error("Timeout error")]
     Timeout,
-    
+
     #[error("Not implemented")]
     NotImplemented,
 }

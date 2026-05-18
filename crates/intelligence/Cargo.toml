@@ -9,7 +9,7 @@ nexora-core = { path = "../core" }
 nexora-tokenizer = { path = "../tokenizer" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-foundation = { path = "../foundation" }
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync", "macros", "rt", "rt-multi-thread", "net", "signal"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -26,8 +26,6 @@ ndarray-rand = "0.15"
 uuid.workspace = true
 regex = "1.10"
 chrono = { version = "0.4", features = ["serde"] }
-proptest.workspace = true
-
 # QLoRA specific dependencies
 half = "2.4"  # For BF16/FP16 support
 tracing-subscriber.workspace = true
@@ -69,6 +67,7 @@ path = "src/lib.rs"
 [dev-dependencies]
 once_cell = "1.19"
 criterion = { version = "0.5", features = ["html_reports"] }
+proptest.workspace = true
 
 [[bench]]
 name = "end_to_end_integration"

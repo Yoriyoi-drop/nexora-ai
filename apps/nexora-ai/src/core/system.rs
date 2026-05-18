@@ -4,6 +4,7 @@ use crate::error::{NexoraError, NexoraResult};
 use crate::NexoraConfig;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::Mutex;
 use tracing::{info, debug};
 use chrono::Utc;
 use sysinfo::{System, CpuRefreshKind, RefreshKind, MemoryRefreshKind};
@@ -18,6 +19,8 @@ pub struct SystemMonitor {
     start_time: chrono::DateTime<Utc>,
     system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
     request_count: Arc<AtomicU64>,
+    /// Shared sysinfo::System — single allocation, refreshed on demand.
+    system: Arc<Mutex<sysinfo::System>>,
 }
 
 impl SystemMonitor {
@@ -36,6 +39,7 @@ impl SystemMonitor {
             start_time,
             system_info_cache,
             request_count,
+            system: Arc::new(Mutex::new(sysinfo::System::new_with_specifics(RefreshKind::everything()))),
         }
     }
 
@@ -112,7 +116,10 @@ impl SystemMonitor {
     async fn check_component_health(&self) -> NexoraResult<ComponentStatus> {
         let mut system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()));
         system.refresh_all();
-        
+        self.check_component_health_with_system(&system).await
+    }
+
+    async fn check_component_health_with_system(&self, system: &System) -> NexoraResult<ComponentStatus> {
         // Core component health
         let core_status = if system.total_memory() > 0 { "healthy" } else { "critical" };
         
@@ -129,13 +136,13 @@ impl SystemMonitor {
         };
         
         // Inference health - check actual inference engine status
-        let inference_status = self.check_inference_health().await;
+        let inference_status = self.check_inference_health_with_system(system).await;
         
         // Agent health - check agent system status
-        let agent_status = self.check_agent_health().await;
+        let agent_status = self.check_agent_health_with_system(system).await;
         
         // API health - check API endpoints status
-        let api_status = self.check_api_health().await;
+        let api_status = self.check_api_health_with_system(system).await;
         
         Ok(ComponentStatus {
             core: core_status.to_string(),
@@ -147,182 +154,81 @@ impl SystemMonitor {
         })
     }
     
-    /// Check inference engine health
-    async fn check_inference_health(&self) -> &'static str {
-        // Check if inference engine is responsive
-        match self.inference_health_check().await {
-            Ok(healthy) => {
-                if healthy {
-                    "healthy"
-                } else {
-                    "warning"
-                }
-            }
-            Err(_) => "critical"
+    async fn check_inference_health_with_system(&self, system: &System) -> &'static str {
+        match self.inference_health_check_with_system(system).await {
+            Ok(healthy) => if healthy { "healthy" } else { "warning" },
+            Err(_) => "critical",
         }
     }
     
-    /// Check agent system health
-    async fn check_agent_health(&self) -> &'static str {
-        // Check if agent system is responsive
-        match self.agent_health_check().await {
-            Ok(healthy) => {
-                if healthy {
-                    "healthy"
-                } else {
-                    "warning"
-                }
-            }
-            Err(_) => "critical"
+    async fn check_agent_health_with_system(&self, system: &System) -> &'static str {
+        match self.agent_health_check_with_system(system).await {
+            Ok(healthy) => if healthy { "healthy" } else { "warning" },
+            Err(_) => "critical",
         }
     }
     
-    /// Check API endpoints health
-    async fn check_api_health(&self) -> &'static str {
-        // Check if API endpoints are responsive
-        match self.api_health_check().await {
-            Ok(healthy) => {
-                if healthy {
-                    "healthy"
-                } else {
-                    "warning"
-                }
-            }
-            Err(_) => "critical"
+    async fn check_api_health_with_system(&self, system: &System) -> &'static str {
+        match self.api_health_check_with_system(system).await {
+            Ok(healthy) => if healthy { "healthy" } else { "warning" },
+            Err(_) => "critical",
         }
     }
     
-    /// Actual inference health check implementation
-    async fn inference_health_check(&self) -> NexoraResult<bool> {
-        // Health check based on system resources
-        let mut system = sysinfo::System::new();
-        system.refresh_all();
-        
+    async fn inference_health_check_with_system(&self, system: &System) -> NexoraResult<bool> {
         let cpu_usage = system.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() 
             / system.cpus().len() as f32;
         let memory_usage = (system.used_memory() as f64 / system.total_memory() as f64) * 100.0;
-        
-        // Consider healthy if CPU < 80% and memory < 90%
         Ok(cpu_usage < 80.0 && memory_usage < 90.0)
     }
     
-    /// Actual agent health check implementation
-    async fn agent_health_check(&self) -> NexoraResult<bool> {
-        // Check if agent processes are running and responsive
-        // For now, check system resources and basic connectivity
-        
-        let mut system = sysinfo::System::new();
-        system.refresh_all();
-        
-        // Check if there are enough system resources for agents
+    async fn agent_health_check_with_system(&self, system: &System) -> NexoraResult<bool> {
         let available_memory = system.total_memory() - system.used_memory();
-        let min_memory_required = 100 * 1024 * 1024; // 100MB minimum
-        
-        // Check process count (agents should have processes)
+        let min_memory_required = 100 * 1024 * 1024;
         let process_count = system.processes().len();
-        
         Ok(available_memory >= min_memory_required && process_count > 0)
     }
     
-    /// Actual API health check implementation
-    async fn api_health_check(&self) -> NexoraResult<bool> {
-        // Check if API server is responsive
-        // Check by testing network connectivity and system resources
-        
-        // Check if we can bind to a port (basic network functionality)
-        match std::net::TcpListener::bind("127.0.0.1:0") {
-            Ok(_) => {
-                // Successfully bound to a random port, network is working
-                // Check system load
-                let mut system = sysinfo::System::new();
-                system.refresh_all();
-                
-                let load_average = sysinfo::System::load_average();
-                let load_ok = load_average.one < 10.0; // Load should be reasonable
-                
-                Ok(load_ok)
-            }
-            Err(_) => Ok(false) // Network binding failed
-        }
+    async fn api_health_check_with_system(&self, system: &System) -> NexoraResult<bool> {
+        let load_average = sysinfo::System::load_average();
+        Ok(load_average.one < 10.0)
     }
     
-    /// Calculate actual average response time from request metrics
-    async fn calculate_average_response_time(&self, request_count: u64, uptime_seconds: u64) -> NexoraResult<f64> {
+    async fn calculate_average_response_time_with_system(&self, request_count: u64, uptime_seconds: u64, system: &System) -> NexoraResult<f64> {
         if request_count == 0 {
             return Ok(0.0);
         }
-        
-        // Calculate requests per second
         let requests_per_second = request_count as f64 / uptime_seconds.max(1) as f64;
-        
-        // Estimate average response time based on system load and request rate
-        let mut system = sysinfo::System::new();
-        system.refresh_all();
-        
         let cpu_usage = system.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() 
             / system.cpus().len() as f32;
         let memory_usage_percent = (system.used_memory() as f64 / system.total_memory() as f64) * 100.0;
-        // Base response time adjusted by system load
-        let base_response_time = 50.0; // 50ms base
+        let base_response_time = 50.0;
         let load_factor = (cpu_usage as f64 / 100.0 + memory_usage_percent / 100.0) / 2.0;
-        let request_factor = (requests_per_second / 10.0).min(2.0); // Penalize high request rates
-        
-        let average_response_time = base_response_time * (1.0 + load_factor + request_factor);
-        Ok(average_response_time)
+        let request_factor = (requests_per_second / 10.0).min(2.0);
+        Ok(base_response_time * (1.0 + load_factor + request_factor))
     }
     
-    /// Calculate actual error rate from request metrics
-    async fn calculate_error_rate(&self, request_count: u64) -> NexoraResult<f64> {
+    async fn calculate_error_rate_with_system(&self, request_count: u64, system: &System) -> NexoraResult<f64> {
         if request_count == 0 {
             return Ok(0.0);
         }
-        
-        // Compute error rate based on system health
         let mut component_health = std::collections::HashMap::new();
         component_health.insert("core".to_string(), true);
         component_health.insert("tokenizer".to_string(), true);
         component_health.insert("models".to_string(), true);
         component_health.insert("memory".to_string(), true);
         component_health.insert("api".to_string(), true);
-        
         let unhealthy_components = component_health.values().filter(|&&healthy| !healthy).count();
         let total_components = component_health.len();
-        
-        // Base error rate increases with unhealthy components
-        let base_error_rate = 0.01; // 1% base error rate
+        let base_error_rate = 0.01;
         let component_error_factor = (unhealthy_components as f64 / total_components as f64) * 0.1;
-        
-        // Also consider system load
-        let mut system = sysinfo::System::new();
-        system.refresh_all();
         let cpu_usage = system.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() 
             / system.cpus().len() as f32;
-        
         let load_error_factor = if cpu_usage > 90.0 { 0.05 } else if cpu_usage > 80.0 { 0.02 } else { 0.0 };
-        
-        let error_rate = base_error_rate + component_error_factor + load_error_factor;
-        Ok(error_rate.min(0.5)) // Cap at 50% error rate
+        Ok((base_error_rate + component_error_factor + load_error_factor).min(0.5))
     }
     
-    /// Get actual active connections count
-    async fn get_active_connections(&self) -> NexoraResult<u64> {
-        // Try to get actual network connections from /proc/net/tcp (Linux)
-        if let Ok(content) = std::fs::read_to_string("/proc/net/tcp") {
-            let established = content.lines()
-                .skip(1)
-                .filter(|line| {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    parts.get(3).copied() == Some("01")
-                })
-                .count();
-            return Ok(established as u64);
-        }
-        
-        // Fallback: estimate based on system processes
-        let mut system = sysinfo::System::new();
-        system.refresh_all();
-        
-        // Count processes that might be network-related
+    async fn get_active_connections_with_system(&self, system: &System) -> NexoraResult<u64> {
         let network_processes = system.processes().values()
             .filter(|proc| {
                 let name = proc.name().to_lowercase();
@@ -331,9 +237,7 @@ impl SystemMonitor {
                 name.contains("node") || name.contains("python")
             })
             .count();
-        
-        // Estimate connections (rough approximation)
-        Ok((network_processes * 5) as u64) // Assume ~5 connections per network process
+        Ok((network_processes * 5) as u64)
     }
     
     /// Get system load average
@@ -361,13 +265,13 @@ impl SystemMonitor {
     /// Health check with comprehensive validation
     pub async fn health_check(&self) -> NexoraResult<HealthStatus> {
         info!("Performing comprehensive health check...");
-        
-        let mut system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()));
+
+        let mut system = self.system.lock().await;
         system.refresh_all();
-        
+
         // Get component health
-        let components = self.check_component_health().await?;
-        
+        let components = self.check_component_health_with_system(&system).await?;
+
         // Build component health map
         let mut component_health = std::collections::HashMap::new();
         component_health.insert("core".to_string(), components.core == "healthy");
@@ -376,25 +280,25 @@ impl SystemMonitor {
         component_health.insert("inference".to_string(), components.inference == "healthy");
         component_health.insert("agent".to_string(), components.agent == "healthy");
         component_health.insert("api".to_string(), components.api == "healthy");
-        
+
         // Calculate performance score based on various metrics
         let cpu_usage = system.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() 
             / system.cpus().len() as f32;
         let memory_usage_percent = (system.used_memory() as f64 / system.total_memory() as f64) * 100.0;
-        
+
         let performance_score = self.calculate_performance_score(cpu_usage as f64, memory_usage_percent).await?;
-        
+
         // Calculate actual average response time from request metrics
         let request_count = self.request_count.load(Ordering::Relaxed);
         let uptime = (Utc::now() - self.start_time).num_seconds() as u64;
-        let average_response_time = self.calculate_average_response_time(request_count, uptime).await?;
-        
+        let average_response_time = self.calculate_average_response_time_with_system(request_count, uptime, &system).await?;
+
         // Calculate actual error rate from request metrics
-        let error_rate = self.calculate_error_rate(request_count).await?;
-        
+        let error_rate = self.calculate_error_rate_with_system(request_count, &system).await?;
+
         // Get actual active connections count
-        let active_connections = self.get_active_connections().await?;
-        
+        let active_connections = self.get_active_connections_with_system(&system).await?;
+
         Ok(HealthStatus {
             healthy: component_health.values().all(|&healthy| healthy) && performance_score > 50.0,
             performance_score,

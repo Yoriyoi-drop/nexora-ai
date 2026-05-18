@@ -66,6 +66,7 @@ pub struct Router {
     routing_stats: HashMap<usize, usize>,
     expert_capacities: Vec<usize>,
     router_weights: Vec<Vec<f32>>,
+    last_aux_loss: f32,
 }
 
 impl Router {
@@ -88,6 +89,7 @@ impl Router {
             config,
             routing_stats: HashMap::new(),
             router_weights,
+            last_aux_loss: 0.0,
         }
     }
     
@@ -105,7 +107,13 @@ impl Router {
             config,
             routing_stats: HashMap::new(),
             router_weights,
+            last_aux_loss: 0.0,
         }
+    }
+
+    /// Return the auxiliary loss from the last forward pass
+    pub fn auxiliary_loss(&self) -> f32 {
+        self.last_aux_loss
     }
     
     /// Compute gating weight for a specific expert
@@ -248,7 +256,13 @@ impl Router {
             all_routes = capped_routes;
         }
         
-        // Phase 3: Update routing stats
+        // Phase 3: Compute auxiliary loss (load balancing + Z-loss)
+        self.last_aux_loss = 0.0;
+        if self.config.use_load_balancing_loss {
+            self.last_aux_loss += self.compute_load_balancing_loss(&routing_weights, batch_size);
+        }
+        
+        // Phase 4: Update routing stats
         for route in &all_routes {
             for &expert_id in route {
                 *self.routing_stats.entry(expert_id).or_insert(0) += 1;

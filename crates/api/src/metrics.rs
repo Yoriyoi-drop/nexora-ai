@@ -3,7 +3,7 @@
 //! Metrics collection and monitoring for API server
 
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -22,7 +22,8 @@ struct MetricsStorage {
     total_requests: u64,
     successful_requests: u64,
     failed_requests: u64,
-    response_times: Vec<Duration>,
+    response_times: VecDeque<Duration>,
+    response_time_sum: Duration,
     route_metrics: HashMap<String, RouteMetricStorage>,
     error_counts: HashMap<String, u64>,
     active_connections: usize,
@@ -35,7 +36,8 @@ impl Default for MetricsStorage {
             total_requests: 0,
             successful_requests: 0,
             failed_requests: 0,
-            response_times: Vec::new(),
+            response_times: VecDeque::with_capacity(1000),
+            response_time_sum: Duration::ZERO,
             route_metrics: HashMap::new(),
             error_counts: HashMap::new(),
             active_connections: 0,
@@ -47,7 +49,8 @@ impl Default for MetricsStorage {
 #[derive(Debug, Default)]
 struct RouteMetricStorage {
     requests: u64,
-    response_times: Vec<Duration>,
+    response_times: VecDeque<Duration>,
+    response_time_sum: Duration,
     error_count: u64,
     last_request: Option<Instant>,
 }
@@ -67,7 +70,8 @@ impl MetricsCollector {
         
         // Update global metrics
         metrics.total_requests += 1;
-        metrics.response_times.push(response_time);
+        metrics.response_time_sum += response_time;
+        metrics.response_times.push_back(response_time);
         
         if status.is_success() {
             metrics.successful_requests += 1;
@@ -77,31 +81,30 @@ impl MetricsCollector {
             *metrics.error_counts.entry(error_key).or_insert(0) += 1;
         }
         
-        // Update route-specific metrics
-        let route_key = format!("{} {}", method, path);
-        let route_metrics = metrics.route_metrics.entry(route_key.clone()).or_insert_with(RouteMetricStorage::default);
+        // Keep only recent response times (last 1000) — O(1) dengan VecDeque
+        while metrics.response_times.len() > 1000 {
+            if let Some(removed) = metrics.response_times.pop_front() {
+                metrics.response_time_sum -= removed;
+            }
+        }
         
-        route_metrics.requests += 1;
-        route_metrics.response_times.push(response_time);
-        route_metrics.last_request = Some(Instant::now());
+        // Update route-specific metrics — borrow terpisah untuk menghindari conflict
+        let route_key = format!("{} {}", method, path);
+        let route_storage = metrics.route_metrics.entry(route_key).or_insert_with(RouteMetricStorage::default);
+        
+        route_storage.requests += 1;
+        route_storage.response_time_sum += response_time;
+        route_storage.response_times.push_back(response_time);
+        route_storage.last_request = Some(Instant::now());
         
         if !status.is_success() {
-            route_metrics.error_count += 1;
+            route_storage.error_count += 1;
         }
         
-        // Keep only recent response times (last 1000)
-        let response_times_len = {
-            let metrics = self.metrics.read().await;
-            metrics.response_times.len()
-        };
-        if response_times_len > 1000 {
-            let mut metrics = self.metrics.write().await;
-            metrics.response_times.drain(0..response_times_len - 1000);
-        }
-        
-        let route_response_times_len = route_metrics.response_times.len();
-        if route_response_times_len > 1000 {
-            route_metrics.response_times.drain(0..route_response_times_len - 1000);
+        while route_storage.response_times.len() > 1000 {
+            if let Some(removed) = route_storage.response_times.pop_front() {
+                route_storage.response_time_sum -= removed;
+            }
         }
     }
     
@@ -126,8 +129,7 @@ impl MetricsCollector {
         let average_response_time = if metrics.response_times.is_empty() {
             0.0
         } else {
-            let total: Duration = metrics.response_times.iter().sum();
-            total.as_millis() as f64 / metrics.response_times.len() as f64
+            metrics.response_time_sum.as_millis() as f64 / metrics.response_times.len() as f64
         };
         
         let requests_per_second = {
@@ -151,8 +153,7 @@ impl MetricsCollector {
                 let avg_response_time = if storage.response_times.is_empty() {
                     0.0
                 } else {
-                    let total: Duration = storage.response_times.iter().sum();
-                    total.as_millis() as f64 / storage.response_times.len() as f64
+                    storage.response_time_sum.as_millis() as f64 / storage.response_times.len() as f64
                 };
                 
                 let error_rate = if storage.requests > 0 {

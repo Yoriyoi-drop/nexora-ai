@@ -240,11 +240,7 @@ impl InputData {
     }
     
     fn current_timestamp_ms() -> u64 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
+        crate::utils::current_timestamp_ms()
     }
 }
 
@@ -456,8 +452,6 @@ pub trait SpecialistModel: Send + Sync {
 
 // ==================== LRU Context Cache ====================
 
-use std::collections::VecDeque;
-
 #[derive(Debug, Clone)]
 struct CacheItem {
     context: ContextInfo,
@@ -465,35 +459,32 @@ struct CacheItem {
     created_at: u64,
 }
 
-#[derive(Debug, Clone)]
+use std::collections::HashMap;
+
 pub struct LruContextCache {
-    cache: std::collections::HashMap<String, CacheItem>,
-    access_order: VecDeque<String>,
+    cache: HashMap<String, (CacheItem, u64)>,  // value + access order
+    access_counter: u64,
     max_size: usize,
 }
 
 impl LruContextCache {
     pub fn new(max_size: usize) -> Self {
         Self {
-            cache: std::collections::HashMap::new(),
-            access_order: VecDeque::with_capacity(max_size),
+            cache: HashMap::with_capacity(max_size),
+            access_counter: 0,
             max_size,
         }
     }
     
     pub fn get(&mut self, key: &str) -> Option<ContextInfo> {
         let now = Self::current_timestamp_ms();
-        if let Some(item) = self.cache.get(key) {
+        if let Some((item, access_order)) = self.cache.get_mut(key) {
             if now < item.expiry {
-                // Move to back (most recently used)
-                if let Some(pos) = self.access_order.iter().position(|k| k == key) {
-                    self.access_order.remove(pos);
-                }
-                self.access_order.push_back(key.to_string());
+                self.access_counter += 1;
+                *access_order = self.access_counter;
                 Some(item.context.clone())
             } else {
                 self.cache.remove(key);
-                self.access_order.retain(|k| k != key);
                 None
             }
         } else {
@@ -510,24 +501,24 @@ impl LruContextCache {
             self.cleanup_expired();
         }
         
-        // Still full? Evict LRU (front of access_order)
+        // Still full? Evict least recently used
         while self.cache.len() >= self.max_size {
-            if let Some(lru_key) = self.access_order.pop_front() {
-                self.cache.remove(&lru_key);
+            if let Some(evict_key) = self.cache.iter()
+                .min_by_key(|(_, (_, access))| *access)
+                .map(|(k, _)| k.clone())
+            {
+                self.cache.remove(&evict_key);
             } else {
                 break;
             }
         }
         
-        // Remove old key from access order if it exists
-        self.access_order.retain(|k| k != &key);
-        
-        self.access_order.push_back(key.clone());
-        self.cache.insert(key, CacheItem {
+        self.access_counter += 1;
+        self.cache.insert(key, (CacheItem {
             context: context.clone(),
             expiry,
             created_at: now,
-        });
+        }, self.access_counter));
     }
     
     pub fn len(&self) -> usize {
@@ -536,22 +527,11 @@ impl LruContextCache {
     
     pub fn cleanup_expired(&mut self) {
         let now = Self::current_timestamp_ms();
-        let expired_keys: Vec<String> = self.cache.iter()
-            .filter(|(_, item)| now >= item.expiry)
-            .map(|(k, _)| k.clone())
-            .collect();
-        for key in &expired_keys {
-            self.cache.remove(key);
-        }
-        self.access_order.retain(|k| !expired_keys.contains(k));
+        self.cache.retain(|_, (item, _)| now < item.expiry);
     }
     
     fn current_timestamp_ms() -> u64 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
+        crate::utils::current_timestamp_ms()
     }
 }
 
@@ -561,11 +541,7 @@ pub struct ControllerCore;
 
 impl ControllerCore {
     pub fn current_timestamp_ms() -> u64 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
+        crate::utils::current_timestamp_ms()
     }
     
     pub fn generate_context_key(input_data: &InputData) -> String {

@@ -299,12 +299,16 @@ impl Database for PostgreSQLDatabase {
         let statement = client.prepare(query).await?;
         let rows = client.query(&statement, &pg_params[..]).await?;
 
-        // Convert rows to our format
-        let mut result_rows = Vec::new();
-        for row in rows {
-            let mut row_data = std::collections::HashMap::new();
-            for (i, column) in row.columns().iter().enumerate() {
-                let column_name = column.name();
+        // Convert rows to our format — column names extracted once, bukan per row
+        let mut result_rows = Vec::with_capacity(rows.len());
+        let column_names: Vec<&str> = if !rows.is_empty() {
+            rows[0].columns().iter().map(|c| c.name()).collect()
+        } else {
+            Vec::new()
+        };
+        for row in &rows {
+            let mut row_data = std::collections::HashMap::with_capacity(column_names.len());
+            for (i, &column_name) in column_names.iter().enumerate() {
                 let value: Value = match row.try_get::<_, Option<String>>(i) {
                     Ok(Some(val)) => Value::String(val),
                     Ok(None) => Value::Null,
@@ -430,15 +434,20 @@ impl PostgreSQLConnectionPool {
         let statistics = Arc::new(RwLock::new(PoolStatistics::default()));
         let waiting_requests = Arc::new(RwLock::new(0));
 
-        // Create minimum connections with real database connections
-        let mut conn_vec = Vec::with_capacity(config.min_connections);
+        // Create minimum connections in parallel for faster startup
+        use futures::future::join_all;
+        let mut conn_futs = Vec::with_capacity(config.min_connections);
         for i in 0..config.min_connections {
-            let mut connection = PostgreSQLConnection::new(format!("conn_{}", i), &credentials);
-
-            // Establish real connection
-            connection.connect().await?;
-
-            conn_vec.push(connection);
+            let conn_id = format!("conn_{}", i);
+            let creds = credentials.clone();
+            conn_futs.push(tokio::spawn(async move {
+                let mut connection = PostgreSQLConnection::new(conn_id, &creds);
+                connection.connect().await.map(|_| connection)
+            }));
+        }
+        let mut conn_vec = Vec::with_capacity(config.min_connections);
+        for result in join_all(conn_futs).await {
+            conn_vec.push(result.map_err(|e| anyhow::anyhow!("Pool init task failed: {}", e))??);
         }
 
         *connections.write().await = conn_vec;

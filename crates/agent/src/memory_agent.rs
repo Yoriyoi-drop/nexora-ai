@@ -139,16 +139,10 @@ impl MemoryAgent {
         debug!("Query returned {} results", results.len());
         let result_wrapped: Vec<nexora_memory::MemoryEntry> = results
             .into_iter()
-            .map(|entry| {
-                // Convert from layers::MemoryEntry to memory_model::MemoryEntry
-                // Generate hash-based ID from entry content
-                let memory_id = {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = DefaultHasher::new();
-                    format!("{}{}", entry.value, entry.timestamp).hash(&mut hasher);
-                    hasher.finish()
-                };
+            .enumerate()
+            .map(|(i, entry)| {
+                // Use sequential ID — hash was immediately truncated/replaced
+                let memory_id = i as u32;
                 
                 // Determine memory type from entry content
                 let memory_type = if entry.value.contains("episodic") || 
@@ -203,15 +197,8 @@ impl MemoryAgent {
         let results = self.memory_store.read().await.query(&query.query_text).await?;
         
         Ok(results.into_iter().next().map(|entry| {
-            // Convert from layers::MemoryEntry to memory_model::MemoryEntry
-            // Generate hash-based ID from entry content
-            let memory_id = {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                format!("{}{}", entry.value, entry.timestamp).hash(&mut hasher);
-                hasher.finish()
-            };
+            // Use sequential ID — hash was immediately truncated/replaced
+            let memory_id = 0u32;
             
             // Determine memory type from entry content
             let memory_type = if entry.value.contains("episodic") || 
@@ -373,32 +360,34 @@ impl MemoryAgent {
     pub async fn get_memory_stats(&self) -> Result<MemoryStats> {
         debug!("Getting memory statistics");
         
-        let mut stats = MemoryStats::default();
+        // Single query instead of 5 individual queries
+        let query = MemoryQuery {
+            user_id: None,
+            session_id: None,
+            memory_type: "all".to_string(),
+            query_text: "stats_query".to_string(),
+            limit: Some(10000),
+            offset: None,
+            filters: HashMap::new(),
+        };
         
-        // Get stats for each memory type
-        for memory_type in [MemoryType::Episodic, MemoryType::Semantic, MemoryType::Working, MemoryType::User, MemoryType::Procedural] {
-            let query = MemoryQuery {
-                user_id: None,
-                session_id: None,
-                memory_type: memory_type.to_string(),
-                query_text: "stats_query".to_string(),
-                limit: Some(1000), // Large limit for stats
-                offset: None,
-                filters: HashMap::new(),
-            };
-            
-            let results = self.memory_store.read().await.query(&query.query_text).await?;
-            
-            match memory_type {
-                MemoryType::Episodic => stats.episodic_count = results.len(),
-                MemoryType::Semantic => stats.semantic_count = results.len(),
-                MemoryType::Working => stats.working_count = results.len(),
-                MemoryType::User => stats.user_count = results.len(),
-                MemoryType::Procedural => stats.procedural_count = results.len(),
+        let results = self.memory_store.read().await.query(&query.query_text).await?;
+        
+        let mut stats = MemoryStats::default();
+        for entry in &results {
+            if entry.value.contains("episodic") || entry.value.contains("experience") {
+                stats.episodic_count += 1;
+            } else if entry.value.contains("semantic") || entry.value.contains("fact") {
+                stats.semantic_count += 1;
+            } else if entry.value.contains("working") || entry.value.contains("temporary") {
+                stats.working_count += 1;
+            } else if entry.value.contains("user") {
+                stats.user_count += 1;
+            } else {
+                stats.procedural_count += 1;
             }
-            
-            stats.total_count += results.len();
         }
+        stats.total_count = results.len();
         
         Ok(stats)
     }

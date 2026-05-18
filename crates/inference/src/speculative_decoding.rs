@@ -274,15 +274,10 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
 
     /// Compute probability of a specific token from logits
     fn compute_token_probability(&self, logits: &[f32], token_id: u32) -> f32 {
-        let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let shifted: Vec<f32> = logits.iter().map(|l| (l - max_logit).exp()).collect();
-        let sum: f32 = shifted.iter().sum();
-        let idx = token_id as usize;
-        if idx < shifted.len() && sum > 1e-10 {
-            shifted[idx] / sum
-        } else {
-            0.0
-        }
+        let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let sum: f32 = logits.iter().map(|l| (l - max_logit).exp()).sum();
+        let p = (logits[token_id as usize] - max_logit).exp();
+        if sum > 1e-10 { p / sum } else { 0.0 }
     }
 
     /// Compute adjusted distribution for resampling after rejection

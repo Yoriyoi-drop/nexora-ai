@@ -68,29 +68,20 @@ impl BpeTokenizer {
     }
     
     fn init_unicode_mapping(&mut self) {
-        // Initialize Unicode to byte mapping (similar to GPT-2 tokenizer)
-        let mut byte_values: Vec<u8> = (0..=255).collect();
-        
-        // Shift bytes to avoid conflicts with whitespace and control characters
-        for i in (0..=255).rev() {
-            if i == 0 || i == 32 || (i >= 127 && i <= 160) {
-                byte_values.remove(i as usize);
-            }
+        let mut unicode_to_byte = HashMap::with_capacity(256);
+        let mut byte_to_unicode = HashMap::with_capacity(256);
+        for byte in 0..=255u8 {
+            let ch = match byte {
+                0 | 32 | 127..=160 => {
+                    char::from_u32(256 + byte as u32).unwrap_or('\u{FFFD}')
+                }
+                _ => char::from(byte),
+            };
+            unicode_to_byte.insert(ch, byte);
+            byte_to_unicode.insert(byte, ch);
         }
-        
-        // Add shifted bytes to the end
-        for i in (0..=255).rev() {
-            if i == 0 || i == 32 || (i >= 127 && i <= 160) {
-                byte_values.push(i);
-            }
-        }
-        
-        // Create mappings
-        for (i, &byte_val) in byte_values.iter().enumerate() {
-            let unicode_char = std::char::from_u32(i as u32).unwrap_or('\u{FFFD}'); // Replacement character
-            self.unicode_to_byte.insert(unicode_char, byte_val);
-            self.byte_to_unicode.insert(byte_val, unicode_char);
-        }
+        self.unicode_to_byte = unicode_to_byte;
+        self.byte_to_unicode = byte_to_unicode;
     }
     
     /// Train BPE tokenizer dari text corpus
@@ -98,8 +89,8 @@ impl BpeTokenizer {
         info!("Starting BPE training with vocab size: {}", self.config.vocab_size);
         
         // Step 1: Initialize vocabulary with individual characters
-        let mut vocab: HashSet<String> = HashSet::new();
-        let mut word_freqs: HashMap<Vec<String>, u32> = HashMap::new();
+        let mut vocab: HashSet<String> = HashSet::with_capacity(self.config.vocab_size);
+        let mut word_freqs: HashMap<Vec<String>, u32> = HashMap::with_capacity(self.config.vocab_size);
         
         // Preprocess corpus and count word frequencies
         for line in corpus.lines() {
@@ -124,7 +115,11 @@ impl BpeTokenizer {
         
         // Step 3: Learn BPE merges
         let mut merges = Vec::new();
-        let mut current_vocab = vocab.clone();
+        let mut current_vocab: HashMap<String, u32> = vocab.iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i as u32))
+            .collect();
+        let mut next_vocab_id = current_vocab.len() as u32;
         
         while current_vocab.len() < self.config.vocab_size {
             // Find most frequent pair
@@ -137,12 +132,13 @@ impl BpeTokenizer {
                 let new_token = pair.0.clone() + &pair.1;
                 
                 // Skip if this token already exists (would be no-op)
-                if current_vocab.contains(&new_token) {
+                if current_vocab.contains_key(&new_token) {
                     break;
                 }
                 
                 // Add to vocabulary and merges
-                current_vocab.insert(new_token.clone());
+                current_vocab.insert(new_token.clone(), next_vocab_id);
+                next_vocab_id += 1;
                 merges.push(pair.clone());
                 
                 // Update word frequencies with new token
@@ -158,9 +154,9 @@ impl BpeTokenizer {
         self.vocab.clear();
         self.reverse_vocab.clear();
         
-        for (i, token) in current_vocab.iter().enumerate() {
-            self.vocab.insert(token.clone(), i as u32);
-            self.reverse_vocab.insert(i as u32, token.clone());
+        for (token, &id) in &current_vocab {
+            self.vocab.insert(token.clone(), id);
+            self.reverse_vocab.insert(id, token.clone());
         }
         
         self.merges = merges;
@@ -175,22 +171,24 @@ impl BpeTokenizer {
         line.to_lowercase()
     }
     
-    fn find_most_frequent_pair(&self, word_freqs: &HashMap<Vec<String>, u32>, vocab: &HashSet<String>) -> Option<((String, String), u32)> {
-        let mut pair_freqs: HashMap<(String, String), u32> = HashMap::new();
+    fn find_most_frequent_pair(&self, word_freqs: &HashMap<Vec<String>, u32>, vocab: &HashMap<String, u32>) -> Option<((String, String), u32)> {
+        let mut pair_freqs: HashMap<(u32, u32), u32> = HashMap::new();
         
         for (tokens, freq) in word_freqs {
             for i in 0..tokens.len().saturating_sub(1) {
-                let pair = (tokens[i].clone(), tokens[i + 1].clone());
-                
-                if vocab.contains(&pair.0) && vocab.contains(&pair.1) {
-                    *pair_freqs.entry(pair).or_insert(0) += freq;
+                if let (Some(&id1), Some(&id2)) = (vocab.get(&tokens[i]), vocab.get(&tokens[i + 1])) {
+                    *pair_freqs.entry((id1, id2)).or_insert(0) += freq;
                 }
             }
         }
         
         pair_freqs.into_iter()
             .max_by_key(|&(_, freq)| freq)
-            .map(|(pair, freq)| (pair, freq))
+            .and_then(|((id1, id2), freq)| {
+                let s1 = vocab.iter().find(|(_, &v)| v == id1).map(|(k, _)| k.clone())?;
+                let s2 = vocab.iter().find(|(_, &v)| v == id2).map(|(k, _)| k.clone())?;
+                Some(((s1, s2), freq))
+            })
     }
     
     fn update_word_freqs(&self, word_freqs: &mut HashMap<Vec<String>, u32>, pair: &(String, String), new_token: &str) {
@@ -216,7 +214,7 @@ impl BpeTokenizer {
     
     /// Encode text ke token IDs
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        let mut tokens = Vec::new();
+        let mut tokens = Vec::with_capacity(text.len());
         
         // Add BOS token
         if let Some(&bos_id) = self.config.special_tokens.get(&self.config.bos_token) {
@@ -247,8 +245,7 @@ impl BpeTokenizer {
             
             // Find best merge pair
             for i in 0..tokens.len() - 1 {
-                let pair = (tokens[i].clone(), tokens[i + 1].clone());
-                let merged = pair.0.clone() + &pair.1;
+                let merged = tokens[i].clone() + &tokens[i + 1];
                 
                 if let Some(&token_id) = self.vocab.get(&merged) {
                     if token_id < best_rank {
@@ -268,9 +265,11 @@ impl BpeTokenizer {
             }
         }
         
-        // Convert to token IDs
+        // Convert to token IDs — map unknown tokens to <unk>
+        let unk_id = self.config.special_tokens.get(&self.config.unknown_token)
+            .copied().unwrap_or(0);
         tokens.into_iter()
-            .filter_map(|token| self.vocab.get(&token).copied())
+            .map(|token| self.vocab.get(&token).copied().unwrap_or(unk_id))
             .collect()
     }
     

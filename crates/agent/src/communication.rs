@@ -311,7 +311,7 @@ impl MessageBus {
         };
         
         if let Some(sender) = sender {
-            if let Err(_) = sender.send(message.clone()) {
+            if let Err(_) = sender.send(message.clone()).await {
                 // Agent tidak bisa menerima message, queue dulu
                 self.queue_message(message.clone()).await?;
                 

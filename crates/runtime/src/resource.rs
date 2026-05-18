@@ -21,7 +21,7 @@ impl ResourceManager {
     
     /// Acquire resource — returns a permit that MUST be held for the duration of use
     pub async fn acquire(&self) -> Result<ResourceGuard> {
-        let permit = self.semaphore.acquire_owned().await
+        let permit = self.semaphore.clone().acquire_owned().await
             .map_err(|_| InferenceError::ResourceExhausted("Failed to acquire resource".to_string()))?;
         Ok(ResourceGuard { _permit: permit })
     }

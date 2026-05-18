@@ -1,8 +1,20 @@
 //! Validation utilities untuk Nexora
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use anyhow::Result;
 use std::collections::HashSet;
+
+static RE_EMAIL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap());
+static RE_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap());
+static RE_PHONE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\+?[1-9]\d{1,14}$").unwrap());
+static RE_ALPHA_NUM_UNDERSCORE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
+static RE_DOMAIN: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9.-]+$").unwrap());
+static RE_COLOR_HEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$").unwrap());
+static RE_TIMEZONE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z_]+/[A-Za-z_]+$").unwrap());
+static RE_LANG_CODE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-z]{2}(-[A-Z]{2})?$").unwrap());
+static RE_CURRENCY_CODE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Z]{3}$").unwrap());
+static RE_COUNTRY_CODE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Z]{2}$").unwrap());
 
 pub struct ValidationUtils;
 
@@ -26,8 +38,7 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("Email cannot be empty"));
         }
         
-        let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")?;
-        if !email_regex.is_match(email) {
+        if !RE_EMAIL.is_match(email) {
             return Err(anyhow::anyhow!("Invalid email format"));
         }
         
@@ -44,8 +55,7 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("URL cannot be empty"));
         }
         
-        let url_regex = Regex::new(r"^https?://[^\s/$.?#].[^\s]*$")?;
-        if !url_regex.is_match(url) {
+        if !RE_URL.is_match(url) {
             return Err(anyhow::anyhow!("Invalid URL format"));
         }
         
@@ -62,10 +72,9 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("Phone number cannot be empty"));
         }
         
-        let phone_regex = Regex::new(r"^\+?[1-9]\d{1,14}$")?;
         let clean_phone = phone.chars().filter(|c| c.is_ascii_digit() || *c == '+').collect::<String>();
         
-        if !phone_regex.is_match(&clean_phone) {
+        if !RE_PHONE.is_match(&clean_phone) {
             return Err(anyhow::anyhow!("Invalid phone number format"));
         }
         
@@ -86,8 +95,7 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("Username too long (max 50 characters)"));
         }
         
-        let username_regex = Regex::new(r"^[a-zA-Z0-9_-]+$")?;
-        if !username_regex.is_match(username) {
+        if !RE_ALPHA_NUM_UNDERSCORE.is_match(username) {
             return Err(anyhow::anyhow!("Username can only contain letters, numbers, underscores, and hyphens"));
         }
         
@@ -146,8 +154,7 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("API key too long (max 256 characters)"));
         }
         
-        let api_key_regex = Regex::new(r"^[a-zA-Z0-9_-]+$")?;
-        if !api_key_regex.is_match(api_key) {
+        if !RE_ALPHA_NUM_UNDERSCORE.is_match(api_key) {
             return Err(anyhow::anyhow!("API key can only contain letters, numbers, underscores, and hyphens"));
         }
         
@@ -213,8 +220,7 @@ impl ValidationUtils {
             return Err(anyhow::anyhow!("Domain too long (max 253 characters)"));
         }
         
-        let domain_regex = Regex::new(r"^[a-zA-Z0-9.-]+$")?;
-        if !domain_regex.is_match(domain) {
+        if !RE_DOMAIN.is_match(domain) {
             return Err(anyhow::anyhow!("Domain contains invalid characters"));
         }
         
@@ -388,8 +394,7 @@ impl ValidationUtils {
     
     /// Validate that string is a valid color hex code
     pub fn validate_color_hex(color: &str) -> Result<()> {
-        let color_regex = Regex::new(r"^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$")?;
-        if !color_regex.is_match(color) {
+        if !RE_COLOR_HEX.is_match(color) {
             return Err(anyhow::anyhow!("Invalid color hex format"));
         }
         Ok(())
@@ -430,8 +435,7 @@ impl ValidationUtils {
     /// Validate that string is a valid timezone
     pub fn validate_timezone(timezone: &str) -> Result<()> {
         // This is a simplified validation - in production, you'd want to use a proper timezone library
-        let timezone_regex = Regex::new(r"^[A-Za-z_]+/[A-Za-z_]+$")?;
-        if !timezone_regex.is_match(timezone) {
+        if !RE_TIMEZONE.is_match(timezone) {
             return Err(anyhow::anyhow!("Invalid timezone format"));
         }
         Ok(())
@@ -439,8 +443,7 @@ impl ValidationUtils {
     
     /// Validate that string is a valid language code (ISO 639-1)
     pub fn validate_language_code(lang_code: &str) -> Result<()> {
-        let lang_regex = Regex::new(r"^[a-z]{2}(-[A-Z]{2})?$")?;
-        if !lang_regex.is_match(lang_code) {
+        if !RE_LANG_CODE.is_match(lang_code) {
             return Err(anyhow::anyhow!("Invalid language code format"));
         }
         Ok(())
@@ -448,8 +451,7 @@ impl ValidationUtils {
     
     /// Validate that string is a valid currency code (ISO 4217)
     pub fn validate_currency_code(currency_code: &str) -> Result<()> {
-        let currency_regex = Regex::new(r"^[A-Z]{3}$")?;
-        if !currency_regex.is_match(currency_code) {
+        if !RE_CURRENCY_CODE.is_match(currency_code) {
             return Err(anyhow::anyhow!("Invalid currency code format"));
         }
         Ok(())
@@ -457,8 +459,7 @@ impl ValidationUtils {
     
     /// Validate that string is a valid country code (ISO 3166-1 alpha-2)
     pub fn validate_country_code(country_code: &str) -> Result<()> {
-        let country_regex = Regex::new(r"^[A-Z]{2}$")?;
-        if !country_regex.is_match(country_code) {
+        if !RE_COUNTRY_CODE.is_match(country_code) {
             return Err(anyhow::anyhow!("Invalid country code format"));
         }
         Ok(())

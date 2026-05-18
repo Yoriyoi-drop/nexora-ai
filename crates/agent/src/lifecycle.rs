@@ -61,9 +61,9 @@ pub struct LifecycleManager {
     /// Event channel untuk lifecycle events
     event_tx: mpsc::UnboundedSender<AgentLifecycleEvent>,
     /// Event receiver
-    _event_rx: Arc<RwLock<Option<mpsc::Receiver<AgentLifecycleEvent>>>>,
+    _event_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>>>>,
     /// Event subscribers (bounded, buffer=32 per subscriber)
-    event_subscribers: Arc<tokio::sync::Mutex<Vec<mpsc::Sender<AgentLifecycleEvent>>>>,
+    event_subscribers: Arc<tokio::sync::Mutex<Vec<mpsc::UnboundedSender<AgentLifecycleEvent>>>>,
     /// Konfigurasi
     config: AgentManagerConfig,
 }
@@ -71,7 +71,7 @@ pub struct LifecycleManager {
 impl LifecycleManager {
     /// Create new lifecycle manager
     pub fn new(config: AgentManagerConfig) -> Self {
-        let (event_tx, event_rx) = mpsc::channel(64);
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
         
         Self {
             agent_status: Arc::new(RwLock::new(HashMap::new())),

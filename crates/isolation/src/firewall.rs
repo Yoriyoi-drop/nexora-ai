@@ -1,16 +1,12 @@
 use parking_lot::RwLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::layer1_mode::ModeId;
 use crate::layer6_permission::Capability;
-
-static REGEX_CACHE: LazyLock<std::sync::Mutex<HashMap<String, Regex>>> = LazyLock::new(|| {
-    std::sync::Mutex::new(HashMap::new())
-});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterAgentFirewall {
@@ -19,8 +15,10 @@ pub struct InterAgentFirewall {
     pub default_egress: FirewallAction,
     pub default_ingress: FirewallAction,
     pub rate_limiter: FirewallRateLimiter,
-    pub audit_log: Vec<FirewallAuditEntry>,
+    pub audit_log: VecDeque<FirewallAuditEntry>,
     pub suspicious_patterns: Vec<SuspiciousPattern>,
+    #[serde(skip)]
+    pub compiled_patterns: Vec<Regex>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,23 +130,23 @@ pub type SharedFirewall = Arc<RwLock<InterAgentFirewall>>;
 pub type SharedAgentBus = Arc<RwLock<AgentBus>>;
 
 pub struct AgentBus {
-    messages: Vec<AgentBusMessage>,
+    messages: VecDeque<AgentBusMessage>,
     max_history: usize,
 }
 
 impl AgentBus {
     pub fn new(max_history: usize) -> Self {
-        Self { messages: Vec::with_capacity(max_history), max_history }
+        Self { messages: VecDeque::with_capacity(max_history), max_history }
     }
 
     pub fn send(&mut self, msg: AgentBusMessage) {
-        self.messages.push(msg);
+        self.messages.push_back(msg);
         if self.messages.len() > self.max_history {
-            self.messages.remove(0);
+            self.messages.pop_front();
         }
     }
 
-    pub fn get_history(&self) -> &[AgentBusMessage] {
+    pub fn get_history(&self) -> &VecDeque<AgentBusMessage> {
         &self.messages
     }
 
@@ -171,6 +169,30 @@ impl AgentBus {
 
 impl InterAgentFirewall {
     pub fn new() -> Self {
+        let suspicious_patterns = vec![
+            SuspiciousPattern {
+                name: "memory-overwrite".into(),
+                pattern: r"overwrite.*memory|force.*write|corrupt.*buffer".into(),
+                severity: Severity::Critical,
+                auto_block: true,
+            },
+            SuspiciousPattern {
+                name: "privilege-escalation".into(),
+                pattern: r"escalate|privilege.*raise|bypass.*restrict".into(),
+                severity: Severity::Critical,
+                auto_block: true,
+            },
+            SuspiciousPattern {
+                name: "cross-agent-spy".into(),
+                pattern: r"read.*other.*agent|intercept|sniff.*message".into(),
+                severity: Severity::Warning,
+                auto_block: true,
+            },
+        ];
+        let compiled_patterns = suspicious_patterns.iter()
+            .map(|p| Regex::new(&p.pattern).expect("Invalid firewall pattern"))
+            .collect();
+
         Self {
             enabled: true,
             rules: vec![
@@ -193,27 +215,9 @@ impl InterAgentFirewall {
                 cooldown_expiry: HashMap::new(),
                 window_start: chrono::Utc::now(),
             },
-            audit_log: Vec::new(),
-            suspicious_patterns: vec![
-                SuspiciousPattern {
-                    name: "memory-overwrite".into(),
-                    pattern: r"overwrite.*memory|force.*write|corrupt.*buffer".into(),
-                    severity: Severity::Critical,
-                    auto_block: true,
-                },
-                SuspiciousPattern {
-                    name: "privilege-escalation".into(),
-                    pattern: r"escalate|privilege.*raise|bypass.*restrict".into(),
-                    severity: Severity::Critical,
-                    auto_block: true,
-                },
-                SuspiciousPattern {
-                    name: "cross-agent-spy".into(),
-                    pattern: r"read.*other.*agent|intercept|sniff.*message".into(),
-                    severity: Severity::Warning,
-                    auto_block: true,
-                },
-            ],
+            audit_log: VecDeque::new(),
+            suspicious_patterns,
+            compiled_patterns,
         }
     }
 
@@ -263,11 +267,8 @@ impl InterAgentFirewall {
         }
 
         let payload_str = String::from_utf8_lossy(payload);
-        let mut cache = REGEX_CACHE.lock().unwrap();
-        for pattern in &self.suspicious_patterns {
-            let re = cache.entry(pattern.pattern.clone())
-                .or_insert_with(|| Regex::new(&pattern.pattern).expect("Invalid regex pattern"));
-            if re.is_match(&payload_str) {
+        for (i, pattern) in self.suspicious_patterns.iter().enumerate() {
+            if self.compiled_patterns[i].is_match(&payload_str) {
                 if pattern.auto_block {
                     self.push_audit_entry(FirewallAuditEntry {
                         id: Uuid::new_v4(),
@@ -348,8 +349,8 @@ impl InterAgentFirewall {
         });
     }
 
-    pub fn get_audit_log(&self) -> &[FirewallAuditEntry] {
-        &self.audit_log
+    pub fn get_audit_log(&self) -> Vec<&FirewallAuditEntry> {
+        self.audit_log.iter().collect()
     }
 
     pub fn get_recent_audit(&self, count: usize) -> Vec<&FirewallAuditEntry> {
@@ -357,9 +358,9 @@ impl InterAgentFirewall {
     }
 
     fn push_audit_entry(&mut self, entry: FirewallAuditEntry) {
-        self.audit_log.push(entry);
+        self.audit_log.push_back(entry);
         if self.audit_log.len() > MAX_AUDIT_LOG {
-            self.audit_log.remove(0);
+            self.audit_log.pop_front();
         }
     }
 }

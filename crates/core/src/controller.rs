@@ -98,19 +98,20 @@ impl CoreController {
         // 3. Generate context key untuk caching
         let context_key = ControllerCore::generate_context_key(&input_data);
         
-        // 4. Check context cache
-        let context_info = if let Some(cached_context) = self.get_cached_context(&context_key) {
+        // 4. Check context cache & parallelize context analysis with intent detection
+        let (context_info, intent_result) = if let Some(cached_context) = self.get_cached_context(&context_key) {
             self.metrics.cache_hits.fetch_add(1, Ordering::Relaxed);
-            cached_context
+            let intent_result = self.intent_detector.detect_intent(&input_data).await?;
+            (cached_context, intent_result)
         } else {
             self.metrics.cache_misses.fetch_add(1, Ordering::Relaxed);
-            let context = self.context_analyzer.analyze_context(&input_data, ModelId::Controller).await?;
+            let (context, intent_result) = tokio::try_join!(
+                self.context_analyzer.analyze_context(&input_data, ModelId::Controller),
+                self.intent_detector.detect_intent(&input_data),
+            )?;
             self.cache_context(context_key, &context);
-            context
+            (context, intent_result)
         };
-        
-        // 5. Detect intent
-        let intent_result = self.intent_detector.detect_intent(&input_data).await?;
         
         // 6. Route to appropriate model
         let routing_decision = self.route_request(&intent_result, &context_info).await?;

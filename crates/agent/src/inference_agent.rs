@@ -26,7 +26,7 @@ pub struct InferenceAgent {
     /// Inference engine reference
     inference_engine: Option<Arc<dyn InferenceEngine>>,
     /// Active inference sessions
-    active_sessions: Arc<std::sync::Mutex<HashMap<Uuid, InferenceSession>>>,
+    active_sessions: Arc<tokio::sync::Mutex<HashMap<Uuid, InferenceSession>>>,
     /// Statistics
     stats: AgentStats,
     /// Configuration
@@ -111,7 +111,7 @@ impl InferenceAgent {
             name: "InferenceAgent".to_string(),
             status: AgentStatus::Initializing,
             inference_engine: None,
-            active_sessions: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            active_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             stats: AgentStats::default(),
             config,
         }
@@ -132,7 +132,7 @@ impl InferenceAgent {
         
         // Check concurrent session limit
         {
-            let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let sessions = self.active_sessions.lock().await;
             if sessions.len() >= self.config.max_concurrent_sessions {
                 return Err(AgentError::ProcessingError(
                     format!("Maximum concurrent sessions ({}) reached", self.config.max_concurrent_sessions)
@@ -157,7 +157,7 @@ impl InferenceAgent {
         
         // Add to active sessions
         {
-            let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let mut sessions = self.active_sessions.lock().await;
             sessions.insert(session_id, session);
         }
         
@@ -195,7 +195,7 @@ impl InferenceAgent {
         
         // Check session exists and is ready
         {
-            let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let sessions = self.active_sessions.lock().await;
             if let Some(session) = sessions.get(&session_id) {
                 if session.status != InferenceSessionStatus::Ready && session.status != InferenceSessionStatus::Running {
                     return Err(AgentError::ProcessingError(
@@ -257,7 +257,7 @@ impl InferenceAgent {
         
         // Check session exists and is ready
         {
-            let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let sessions = self.active_sessions.lock().await;
             if let Some(session) = sessions.get(&session_id) {
                 if session.status != InferenceSessionStatus::Ready && session.status != InferenceSessionStatus::Running {
                     return Err(AgentError::ProcessingError(
@@ -305,13 +305,13 @@ impl InferenceAgent {
     
     /// Get session information
     pub async fn get_session_info(&self, session_id: Uuid) -> Result<Option<InferenceSession>> {
-        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let sessions = self.active_sessions.lock().await;
         Ok(sessions.get(&session_id).cloned())
     }
     
     /// List active sessions
     pub async fn list_active_sessions(&self) -> Vec<InferenceSession> {
-        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let sessions = self.active_sessions.lock().await;
         sessions.values().cloned().collect()
     }
     
@@ -321,7 +321,7 @@ impl InferenceAgent {
         let mut sessions_to_remove = Vec::new();
         
         {
-            let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let sessions = self.active_sessions.lock().await;
             for (session_id, session) in sessions.iter() {
                 let age_seconds = (now - session.created_at).num_seconds() as u64;
                 if age_seconds > self.config.max_session_age_seconds {
@@ -341,7 +341,7 @@ impl InferenceAgent {
     
     /// Update session status
     async fn update_session_status(&self, session_id: Uuid, status: InferenceSessionStatus) -> Result<()> {
-        let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = self.active_sessions.lock().await;
         if let Some(session) = sessions.get_mut(&session_id) {
             session.status = status;
             session.last_activity = chrono::Utc::now();
@@ -353,7 +353,7 @@ impl InferenceAgent {
     
     /// Update session statistics
     async fn update_session_stats(&self, session_id: Uuid, tokens_generated: u64, processing_time_ms: u64) -> Result<()> {
-        let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = self.active_sessions.lock().await;
         if let Some(session) = sessions.get_mut(&session_id) {
             session.tokens_generated += tokens_generated;
             session.processing_time_ms += processing_time_ms;
@@ -366,13 +366,13 @@ impl InferenceAgent {
     
     /// Clean up session
     async fn cleanup_session(&self, session_id: Uuid) {
-        let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = self.active_sessions.lock().await;
         sessions.remove(&session_id);
     }
     
     /// Get inference statistics
-    pub fn get_inference_stats(&self) -> InferenceStats {
-        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+    pub async fn get_inference_stats(&self) -> InferenceStats {
+        let sessions = self.active_sessions.lock().await;
         let total_tokens: u64 = sessions.values().map(|s| s.tokens_generated).sum();
         let total_processing_time: u64 = sessions.values().map(|s| s.processing_time_ms).sum();
         
@@ -515,7 +515,7 @@ impl Agent for InferenceAgent {
             }
             
             "stats" => {
-                let stats = self.get_inference_stats();
+                let stats = self.get_inference_stats().await;
                 json!({
                     "action": "stats",
                     "stats": stats
@@ -555,7 +555,7 @@ impl Agent for InferenceAgent {
         
         // Stop all active sessions
         let session_ids: Vec<Uuid> = {
-            let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let sessions = self.active_sessions.lock().await;
             sessions.keys().cloned().collect()
         };
         

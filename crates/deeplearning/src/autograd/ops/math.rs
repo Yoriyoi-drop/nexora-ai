@@ -194,7 +194,13 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
         vec![saved_x],
         Box::new(move |grad, saved| {
             let x = &saved[0];
-            let dx = x.mapv(|v| exponent * v.powf(exponent - 1.0));
+            let dx = x.mapv(|v| {
+                if v == 0.0 && exponent < 1.0 {
+                    0.0
+                } else {
+                    exponent * v.powf(exponent - 1.0)
+                }
+            });
             vec![grad.clone() * dx]
         }),
     )

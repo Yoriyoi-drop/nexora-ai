@@ -132,7 +132,7 @@ impl PrefixCache {
                         .map(|n| n.depth + 1)
                         .unwrap_or(1);
                     let mut new_node = RadixNode::new(new_id, Some(current_id), Some(vec![token]), depth);
-                    if token == *tokens.last().unwrap() {
+                    if tokens.last().map_or(false, |t| token == *t) {
                         new_node.value = Some(value.clone());
                     }
                     {

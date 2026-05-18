@@ -39,6 +39,16 @@ pub enum SourceCategory {
     Synthetic,
     Telemetry,
     Other,
+    Documentation,
+    News,
+    StackOverflow,
+    Reddit,
+    YouTube,
+    Patents,
+    Government,
+    Medical,
+    Legal,
+    Education,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -182,6 +192,26 @@ impl Default for TrustScoreMap {
         m.insert("x.com".to_string(), 0.40);
         m.insert("medium.com".to_string(), 0.60);
         m.insert("blogspot.com".to_string(), 0.45);
+        m.insert("youtube.com".to_string(), 0.50);
+        m.insert("patents.google.com".to_string(), 0.90);
+        m.insert("uspto.gov".to_string(), 0.92);
+        m.insert("pubmed.ncbi.nlm.nih.gov".to_string(), 0.97);
+        m.insert("ncbi.nlm.nih.gov".to_string(), 0.95);
+        m.insert("clinicaltrials.gov".to_string(), 0.93);
+        m.insert("data.gov".to_string(), 0.85);
+        m.insert("europa.eu".to_string(), 0.88);
+        m.insert("who.int".to_string(), 0.92);
+        m.insert("courts.gov".to_string(), 0.90);
+        m.insert("law.cornell.edu".to_string(), 0.88);
+        m.insert("education.gov".to_string(), 0.85);
+        m.insert("khanacademy.org".to_string(), 0.88);
+        m.insert("coursera.org".to_string(), 0.82);
+        m.insert("edx.org".to_string(), 0.84);
+        m.insert("news.ycombinator.com".to_string(), 0.65);
+        m.insert("reuters.com".to_string(), 0.78);
+        m.insert("apnews.com".to_string(), 0.80);
+        m.insert("bbc.com".to_string(), 0.82);
+        m.insert("nature.com".to_string(), 0.96);
         Self(m)
     }
 }

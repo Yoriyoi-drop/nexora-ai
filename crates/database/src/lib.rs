@@ -436,14 +436,13 @@ impl Transaction {
     }
 
     /// Commit the transaction
-    pub fn commit(mut self) -> Result<()> {
+    pub async fn commit(mut self) -> Result<()> {
         #[cfg(feature = "postgres")]
         if let Some(client) = self.client.take() {
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async { client.simple_query("COMMIT").await })
-                    .map_err(|e| anyhow::anyhow!("PostgreSQL commit failed: {}", e))
-            })?;
+            client
+                .simple_query("COMMIT")
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL commit failed: {}", e))?;
             self.is_active = false;
             return Ok(());
         }
@@ -464,14 +463,13 @@ impl Transaction {
     }
 
     /// Rollback the transaction
-    pub fn rollback(mut self) -> Result<()> {
+    pub async fn rollback(mut self) -> Result<()> {
         #[cfg(feature = "postgres")]
         if let Some(client) = self.client.take() {
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async { client.simple_query("ROLLBACK").await })
-                    .map_err(|e| anyhow::anyhow!("PostgreSQL rollback failed: {}", e))
-            })?;
+            client
+                .simple_query("ROLLBACK")
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL rollback failed: {}", e))?;
             self.is_active = false;
             return Ok(());
         }
@@ -492,16 +490,13 @@ impl Transaction {
     }
 
     /// Create a savepoint within the transaction
-    pub fn create_savepoint(&mut self, name: &str) -> Result<()> {
+    pub async fn create_savepoint(&mut self, name: &str) -> Result<()> {
         #[cfg(feature = "postgres")]
         if let Some(ref client) = self.client {
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(
-                        async { client.simple_query(&format!("SAVEPOINT {}", name)).await },
-                    )
-                    .map_err(|e| anyhow::anyhow!("PostgreSQL savepoint failed: {}", e))
-            })?;
+            client
+                .simple_query(&format!("SAVEPOINT {}", name))
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL savepoint failed: {}", e))?;
             self.savepoints.push(name.to_string());
             return Ok(());
         }
@@ -522,16 +517,13 @@ impl Transaction {
     }
 
     /// Rollback to a savepoint
-    pub fn rollback_to_savepoint(&mut self, name: &str) -> Result<()> {
+    pub async fn rollback_to_savepoint(&mut self, name: &str) -> Result<()> {
         #[cfg(feature = "postgres")]
         if let Some(ref client) = self.client {
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(
-                        async { client.simple_query(&format!("ROLLBACK TO SAVEPOINT {}", name)).await },
-                    )
-                    .map_err(|e| anyhow::anyhow!("PostgreSQL rollback to savepoint failed: {}", e))
-            })?;
+            client
+                .simple_query(&format!("ROLLBACK TO SAVEPOINT {}", name))
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL rollback to savepoint failed: {}", e))?;
             return Ok(());
         }
         #[cfg(feature = "mysql")]
@@ -549,17 +541,14 @@ impl Transaction {
     }
 
     /// Execute a query within the transaction
-    pub fn execute(&mut self, query: &str) -> Result<ExecuteResult> {
+    pub async fn execute(&mut self, query: &str) -> Result<ExecuteResult> {
         #[cfg(feature = "postgres")]
         if let Some(ref client) = self.client {
-            let rows_affected = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async {
-                        let affected = client.execute(query, &[]).await?;
-                        Ok::<u64, anyhow::Error>(affected)
-                    })
-                    .map_err(|e| anyhow::anyhow!("PostgreSQL execute failed: {}", e))
-            })?;
+            let query = query.to_string();
+            let rows_affected = client
+                .execute(&query, &[])
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL execute failed: {}", e))?;
             return Ok(ExecuteResult {
                 affected_rows: rows_affected,
                 execution_time_ms: 0,
@@ -804,7 +793,7 @@ impl Default for DatabaseConfig {
             port: 5432,
             database: "nexora".to_string(),
             username: "postgres".to_string(),
-            password: "password".to_string(),
+            password: "".to_string(),
             ssl_mode: SslMode::Prefer,
             max_connections: 10,
             connection_timeout_seconds: 30,

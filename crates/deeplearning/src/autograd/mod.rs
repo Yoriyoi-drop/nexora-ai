@@ -9,6 +9,7 @@ pub mod data_parallel;
 pub mod training_pipeline;
 
 pub use tensor::Tensor;
+pub use tape::clear_tape;
 pub use device::{Device, Storage};
 pub use mixed_precision::{DType, LossScaler};
 pub use data_parallel::{GradientAccumulator, DataParallel, DataParallelConfig};
@@ -191,20 +192,34 @@ impl Adam {
 
     fn clip_gradients(&self, max_norm: f32) {
         let mut total_norm_sq = 0.0f32;
-        for p in &self.parameters {
-            if let Some(g) = p.grad() {
-                total_norm_sq += g.iter().map(|x| x * x).sum::<f32>();
+        let mut has_nan = false;
+        let grads: Vec<(usize, ArrayD<f32>)> = self.parameters.iter().enumerate()
+            .filter_map(|(i, p)| p.grad().map(|g| (i, g)))
+            .collect();
+
+        for (_, ref g) in &grads {
+            for &x in g.iter() {
+                if !x.is_finite() {
+                    has_nan = true;
+                }
+                total_norm_sq += x * x;
             }
         }
+
+        if has_nan {
+            eprintln!("[WARN] NaN/Inf detected in gradients — zeroing all gradients to prevent cascade corruption");
+            for (i, _) in &grads {
+                self.parameters[*i].zero_grad();
+            }
+            return;
+        }
+
         let total_norm = total_norm_sq.sqrt();
         if total_norm > max_norm && total_norm > 0.0 {
             let scale = max_norm / total_norm;
-            for p in &self.parameters {
-                if let Some(g) = p.grad() {
-                    let mut scaled = g;
-                    scaled.mapv_inplace(|x| x * scale);
-                    p.set_grad(scaled);
-                }
+            for (i, mut g) in grads {
+                g.mapv_inplace(|x| x * scale);
+                self.parameters[i].set_grad(g);
             }
         }
     }

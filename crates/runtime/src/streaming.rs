@@ -306,7 +306,7 @@ impl StreamingEngine {
             };
             
             // Send token
-            if let Err(_) = stream_info.token_tx.send(stream_token) {
+            if let Err(_) = stream_info.token_tx.send(stream_token).await {
                 // Stream receiver dropped, clean up
                 streams.remove(&stream_id);
                 return Err(InferenceError::InternalError("Stream receiver dropped".to_string()).into());
@@ -450,7 +450,7 @@ impl StreamingEngine {
         debug!("Processing stream: {}", stream.stream_id);
         
         while let Some(stream_token) = stream.token_rx.recv().await {
-            if let Err(_) = simple_tx.send(stream_token.token.clone()) {
+            if let Err(_) = simple_tx.send(stream_token.token.clone()).await {
                 debug!("Simple receiver dropped for stream {}", stream.stream_id);
                 break;
             }
@@ -587,7 +587,7 @@ pub mod utils {
             while let Some(stream_token) = token_stream.token_rx.recv().await {
                 accumulated_text.push_str(&stream_token.token.text);
                 
-                if let Err(_) = text_tx.send(accumulated_text.clone()) {
+                if let Err(_) = text_tx.send(accumulated_text.clone()).await {
                     break;
                 }
                 
@@ -620,7 +620,7 @@ pub mod utils {
                                  stream_token.is_last;
                 
                 if should_flush && !buffer.is_empty() {
-                    if let Err(_) = buffered_tx.send(buffer.clone()) {
+                    if let Err(_) = buffered_tx.send(buffer.clone()).await {
                         break;
                     }
                     buffer.clear();
@@ -663,7 +663,7 @@ pub mod adapters {
                     "is_last": stream_token.is_last
                 });
                 
-                if let Err(_) = json_tx.send(json_value) {
+                if let Err(_) = json_tx.send(json_value).await {
                     break;
                 }
                 
@@ -701,7 +701,7 @@ pub mod adapters {
                     })
                 );
                 
-                if let Err(_) = sse_tx.send(sse_data) {
+                if let Err(_) = sse_tx.send(sse_data).await {
                     break;
                 }
                 

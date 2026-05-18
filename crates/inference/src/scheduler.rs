@@ -214,7 +214,7 @@ impl RequestScheduler {
     pub async fn send_response(&self, request_id: Uuid, response: crate::InferenceResponse) -> Result<(), anyhow::Error> {
         let requests = self.requests.read().await;
         if let Some(req) = requests.get(&request_id) {
-            req.response_tx.send(response).map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
+            req.response_tx.send(response).await.map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
         }
         Ok(())
     }

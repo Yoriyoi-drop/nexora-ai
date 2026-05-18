@@ -1,7 +1,7 @@
 use ndarray::{Array1, Array2};
 
 use super::rms_norm::RMSNorm;
-use super::gqa::{GQA, KVCacheEntry};
+use super::gqa::{GQA, KVCacheEntry, PagedCacheReader};
 use super::swiglu::SwiGLU;
 
 #[derive(Debug, Clone)]
@@ -43,6 +43,25 @@ impl TransformerBlock {
     pub fn forward_no_cache(&self, x: &Array2<f32>, cos: &Array1<f32>, sin: &Array1<f32>) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
         let attn_out = self.attention.forward(&normed, None, 0, cos, sin);
+        let after_attn = x + attn_out;
+
+        let normed_ffn = self.ffn_norm.forward(&after_attn);
+        let ffn_out = self.ffn.forward(&normed_ffn);
+        after_attn + ffn_out
+    }
+
+    pub fn forward_paged(
+        &self,
+        x: &Array2<f32>,
+        cache: &mut dyn PagedCacheReader,
+        seq_id: u64,
+        layer_idx: usize,
+        token_pos: usize,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+    ) -> Array2<f32> {
+        let normed = self.attention_norm.forward(x);
+        let attn_out = self.attention.forward_with_paged(&normed, cache, seq_id, layer_idx, token_pos, cos, sin);
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn);

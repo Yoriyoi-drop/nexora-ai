@@ -17,6 +17,7 @@
 //! ## Contoh
 //!
 //! ```rust,no_run
+//! use std::sync::Arc;
 //! use nexora_datastream::*;
 //! use nexora_datastream::filter::*;
 //!
@@ -38,6 +39,7 @@ pub mod intake;
 pub mod intelligence;
 pub mod delivery;
 pub mod types;
+pub mod source;
 
 #[cfg(feature = "arrow")]
 pub mod arrow_reader;
@@ -51,6 +53,7 @@ pub use intake::*;
 pub use intelligence::*;
 pub use delivery::*;
 pub use types::*;
+pub use source::*;
 
 #[cfg(feature = "arrow")]
 pub use dataset::*;

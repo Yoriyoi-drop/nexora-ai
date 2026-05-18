@@ -8,7 +8,7 @@ description = "BLAA (Black Language Model API) integration for Nexora AI"
 
 [dependencies]
 # Workspace dependencies
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net", "sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

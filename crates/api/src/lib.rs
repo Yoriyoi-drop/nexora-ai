@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use anyhow::Result;
 use tokio::sync::RwLock;
 use serde::{Serialize, Deserialize};
+use anyhow::Result;
 
 pub mod server;
 pub mod handlers;
@@ -233,18 +233,19 @@ pub trait Middleware: Send + Sync {
     fn name(&self) -> &str;
 }
 
-/// Rate limiter
+/// Sliding window rate limiter — GCRA-style counter, tanpa Vec<u64> per client
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     limits: Arc<RwLock<HashMap<String, RateLimit>>>,
-    requests: Arc<RwLock<HashMap<String, Vec<u64>>>>,
+    // Sharded sliding window counters: HashMap<key, (window_start, count)>
+    counters: Arc<RwLock<HashMap<String, (u64, u32)>>>,
 }
 
 impl RateLimiter {
     pub fn new() -> Self {
         Self {
             limits: Arc::new(RwLock::new(HashMap::new())),
-            requests: Arc::new(RwLock::new(HashMap::new())),
+            counters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     
@@ -259,24 +260,35 @@ impl RateLimiter {
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
         
-        let limits = self.limits.read().await;
-        if let Some(limit) = limits.get(key) {
-            let mut requests = self.requests.write().await;
-            let request_times = requests.entry(key.to_string()).or_insert_with(Vec::new);
-            
-            // Remove old requests outside the window
-            request_times.retain(|&time| time > now - limit.window_seconds);
-            
-            // Check if under limit
-            if request_times.len() < limit.max_requests as usize {
-                request_times.push(now);
-                Ok(true)
-            } else {
-                Ok(false)
+        let (max_requests, window_duration) = {
+            let limits = self.limits.read().await;
+            match limits.get(key) {
+                Some(limit) => (limit.max_requests, limit.window_seconds),
+                None => return Ok(true),
             }
+        };
+        
+        // Gunakan sliding window counter (bukan Vec<u64>) — O(1) per check
+        let mut counters = self.counters.write().await;
+        let (window_start, count) = counters.get(key).copied().unwrap_or((0, 0));
+        
+        let new_window_start = if now >= window_start + window_duration {
+            now
         } else {
-            Ok(true) // No limit configured
-        }
+            window_start
+        };
+        
+        let new_count = if new_window_start != window_start {
+            // Window baru: reset
+            1
+        } else if count < max_requests {
+            count + 1
+        } else {
+            return Ok(false);
+        };
+        
+        counters.insert(key.to_string(), (new_window_start, new_count));
+        Ok(true)
     }
 }
 

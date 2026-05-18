@@ -4,18 +4,6 @@ use clap::Parser;
 
 #[tokio::main]
 async fn main() {
-    let _ = nexora_monitoring::tracing::init_tracing(
-        &nexora_monitoring::TracingConfig {
-            level: nexora_monitoring::TracingLevel::Info,
-            format: nexora_monitoring::TracingFormat::Compact,
-            enable_file_sink: false,
-            file_path: None,
-            enable_json: false,
-        }
-    );
-
-    info!("Starting Nexora AI system...");
-
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {

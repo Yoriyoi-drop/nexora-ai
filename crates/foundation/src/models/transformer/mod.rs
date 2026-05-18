@@ -10,7 +10,7 @@ pub mod mtp;
 
 pub use config::TransformerConfig;
 pub use model::CausalLM;
-pub use gqa::KVCacheEntry;
+pub use gqa::{KVCacheEntry, PagedCacheReader};
 pub use rms_norm::RMSNorm;
 pub use rope::RoPE;
 pub use trainable::TrainableCausalLM;

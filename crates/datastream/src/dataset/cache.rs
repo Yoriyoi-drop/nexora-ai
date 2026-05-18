@@ -69,20 +69,40 @@ pub fn read_arrow_mmap(path: &Path, source: crate::types::SourceInfo) -> anyhow:
     for batch_result in reader {
         let batch = batch_result?;
         let col = batch.column(text_idx);
-        let text_array = col.as_string::<i32>();
 
-        for i in 0..text_array.len() {
-            samples.push(DataSample {
-                id: uuid::Uuid::new_v4(),
-                text: text_array.value(i).to_string(),
-                token_ids: None,
-                metadata: HashMap::new(),
-                source: source.clone(),
-                stats: crate::types::SampleStats::default(),
-                domains: vec![],
-                score: None,
-                curriculum_level: None,
-            });
+        // Try StringArray (i32 offsets) first, then LargeStringArray (i64 offsets)
+        if let Some(arr) = col.as_any().downcast_ref::<arrow::array::StringArray>() {
+            for i in 0..arr.len() {
+                let text = if arr.is_null(i) { String::new() } else { arr.value(i).to_string() };
+                samples.push(DataSample {
+                    id: uuid::Uuid::new_v4(),
+                    text,
+                    token_ids: None,
+                    metadata: HashMap::new(),
+                    source: source.clone(),
+                    stats: crate::types::SampleStats::default(),
+                    domains: vec![],
+                    score: None,
+                    curriculum_level: None,
+                });
+            }
+        } else if let Some(arr) = col.as_any().downcast_ref::<arrow::array::LargeStringArray>() {
+            for i in 0..arr.len() {
+                let text = if arr.is_null(i) { String::new() } else { arr.value(i).to_string() };
+                samples.push(DataSample {
+                    id: uuid::Uuid::new_v4(),
+                    text,
+                    token_ids: None,
+                    metadata: HashMap::new(),
+                    source: source.clone(),
+                    stats: crate::types::SampleStats::default(),
+                    domains: vec![],
+                    score: None,
+                    curriculum_level: None,
+                });
+            }
+        } else {
+            anyhow::bail!("Text column must be String or LargeString type");
         }
     }
 

@@ -11,23 +11,27 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     let n = data.len();
     let flat: Vec<f32> = data.iter().copied().collect();
 
-    // Compute sum of exp(x-max) along the specified axis
-    let axis_stride: usize = soft_shape[axis..].iter().product();
-    let batch_size = n / axis_stride;
+    // Correct group calculation: softmax along axis=k produces
+    // outer * inner groups, each with `dim` elements spaced by `inner` stride.
+    let outer: usize = soft_shape.iter().take(axis).product();
+    let dim = soft_shape[axis];
+    let inner: usize = soft_shape.iter().skip(axis + 1).product();
 
     let mut result_data = vec![0.0f32; n];
-    for b in 0..batch_size {
-        let base = b * axis_stride;
-        let mut max_in_group = f32::NEG_INFINITY;
-        for j in 0..axis_stride {
-            max_in_group = max_in_group.max(flat[base + j]);
-        }
-        let mut sum_exp = 0.0f32;
-        for j in 0..axis_stride {
-            sum_exp += (flat[base + j] - max_in_group).exp();
-        }
-        for j in 0..axis_stride {
-            result_data[base + j] = (flat[base + j] - max_in_group).exp() / sum_exp;
+    for o in 0..outer {
+        for i in 0..inner {
+            let group_base = o * dim * inner + i;
+            let mut max_val = f32::NEG_INFINITY;
+            for d in 0..dim {
+                max_val = max_val.max(flat[group_base + d * inner]);
+            }
+            let mut sum_exp = 0.0f32;
+            for d in 0..dim {
+                sum_exp += (flat[group_base + d * inner] - max_val).exp();
+            }
+            for d in 0..dim {
+                result_data[group_base + d * inner] = (flat[group_base + d * inner] - max_val).exp() / sum_exp;
+            }
         }
     }
 
@@ -45,25 +49,34 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
         vec![saved_data],
         Box::new(move |grad, saved| {
             let soft = &saved[0];
-            let n = soft.len();
             let s = soft.iter().copied().collect::<Vec<f32>>();
             let g = grad.iter().copied().collect::<Vec<f32>>();
 
-            // sum(soft * grad) along axis
-            let (batch, dim) = if soft_shape.len() == 2 { (soft_shape[0], soft_shape[1]) } else { (1, n) };
-            let mut sum_sg = vec![0.0f32; batch];
-            for b in 0..batch {
-                for d in 0..dim {
-                    let i = if dim == n { d } else { b * dim + d };
-                    sum_sg[b] += s[i] * g[i];
+            let outer: usize = soft_shape.iter().take(axis).product();
+            let dim = soft_shape[axis];
+            let inner: usize = soft_shape.iter().skip(axis + 1).product();
+
+            let mut sum_sg = vec![0.0f32; outer * inner];
+            for o in 0..outer {
+                for i in 0..inner {
+                    let group_base = o * dim * inner + i;
+                    let mut total = 0.0f32;
+                    for d in 0..dim {
+                        total += s[group_base + d * inner] * g[group_base + d * inner];
+                    }
+                    sum_sg[o * inner + i] = total;
                 }
             }
 
             let mut dx_data = vec![0.0f32; n];
-            for b in 0..batch {
-                for d in 0..dim {
-                    let i = if dim == n { d } else { b * dim + d };
-                    dx_data[i] = s[i] * g[i] - s[i] * sum_sg[b];
+            for o in 0..outer {
+                for i in 0..inner {
+                    let group_base = o * dim * inner + i;
+                    let sg = sum_sg[o * inner + i];
+                    for d in 0..dim {
+                        let idx = group_base + d * inner;
+                        dx_data[idx] = s[idx] * g[idx] - s[idx] * sg;
+                    }
                 }
             }
             let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data).expect("data length matches shape");
@@ -367,7 +380,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                     d_weight[[idx, j]] += grad[[i, j]];
                 }
             }
-            vec![ArrayD::zeros(vec![]), d_weight.into_dyn()]
+            vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
         }),
     )
 }

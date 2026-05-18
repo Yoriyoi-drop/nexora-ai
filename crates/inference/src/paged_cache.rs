@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use ndarray::{Array2, s};
 
 use nexora_foundation::models::transformer::KVCacheEntry;
+use tracing::warn;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -216,18 +217,22 @@ impl PagedKVCache {
     }
 
     /// Allocate a new physical block from the free list or create one
-    fn alloc_block(&mut self, layer: usize) -> usize {
+    fn alloc_block(&mut self, layer: usize) -> Option<usize> {
         if let Some(free_idx) = self.free_lists[layer].pop() {
             self.blocks[layer][free_idx].filled = 0;
             self.blocks[layer][free_idx].ref_count = 1;
             self.num_allocated += 1;
-            return free_idx;
+            return Some(free_idx);
         }
 
         let idx = self.blocks[layer].len();
+        if idx >= self.config.max_blocks {
+            warn!("PagedKVCache: max_blocks ({}) reached, cannot allocate", self.config.max_blocks);
+            return None;
+        }
         self.blocks[layer].push(PhysicalBlock::new(&self.config));
         self.num_allocated += 1;
-        idx
+        Some(idx)
     }
 
     /// Free a physical block (decrease refcount, reclaim if zero)
@@ -268,7 +273,10 @@ impl PagedKVCache {
         }
 
         // Step 2: allocate new block (unique borrow)
-        let phys = self.alloc_block(layer);
+        let phys = match self.alloc_block(layer) {
+            Some(p) => p,
+            None => return None,
+        };
 
         // Step 3: update block table (separate borrow again)
         if let Some(table) = self.sequences.get_mut(&seq_id) {
@@ -334,14 +342,15 @@ impl PagedKVCache {
         k_proj: &Array2<f32>,
         v_proj: &Array2<f32>,
     ) {
-        let k_data: Vec<f32> = if k_proj.is_standard() {
-            k_proj.iter().copied().collect()
-        } else {
-            k_proj.iter().copied().collect()
-        };
-        let v_data: Vec<f32> = v_proj.iter().copied().collect();
-        let k_slice: &[f32] = &k_data;
-        let v_slice: &[f32] = &v_data;
+        let k_slice: &[f32] = k_proj.as_slice().unwrap_or_else(|| {
+            // Fallback: alokasi hanya jika tidak contiguous (jarang)
+            let v: Vec<f32> = k_proj.iter().copied().collect();
+            Box::leak(v.into_boxed_slice())
+        });
+        let v_slice: &[f32] = v_proj.as_slice().unwrap_or_else(|| {
+            let v: Vec<f32> = v_proj.iter().copied().collect();
+            Box::leak(v.into_boxed_slice())
+        });
         self.append(seq_id, layer, token_pos, k_slice, v_slice);
     }
 
@@ -358,8 +367,8 @@ impl PagedKVCache {
         }
 
         let cols = self.config.num_kv_heads * self.config.head_dim;
-        let k: Vec<f32> = (0..cols).map(|c| block.k[[offset, c]]).collect();
-        let v: Vec<f32> = (0..cols).map(|c| block.v[[offset, c]]).collect();
+        let k = block.k.slice(s![offset, ..]).to_vec();
+        let v = block.v.slice(s![offset, ..]).to_vec();
         Some((k, v))
     }
 

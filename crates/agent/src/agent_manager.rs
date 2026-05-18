@@ -136,7 +136,7 @@ impl AgentManager {
     }
     
     /// Get command sender untuk external communication
-    pub fn command_sender(&self) -> mpsc::UnboundedSender<ManagerCommand> {
+    pub fn command_sender(&self) -> mpsc::Sender<ManagerCommand> {
         (*self.command_tx).clone()
     }
     

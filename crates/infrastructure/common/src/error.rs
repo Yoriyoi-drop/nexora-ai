@@ -4,6 +4,7 @@
 
 use std::fmt;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
@@ -718,15 +719,13 @@ impl ErrorStatistics {
 }
 
 /// Global error handler
-pub static mut ERROR_HANDLER: Option<ErrorRecoveryManager> = None;
-static INIT: std::sync::Once = std::sync::Once::new();
+static ERROR_HANDLER: OnceLock<tokio::sync::Mutex<ErrorRecoveryManager>> = OnceLock::new();
 
 /// Initialize global error handler
 pub fn init_error_handler() {
-    INIT.call_once(|| {
+    ERROR_HANDLER.get_or_init(|| {
         let mut handler = ErrorRecoveryManager::new();
         
-        // Add default strategies for common components
         handler.add_strategy("database", RecoveryStrategy::Retry {
             max_attempts: 3,
             base_delay: Duration::from_millis(200),
@@ -742,23 +741,16 @@ pub fn init_error_handler() {
             base_delay: Duration::from_millis(100),
         });
         
-        unsafe {
-            ERROR_HANDLER = Some(handler);
-        }
+        tokio::sync::Mutex::new(handler)
     });
 }
 
 /// Handle error globally
 pub async fn handle_error(error: &NexoraError, component: &str) -> Result<RecoveryAction> {
     init_error_handler();
-    
-    unsafe {
-        if let Some(ref mut handler) = ERROR_HANDLER {
-            handler.handle_error(error, component).await
-        } else {
-            Ok(RecoveryAction::NoAction)
-        }
-    }
+    let handler = ERROR_HANDLER.get().expect("ERROR_HANDLER initialized");
+    let mut guard = handler.lock().await;
+    guard.handle_error(error, component).await
 }
 
 /// Macro for easy error handling

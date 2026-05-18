@@ -11,6 +11,8 @@ pub mod optimizer;
 pub mod scheduler;
 pub mod checkpoint;
 
+use self::optimizer::{AdamOptimizer, AdamConfig, Optimizer};
+
 use crate::hldva_t::{
     config::{HLDVAConfig, TrainingConfig},
     types::*,
@@ -473,30 +475,59 @@ pub trait Dataset {
     fn get_finetune_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch>;
 }
 
-/// AdamW Optimizer
+/// AdamW Optimizer — wraps the full AdamOptimizer with decoupled weight decay
 pub struct AdamW {
-    learning_rate: f32,
+    inner: AdamOptimizer,
     weight_decay: f32,
-    beta1: f32,
-    beta2: f32,
-    eps: f32,
+    params: Vec<crate::atqs::Tensor>,
+    grads: Vec<crate::atqs::Tensor>,
 }
 
 impl AdamW {
     pub fn new(config: &TrainingConfig) -> HLDVAResult<Self> {
-        Ok(Self {
+        let adam_config = AdamConfig {
             learning_rate: config.learning_rate,
-            weight_decay: config.weight_decay,
             beta1: 0.9,
             beta2: 0.999,
-            eps: 1e-8,
+            epsilon: 1e-8,
+            weight_decay: config.weight_decay,
+        };
+        Ok(Self {
+            inner: AdamOptimizer::new(adam_config),
+            weight_decay: config.weight_decay,
+            params: Vec::new(),
+            grads: Vec::new(),
         })
     }
-    
-    pub fn step(&mut self, loss: f32) -> HLDVAResult<()> {
-        // Simplified optimizer step
-        println!("Optimizer step with loss: {:.6}, lr: {:.6}", loss, self.learning_rate);
-        Ok(())
+
+    pub fn register_parameters(&mut self, parameters: Vec<crate::atqs::Tensor>) {
+        let shapes: Vec<_> = parameters.iter().map(|p| p.shape().to_vec()).collect();
+        self.params = parameters;
+        self.grads = shapes.into_iter()
+            .map(|s| crate::atqs::Tensor::new(vec![0.0; s.iter().product()], s))
+            .collect();
+    }
+
+    pub fn zero_grad(&mut self) {
+        for grad in &mut self.grads {
+            for val in grad.data_mut().iter_mut() {
+                *val = 0.0;
+            }
+        }
+    }
+
+    pub fn step(&mut self, _loss: f32) -> HLDVAResult<()> {
+        if self.params.is_empty() {
+            return Ok(());
+        }
+        // Apply decoupled weight decay (AdamW-style)
+        for param in &mut self.params {
+            for val in param.data_mut().iter_mut() {
+                *val *= 1.0 - self.inner.learning_rate() * self.weight_decay;
+            }
+        }
+        // Adam update via inner optimizer
+        Optimizer::step(&mut self.inner, &mut self.params, &self.grads)
     }
 }
 
