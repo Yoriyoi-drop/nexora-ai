@@ -4,7 +4,30 @@ pub mod types;
 pub mod client;
 pub mod rate_limiter;
 
-pub use crate::config::api::{ApiConfig, ApiResponse, RateLimitConfig, HttpClientConfig};
+pub use crate::config::api::{ApiConfig, ApiResponse as ApiResp, RateLimitConfig, HttpClientConfig};
 pub use types::*;
 pub use client::ApiClient;
 pub use rate_limiter::{RateLimiter, RateLimitStatus, RateLimitStats};
+pub use crate::config::api::ApiResponse;
+
+pub struct NexoraApi {
+    client: ApiClient,
+}
+
+impl NexoraApi {
+    pub fn new(config: ApiConfig) -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            client: ApiClient::new(config)?,
+        })
+    }
+
+    pub async fn process_text(&self, text: &str) -> Result<ApiResp<serde_json::Value>, anyhow::Error> {
+        let response = self.client.make_request(
+            reqwest::Method::POST,
+            "process",
+            Some(serde_json::json!({"text": text})),
+        ).await?;
+        let body = response.text().await?;
+        Ok(serde_json::from_str(&body)?)
+    }
+}

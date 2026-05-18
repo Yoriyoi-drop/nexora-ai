@@ -30,9 +30,7 @@ pub struct HarmonicTemporalEncoding {
     phase_shift: f32,
     
     // Fused operations for optimization
-    #[allow(dead_code)]
     fused_linear: Option<FusedLinearActivation>,
-    #[allow(dead_code)]
     fused_element_wise: Option<FusedElementWise>,
     
     // Temporal context

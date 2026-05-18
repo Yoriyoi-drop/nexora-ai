@@ -26,7 +26,6 @@ use parking_lot::RwLock as PRwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::sync::RwLock;
 
 /// Tipe arsitektur deep learning yang digunakan
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -295,7 +294,7 @@ impl DeepLearningEngine {
 
                 let chunk_context = ArrayD::zeros(vec![starx_state.hidden_state.len()]);
 
-                let (micro, meso, macro) = pipeline.tgh.process_hierarchical(
+                let (micro, meso, macro_out_v) = pipeline.tgh.process_hierarchical(
                     &hte_output,
                     &starx_state.hidden_state,
                     &chunk_context,
@@ -303,7 +302,7 @@ impl DeepLearningEngine {
                 )?;
 
                 let fused = pipeline.tgh.fuse_hierarchical(
-                    &micro, &meso, &macro,
+                    &micro, &meso, &macro_out_v,
                     (1.0/3.0, 1.0/3.0, 1.0/3.0),
                 )?;
 
@@ -354,7 +353,7 @@ impl DeepLearningEngine {
 
                     let hte_output = pipeline.hte.forward(input)?;
 
-                    let (micro, meso, macro) = pipeline.tgh.process_hierarchical(
+                    let (micro, meso, macro_out_v) = pipeline.tgh.process_hierarchical(
                         &hte_output,
                         &star_x.hidden_state,
                         &ArrayD::zeros(vec![star_x.hidden_state.len()]),
@@ -362,7 +361,7 @@ impl DeepLearningEngine {
                     )?;
 
                     let fused = pipeline.tgh.fuse_hierarchical(
-                        &micro, &meso, &macro,
+                        &micro, &meso, &macro_out_v,
                         (1.0/3.0, 1.0/3.0, 1.0/3.0),
                     )?;
 

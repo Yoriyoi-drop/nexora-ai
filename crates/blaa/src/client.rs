@@ -368,7 +368,6 @@ impl Stream for ChatCompletionStream {
 
 /// Models list response
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ModelsResponse {
     data: Vec<ModelInfo>,
     object: String,

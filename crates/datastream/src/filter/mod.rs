@@ -1,6 +1,3 @@
-// TODO: This DAG-based filter system overlaps with crates/data/src/pipeline.rs
-// (LengthFilter, LanguageFilter, QualityFilterStage, DedupStage). These should be unified.
-
 pub mod traits;
 pub mod length;
 pub mod language;

@@ -444,7 +444,6 @@ impl AgentManager {
     async fn get_memory_store(&self) -> Result<StdArc<nexora_memory::MemoryLayers>> {
         // Create or get memory store instance
         // In a real implementation, this might use dependency injection
-        let _memory_config = nexora_memory::lru_memory::MemoryConfig::default();
         let memory_store = StdArc::new(nexora_memory::MemoryLayers::new());
         Ok(memory_store)
     }

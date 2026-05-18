@@ -1,0 +1,22 @@
+[package]
+name = "nexora-hallucination"
+version.workspace = true
+edition.workspace = true
+description = "Anti-Hallucination module — pre-generation, in-generation, post-generation verification, risk scoring, monitoring"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+regex = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+
+nexora-core = { path = "../core" }
+nexora-tokenizer = { path = "../tokenizer" }
+nexora-datastream = { path = "../datastream" }

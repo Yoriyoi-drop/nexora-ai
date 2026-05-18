@@ -40,9 +40,7 @@ pub struct GlobalIsolationConfig {
     pub storage_isolation: bool,
     pub scheduler_isolation: bool,
     pub security_core_enabled: bool,
-    #[allow(dead_code)] // Reserved for future implementation
     pub service_mesh: ServiceMeshKind,
-    #[allow(dead_code)] // Reserved for future implementation
     pub observability_backend: ObservabilityBackend,
 }
 
@@ -121,11 +119,8 @@ impl Default for ModeIsolationConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentIsolationConfig {
     pub enabled: bool,
-    #[allow(dead_code)] // Reserved for future implementation
     pub separate_pod_per_agent: bool,
-    #[allow(dead_code)] // Reserved for future implementation
     pub dedicated_memory_buffer: bool,
-    #[allow(dead_code)] // Reserved for future implementation
     pub dedicated_runtime: bool,
     pub max_agents_per_mode: u32,
     pub agent_communication: AgentCommKind,
@@ -154,12 +149,10 @@ impl Default for AgentIsolationConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolIsolationConfig {
     pub enabled: bool,
-    #[allow(dead_code)] // Reserved for future implementation
     pub sandbox_per_tool: bool,
     pub tool_gateway_enabled: bool,
     pub allowed_tools: Vec<String>,
     pub max_tool_execution_seconds: u64,
-    #[allow(dead_code)] // Reserved for future implementation
     pub tool_network_access: bool,
 }
 
@@ -176,7 +169,6 @@ impl Default for ToolIsolationConfig {
     }
 }
 
-#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeIsolationConfig {
     pub enabled: bool,
@@ -187,7 +179,6 @@ pub struct RuntimeIsolationConfig {
     pub drop_capabilities: Vec<String>,
 }
 
-#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SandboxKind {
     GVisor,
@@ -213,7 +204,6 @@ impl Default for RuntimeIsolationConfig {
     }
 }
 
-#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CognitiveIsolationConfig {
     pub enabled: bool,
@@ -237,7 +227,6 @@ impl Default for CognitiveIsolationConfig {
     }
 }
 
-#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionConfig {
     pub enabled: bool,
@@ -266,7 +255,6 @@ impl Default for PermissionConfig {
     }
 }
 
-#[allow(dead_code)] // Reserved for future implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirewallConfig {
     pub enabled: bool,

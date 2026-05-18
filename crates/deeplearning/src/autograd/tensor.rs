@@ -5,15 +5,32 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::tape;
+use super::device::{Device, Storage};
+use super::mixed_precision::DType;
 
 static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 pub struct Tensor(Rc<RefCell<TensorInner>>);
 
+impl std::fmt::Debug for Tensor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.0.borrow();
+        f.debug_struct("Tensor")
+            .field("id", &inner.id)
+            .field("shape", &inner.storage.shape())
+            .field("dtype", &inner.dtype)
+            .field("device", &inner.device)
+            .field("requires_grad", &inner.requires_grad)
+            .finish()
+    }
+}
+
 struct TensorInner {
     id: usize,
-    data: ArrayD<f32>,
+    storage: Storage,
+    device: Device,
+    dtype: DType,
     grad: Option<ArrayD<f32>>,
     requires_grad: bool,
     grad_fn_idx: Option<usize>,
@@ -24,7 +41,9 @@ impl Tensor {
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Rc::new(RefCell::new(TensorInner {
             id,
-            data,
+            storage: Storage::Cpu(data),
+            device: Device::Cpu,
+            dtype: DType::F32,
             grad: None,
             requires_grad: false,
             grad_fn_idx: None,
@@ -43,28 +62,93 @@ impl Tensor {
         self.0.borrow().id
     }
 
+    pub fn device(&self) -> Device {
+        self.0.borrow().device.clone()
+    }
+
+    pub fn dtype(&self) -> DType {
+        self.0.borrow().dtype
+    }
+
     pub fn shape(&self) -> Vec<usize> {
-        self.0.borrow().data.shape().to_vec()
+        self.0.borrow().storage.shape()
     }
 
     pub fn ndim(&self) -> usize {
-        self.0.borrow().data.ndim()
+        self.0.borrow().storage.ndim()
     }
 
     pub fn numel(&self) -> usize {
-        self.0.borrow().data.len()
+        self.0.borrow().storage.numel()
     }
 
-    pub fn data_ref(&self) -> std::cell::Ref<ArrayD<f32>> {
-        std::cell::Ref::map(self.0.borrow(), |inner| &inner.data)
+    pub fn storage(&self) -> std::cell::Ref<'_, Storage> {
+        std::cell::Ref::map(self.0.borrow(), |inner| &inner.storage)
+    }
+
+    pub fn data_ref(&self) -> std::cell::Ref<'_, ArrayD<f32>> {
+        std::cell::Ref::map(self.0.borrow(), |inner| {
+            inner.storage.as_cpu().expect("Tensor is on GPU; call to_device(Device::Cpu) first")
+        })
     }
 
     pub fn data(&self) -> ArrayD<f32> {
-        self.0.borrow().data.clone()
+        self.0.borrow().storage.to_cpu()
     }
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
         self.0.borrow().grad.clone()
+    }
+
+    /// Move tensor to a specific device.
+    pub fn to_device(&self, target: &Device) -> Self {
+        let inner = self.0.borrow();
+        if inner.device == *target {
+            return self.clone();
+        }
+        match target {
+            Device::Cpu => {
+                let cpu_data = inner.storage.to_cpu();
+                drop(inner);
+                let t = Tensor::new(cpu_data);
+                t.set_requires_grad(self.requires_grad());
+                t
+            }
+            #[cfg(feature = "gpu")]
+            Device::Gpu(_device_id) => {
+                let cpu_data = inner.storage.to_cpu();
+                let gpu_tensor = crate::gpu::GpuTensor::from_cpu(&cpu_data)
+                    .expect("Failed to transfer tensor to GPU");
+                let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                let t = Tensor(Rc::new(RefCell::new(TensorInner {
+                    id,
+                    storage: Storage::Gpu(gpu_tensor),
+                    device: Device::Gpu(0),
+                    dtype: DType::F32,
+                    grad: inner.grad.clone(),
+                    requires_grad: inner.requires_grad,
+                    grad_fn_idx: None,
+                })));
+                t
+            }
+        }
+    }
+
+    /// Check if tensor is on GPU
+    pub fn is_cuda(&self) -> bool {
+        self.is_gpu()
+    }
+
+    /// Check if tensor is on GPU
+    pub fn is_gpu(&self) -> bool {
+        #[cfg(feature = "gpu")]
+        {
+            matches!(self.0.borrow().device, Device::Gpu(_))
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            false
+        }
     }
 
     pub fn randn(shape: &[usize], requires_grad: bool) -> Self {
@@ -108,7 +192,9 @@ impl Tensor {
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Rc::new(RefCell::new(TensorInner {
             id,
-            data,
+            storage: Storage::Cpu(data),
+            device: Device::Cpu,
+            dtype: DType::F32,
             grad: None,
             requires_grad: true,
             grad_fn_idx: Some(grad_fn_idx),
@@ -133,7 +219,9 @@ impl Tensor {
     }
 
     pub fn set_data(&self, new_data: ArrayD<f32>) {
-        self.0.borrow_mut().data = new_data;
+        let mut inner = self.0.borrow_mut();
+        inner.storage = Storage::Cpu(new_data);
+        inner.device = Device::Cpu;
     }
 
     pub fn set_grad(&self, grad: ArrayD<f32>) {
@@ -142,12 +230,14 @@ impl Tensor {
 
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.borrow_mut();
-        let new_data = &inner.data - delta;
-        inner.data = new_data;
+        let current = inner.storage.to_cpu();
+        let new_data = &current - delta;
+        inner.storage = Storage::Cpu(new_data);
+        inner.device = Device::Cpu;
     }
 
     pub fn backward(&self) {
-        let shape = self.0.borrow().data.shape().to_vec();
+        let shape = self.0.borrow().storage.shape();
         drop(self.0.borrow());
         let grad = ArrayD::ones(shape);
         self.accumulate_grad(&grad);

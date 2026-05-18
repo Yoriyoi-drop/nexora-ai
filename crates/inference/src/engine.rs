@@ -569,15 +569,9 @@ impl InferenceEngine {
                     // Try to form a batch with the newly arrived request
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                         let engine = InferenceEngineHandle {
-                            _config: self.config.clone(),
-                            _runtime: self.runtime.clone(),
                             scheduler: self.scheduler.clone(),
-                            _kv_cache: self.kv_cache.clone(),
-                            _session_manager: self.session_manager.clone(),
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
-                            _streaming_engine: self.streaming_engine.clone(),
-                            _active_requests: self.active_requests.clone(),
                             state: self.state.clone(),
                         };
                         let task = tokio::spawn(async move {
@@ -592,15 +586,9 @@ impl InferenceEngine {
                     // Timeout — try to flush timed-out batches
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                         let engine = InferenceEngineHandle {
-                            _config: self.config.clone(),
-                            _runtime: self.runtime.clone(),
                             scheduler: self.scheduler.clone(),
-                            _kv_cache: self.kv_cache.clone(),
-                            _session_manager: self.session_manager.clone(),
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
-                            _streaming_engine: self.streaming_engine.clone(),
-                            _active_requests: self.active_requests.clone(),
                             state: self.state.clone(),
                         };
                         let task = tokio::spawn(async move {

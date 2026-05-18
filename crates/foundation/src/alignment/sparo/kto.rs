@@ -187,6 +187,7 @@ impl KtoLossCalculator {
 pub struct KtoTrainer {
     loss_calculator: KtoLossCalculator,
     model: PolicyModel,
+    learning_rate: f32,
 }
 
 impl KtoTrainer {
@@ -194,7 +195,13 @@ impl KtoTrainer {
         Self {
             loss_calculator: KtoLossCalculator::new(config),
             model,
+            learning_rate: 1e-4,
         }
+    }
+
+    /// Set learning rate
+    pub fn set_learning_rate(&mut self, lr: f32) {
+        self.learning_rate = lr;
     }
     
     /// Extract independent labels dari feedback
@@ -242,19 +249,20 @@ impl KtoTrainer {
         let balance_loss = self.loss_calculator.calculate_balance_loss(labels)?;
         let total_loss = main_loss + balance_loss;
         
-        // Update model parameters (simplified implementation)
+        // Update model parameters using real gradient descent
         for label in labels {
             let gradient = self.loss_calculator.calculate_gradient(label)?;
-            self.update_model_parameters(gradient)?;
+            self.update_model_parameters(gradient, label)?;
         }
         
         Ok(total_loss)
     }
     
-    /// Update model parameters
-    fn update_model_parameters(&mut self, gradient: f32) -> Result<()> {
-        // Simplified parameter update - will be expanded
-        // In real implementation, this would update actual neural network parameters
+    /// Update model parameters using real gradient descent
+    fn update_model_parameters(&mut self, gradient: f32, label: &IndependentLabel) -> Result<()> {
+        // Adjust model parameters to decrease KTO loss
+        // If label.is_good, increase log-probability; if bad, decrease it
+        self.model.apply_gradient(&label.prompt, &label.response, gradient, self.learning_rate)?;
         Ok(())
     }
 }

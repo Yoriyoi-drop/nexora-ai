@@ -8,10 +8,21 @@ use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use std::sync::Arc;
 use nexora_foundation::reasoning::{
+    SACAConfig,
     SACAIntegration,
     EnhancedSACASolution,
     CodingTask as SacaCodingTask,
     TaskContext as SacaTaskContext,
+};
+use nexora_foundation::compression::{
+    ATQSConfig,
+    compression::CompressionEngine,
+};
+use nexora_foundation::multimodal::caffeine::{
+    Caffeine,
+    CaffeineConfig,
+    types::MultiModalInputs,
+    types::TextInput,
 };
 
 /// Unified model interface that combines all AI frameworks
@@ -158,7 +169,14 @@ struct BasicSacaModel {
 
 impl BasicSacaModel {
     fn new() -> Self {
-        BasicSacaModel { saca: None }
+        // Try to initialize SACAIntegration; if it fails, fall back to None
+        let rt = tokio::runtime::Runtime::new();
+        let saca = rt.ok().and_then(|rt| {
+            rt.block_on(async {
+                SACAIntegration::new(SACAConfig::default()).await.ok()
+            })
+        });
+        BasicSacaModel { saca: saca.map(Arc::new) }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
@@ -201,6 +219,35 @@ impl UnifiedModelTrait for BasicSacaModel {
     }
 }
 
+/// Helper: initialize SACAIntegration with optional extensions
+fn init_saca_with_extensions(
+    atqs_config: Option<ATQSConfig>,
+    caffeine_config: Option<CaffeineConfig>,
+    has_moe_config: Option<super::serving::unified_api::HasMoeFfnConfig>,
+) -> Option<Arc<SACAIntegration>> {
+    let rt = tokio::runtime::Runtime::new().ok()?;
+    rt.block_on(async {
+        let mut saca = SACAIntegration::new(SACAConfig::default()).await.ok()?;
+        
+        if let Some(cfg) = atqs_config {
+            let engine = CompressionEngine::new(cfg).ok()?;
+            saca = saca.with_atqs_compression(Arc::new(engine));
+        }
+        
+        if let Some(cfg) = caffeine_config {
+            let caffeine = Caffeine::new(cfg).ok()?;
+            saca = saca.with_caffeine(Arc::new(std::sync::Mutex::new(caffeine)));
+        }
+        
+        if let Some(_cfg) = has_moe_config {
+            let router = nexora_foundation::has_moe_ffn::routing::Router::new(768, 8, 2);
+            saca = saca.with_has_moe_routing(Arc::new(router));
+        }
+        
+        Some(Arc::new(saca))
+    })
+}
+
 /// Compressed SACA + ATQS model implementation
 struct CompressedSacaModel {
     saca: Option<Arc<SACAIntegration>>,
@@ -208,7 +255,12 @@ struct CompressedSacaModel {
 
 impl CompressedSacaModel {
     fn new() -> Self {
-        CompressedSacaModel { saca: None }
+        let saca = init_saca_with_extensions(
+            Some(ATQSConfig::default()),
+            None,
+            None,
+        );
+        CompressedSacaModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
@@ -258,7 +310,12 @@ struct MultimodalSacaModel {
 
 impl MultimodalSacaModel {
     fn new() -> Self {
-        MultimodalSacaModel { saca: None }
+        let saca = init_saca_with_extensions(
+            None,
+            Some(CaffeineConfig::medium_model()),
+            None,
+        );
+        MultimodalSacaModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
@@ -308,7 +365,12 @@ struct ExpertSacaModel {
 
 impl ExpertSacaModel {
     fn new() -> Self {
-        ExpertSacaModel { saca: None }
+        let saca = init_saca_with_extensions(
+            None,
+            None,
+            Some(super::serving::unified_api::HasMoeFfnConfig::medium_model()),
+        );
+        ExpertSacaModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
@@ -358,7 +420,12 @@ struct FullIntegrationModel {
 
 impl FullIntegrationModel {
     fn new() -> Self {
-        FullIntegrationModel { saca: None }
+        let saca = init_saca_with_extensions(
+            Some(ATQSConfig::default()),
+            Some(CaffeineConfig::medium_model()),
+            Some(super::serving::unified_api::HasMoeFfnConfig::medium_model()),
+        );
+        FullIntegrationModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {

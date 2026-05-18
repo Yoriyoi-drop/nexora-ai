@@ -31,10 +31,16 @@ rand_chacha = "0.3"
 once_cell = "1.19"
 num_cpus = "1.16"
 itertools = "0.12"
+half = "2"
 
 # BLAS acceleration (libopenblas-dev required on system)
 # Uses raw pkg-config in build.rs for reliable linking in all build targets
 cblas = { version = "0.1", optional = true }
+
+# GPU compute backend (wgpu — cross-platform: NVIDIA, AMD, Intel, Apple)
+wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl"] }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", optional = true }
 
 # Logging and tracing
 tracing = "0.1"
@@ -58,7 +64,7 @@ rand = "0.8"
 
 [features]
 # Core features
-default = ["std"]
+default = ["std", "serde"]
 std = []
 serde = ["dep:serde"]
 
@@ -69,8 +75,11 @@ benchmarks = ["std"]
 experimental = []
 nightly = []
 
+# GPU acceleration (wgpu — cross-platform: NVIDIA, AMD, Intel, Apple Silicon)
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
 # Full feature set
-full = ["std", "serde"]
+full = ["std", "serde", "gpu"]
 
 [lib]
 name = "nexora_deeplearning"

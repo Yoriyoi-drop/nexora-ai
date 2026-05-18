@@ -112,6 +112,7 @@ impl DpoLossCalculator {
 pub struct DpoTrainer {
     loss_calculator: DpoLossCalculator,
     model: PolicyModel,
+    learning_rate: f32,
 }
 
 impl DpoTrainer {
@@ -119,7 +120,13 @@ impl DpoTrainer {
         Self {
             loss_calculator: DpoLossCalculator::new(config),
             model,
+            learning_rate: 1e-4,
         }
+    }
+
+    /// Set learning rate
+    pub fn set_learning_rate(&mut self, lr: f32) {
+        self.learning_rate = lr;
     }
     
     /// Extract preference pairs dari feedback
@@ -160,10 +167,10 @@ impl DpoTrainer {
     pub fn training_step(&mut self, pairs: &[PreferencePair]) -> Result<f32> {
         let loss = self.loss_calculator.calculate_batch_loss(pairs)?;
         
-        // Update model parameters (simplified implementation)
+        // Update model parameters using real gradient descent
         for pair in pairs {
             let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
-            self.update_model_parameters(grad_chosen, grad_rejected)?;
+            self.update_model_parameters(grad_chosen, grad_rejected, pair)?;
         }
         
         Ok(loss)
@@ -191,9 +198,11 @@ impl DpoTrainer {
             .ok_or_else(|| anyhow::anyhow!("Step not found in trace"))
     }
     
-    fn update_model_parameters(&mut self, grad_chosen: f32, grad_rejected: f32) -> Result<()> {
-        // Simplified parameter update - will be expanded
-        // In real implementation, this would update actual neural network parameters
+    fn update_model_parameters(&mut self, grad_chosen: f32, grad_rejected: f32, pair: &PreferencePair) -> Result<()> {
+        // Real gradient descent: increase log-prob of chosen, decrease of rejected
+        // d_loss/d_w = grad_chosen * d(log_prob_chosen)/dw + grad_rejected * d(log_prob_rejected)/dw
+        self.model.apply_gradient(&pair.prompt, &pair.chosen, grad_chosen, self.learning_rate)?;
+        self.model.apply_gradient(&pair.prompt, &pair.rejected, grad_rejected, self.learning_rate)?;
         Ok(())
     }
 }

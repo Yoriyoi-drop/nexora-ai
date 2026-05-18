@@ -5,6 +5,7 @@
 //! dan Code DPO alignment untuk pelatihan end-to-end.
 
 use anyhow::Result;
+use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -242,8 +243,15 @@ impl OracleTrainer {
             let mut batch_count = 0;
             
             for (batch_idx, batch) in batches.iter().enumerate() {
-                // Training step
-                let loss = self.pretrainer.training_step(batch)?;
+                // Convert batch to input_ids for backbone forward pass
+                let input_ids = self.batch_to_input_ids(batch)?;
+                let mask = None;
+                
+                // Real forward pass through OracleBackbone
+                let logits = self.backbone.forward(&input_ids, mask)?;
+                
+                // Training step with real logits for cross-entropy
+                let loss = self.pretrainer.training_step_with_logits(batch, &logits)?;
                 epoch_loss += loss.total_loss;
                 batch_count += 1;
                 
@@ -438,6 +446,24 @@ impl OracleTrainer {
         }
         
         Ok(pairs)
+    }
+    
+    /// Convert TrainingBatch to input_ids array for backbone forward pass
+    fn batch_to_input_ids(&self, batch: &super::pretraining::TrainingBatch) -> Result<Array2<i32>> {
+        let batch_size = batch.examples.len();
+        let max_len = batch.examples.iter()
+            .map(|e| e.tokens.len())
+            .max()
+            .unwrap_or(1)
+            .min(self.config.training.max_seq_len);
+        let mut input_ids = Array2::zeros((batch_size, max_len));
+        
+        for (b, example) in batch.examples.iter().enumerate() {
+            for (t, &token) in example.tokens.iter().enumerate().take(max_len) {
+                input_ids[[b, t]] = token;
+            }
+        }
+        Ok(input_ids)
     }
     
     /// Update position tracker

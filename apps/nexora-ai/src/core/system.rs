@@ -14,7 +14,6 @@ use super::types::{SystemInfo, ComponentStatus, HealthStatus, MemoryStats};
 #[derive(Debug, Clone)]
 pub struct SystemMonitor {
     registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,
-    #[allow(dead_code)]
     config: NexoraConfig,
     start_time: chrono::DateTime<Utc>,
     system_info_cache: Arc<RwLock<Option<SystemInfo>>>,

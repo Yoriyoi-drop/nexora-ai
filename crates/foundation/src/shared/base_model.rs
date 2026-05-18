@@ -333,6 +333,8 @@ pub struct GenerationMetadata {
     pub model_version: String,
     /// Seed used (if deterministic)
     pub seed: Option<u64>,
+    /// Extra metadata
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 /// Finish reason
@@ -475,6 +477,7 @@ impl Default for NxrOutput {
                 generation_time_ms: 0,
                 model_version: "1.0.0".to_string(),
                 seed: None,
+                extras: HashMap::new(),
             },
             performance: PerformanceMetrics {
                 tokens_per_second: 0.0,

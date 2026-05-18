@@ -73,22 +73,51 @@ impl VideoEncoder {
         Ok(sampled)
     }
     
-    /// Encode individual frame
+    /// Encode individual frame using actual pixel data
     fn encode_frame(&self, frame: &ImageInput) -> Result<ArrayD<f32>> {
-        // TODO: frame content is currently ignored — should use actual pixel data from `frame.data`
-        let patch_size = 16; // Standard patch size
-        let seq_len = (frame.width / patch_size) * (frame.height / patch_size);
+        let patch_size = 16;
+        let cols = (frame.width / patch_size).max(1);
+        let rows = (frame.height / patch_size).max(1);
+        let num_patches = cols * rows;
         let embed_dim = self.config.output_dim;
-        
-        let total_elements = seq_len * embed_dim;
-        let mut data = vec![0.0f32; total_elements];
-        
-        for i in 0..total_elements {
-            data[i] = (i as f32 * 0.01).cos();
+        let pixels_per_patch = (patch_size * patch_size).min(frame.data.len());
+
+        let mut features = vec![0.0f32; num_patches * embed_dim];
+        for p in 0..num_patches {
+            let patch_col = p % cols;
+            let patch_row = p / cols;
+            let mut mean_r = 0.0f32;
+            let mut mean_g = 0.0f32;
+            let mut mean_b = 0.0f32;
+            let sample_count = pixels_per_patch.min(frame.data.len() / 3);
+
+            for py in 0..patch_size.min(frame.height - patch_row * patch_size) {
+                for px in 0..patch_size.min(frame.width - patch_col * patch_size) {
+                    let idx = ((patch_row * patch_size + py) * frame.width + (patch_col * patch_size + px)) * 3;
+                    if idx + 2 < frame.data.len() {
+                        mean_r += frame.data[idx] as f32;
+                        mean_g += frame.data[idx + 1] as f32;
+                        mean_b += frame.data[idx + 2] as f32;
+                    }
+                }
+            }
+            let count = sample_count.max(1) as f32;
+            mean_r /= count;
+            mean_g /= count;
+            mean_b /= count;
+
+            for d in 0..embed_dim {
+                let idx = p * embed_dim + d;
+                features[idx] = match d % 3 {
+                    0 => (mean_r / 255.0) * (0.5 + (d as f32 * 0.1).cos()),
+                    1 => (mean_g / 255.0) * (0.5 + (d as f32 * 0.1).sin()),
+                    _ => (mean_b / 255.0) * ((d as f32 * 0.05).cos() + (d as f32 * 0.05).sin()) * 0.5,
+                };
+            }
         }
-        
-        let shape = vec![seq_len, embed_dim];
-        Ok(ArrayD::from_shape_vec(shape, data)?)
+
+        let shape = vec![num_patches, embed_dim];
+        Ok(ArrayD::from_shape_vec(shape, features)?)
     }
     
     /// Apply temporal modeling across frames

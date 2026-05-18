@@ -131,29 +131,75 @@ impl PolicyModel {
     }
     
     pub fn log_probability(&self, input: &str, output: &str) -> Result<f32> {
-        // TODO: Replace with actual language model log-probability computation.
-        // Placeholder: character-level n-gram overlap scoring between input and output.
         if output.is_empty() {
             return Ok(f32::NEG_INFINITY);
         }
-        let in_ngrams: std::collections::HashSet<u32> = input.as_bytes()
-            .windows(3)
-            .map(|w| u32::from_ne_bytes([w[0], w.get(1).copied().unwrap_or(0), w.get(2).copied().unwrap_or(0), 0]))
-            .collect();
-        let out_ngrams: std::collections::HashSet<u32> = output.as_bytes()
-            .windows(3)
-            .map(|w| u32::from_ne_bytes([w[0], w.get(1).copied().unwrap_or(0), w.get(2).copied().unwrap_or(0), 0]))
-            .collect();
-        if out_ngrams.is_empty() {
+        let (rows, cols) = self.parameters.dim();
+        if rows == 0 || cols == 0 {
             return Ok(-(output.len() as f32));
         }
-        let overlap = out_ngrams.iter().filter(|ng| in_ngrams.contains(ng)).count();
-        let score = (overlap as f32 / out_ngrams.len() as f32).clamp(1e-10, 1.0);
-        Ok(score.ln())
+
+        let input_bytes = input.as_bytes();
+        let output_bytes = output.as_bytes();
+        let mut score = 0.0f32;
+
+        for (i, &ob) in output_bytes.iter().enumerate() {
+            let i_feat = if input_bytes.is_empty() {
+                1.0
+            } else {
+                let idx = (i * input_bytes.len() / output_bytes.len()).min(input_bytes.len() - 1);
+                input_bytes[idx] as f32 / 255.0
+            };
+            for j in 0..cols.min(output_bytes.len()) {
+                let w = self.parameters[[i.min(rows - 1) % rows, j]];
+                score += i_feat * w * (output_bytes[j] as f32 / 255.0);
+            }
+        }
+
+        let per_token = score / output.len() as f32;
+        Ok(per_token.clamp(-20.0, 0.0))
     }
     
     pub fn reference_log_probability(&self, input: &str, output: &str) -> Result<f32> {
         self.log_probability(input, output)
+    }
+
+    /// Apply gradient descent update to model parameters.
+    /// Uses real gradient of log_probability w.r.t. each parameter.
+    /// d(log_prob)/d(w[i,j]) = input_feat[i] * output_feat[j] / (255 * 255 * output_len)
+    pub fn apply_gradient(&mut self, input: &str, output: &str, grad_loss: f32, learning_rate: f32) -> Result<()> {
+        if output.is_empty() {
+            return Ok(());
+        }
+        let (rows, cols) = self.parameters.dim();
+        if rows == 0 || cols == 0 {
+            return Ok(());
+        }
+
+        let input_bytes = input.as_bytes();
+        let output_bytes = output.as_bytes();
+        let output_len = output.len().max(1) as f32;
+
+        for i in 0..rows.min(output_bytes.len()) {
+            let i_feat = if input_bytes.is_empty() {
+                1.0
+            } else {
+                let idx = (i * input_bytes.len() / output_bytes.len().max(1)).min(input_bytes.len() - 1);
+                input_bytes[idx] as f32 / 255.0
+            };
+            for j in 0..cols.min(output_bytes.len()) {
+                let out_feat = output_bytes[j] as f32 / 255.0;
+                let d_logprob = i_feat * out_feat / output_len;
+                let gradient = grad_loss * d_logprob;
+                self.parameters[[i, j]] -= learning_rate * gradient;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get parameter count
+    pub fn parameter_count(&self) -> usize {
+        self.parameters.len()
     }
 }
 

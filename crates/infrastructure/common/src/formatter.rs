@@ -33,7 +33,7 @@ pub enum TimestampFormat {
     Unix,
     /// Local time format
     Local,
-    /// Custom format string (not implemented yet)
+    /// Custom format string (uses local time as fallback)
     Custom,
 }
 

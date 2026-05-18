@@ -6,12 +6,13 @@
 //! - RNN, LSTM, GRU layers
 //! - Various deep learning components
 
-#![allow(dead_code, unused_variables)]
-
 pub mod star_x;
 pub mod echo_net;
 pub mod gnac;
 pub mod autograd;
+
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 // Re-export main components
 pub use echo_net::*;

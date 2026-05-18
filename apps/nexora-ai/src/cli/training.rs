@@ -678,7 +678,7 @@ impl crate::cli::commands::Cli {
                 batch_iter.push(samples);
 
                 // Drain batches from shuffle buffer
-                while batch_iter.has_batch() && !stop_flag.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                while batch_iter.remaining() > 0 && !stop_flag.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
                     let batch = batch_iter.next_batch();
                     if batch.is_empty() {
                         break;
@@ -756,7 +756,7 @@ impl crate::cli::commands::Cli {
             // Flush sisa sample di shuffle buffer (< batch_size) agar tidak hilang
             let remaining = batch_iter.remaining();
             if remaining > 0 {
-                let batch = batch_iter.flush();
+                let batch = batch_iter.next_batch();
                 if !batch.is_empty() {
                     progress.add_samples(batch.len() as u64, 1);
                     for sample in &batch {

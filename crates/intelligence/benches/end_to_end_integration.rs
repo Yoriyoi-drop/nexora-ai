@@ -4,9 +4,13 @@
 //! dan HAS-MoE-FFN (expert routing) untuk mengukur performa holistik sistem.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use once_cell::sync::Lazy;
 use std::sync::Arc;
+use tokio::runtime::Runtime;
 use tracing::{info, warn, debug, error, span, Level, Instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+static RUNTIME: Lazy<Runtime> = Lazy::new(|| Runtime::new().expect("Failed to create tokio runtime"));
 
 // Import modul yang akan di-benchmark
 use nexora_foundation::multimodal::caffeine::{Caffeine, CaffeineConfig, MultiModalInputs};
@@ -155,7 +159,7 @@ fn benchmark_full_integration(c: &mut Criterion) {
                     
                     // Jalankan forward pass
                     let start_time = std::time::Instant::now();
-                    let result = caffeine.forward(black_box(&inputs));
+                    let result = RUNTIME.block_on(caffeine.forward(black_box(&inputs)));
                     let duration = start_time.elapsed();
                     
                     black_box(result);
@@ -194,7 +198,7 @@ fn benchmark_caffeine_only(c: &mut Criterion) {
                     debug!("Caffeine baseline instance created");
                     
                     let inputs = create_dummy_multimodal_input(batch_size);
-                    match caffeine.forward(black_box(&inputs)) {
+                    match RUNTIME.block_on(caffeine.forward(black_box(&inputs))) {
                         Ok(result) => {
                             black_box(result);
                         }
@@ -236,7 +240,7 @@ fn benchmark_atqs_caffeine(c: &mut Criterion) {
                     debug!("ATQS+Caffeine instance created");
                     
                     let inputs = create_dummy_multimodal_input(batch_size);
-                    match caffeine.forward(black_box(&inputs)) {
+                    match RUNTIME.block_on(caffeine.forward(black_box(&inputs))) {
                         Ok(result) => {
                             black_box(result);
                         }
@@ -278,7 +282,7 @@ fn benchmark_caffeine_moe(c: &mut Criterion) {
                     debug!("Caffeine+MoE instance created");
                     
                     let inputs = create_dummy_multimodal_input(batch_size);
-                    match caffeine.forward(black_box(&inputs)) {
+                    match RUNTIME.block_on(caffeine.forward(black_box(&inputs))) {
                         Ok(result) => {
                             black_box(result);
                         }
@@ -380,7 +384,7 @@ fn benchmark_memory_usage(c: &mut Criterion) {
             // Measure memory before
             let memory_before = get_memory_usage();
             
-            let _result = caffeine.forward(black_box(&inputs)).unwrap_or_else(|e| {
+            let _result = RUNTIME.block_on(caffeine.forward(black_box(&inputs))).unwrap_or_else(|e| {
                 debug!("Forward failed: {:?}", e);
                 MultiModalOutputs {
                     text: None,
@@ -430,7 +434,7 @@ fn benchmark_latency_breakdown(c: &mut Criterion) {
             
             // Measure full forward pass time (encoding included)
             let start = std::time::Instant::now();
-            let _result = caffeine.forward(black_box(&inputs)).unwrap_or_else(|e| {
+            let _result = RUNTIME.block_on(caffeine.forward(black_box(&inputs))).unwrap_or_else(|e| {
                 debug!("Forward failed: {:?}", e);
                 MultiModalOutputs {
                     text: None,
@@ -464,7 +468,7 @@ fn benchmark_latency_breakdown(c: &mut Criterion) {
             
             // Measure full forward pass time (qformer included)
             let start = std::time::Instant::now();
-            let _result = caffeine.forward(black_box(&inputs)).unwrap_or_else(|e| {
+            let _result = RUNTIME.block_on(caffeine.forward(black_box(&inputs))).unwrap_or_else(|e| {
                 debug!("Forward failed: {:?}", e);
                 MultiModalOutputs {
                     text: None,
@@ -511,7 +515,7 @@ fn benchmark_batch_throughput(c: &mut Criterion) {
                     let inputs = create_dummy_multimodal_input(batch_size);
                     
                     let start = std::time::Instant::now();
-                    let _result = caffeine.forward(black_box(&inputs)).unwrap_or_else(|e| {
+                    let _result = RUNTIME.block_on(caffeine.forward(black_box(&inputs))).unwrap_or_else(|e| {
                         debug!("Batch throughput forward failed: {:?}", e);
                         MultiModalOutputs {
                             text: None,

@@ -18,9 +18,13 @@ pub mod latency;
 pub mod metrics;
 pub mod scheduler;
 pub mod kv_cache;
+pub mod prefix_cache;
+pub mod paged_cache;
 pub mod streaming;
 pub mod blaa_integration;
 pub mod inference_trait;
+pub mod sequence_state;
+pub mod continuous_batching;
 
 // Re-export main types
 pub use engine::{InferenceEngine as InferenceEngineStruct, InferenceConfig};
@@ -35,6 +39,10 @@ pub use token_loop::{TokenLoop, TokenLoopConfig};
 pub use latency::{LatencyTracker, LatencyStats};
 pub use metrics::{InferenceMetrics, MetricsCollector};
 pub use blaa_integration::{BlaaInferenceEngine, BlaaEmbeddingsEngine};
+pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
+pub use paged_cache::{PagedKVCache, PagedCacheConfig, PagedCacheStats, BlockTable};
+pub use sequence_state::{Sequence, SeqState};
+pub use continuous_batching::{ContinuousBatchingEngine, StepResult};
 
 /// Versi inference engine
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

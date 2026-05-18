@@ -9,6 +9,7 @@ pub mod architecture;
 pub mod agents;
 pub mod capabilities;
 
+use std::collections::HashMap;
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -39,6 +40,8 @@ pub struct NxrAxiomModel {
     capabilities: AxiomCapabilities,
     components: FoundationComponents,
     config: AxiomConfig,
+    #[cfg(feature = "hallucination")]
+    hallucination: Option<crate::hallucination_integration::HallucinationIntegration>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +149,8 @@ impl NxrAxiomModel {
             capabilities,
             components: FoundationComponents::new(),
             config,
+            #[cfg(feature = "hallucination")]
+            hallucination: None,
         }
     }
 
@@ -228,6 +233,48 @@ impl NxrAxiomModel {
             expected_roi: 0.15,
             time_to_break_even: 180,
         })
+    }
+
+    #[cfg(feature = "hallucination")]
+    pub fn enable_hallucination_guard(&mut self) {
+        let mut h = crate::hallucination_integration::HallucinationIntegration::new();
+        h.enable();
+        self.hallucination = Some(h);
+    }
+
+    #[cfg(feature = "hallucination")]
+    pub fn disable_hallucination_guard(&mut self) {
+        if let Some(ref mut h) = self.hallucination {
+            h.disable();
+        }
+    }
+
+    #[cfg(feature = "hallucination")]
+    pub fn with_hallucination_guard(mut self, guard: crate::hallucination_integration::HallucinationIntegration) -> Self {
+        self.hallucination = Some(guard);
+        self
+    }
+
+    #[cfg(feature = "hallucination")]
+    async fn run_hallucination_check(&self, input: &crate::shared::base_model::NxrInput) -> Option<crate::hallucination_integration::HallucinationReport> {
+        if let Some(ref h) = self.hallucination {
+            if h.is_enabled() {
+                let text = match &input.data {
+                    crate::shared::base_model::InputData::Text(t) => t.clone(),
+                    _ => return None,
+                };
+                let ctx = input.parameters.get("context")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                return h.check_input(&text, ctx.as_deref()).await;
+            }
+        }
+        None
+    }
+
+    #[cfg(not(feature = "hallucination"))]
+    async fn run_hallucination_check(&self, _input: &crate::shared::base_model::NxrInput) -> Option<crate::hallucination_integration::HallucinationReport> {
+        None
     }
 }
 
@@ -320,6 +367,17 @@ impl NxrModel for NxrAxiomModel {
         let generation_time_ms = start_time.elapsed().as_millis() as u64;
         let total_tokens = result.split_whitespace().count();
 
+        let mut extras = std::collections::HashMap::new();
+        #[cfg(feature = "hallucination")]
+        if let Some(report) = self.run_hallucination_check(input).await {
+            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(report.risk_level));
+            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
+            extras.insert("hallucination_action".to_string(), serde_json::Value::String(report.action));
+            if let Some(disclaimer) = report.disclaimer {
+                extras.insert("hallucination_disclaimer".to_string(), serde_json::Value::String(disclaimer));
+            }
+        }
+
         Ok(NxrOutput {
             id: uuid::Uuid::new_v4(),
             input_id: input.id,
@@ -331,6 +389,7 @@ impl NxrModel for NxrAxiomModel {
                 generation_time_ms,
                 model_version: self.identity.meta().version.clone(),
                 seed: None,
+                extras,
             },
             performance: crate::shared::base_model::PerformanceMetrics {
                 tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),

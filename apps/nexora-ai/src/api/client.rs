@@ -19,7 +19,7 @@ pub struct ApiClient {
 
 impl ApiClient {
     /// Create new API client
-    pub fn new(_nexora: Arc<NexoraAI>, config: ApiConfig) -> Result<Self> {
+    pub fn new(config: ApiConfig) -> Result<Self> {
         let http_config = HttpClientConfig::default();
         
         let client = Client::builder()
@@ -30,12 +30,11 @@ impl ApiClient {
         Ok(Self {
             client,
             config,
-            nexora,
         })
     }
     
     /// Make HTTP request with retry logic
-    async fn make_request(&self, method: reqwest::Method, endpoint: &str, body: Option<Value>) -> Result<Response> {
+    pub async fn make_request(&self, method: reqwest::Method, endpoint: &str, body: Option<Value>) -> Result<Response> {
         let url = format!("{}/{}", self.config.base_url.trim_end_matches('/'), endpoint.trim_start_matches('/'));
         
         let mut request = self.client.request(method, &url);

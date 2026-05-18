@@ -48,14 +48,12 @@ pub struct NexoraAI {
     active_model_id: NxrModelId,
     
     /// System configuration
-    #[allow(dead_code)]
     config: NexoraConfig,
     
     /// System startup timestamp for uptime tracking
     start_time: chrono::DateTime<Utc>,
     
     /// Cached system information to avoid frequent system calls
-    #[allow(dead_code)]
     system_info_cache: Arc<RwLock<Option<SystemInfo>>>,
     
     /// Total request counter for metrics

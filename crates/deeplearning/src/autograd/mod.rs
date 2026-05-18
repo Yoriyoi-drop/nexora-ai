@@ -2,9 +2,17 @@ pub mod tensor;
 pub mod tape;
 pub mod engine;
 pub mod broadcast;
+pub mod device;
 pub mod ops;
+pub mod mixed_precision;
+pub mod data_parallel;
+pub mod training_pipeline;
 
 pub use tensor::Tensor;
+pub use device::{Device, Storage};
+pub use mixed_precision::{DType, LossScaler};
+pub use data_parallel::{GradientAccumulator, DataParallel, DataParallelConfig};
+pub use training_pipeline::{TrainingLoop, TrainingLoopConfig, TrainingMetrics, Checkpoint, compute_grad_norm};
 pub use ops::*;
 use ndarray::ArrayD;
 
@@ -155,9 +163,9 @@ pub struct Adam {
     pub eps: f32,
     pub weight_decay: f32,
     pub max_grad_norm: Option<f32>,
-    step: usize,
-    m: Vec<ArrayD<f32>>,
-    v: Vec<ArrayD<f32>>,
+    pub(crate) step: usize,
+    pub(crate) m: Vec<ArrayD<f32>>,
+    pub(crate) v: Vec<ArrayD<f32>>,
 }
 
 impl Adam {

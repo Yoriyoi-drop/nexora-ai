@@ -4,9 +4,7 @@
 //! dengan ContraCode untuk pemahaman semantik kode yang lebih baik.
 
 use anyhow::Result;
-use ndarray::{Array1, Array2, Array3, Array4, s};
-use ndarray_rand::RandomExt;
-use rand::distributions::Standard;
+use ndarray::{Array1, Array2, Array3, s};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -458,8 +456,8 @@ impl DualLossCalculator {
     
     /// Compute dual loss (FIM + Contrastive)
     pub fn compute_dual_loss(&self, batch: &TrainingBatch) -> Result<DualLoss> {
-        // Compute FIM loss
-        let fim_loss = self.compute_fim_loss(batch)?;
+        // Compute FIM loss using uniform distribution fallback
+        let fim_loss = self.compute_fim_loss_uniform(batch)?;
         
         // Compute contrastive loss
         let contrastive_loss = self.compute_contrastive_loss_for_batch(batch)?;
@@ -474,18 +472,56 @@ impl DualLossCalculator {
         })
     }
     
-    /// Compute FIM loss for batch
-    fn compute_fim_loss(&self, batch: &TrainingBatch) -> Result<f32> {
+    /// Compute dual loss with actual model logits for real cross-entropy
+    pub fn compute_dual_loss_with_logits(
+        &self,
+        batch: &TrainingBatch,
+        logits: &Array3<f32>,
+    ) -> Result<DualLoss> {
+        // Compute FIM loss with real logits
+        let fim_loss = self.compute_fim_loss(batch, logits)?;
+        
+        // Compute contrastive loss
+        let contrastive_loss = self.compute_contrastive_loss_for_batch(batch)?;
+        
+        // Combine losses
+        let total_loss = fim_loss + self.config.contrastive_weight * contrastive_loss;
+        
+        Ok(DualLoss {
+            fim_loss,
+            contrastive_loss,
+            total_loss,
+        })
+    }
+    
+    /// Compute FIM loss for batch (uniform fallback)
+    fn compute_fim_loss_uniform(&self, batch: &TrainingBatch) -> Result<f32> {
         let mut total_fim_loss = 0.0;
         let mut num_examples = 0;
         
         for example in &batch.examples {
-            // Apply FIM transformation
             let fim_example = self.fim_processor.apply_fim(&example.tokens)?;
             let model_input = self.fim_processor.to_model_input(&fim_example)?;
-            
-            // Compute cross-entropy loss (simplified)
-            let loss = self.compute_cross_entropy_loss(&model_input)?;
+            let loss = self.compute_cross_entropy_loss_uniform(&model_input)?;
+            total_fim_loss += loss;
+            num_examples += 1;
+        }
+        
+        Ok(if num_examples > 0 { total_fim_loss / num_examples as f32 } else { 0.0 })
+    }
+    
+    /// Compute FIM loss with actual logits for real cross-entropy
+    fn compute_fim_loss(&self, batch: &TrainingBatch, logits: &Array3<f32>) -> Result<f32> {
+        let mut total_fim_loss = 0.0;
+        let mut num_examples = 0;
+        let (batch_size, seq_len, vocab_size) = logits.dim();
+        
+        for (idx, example) in batch.examples.iter().enumerate() {
+            if idx >= batch_size { break; }
+            let fim_example = self.fim_processor.apply_fim(&example.tokens)?;
+            let model_input = self.fim_processor.to_model_input(&fim_example)?;
+            let logits_slice = logits.slice(s![idx, .., ..]).to_owned();
+            let loss = compute_real_cross_entropy(&logits_slice, &model_input)?;
             total_fim_loss += loss;
             num_examples += 1;
         }
@@ -507,24 +543,44 @@ impl DualLossCalculator {
         self.contrastive_learner.compute_contrastive_loss(&pairs)
     }
     
-    /// Compute cross-entropy loss (simplified)
-    fn compute_cross_entropy_loss(&self, model_input: &ModelInput) -> Result<f32> {
+    /// Compute cross-entropy loss (uniform fallback)
+    fn compute_cross_entropy_loss_uniform(&self, model_input: &ModelInput) -> Result<f32> {
         let mut loss = 0.0;
         let mut count = 0;
         
-        for (i, &label) in model_input.labels.iter().enumerate() {
-            if label >= 0 { // Ignore padding tokens
-                // Simplified: assume uniform distribution
-                let predicted_prob = 1.0 / self.config.vocab_size as f32;
-                let target_prob = 1.0 / self.config.vocab_size as f32;
-                
-                loss += - (target_prob + 1e-8).ln();
+        for &label in &model_input.labels {
+            if label >= 0 {
+                loss += -(1.0 / self.config.vocab_size as f32 + 1e-8).ln();
                 count += 1;
             }
         }
         
         Ok(if count > 0 { loss / count as f32 } else { 0.0 })
     }
+}
+
+/// Compute real cross-entropy loss from logits and labels
+pub fn compute_real_cross_entropy(logits: &Array2<f32>, model_input: &ModelInput) -> Result<f32> {
+    let (seq_len_logits, vocab_size) = logits.dim();
+    let mut loss = 0.0;
+    let mut count = 0;
+    
+    for (t, &label) in model_input.labels.iter().enumerate() {
+        if label >= 0 && t < seq_len_logits && (label as usize) < vocab_size {
+            let logit_row = logits.slice(s![t, ..]);
+            let max_val = logit_row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let mut sum_exp = 0.0;
+            for &v in logit_row.iter() {
+                sum_exp += (v - max_val).exp();
+            }
+            let log_sum_exp = max_val + sum_exp.ln();
+            let nll = log_sum_exp - logit_row[label as usize];
+            loss += nll;
+            count += 1;
+        }
+    }
+    
+    Ok(if count > 0 { loss / count as f32 } else { 0.0 })
 }
 
 /// Training batch for pretraining
@@ -565,11 +621,27 @@ impl OraclePretrainer {
         }
     }
     
-    /// Training step
+    /// Training step (uniform fallback)
     pub fn training_step(&mut self, batch: &TrainingBatch) -> Result<DualLoss> {
         let loss = self.dual_loss_calculator.compute_dual_loss(batch)?;
         
         // Update training state
+        self.training_state.step_count += 1;
+        self.training_state.total_loss += loss.total_loss;
+        self.training_state.fim_loss += loss.fim_loss;
+        self.training_state.contrastive_loss += loss.contrastive_loss;
+        
+        Ok(loss)
+    }
+    
+    /// Training step with actual model logits for real cross-entropy
+    pub fn training_step_with_logits(
+        &mut self,
+        batch: &TrainingBatch,
+        logits: &Array3<f32>,
+    ) -> Result<DualLoss> {
+        let loss = self.dual_loss_calculator.compute_dual_loss_with_logits(batch, logits)?;
+        
         self.training_state.step_count += 1;
         self.training_state.total_loss += loss.total_loss;
         self.training_state.fim_loss += loss.fim_loss;

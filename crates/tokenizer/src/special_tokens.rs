@@ -87,7 +87,7 @@ impl SpecialTokenID {
     /// Check if this is a start token
     pub fn is_start(&self) -> bool {
         matches!(self,
-            SpecialTokenID::Bos | SpecialTokenID::CodeStart | SpecialTokenID::MathStart |
+            SpecialTokenID::CodeStart | SpecialTokenID::MathStart |
             SpecialTokenID::DocStart | SpecialTokenID::UserStart | SpecialTokenID::AssistantStart |
             SpecialTokenID::SystemStart | SpecialTokenID::AnswerStart | SpecialTokenID::BugStart |
             SpecialTokenID::FixStart | SpecialTokenID::DiffStart | SpecialTokenID::TracebackStart |
@@ -321,22 +321,15 @@ impl SpecialTokens {
         let mut stack = Vec::with_capacity(token_ids.len());
         
         for (i, &id) in token_ids.iter().enumerate() {
-            if let Some(token_str) = self.get_token_str(id) {
-                // Check if it's an end token
-                if let Some(end_token) = self.get_id_by_str(token_str) {
-                    if let Some(start_token) = Self::get_special_token_by_id(end_token).and_then(|t| t.matching_start()) {
-                        // Look for matching start token in stack
-                        if let Some(stack_pos) = stack.iter().rposition(|&(stack_id, stack_token)| {
-                            stack_id == self.get_id(&start_token) as usize && stack_token == start_token
-                        }) {
-                            let (start_idx, _) = stack.remove(stack_pos);
-                            pairs.push((start_idx, i));
-                        }
+            if let Some(special_token) = Self::get_special_token_by_id(id) {
+                if let Some(start_token) = special_token.matching_start() {
+                    // It's an end token — find matching start
+                    if let Some(stack_pos) = stack.iter().rposition(|&(_, st)| st == start_token) {
+                        let (start_idx, _) = stack.remove(stack_pos);
+                        pairs.push((start_idx, i));
                     }
-                } else if let Some(start_token) = Self::get_special_token_by_id(id) {
-                    if start_token.is_start() {
-                        stack.push((i, start_token));
-                    }
+                } else if special_token.is_start() {
+                    stack.push((i, special_token));
                 }
             }
         }

@@ -10,6 +10,7 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
@@ -113,6 +114,8 @@ macro_rules! define_foundation_model {
             total_generated: AtomicU64,
             total_time_ms: AtomicU64,
             start_time: chrono::DateTime<chrono::Utc>,
+            #[cfg(feature = "hallucination")]
+            hallucination: Option<crate::hallucination_integration::HallucinationIntegration>,
         }
 
         impl $name {
@@ -126,6 +129,8 @@ macro_rules! define_foundation_model {
                     total_generated: AtomicU64::new(0),
                     total_time_ms: AtomicU64::new(0),
                     start_time: chrono::Utc::now(),
+                    #[cfg(feature = "hallucination")]
+                    hallucination: None,
                 }
             }
 
@@ -133,6 +138,53 @@ macro_rules! define_foundation_model {
                 let mut m = Self::new();
                 m.tokenizer = Some(t);
                 m
+            }
+
+            #[cfg(feature = "hallucination")]
+            pub fn enable_hallucination_guard(&mut self) {
+                let integration = crate::hallucination_integration::HallucinationIntegration::new();
+                self.hallucination = Some(integration);
+                self.hallucination.as_mut().unwrap().enable();
+            }
+
+            #[cfg(feature = "hallucination")]
+            pub fn disable_hallucination_guard(&mut self) {
+                if let Some(ref mut h) = self.hallucination {
+                    h.disable();
+                }
+            }
+
+            #[cfg(feature = "hallucination")]
+            pub fn with_hallucination_guard(mut self, guard: crate::hallucination_integration::HallucinationIntegration) -> Self {
+                self.hallucination = Some(guard);
+                self
+            }
+
+            #[cfg(feature = "hallucination")]
+            fn run_hallucination_check(&self, input: &NxrInput) -> Option<crate::hallucination_integration::HallucinationReport> {
+                if let Some(ref h) = self.hallucination {
+                    if h.is_enabled() {
+                        let text = match &input.data {
+                            InputData::Text(t) => t.clone(),
+                            _ => return None,
+                        };
+                        let ctx = input.parameters.get("context")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        let result = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                h.check_input(&text, ctx.as_deref()).await
+                            })
+                        });
+                        return result;
+                    }
+                }
+                None
+            }
+
+            #[cfg(not(feature = "hallucination"))]
+            fn run_hallucination_check(&self, _input: &NxrInput) -> Option<crate::hallucination_integration::HallucinationReport> {
+                None
             }
 
             fn get_or_init_model(&self) -> std::sync::MutexGuard<Option<CausalLM>> {
@@ -186,6 +238,8 @@ macro_rules! define_foundation_model {
                         total_generated: AtomicU64::new(0),
                         total_time_ms: AtomicU64::new(0),
                         start_time: chrono::Utc::now(),
+                        #[cfg(feature = "hallucination")]
+                        hallucination: None,
                     },
                     Err(e) => {
                         tracing::warn!(target: stringify!($name), "Checkpoint load failed (will use random init): {}", e);
@@ -214,6 +268,8 @@ macro_rules! define_foundation_model {
                     total_generated: AtomicU64::new(self.total_generated.load(Ordering::Relaxed)),
                     total_time_ms: AtomicU64::new(self.total_time_ms.load(Ordering::Relaxed)),
                     start_time: self.start_time,
+                    #[cfg(feature = "hallucination")]
+                    hallucination: None,
                 }
             }
         }
@@ -307,7 +363,7 @@ macro_rules! define_foundation_model {
                 self.total_generated.fetch_add(n_tokens as u64, Ordering::Relaxed);
                 self.total_time_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
 
-                Ok(NxrOutput {
+                let mut output = NxrOutput {
                     id: uuid::Uuid::new_v4(),
                     input_id: input.id,
                     timestamp: chrono::Utc::now(),
@@ -318,6 +374,7 @@ macro_rules! define_foundation_model {
                         generation_time_ms: elapsed_ms,
                         model_version: self.identity().version.clone(),
                         seed: None,
+                        extras: HashMap::new(),
                     },
                     performance: PerformanceMetrics {
                         tokens_per_second: if elapsed_ms > 0 { n_tokens as f32 / elapsed_ms as f32 * 1000.0 } else { 0.0 },
@@ -326,7 +383,25 @@ macro_rules! define_foundation_model {
                         cpu_utilization: 100.0,
                         network_usage_mbps: None,
                     },
-                })
+                };
+
+                #[cfg(feature = "hallucination")]
+                if let Some(report) = self.run_hallucination_check(input) {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("hallucination_risk".to_string(), serde_json::json!(report.risk_level));
+                    meta.insert("hallucination_score".to_string(), serde_json::json!(report.score));
+                    meta.insert("hallucination_action".to_string(), serde_json::json!(report.action));
+                    if let Some(disclaimer) = &report.disclaimer {
+                        meta.insert("disclaimer".to_string(), serde_json::json!(disclaimer));
+                        if let OutputData::Text(ref t) = output.data {
+                            let annotated = format!("{}\n\nDISCLAIMER: {}", t, disclaimer);
+                            output.data = OutputData::Text(annotated);
+                        }
+                    }
+                    output.metadata.extras = meta;
+                }
+
+                Ok(output)
             }
 
             #[instrument(skip_all, fields(model_id = %self.identity().model_id))]

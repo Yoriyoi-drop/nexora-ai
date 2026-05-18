@@ -1,3 +1,4 @@
+pub mod awq;
 pub mod calibration;
 pub mod compression;
 pub mod config;
@@ -11,6 +12,7 @@ pub mod types;
 pub mod utils;
 
 // Re-export main components
+pub use awq::*;
 pub use config::*;
 pub use compression::*;
 pub use types::*;

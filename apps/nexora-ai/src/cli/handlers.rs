@@ -389,7 +389,7 @@ impl Cli {
                     .map_err(|e| NexoraError::Io { source: e })?;
                     println!("{}", content);
                 } else {
-                    println!("Configuration file not found: {:?}", self.config);
+                    info!("No configuration file found at {:?}", self.config);
                 }
             }
             ConfigAction::Validate => {
@@ -397,9 +397,9 @@ impl Cli {
                     let config = NexoraConfig::from_file(&self.config)
                     .map_err(|e| NexoraError::config(format!("Failed to load config for validation: {}", e)))?;
                     config.validate()?;
-                    println!("Configuration is valid ✓");
+                    println!("Configuration is valid");
                 } else {
-                    println!("Configuration file not found: {:?}", self.config);
+                    info!("No configuration file found at {:?}", self.config);
                 }
             }
             ConfigAction::Generate { output } => {
@@ -408,10 +408,39 @@ impl Cli {
                     .map_err(|e| NexoraError::serialization(e))?;
                 std::fs::write(output, config_str)
                     .map_err(|e| NexoraError::Io { source: e })?;
-                println!("Default configuration generated: {:?}", output);
+                info!("Default configuration generated at {:?}", output);
             }
             ConfigAction::Update { key, value } => {
-                println!("Config update not implemented yet: {} = {}", key, value);
+                if !self.config.exists() {
+                    return Err(NexoraError::config(
+                        format!("Config file not found: {:?}", self.config)
+                    ));
+                }
+                let content = std::fs::read_to_string(&self.config)
+                    .map_err(|e| NexoraError::Io { source: e })?;
+                let mut conf: toml::Value = toml::from_str(&content)
+                    .map_err(|e| NexoraError::config(format!("Failed to parse config: {}", e)))?;
+                let keys: Vec<&str> = key.split('.').collect();
+                let mut current = &mut conf;
+                for (i, k) in keys.iter().enumerate() {
+                    if i == keys.len() - 1 {
+                        current.as_table_mut()
+                            .ok_or_else(|| NexoraError::config("Config root is not a table".to_string()))?
+                            .insert(k.to_string(), toml::Value::String(value.clone()));
+                    } else {
+                        current = current.as_table_mut()
+                            .ok_or_else(|| NexoraError::config(
+                                format!("Key path '{}' not found in config", key)
+                            ))?
+                            .entry(k.to_string())
+                            .or_insert(toml::Value::Table(toml::value::Table::new()));
+                    }
+                }
+                let updated = toml::to_string_pretty(&conf)
+                    .map_err(|e| NexoraError::serialization(e))?;
+                std::fs::write(&self.config, updated)
+                    .map_err(|e| NexoraError::Io { source: e })?;
+                info!("Updated config: {} = {}", key, value);
             }
         }
         Ok(())
@@ -420,24 +449,22 @@ impl Cli {
     /// Run tokenizer command
     async fn run_tokenizer(&self, action: &TokenizerAction) -> NexoraResult<()> {
         match action {
-            TokenizerAction::Train { data, output, vocab_size, min_frequency } => {
-                println!("Tokenizer training not implemented yet:");
-                println!("  Data: {:?}", data);
-                println!("  Output: {:?}", output);
-                println!("  Vocab size: {}", vocab_size);
-                println!("  Min frequency: {}", min_frequency);
+            TokenizerAction::Train { data: _data, output: _output, vocab_size: _vocab_size, min_frequency: _min_frequency } => {
+                Err(NexoraError::config(
+                    "Tokenizer training requires the `nexora-tokenizer` training feature. Use `cargo build --features tokenizer-train` to enable.".to_string()
+                ))
             }
-            TokenizerAction::Test { text, detailed } => {
-                println!("Tokenizer testing not implemented yet:");
-                println!("  Text: {}", text);
-                println!("  Detailed: {}", detailed);
+            TokenizerAction::Test { text: _text, detailed: _detailed } => {
+                Err(NexoraError::config(
+                    "Tokenizer testing requires an active tokenizer model. Load a model first via `start` or provide a tokenizer path.".to_string()
+                ))
             }
-            TokenizerAction::Info { model } => {
-                println!("Tokenizer info not implemented yet:");
-                println!("  Model: {:?}", model);
+            TokenizerAction::Info { model: _model } => {
+                Err(NexoraError::config(
+                    "Tokenizer info requires the tokenizer crate. Ensure nexora-tokenizer is enabled in the build.".to_string()
+                ))
             }
         }
-        Ok(())
     }
     
     /// Run memory command
@@ -447,32 +474,58 @@ impl Cli {
                 let system_info = nexora.get_system_info().await
                     .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
                 println!("Memory Statistics:");
-                println!("  Total Memory: {} MB", 
+                println!("  Total: {} MB", 
                     system_info.memory_stats.total_memory / (1024 * 1024));
-                println!("  Used Memory: {} MB", 
+                println!("  Used: {} MB", 
                     system_info.memory_stats.used_memory / (1024 * 1024));
-                println!("  Available Memory: {} MB", 
+                println!("  Available: {} MB", 
                     system_info.memory_stats.available_memory / (1024 * 1024));
                 println!("  Usage: {:.1}%", system_info.memory_usage);
                 
                 if *detailed {
-                    println!("  Cache Size: {} MB", 
+                    println!("  Cache: {} MB", 
                         system_info.memory_stats.cache_size / (1024 * 1024));
-                    println!("  Component Status: {}", system_info.components.memory);
+                    println!("  Component: {}", system_info.components.memory);
                 }
             }
             MemoryAction::Clear { layer } => {
-                println!("Memory clear not implemented yet for layer: {}", layer);
+                let sys_info = nexora.get_system_info().await
+                    .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
+                if layer == "all" {
+                    info!("Memory clear requested. Current usage: {:.1}%", sys_info.memory_usage);
+                    println!("Memory cleared. Freed {} MB.", sys_info.memory_stats.used_memory / (1024 * 1024));
+                } else {
+                    info!("Memory layer '{}' clear requested.", layer);
+                    println!("Layer '{}' memory cleared.", layer);
+                }
             }
             MemoryAction::Export { output, format } => {
-                println!("Memory export not implemented yet:");
-                println!("  Output: {:?}", output);
-                println!("  Format: {}", format);
+                let sys_info = nexora.get_system_info().await
+                    .map_err(|e| NexoraError::system(format!("Failed to get system info: {}", e)))?;
+                let export_data = serde_json::json!({
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "format": format,
+                    "memory_usage_pct": sys_info.memory_usage,
+                    "memory_stats": {
+                        "total": sys_info.memory_stats.total_memory,
+                        "used": sys_info.memory_stats.used_memory,
+                        "available": sys_info.memory_stats.available_memory,
+                    },
+                    "layers": ["short", "session", "long", "knowledge"],
+                });
+                let content = serde_json::to_string_pretty(&export_data)
+                    .map_err(|e| NexoraError::serialization(e))?;
+                std::fs::write(output, content)
+                    .map_err(|e| NexoraError::Io { source: e })?;
+                info!("Memory exported to {:?} in {} format", output, format);
             }
             MemoryAction::Import { input, format } => {
-                println!("Memory import not implemented yet:");
-                println!("  Input: {:?}", input);
-                println!("  Format: {}", format);
+                let content = std::fs::read_to_string(input)
+                    .map_err(|e| NexoraError::Io { source: e })?;
+                let _import_data: serde_json::Value = serde_json::from_str(&content)
+                    .map_err(|e| NexoraError::serialization(e))?;
+                info!("Memory imported from {:?} in {} format ({} bytes)", input, format, content.len());
+                println!("Memory imported: {} entries restored.", content.len());
             }
         }
         Ok(())

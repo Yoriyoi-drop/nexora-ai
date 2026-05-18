@@ -1,3 +1,5 @@
+pub mod lora;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 

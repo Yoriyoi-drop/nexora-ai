@@ -350,7 +350,7 @@ impl NexoraConfig {
         debug!("Configuration metrics:");
         debug!("  - Total configuration sections: 7");
         debug!("  - Estimated memory footprint: ~{}KB", self.estimate_memory_usage());
-        debug!("  - Configuration complexity: {}", self.calculate_complexity());
+        debug!("  - Configuration complexity: {}", self.summary().len());
         
         Ok(())
     }

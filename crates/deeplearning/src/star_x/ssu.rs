@@ -24,11 +24,8 @@ pub struct SelectiveStateUpdate {
     update_bias: Array1<f32>,
     
     // Fused operations for optimization
-    #[allow(dead_code)]
     fused_relevance: Option<FusedLinearActivation>,
-    #[allow(dead_code)]
     fused_update: Option<FusedLinearActivation>,
-    #[allow(dead_code)]
     fused_element_wise: Option<FusedElementWise>,
     
     // Configuration

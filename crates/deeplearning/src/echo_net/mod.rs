@@ -70,7 +70,7 @@ use crate::{DLResult, DeepLearningError};
 use ndarray::ArrayD;
 
 /// Konfigurasi ECHO-Net Ω
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EchoNetConfig {
     // Model dimensions
     pub vocab_size: usize,

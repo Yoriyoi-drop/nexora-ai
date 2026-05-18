@@ -232,7 +232,7 @@ impl UnifiedModel {
         if let Some(caffeine) = &self.caffeine_model {
             let mut guard = caffeine.lock()
                 .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { format!("Failed to lock caffeine model: {}", e).into() })?;
-            guard.forward(inputs)
+            guard.forward(inputs).await
                 .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { format!("Caffeine forward failed: {}", e).into() })
         } else {
             Err(Box::<dyn std::error::Error + Send + Sync>::from("CAFFEINE model not enabled"))

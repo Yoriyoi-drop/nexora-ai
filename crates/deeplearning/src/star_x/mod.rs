@@ -48,7 +48,7 @@ use crate::DLResult;
 use ndarray::ArrayD;
 
 /// Konfigurasi STAR-X
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StarXConfig {
     // Model dimensions
     pub input_size: usize,

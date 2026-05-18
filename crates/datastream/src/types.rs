@@ -41,8 +41,6 @@ pub enum SourceCategory {
     Other,
 }
 
-// TODO: This Domain enum overlaps with DomainType in crates/data/src/domain_splitter.rs.
-// These should be unified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Domain {
     Code,
@@ -83,8 +81,6 @@ pub struct SampleStats {
     pub quality_score: f64,
 }
 
-// TODO: CurriculumLevel (enum) is inconsistent with DataSample.curriculum_level
-// (Option<u8>). These should be reconciled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CurriculumLevel {

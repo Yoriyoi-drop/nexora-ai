@@ -99,13 +99,14 @@ impl BpeTokenizer {
         
         // Step 1: Initialize vocabulary with individual characters
         let mut vocab: HashSet<String> = HashSet::new();
-        let mut word_freqs: HashMap<String, u32> = HashMap::new();
+        let mut word_freqs: HashMap<Vec<String>, u32> = HashMap::new();
         
         // Preprocess corpus and count word frequencies
         for line in corpus.lines() {
             let processed_line = self.preprocess_line(line);
             for word in processed_line.split_whitespace() {
-                *word_freqs.entry(word.to_string()).or_insert(0) += 1;
+                let tokens: Vec<String> = word.chars().map(|c| c.to_string()).collect();
+                *word_freqs.entry(tokens).or_insert(0) += 1;
                 
                 // Add individual characters to vocabulary
                 for char in word.chars() {
@@ -134,6 +135,11 @@ impl BpeTokenizer {
                 
                 // Create new token
                 let new_token = pair.0.clone() + &pair.1;
+                
+                // Skip if this token already exists (would be no-op)
+                if current_vocab.contains(&new_token) {
+                    break;
+                }
                 
                 // Add to vocabulary and merges
                 current_vocab.insert(new_token.clone());
@@ -166,49 +172,43 @@ impl BpeTokenizer {
     }
     
     fn preprocess_line(&self, line: &str) -> String {
-        // Convert to lowercase and handle Unicode
         line.to_lowercase()
     }
     
-    fn find_most_frequent_pair(&self, word_freqs: &HashMap<String, u32>, vocab: &HashSet<String>) -> Option<((String, String), u32)> {
-        let mut pair_freqs: HashMap<(String, String), u32> = HashMap::with_capacity(word_freqs.len());
+    fn find_most_frequent_pair(&self, word_freqs: &HashMap<Vec<String>, u32>, vocab: &HashSet<String>) -> Option<((String, String), u32)> {
+        let mut pair_freqs: HashMap<(String, String), u32> = HashMap::new();
         
-        for (word, freq) in word_freqs {
-            let chars: Vec<String> = word.chars().map(|c| c.to_string()).collect();
-            
-            for i in 0..chars.len() - 1 {
-                let pair = (chars[i].clone(), chars[i + 1].clone());
+        for (tokens, freq) in word_freqs {
+            for i in 0..tokens.len().saturating_sub(1) {
+                let pair = (tokens[i].clone(), tokens[i + 1].clone());
                 
-                // Only consider pairs where both tokens are in vocabulary
                 if vocab.contains(&pair.0) && vocab.contains(&pair.1) {
                     *pair_freqs.entry(pair).or_insert(0) += freq;
                 }
             }
         }
         
-        // Find most frequent pair
         pair_freqs.into_iter()
             .max_by_key(|&(_, freq)| freq)
             .map(|(pair, freq)| (pair, freq))
     }
     
-    fn update_word_freqs(&self, word_freqs: &mut HashMap<String, u32>, pair: &(String, String), new_token: &str) {
+    fn update_word_freqs(&self, word_freqs: &mut HashMap<Vec<String>, u32>, pair: &(String, String), new_token: &str) {
         let mut new_word_freqs = HashMap::with_capacity(word_freqs.len());
         
-        for (word, freq) in word_freqs.iter() {
-            let mut new_word = word.clone();
-            
-            // Replace all occurrences of the pair
-            let pair_str = pair.0.clone() + &pair.1;
-            while let Some(pos) = new_word.find(&pair_str) {
-                new_word.replace_range(pos..pos + pair.0.len() + pair.1.len(), new_token);
+        for (tokens, freq) in word_freqs.iter() {
+            let mut new_tokens = Vec::with_capacity(tokens.len());
+            let mut i = 0;
+            while i < tokens.len() {
+                if i + 1 < tokens.len() && tokens[i] == pair.0 && tokens[i + 1] == pair.1 {
+                    new_tokens.push(new_token.to_string());
+                    i += 2;
+                } else {
+                    new_tokens.push(tokens[i].clone());
+                    i += 1;
+                }
             }
-            
-            if new_word != *word {
-                *new_word_freqs.entry(new_word).or_insert(0) += freq;
-            } else {
-                *new_word_freqs.entry(new_word).or_insert(0) += freq;
-            }
+            *new_word_freqs.entry(new_tokens).or_insert(0) += freq;
         }
         
         *word_freqs = new_word_freqs;
@@ -239,19 +239,7 @@ impl BpeTokenizer {
     }
     
     fn encode_word(&self, word: &str) -> Vec<u32> {
-        // Convert word to bytes
-        let byte_tokens: Vec<String> = word.chars()
-            .map(|c| {
-                if let Some(&byte_val) = self.unicode_to_byte.get(&c) {
-                    format!("{:02x}", byte_val)
-                } else {
-                    "00".to_string() // Unknown character
-                }
-            })
-            .collect();
-        
-        // Apply BPE merges
-        let mut tokens = byte_tokens;
+        let mut tokens: Vec<String> = word.chars().map(|c| c.to_string()).collect();
         
         loop {
             let mut best_pair: Option<(usize, usize)> = None;
@@ -292,25 +280,10 @@ impl BpeTokenizer {
         
         for &token_id in token_ids {
             if let Some(token) = self.reverse_vocab.get(&token_id) {
-                // Skip special tokens
                 if self.config.special_tokens.contains_key(token) {
                     continue;
                 }
-                
-                // Convert token back to bytes
-                let mut chars = Vec::new();
-                for i in (0..token.len()).step_by(2) {
-                    if i + 1 < token.len() {
-                        let byte_str = &token[i..i + 2];
-                        if let Ok(byte_val) = u8::from_str_radix(byte_str, 16) {
-                            if let Some(&unicode_char) = self.byte_to_unicode.get(&byte_val) {
-                                chars.push(unicode_char);
-                            }
-                        }
-                    }
-                }
-                
-                text.push_str(&chars.into_iter().collect::<String>());
+                text.push_str(token);
             }
         }
         
@@ -541,6 +514,8 @@ mod tests {
         let mut special_tokens = HashMap::new();
         special_tokens.insert("<unk>".to_string(), 0);
         special_tokens.insert("<pad>".to_string(), 1);
+        special_tokens.insert("<bos>".to_string(), 2);
+        special_tokens.insert("<eos>".to_string(), 3);
         
         let tokenizer = BpeTokenizer::new(BpeConfig {
             vocab_size: 1000,
@@ -552,11 +527,8 @@ mod tests {
             eos_token: "<eos>".to_string(),
         });
         
-        // Test encoding with special tokens
         let tokens = tokenizer.encode("test");
-        
-        // Should include BOS and EOS tokens
-        assert!(tokens.len() >= 2); // At least BOS and EOS
+        assert!(tokens.len() >= 2);
     }
     
     #[test]
@@ -569,6 +541,7 @@ mod tests {
         
         // Save to temporary directory
         let temp_dir = std::env::temp_dir().join("test_tokenizer_save_load");
+        std::fs::create_dir_all(&temp_dir).unwrap_or(());
         let temp_path = temp_dir.to_str().unwrap();
         tokenizer.save(temp_path).unwrap();
         

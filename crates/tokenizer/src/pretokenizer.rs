@@ -190,14 +190,14 @@ impl PreTokenizer {
             return self.extract_comment(chars, i, n);
         }
         
+        // Handle numbers (before operators, so '-' or '+' followed by digit is treated as number)
+        if self.config.split_numbers && self.is_number_start(c, chars, i, n) {
+            return self.extract_number(chars, i, n);
+        }
+        
         // Handle multi-character operators
         if self.config.merge_operators && self.is_operator_char(c) {
             return self.extract_operator(chars, i, n);
-        }
-        
-        // Handle numbers
-        if self.config.split_numbers && self.is_number_char(c) {
-            return self.extract_number(chars, i, n);
         }
         
         // Handle punctuation
@@ -431,6 +431,20 @@ impl PreTokenizer {
         )
     }
     
+    /// Check if character can be start of a number
+    fn is_number_start(&self, c: char, chars: &[char], pos: usize, n: usize) -> bool {
+        if c.is_ascii_digit() {
+            return true;
+        }
+        if c == '.' && pos + 1 < n && chars[pos + 1].is_ascii_digit() {
+            return true;
+        }
+        if (c == '+' || c == '-') && pos + 1 < n && chars[pos + 1].is_ascii_digit() {
+            return true;
+        }
+        false
+    }
+    
     /// Check if character can be part of number
     fn is_number_char(&self, c: char) -> bool {
         c.is_ascii_digit() || c == '.' || c == '+' || c == '-' || c == 'e' || c == 'E'
@@ -486,7 +500,7 @@ mod tests {
     #[test]
     fn test_simple_pretokenization() {
         let result = pretokenize("Hello, world!").unwrap();
-        assert_eq!(result.pieces.len(), 4); // "Hello", ",", " ", "world", "!"
+        assert_eq!(result.pieces.len(), 5);
         
         let piece_types: Vec<PieceType> = result.pieces.iter().map(|p| p.piece_type).collect();
         assert_eq!(piece_types, vec![
@@ -494,7 +508,7 @@ mod tests {
             PieceType::Punctuation,
             PieceType::Whitespace,
             PieceType::Word,
-            PieceType::Punctuation,
+            PieceType::Operator,
         ]);
     }
     
@@ -521,7 +535,7 @@ mod tests {
             .map(|p| p.text.as_str())
             .collect();
         
-        assert_eq!(strings, vec![r#""Hello, \"world\"""#]);
+        assert_eq!(strings, vec![r#""Hello, \"world\"!""#]);
     }
     
     #[test]

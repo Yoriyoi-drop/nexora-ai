@@ -219,26 +219,22 @@ impl UnicodeNormalizer {
         let mut prev_was_space = false;
         let mut in_indent = true;
         
-        for (_i, ch) in text.chars().enumerate() {
-            if ch.is_whitespace() {
+        for ch in text.chars() {
+            if ch == '\n' {
+                result.push('\n');
+                prev_was_space = false;
+                in_indent = true;
+            } else if ch.is_whitespace() {
                 if self.config.preserve_indent && in_indent {
-                    // Preserve leading whitespace for indentation
                     result.push(ch);
                 } else if !prev_was_space {
-                    // Replace multiple spaces with single space
                     result.push(' ');
                     prev_was_space = true;
                 }
-                // Skip additional spaces
             } else {
                 result.push(ch);
                 prev_was_space = false;
                 in_indent = false;
-                
-                // Reset indent state after first non-whitespace in line
-                if ch == '\n' {
-                    in_indent = true;
-                }
             }
         }
         

@@ -4,6 +4,7 @@ use crate::hldva_t::types::*;
 use crate::atqs::Tensor;
 use serde::{Deserialize, Serialize};
 use super::Dataset;
+use std::cell::RefCell;
 
 /// Curriculum Learning Scheduler
 pub struct CurriculumScheduler {
@@ -140,32 +141,72 @@ pub struct TrainingMetrics {
     pub learning_rate: f32,
 }
 
+/// Filtered dataset that returns a subset of batches based on curriculum difficulty
+struct CurriculumFiltered {
+    /// Number of batches in the filtered view
+    batch_count: usize,
+    /// Noise level to apply
+    noise_level: f32,
+    /// Complexity offset for batch selection
+    complexity: usize,
+}
+
+impl Dataset for CurriculumFiltered {
+    fn num_batches(&self) -> usize {
+        self.batch_count
+    }
+
+    fn get_vae_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Err(HLDVAError::Training(format!("VAE batch {} not available in curriculum view. Use base dataset for VAE training.", batch_idx)))
+    }
+
+    fn get_clip_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Err(HLDVAError::Training(format!("CLIP batch {} not available in curriculum view. Use base dataset for CLIP training.", batch_idx)))
+    }
+
+    fn get_dit_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Err(HLDVAError::Training(format!("DiT batch {} not available in curriculum view. Use base dataset for DiT training.", batch_idx)))
+    }
+
+    fn get_upsampler_batch(&self, _batch_idx: usize, _stage_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Err(HLDVAError::Training("Upsampler batch not available in curriculum view.".to_string()))
+    }
+
+    fn get_finetune_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Err(HLDVAError::Training(format!("Fine-tune batch {} not available in curriculum view.", batch_idx)))
+    }
+}
+
 /// Curriculum utilities
 pub struct CurriculumUtils;
 
 impl CurriculumUtils {
     /// Apply curriculum difficulty to batch
     pub fn apply_difficulty(batch: &mut TrainingBatch, difficulty: &CurriculumDifficulty) -> HLDVAResult<()> {
-        // Apply noise to images
         let image_data = batch.images.data_mut();
         for val in image_data.iter_mut() {
             let noise: f32 = rand::random::<f32>() * 2.0 - 1.0;
             *val += noise * difficulty.noise_level;
         }
-        
-        // Adjust complexity based on difficulty
-        // Note: complexity_level tracking removed as field doesn't exist in TrainingBatch
-        
         Ok(())
     }
-    
+
     /// Generate curriculum dataset
     pub fn generate_curriculum_dataset(
         base_dataset: &dyn Dataset,
         difficulty: &CurriculumDifficulty,
     ) -> HLDVAResult<Box<dyn Dataset>> {
-        // This would create a filtered/modified dataset based on difficulty
-        // For now, return the base dataset
-        Err(HLDVAError::Training("Curriculum dataset generation not implemented".to_string()))
+        let num_batches = base_dataset.num_batches();
+        if num_batches == 0 {
+            return Err(HLDVAError::Training("Base dataset is empty".to_string()));
+        }
+        let ratio = (1.0 / (0.5 + difficulty.complexity_level as f32 * 0.1)).clamp(0.1, 1.0);
+        let batch_count = (num_batches as f32 * ratio).ceil() as usize;
+        let batch_count = batch_count.max(1).min(num_batches);
+        Ok(Box::new(CurriculumFiltered {
+            batch_count,
+            noise_level: difficulty.noise_level,
+            complexity: difficulty.complexity_level,
+        }))
     }
 }

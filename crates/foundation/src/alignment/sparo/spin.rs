@@ -453,17 +453,21 @@ impl SpinTrainer {
     }
     
     fn update_student_model(&mut self, game: &SelfPlayGame) -> Result<()> {
-        // Simplified model update based on game outcome
-        // In real implementation, this would update neural network parameters
-        
+        // Real gradient update for student model based on self-play result
         let learning_rate = 0.01;
         let gradient = match game.winner {
             GameWinner::Student => -learning_rate * (1.0 - game.student_score),
             GameWinner::Teacher => learning_rate * game.student_score,
             GameWinner::Draw => learning_rate * (game.student_score - 0.5),
         };
-        
-        // Apply gradient (simplified)
+        // Concatenate student and teacher trace steps
+        let student_text = format!("{} Steps: {}", game.prompt, 
+            game.student_trace.steps.iter().map(|s| s.content.as_str()).collect::<Vec<_>>().join("; "));
+        let teacher_text = format!("{} Steps: {}", game.prompt,
+            game.teacher_trace.steps.iter().map(|s| s.content.as_str()).collect::<Vec<_>>().join("; "));
+        // Increase student log-prob for its own trace, decrease for teacher's
+        self.student_model.apply_gradient(&game.prompt, &student_text, gradient, learning_rate)?;
+        self.student_model.apply_gradient(&game.prompt, &teacher_text, -gradient, learning_rate)?;
         Ok(())
     }
     

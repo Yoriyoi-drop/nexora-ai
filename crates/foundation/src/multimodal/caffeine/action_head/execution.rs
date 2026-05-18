@@ -141,7 +141,7 @@ pub struct ExecutionStats {
 
 /// Action handler trait
 #[async_trait]
-pub trait ActionHandler {
+pub trait ActionHandler: Send {
     async fn execute(&self, action: &Action) -> Result<ExecutionResult>;
     fn get_handler_name(&self) -> &str;
 }

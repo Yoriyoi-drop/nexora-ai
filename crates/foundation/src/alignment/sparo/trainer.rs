@@ -56,9 +56,12 @@ impl SparoTrainer {
         let rlaif_config = RlaifConfig::default();
         let spin_config = SpinConfig::default();
         
-        let dpo_trainer = DpoTrainer::new(student_model.clone(), dpo_config);
-        let kto_trainer = KtoTrainer::new(student_model.clone(), kto_config);
-        let ipo_trainer = IpoTrainer::new(student_model.clone(), ipo_config);
+        let mut dpo_trainer = DpoTrainer::new(student_model.clone(), dpo_config);
+        let mut kto_trainer = KtoTrainer::new(student_model.clone(), kto_config);
+        let mut ipo_trainer = IpoTrainer::new(student_model.clone(), ipo_config);
+        dpo_trainer.set_learning_rate(config.learning_rate);
+        kto_trainer.set_learning_rate(config.learning_rate);
+        ipo_trainer.set_learning_rate(config.learning_rate);
         let rlvf_manager = RlvfManager::new(rlvf_config);
         let rlaif_manager = RlaifManager::new(rlaif_config);
         let spin_trainer = SpinTrainer::new(spin_config, student_model.clone(), teacher_model.clone());
@@ -164,28 +167,56 @@ impl SparoTrainer {
         Ok(traces)
     }
     
-    /// Generate single reasoning trace
+    /// Generate single reasoning trace using model's log-probability distribution
     fn generate_single_trace(&self, prompt: &str) -> Result<ReasoningTrace> {
         let mut steps = Vec::new();
         let step_count = (prompt.len() / 50).max(1).min(10);
+        let model = &self.student_model;
         
-        for i in 1..=step_count {
+        // Generate candidate steps and score them using the model
+        let reasoning_prompts = vec![
+            format!("First, we need to understand what {} means", prompt),
+            format!("The key insight about {} is that", prompt),
+            format!("Let's break down {} into smaller parts", prompt),
+            format!("Analyzing {} from multiple perspectives", prompt),
+            format!("Considering the implications of {}", prompt),
+        ];
+        
+        for i in 0..step_count {
+            let candidate_idx = i % reasoning_prompts.len();
+            let base_content = &reasoning_prompts[candidate_idx];
+            let content = format!("Step {}: {}", i + 1, base_content);
+            
+            // Score this step using the model
+            let score = model.log_probability(prompt, &content).unwrap_or(-1.0);
+            
             let step = super::core::ReasoningStep {
                 id: Uuid::new_v4(),
-                content: format!("Step {}: Reasoning about {}", i, prompt),
-                step_number: i,
+                content: if score > -10.0 { content } else { format!("Step {}: Analyzing {}", i + 1, prompt) },
+                step_number: i + 1,
                 timestamp: chrono::Utc::now(),
             };
             steps.push(step);
         }
         
-        let final_answer = format!("Final answer based on {} steps", steps.len());
+        // Generate final answer using model scoring
+        let final_answers = vec![
+            format!("Based on {} steps of analysis, the conclusion about {} is clear.", steps.len(), prompt),
+            format!("After {} reasoning steps, we can conclude the following about {}.", steps.len(), prompt),
+        ];
+        let best_answer = final_answers.into_iter()
+            .max_by(|a, b| {
+                model.log_probability(prompt, a).unwrap_or(0.0)
+                    .partial_cmp(&model.log_probability(prompt, b).unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or_else(|| format!("Final answer based on {} steps", steps.len()));
         
         Ok(ReasoningTrace {
             id: Uuid::new_v4(),
             prompt: prompt.to_string(),
             steps,
-            final_answer,
+            final_answer: best_answer,
             created_at: chrono::Utc::now(),
         })
     }

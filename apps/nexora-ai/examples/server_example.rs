@@ -41,7 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match client.process_text("Hello, world!").await {
         Ok(response) => {
             println!("✅ API call successful!");
-            println!("📝 Response: {}", response.data.unwrap_or("No data".to_string()));
+            let data = response.data.map(|v| v.to_string()).unwrap_or_else(|| "No data".to_string());
+            println!("📝 Response: {}", data);
         }
         Err(e) => println!("❌ API call failed: {}", e),
     }
