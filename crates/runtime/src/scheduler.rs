@@ -85,7 +85,7 @@ impl RequestScheduler {
     pub fn new(max_concurrent_requests: usize) -> Self {
         Self {
             max_concurrent_requests,
-            strategy: SchedulingStrategy::FIFO,
+            strategy: SchedulingStrategy::Priority,
             request_queue: Arc::new(RwLock::new(VecDeque::new())),
             active_requests: Arc::new(RwLock::new(HashMap::new())),
             request_status: Arc::new(RwLock::new(HashMap::new())),

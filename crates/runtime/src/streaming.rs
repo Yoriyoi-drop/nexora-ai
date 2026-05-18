@@ -54,7 +54,7 @@ pub struct TokenStream {
     /// Request ID
     pub request_id: Uuid,
     /// Token receiver
-    pub token_rx: mpsc::UnboundedReceiver<StreamToken>,
+    pub token_rx: mpsc::Receiver<StreamToken>,
     /// Stream metadata
     pub metadata: HashMap<String, serde_json::Value>,
     /// Created timestamp
@@ -94,7 +94,7 @@ struct StreamInfo {
     /// Request ID
     request_id: Uuid,
     /// Token sender
-    token_tx: mpsc::UnboundedSender<StreamToken>,
+    token_tx: mpsc::Sender<StreamToken>,
     /// Stream configuration
     config: StreamingConfig,
     /// Stream statistics
@@ -212,7 +212,7 @@ impl StreamingEngine {
         }
         
         let stream_id = Uuid::new_v4();
-        let (token_tx, token_rx) = mpsc::unbounded_channel();
+        let (token_tx, token_rx) = mpsc::channel(64);
         
         let stream_info = StreamInfo {
             _stream_id: stream_id,
@@ -256,7 +256,7 @@ impl StreamingEngine {
     }
     
     /// Submit streaming request
-    pub async fn submit_request(&self, request: InferenceRequest) -> Result<mpsc::UnboundedReceiver<GeneratedToken>> {
+    pub async fn submit_request(&self, request: InferenceRequest) -> Result<mpsc::Receiver<GeneratedToken>> {
         debug!("Submitting streaming request: {:?}", request.request_id);
         
         let is_streaming = request.parameters.get("streaming")
@@ -270,7 +270,7 @@ impl StreamingEngine {
         let stream = self.create_stream(&request).await?;
         
         // Convert stream to simple token receiver
-        let (simple_tx, simple_rx) = mpsc::unbounded_channel();
+        let (simple_tx, simple_rx) = mpsc::channel(1);
         
         // Start stream processing
         let engine = self.clone();
@@ -446,7 +446,7 @@ impl StreamingEngine {
     }
     
     /// Process stream and convert to simple token receiver
-    async fn process_stream(&self, mut stream: TokenStream, simple_tx: mpsc::UnboundedSender<GeneratedToken>) {
+    async fn process_stream(&self, mut stream: TokenStream, simple_tx: mpsc::Sender<GeneratedToken>) {
         debug!("Processing stream: {}", stream.stream_id);
         
         while let Some(stream_token) = stream.token_rx.recv().await {
@@ -578,8 +578,8 @@ pub mod utils {
     use super::*;
     
     /// Convert token stream to text stream
-    pub async fn tokens_to_text(mut token_stream: TokenStream) -> Result<mpsc::UnboundedReceiver<String>> {
-        let (text_tx, text_rx) = mpsc::unbounded_channel();
+    pub async fn tokens_to_text(mut token_stream: TokenStream) -> Result<mpsc::Receiver<String>> {
+        let (text_tx, text_rx) = mpsc::channel(64);
         
         tokio::spawn(async move {
             let mut accumulated_text = String::new();
@@ -605,8 +605,8 @@ pub mod utils {
         mut token_stream: TokenStream,
         buffer_size: usize,
         flush_interval_ms: u64,
-    ) -> Result<mpsc::UnboundedReceiver<Vec<GeneratedToken>>> {
-        let (buffered_tx, buffered_rx) = mpsc::unbounded_channel();
+    ) -> Result<mpsc::Receiver<Vec<GeneratedToken>>> {
+        let (buffered_tx, buffered_rx) = mpsc::channel(64);
         
         tokio::spawn(async move {
             let mut buffer = Vec::new();
@@ -651,8 +651,8 @@ pub mod adapters {
             Self { inner: stream }
         }
         
-        pub async fn receive_json(&mut self) -> Result<mpsc::UnboundedReceiver<serde_json::Value>> {
-            let (json_tx, json_rx) = mpsc::unbounded_channel();
+        pub async fn receive_json(&mut self) -> Result<mpsc::Receiver<serde_json::Value>> {
+            let (json_tx, json_rx) = mpsc::channel(32);
             
             while let Some(stream_token) = self.inner.token_rx.recv().await {
                 let json_value = serde_json::json!({
@@ -686,8 +686,8 @@ pub mod adapters {
             Self { inner: stream }
         }
         
-        pub async fn receive_sse(&mut self) -> Result<mpsc::UnboundedReceiver<String>> {
-            let (sse_tx, sse_rx) = mpsc::unbounded_channel();
+        pub async fn receive_sse(&mut self) -> Result<mpsc::Receiver<String>> {
+            let (sse_tx, sse_rx) = mpsc::channel(32);
             
             while let Some(stream_token) = self.inner.token_rx.recv().await {
                 let sse_data = format!(
