@@ -356,23 +356,23 @@ impl Trie {
     
     /// Validate trie structure
     pub fn validate(&self) -> Result<()> {
-        self.validate_node(&self.root, &mut std::collections::HashSet::new());
-        Ok(())
+        self.validate_node(&self.root, &mut std::collections::HashSet::new())
     }
     
     /// Validate node recursively
-    fn validate_node(&self, node: &TrieNode, visited: &mut std::collections::HashSet<*const TrieNode>) {
+    fn validate_node(&self, node: &TrieNode, visited: &mut std::collections::HashSet<*const TrieNode>) -> Result<()> {
         let node_ptr = node as *const TrieNode;
         
         if visited.contains(&node_ptr) {
-            panic!("Cycle detected in trie");
+            return Err(anyhow::anyhow!("Cycle detected in trie"));
         }
         
         visited.insert(node_ptr);
         
         for (_, child) in &node.children {
-            self.validate_node(child, visited);
+            self.validate_node(child, visited)?;
         }
+        Ok(())
     }
 }
 

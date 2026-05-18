@@ -236,7 +236,7 @@ fn init_saca_with_extensions(
         
         if let Some(cfg) = caffeine_config {
             let caffeine = Caffeine::new(cfg).ok()?;
-            saca = saca.with_caffeine(Arc::new(std::sync::Mutex::new(caffeine)));
+            saca = saca.with_caffeine(Arc::new(tokio::sync::Mutex::new(caffeine)));
         }
         
         if let Some(_cfg) = has_moe_config {

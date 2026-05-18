@@ -20,19 +20,38 @@ pub use postgres::*;
 pub use sqlite::*;
 
 /// Database configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     pub database_type: DatabaseType,
     pub host: String,
     pub port: u16,
     pub database: String,
     pub username: String,
+    #[serde(skip_serializing)]
     pub password: String,
     pub ssl_mode: SslMode,
     pub max_connections: usize,
     pub connection_timeout_seconds: u64,
     pub idle_timeout_seconds: u64,
     pub max_lifetime_seconds: u64,
+}
+
+impl std::fmt::Debug for DatabaseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseConfig")
+            .field("database_type", &self.database_type)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("database", &self.database)
+            .field("username", &self.username)
+            .field("password", &"***REDACTED***")
+            .field("ssl_mode", &self.ssl_mode)
+            .field("max_connections", &self.max_connections)
+            .field("connection_timeout_seconds", &self.connection_timeout_seconds)
+            .field("idle_timeout_seconds", &self.idle_timeout_seconds)
+            .field("max_lifetime_seconds", &self.max_lifetime_seconds)
+            .finish()
+    }
 }
 
 /// Database types
@@ -489,8 +508,22 @@ impl Transaction {
         Ok(())
     }
 
+    /// Validate savepoint name to prevent SQL injection
+    fn validate_savepoint_name(name: &str) -> Result<()> {
+        if name.is_empty()
+            || name.len() > 64
+            || !name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        {
+            return Err(anyhow::anyhow!(
+                "Invalid savepoint name: must be alphanumeric with underscores, 1-64 chars"
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a savepoint within the transaction
     pub async fn create_savepoint(&mut self, name: &str) -> Result<()> {
+        Self::validate_savepoint_name(name)?;
         #[cfg(feature = "postgres")]
         if let Some(ref client) = self.client {
             client
@@ -518,6 +551,7 @@ impl Transaction {
 
     /// Rollback to a savepoint
     pub async fn rollback_to_savepoint(&mut self, name: &str) -> Result<()> {
+        Self::validate_savepoint_name(name)?;
         #[cfg(feature = "postgres")]
         if let Some(ref client) = self.client {
             client

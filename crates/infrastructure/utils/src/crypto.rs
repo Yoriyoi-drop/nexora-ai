@@ -128,7 +128,12 @@ impl CryptoUtils {
     }
     
     /// Generate password hash with salt
+    /// 
+    /// WARNING: Uses SHA-256 which is NOT suitable for password hashing.
+    /// Use Argon2id from `apps/nexora-ai/src/security/mod.rs` instead.
+    #[deprecated(note = "Use Argon2id from nexora-ai security module instead")]
     pub fn hash_password(password: &str, salt: Option<&str>) -> Result<String> {
+        tracing::warn!("hash_password uses weak SHA-256 scheme. Migrate to Argon2id.");
         let default_salt = Self::generate_uuid();
         let salt = salt.unwrap_or(&default_salt);
         let combined = format!("{}:{}", password, salt);
@@ -137,7 +142,9 @@ impl CryptoUtils {
     }
     
     /// Verify password hash
+    #[deprecated(note = "Use Argon2id from nexora-ai security module instead")]
     pub fn verify_password(password: &str, hash_with_salt: &str) -> Result<bool> {
+        tracing::warn!("verify_password uses weak SHA-256 scheme. Migrate to Argon2id.");
         let parts: Vec<&str> = hash_with_salt.split(':').collect();
         if parts.len() != 2 {
             return Ok(false);

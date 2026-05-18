@@ -1,25 +1,59 @@
 use ndarray::ArrayD;
+use tracing;
 
-pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Vec<usize> {
-    let max_len = a.len().max(b.len());
-    let a_padded: Vec<usize> = std::iter::repeat(1).take(max_len - a.len()).chain(a.iter().cloned()).collect();
-    let b_padded: Vec<usize> = std::iter::repeat(1).take(max_len - b.len()).chain(b.iter().cloned()).collect();
-    let mut result = Vec::with_capacity(max_len);
+/// Broadcast error type
+#[derive(Debug)]
+pub struct BroadcastError(pub String);
 
-    for (ai, bi) in a_padded.iter().zip(b_padded.iter()) {
-        if *ai == *bi {
-            result.push(*ai);
-        } else if *ai == 1 {
-            result.push(*bi);
-        } else if *bi == 1 {
-            result.push(*ai);
-        } else {
-            panic!("Broadcast error: shapes {:?} and {:?} incompatible", a, b);
-        }
+impl std::fmt::Display for BroadcastError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Broadcast error: {}", self.0)
     }
-    result
 }
 
+impl std::error::Error for BroadcastError {}
+
+/// Compute broadcast shape for two shapes
+pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Vec<usize> {
+    match try_broadcast_shapes(a, b) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("{}. Falling back to shape a", e);
+            a.to_vec()
+        }
+    }
+}
+
+fn try_broadcast_shapes(a: &[usize], b: &[usize]) -> Result<Vec<usize>, BroadcastError> {
+    let max_len = a.len().max(b.len());
+    let mut result = Vec::with_capacity(max_len);
+    for i in 0..max_len {
+        let idx_from_end = |shape: &[usize], offset: usize| {
+            if offset < shape.len() {
+                shape[shape.len() - 1 - offset]
+            } else {
+                1
+            }
+        };
+        let ai = idx_from_end(a, i);
+        let bi = idx_from_end(b, i);
+        if ai == bi {
+            result.push(ai);
+        } else if ai == 1 {
+            result.push(bi);
+        } else if bi == 1 {
+            result.push(ai);
+        } else {
+            return Err(BroadcastError(format!(
+                "shapes {:?} and {:?} incompatible at dim {}", a, b, max_len - 1 - i
+            )));
+        }
+    }
+    result.reverse();
+    Ok(result)
+}
+
+/// Broadcast two arrays to a common shape
 pub fn broadcast_arrays(a: &ArrayD<f32>, b: &ArrayD<f32>) -> (ArrayD<f32>, ArrayD<f32>, Vec<usize>) {
     let a_shape = a.shape().to_vec();
     let b_shape = b.shape().to_vec();
@@ -28,22 +62,31 @@ pub fn broadcast_arrays(a: &ArrayD<f32>, b: &ArrayD<f32>) -> (ArrayD<f32>, Array
     }
     let target = broadcast_shapes(&a_shape, &b_shape);
     let a_bc = if a_shape != target {
-        a.clone().broadcast(target.as_slice())
-            .unwrap_or_else(|| panic!("Cannot broadcast {:?} to {:?}", a_shape, target))
-            .to_owned()
+        match a.clone().broadcast(target.as_slice()) {
+            Some(view) => view.to_owned(),
+            None => {
+                tracing::warn!("Cannot broadcast {:?} to {:?}, returning a clone", a_shape, target);
+                a.clone()
+            }
+        }
     } else {
         a.clone()
     };
     let b_bc = if b_shape != target {
-        b.clone().broadcast(target.as_slice())
-            .unwrap_or_else(|| panic!("Cannot broadcast {:?} to {:?}", b_shape, target))
-            .to_owned()
+        match b.clone().broadcast(target.as_slice()) {
+            Some(view) => view.to_owned(),
+            None => {
+                tracing::warn!("Cannot broadcast {:?} to {:?}, returning b clone", b_shape, target);
+                b.clone()
+            }
+        }
     } else {
         b.clone()
     };
     (a_bc, b_bc, target)
 }
 
+/// Reduce gradient to original shape
 pub fn reduce_grad_for_shape(grad: &ArrayD<f32>, orig_shape: &[usize]) -> ArrayD<f32> {
     if grad.shape() == orig_shape {
         return grad.clone();
@@ -71,7 +114,8 @@ pub fn reduce_grad_for_shape(grad: &ArrayD<f32>, orig_shape: &[usize]) -> ArrayD
             let flat: Vec<f32> = result.iter().copied().collect();
             let flat_len = flat.len();
             if flat_len == orig_shape.iter().product::<usize>() {
-                ArrayD::from_shape_vec(orig_shape.to_vec(), flat).expect("data length matches shape")
+                ArrayD::from_shape_vec(orig_shape.to_vec(), flat)
+                    .expect("shape vec should match flat length")
             } else {
                 ArrayD::from_elem(orig_shape.to_vec(), flat[0])
             }

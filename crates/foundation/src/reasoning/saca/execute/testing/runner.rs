@@ -53,7 +53,7 @@ impl TestRunner {
             return (false, "Not implemented".to_string(), Some("Implementation contains unimplemented! macro".to_string()));
         }
 
-        let temp_dir = std::env::temp_dir().join(format!("saca_test_{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!("saca_test_{}_{}", std::process::id(), uuid::Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&temp_dir);
         let file_path = temp_dir.join("test_impl.py");
 

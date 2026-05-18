@@ -101,7 +101,7 @@ impl Default for ApiConfig {
             cert_path: None,
             key_path: None,
             enable_cors: true,
-            cors_origins: vec!["*".to_string()],
+            cors_origins: vec!["http://localhost:3000".to_string(), "http://127.0.0.1:3000".to_string()],
             enable_metrics: true,
             enable_logging: true,
         }

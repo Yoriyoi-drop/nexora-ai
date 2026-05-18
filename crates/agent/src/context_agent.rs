@@ -369,8 +369,11 @@ impl ContextAgent {
                 "External source news requires NEWSAPI_KEY environment variable".to_string()
             ))?;
         
-        let url = format!("https://newsapi.org/v2/top-headlines?country=us&pageSize=5&apiKey={}", api_key);
-        let response = reqwest::get(&url)
+        let response = reqwest::Client::new()
+            .get("https://newsapi.org/v2/top-headlines")
+            .query(&[("country", "us"), ("pageSize", "5")])
+            .header("X-Api-Key", &api_key)
+            .send()
             .await
             .map_err(|e| AgentError::ProcessingError(
                 format!("External source news requires reqwest dependency: {}", e)
@@ -450,8 +453,11 @@ impl ContextAgent {
                 "External source stock requires FINNHUB_API_KEY environment variable".to_string()
             ))?;
         
-        let url = format!("https://finnhub.io/api/v1/quote?symbol=SPY&token={}", api_key);
-        let response = reqwest::get(&url)
+        let response = reqwest::Client::new()
+            .get("https://finnhub.io/api/v1/quote")
+            .query(&[("symbol", "SPY")])
+            .header("X-Finnhub-Token", &api_key)
+            .send()
             .await
             .map_err(|e| AgentError::ProcessingError(
                 format!("External source stock requires reqwest dependency: {}", e)

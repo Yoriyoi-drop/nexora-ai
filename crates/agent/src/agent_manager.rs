@@ -174,39 +174,57 @@ impl AgentManager {
             match command {
                 ManagerCommand::SpawnAgent { agent_type, config, response_tx } => {
                     let result = self.spawn_agent_internal(agent_type, config).await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("SpawnAgent response channel closed");
+                    }
                 }
                 ManagerCommand::StopAgent { agent_id, response_tx } => {
                     let result = self.stop_agent_internal(agent_id).await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("StopAgent response channel closed");
+                    }
                 }
                 ManagerCommand::RestartAgent { agent_id, response_tx } => {
                     let result = self.restart_agent_internal(agent_id).await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("RestartAgent response channel closed");
+                    }
                 }
                 ManagerCommand::SendMessage { agent_id, message, response_tx } => {
                     let result = self.send_message_internal(agent_id, message).await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("SendMessage response channel closed");
+                    }
                 }
                 ManagerCommand::GetStatus { agent_id, response_tx } => {
                     let result = self.get_status_internal(agent_id).await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("GetStatus response channel closed");
+                    }
                 }
                 ManagerCommand::GetStats { agent_id, response_tx } => {
                     let result = self.get_stats_internal(agent_id).await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("GetStats response channel closed");
+                    }
                 }
                 ManagerCommand::ListAgents { response_tx } => {
                     let result = self.list_agents_internal().await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("ListAgents response channel closed");
+                    }
                 }
                 ManagerCommand::HealthCheck { response_tx } => {
                     let result = self.health_check_all_internal().await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("HealthCheck response channel closed");
+                    }
                 }
                 ManagerCommand::Shutdown { response_tx } => {
                     let result = self.shutdown_internal().await;
-                    let _ = response_tx.send(result);
+                    if response_tx.send(result).is_err() {
+                        warn!("Shutdown response channel closed");
+                    }
                     break;
                 }
             }

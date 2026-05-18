@@ -142,7 +142,8 @@ pub async fn process_request(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    info!("Processing request: {}", input);
+    let truncated = &input[..input.len().min(100)];
+    info!("Processing request: {} [truncated {} chars]", truncated, input.len().min(100));
 
     match nexora.process_request(input).await {
         Ok(response) => Json(json!({
@@ -181,8 +182,9 @@ pub async fn generate_text(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.7) as f32;
 
-    info!("Generating text: prompt='{}', max_tokens={}, temperature={}", 
-          prompt, max_tokens, temperature);
+    let truncated = &prompt[..prompt.len().min(100)];
+    info!("Generating text: prompt='{}' [truncated {} chars], max_tokens={}, temperature={}", 
+          truncated, prompt.len().min(100), max_tokens, temperature);
 
     match nexora.generate_text(prompt, max_tokens, temperature).await {
         Ok(generated) => Json(json!({
@@ -222,7 +224,8 @@ pub async fn chat(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    info!("Chat message: {} (conversation_id: {:?})", message, conversation_id);
+    let truncated = &message[..message.len().min(100)];
+    info!("Chat message: {} [truncated {} chars] (conversation_id: {:?})", truncated, message.len().min(100), conversation_id);
 
     match nexora.chat(message, conversation_id).await {
         Ok(response) => Json(json!({
@@ -489,10 +492,12 @@ pub async fn index() -> Html<&'static str> {
 }
 
 pub async fn static_files(Path(path): Path<String>) -> Result<axum::response::Response, axum::http::StatusCode> {
-    let base_path = std::path::Path::new("static");
-    let file_path = base_path.join(&path);
+    let base_path = std::path::Path::new("static").canonicalize()
+        .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
+    let file_path = base_path.join(&path).canonicalize()
+        .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
 
-    if file_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if !file_path.starts_with(&base_path) {
         return Err(axum::http::StatusCode::FORBIDDEN);
     }
 

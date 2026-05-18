@@ -66,7 +66,8 @@ impl ExpertRouter {
         Ok(Self)
     }
 }
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{info, debug};
 
 // Explicit Result type to avoid ambiguity
@@ -224,14 +225,9 @@ impl UnifiedModel {
     }
     
     /// Process multimodal inputs
-    /// 
-    /// Note: Uses `std::sync::Mutex` (required by `SACAIntegration::with_caffeine` API).
-    /// Lock is held only for the duration of `forward()` — a brief synchronous call.
-    /// No `.await` points while holding the lock, so deadlock risk is minimal.
     pub async fn process_multimodal(&self, inputs: &MultiModalInputs) -> ApiResult<nexora_foundation::multimodal::caffeine::types::MultiModalOutputs> {
         if let Some(caffeine) = &self.caffeine_model {
-            let mut guard = caffeine.lock()
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { format!("Failed to lock caffeine model: {}", e).into() })?;
+            let mut guard = caffeine.lock().await;
             guard.forward(inputs).await
                 .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { format!("Caffeine forward failed: {}", e).into() })
         } else {
