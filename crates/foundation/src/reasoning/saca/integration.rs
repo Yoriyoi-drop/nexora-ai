@@ -7,7 +7,7 @@ use super::{types::*, config::*, error::*, prelude::*};
 use crate::atqs::compression::CompressionEngine;
 use crate::multimodal::caffeine::Caffeine;
 use crate::has_moe_ffn::routing::Router;
-use futures::executor::block_on;
+use tokio::runtime::Handle;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
@@ -155,7 +155,7 @@ impl SACAIntegration {
         
         // Process through Caffeine model
         let mut caffeine = caffeine.lock().map_err(|e| SACAError::ContextError(format!("Failed to lock caffeine model: {}", e)))?;
-        let multimodal_outputs = block_on(caffeine.forward(&multimodal_inputs))
+        let multimodal_outputs = Handle::current().block_on(caffeine.forward(&multimodal_inputs))
             .map_err(|e| SACAError::ContextError(format!("Caffeine processing failed: {}", e)))?;
         
         // Extract features and enhance solution

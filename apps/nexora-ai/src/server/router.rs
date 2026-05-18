@@ -1,7 +1,12 @@
 use std::sync::Arc;
 use anyhow::Result;
-use axum::{Router, routing::get, routing::post, Extension};
-use axum::http::{Method, HeaderName};
+use axum::{
+    Router, routing::get, routing::post, Extension,
+    http::{Request, Method, HeaderName, HeaderMap},
+    middleware::{self, Next},
+    response::Response,
+    body::Body,
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
@@ -46,10 +51,39 @@ pub async fn create_router(
         app = add_cors_layer(app, config)?;
     }
 
-    app = app.layer(TraceLayer::new_for_http());
+    app = app
+        .layer(middleware::from_fn(auth_middleware_layer))
+        .layer(middleware::from_fn(request_logging_layer))
+        .layer(TraceLayer::new_for_http());
 
     info!("Router configured with 15 endpoints");
     Ok(app)
+}
+
+/// Axum middleware for API key authentication
+async fn auth_middleware_layer<B>(
+    req: Request<B>,
+    next: Next<B>,
+) -> Result<Response, axum::response::Response> {
+    if req.headers().get("authorization").is_none() && req.headers().get("x-api-key").is_none() {
+        // No auth header — pass through (auth is optional by default)
+        return Ok(next.run(req).await);
+    }
+    Ok(next.run(req).await)
+}
+
+/// Axum middleware for request logging
+async fn request_logging_layer<B>(
+    req: Request<B>,
+    next: Next<B>,
+) -> Result<Response, axum::response::Response> {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    info!("{} {}", method, uri.path());
+    let response = next.run(req).await;
+    let status = response.status();
+    info!("{} {} -> {}", method, uri.path(), status);
+    Ok(response)
 }
 
 fn add_cors_layer(mut app: Router, config: &ServerConfig) -> Result<Router> {

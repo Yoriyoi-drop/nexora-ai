@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -123,14 +123,14 @@ pub type SharedToolGateway = Arc<RwLock<ToolIsolationLayer>>;
 
 pub struct ToolIsolationLayer {
     gateways: HashMap<ToolKind, ToolGateway>,
-    allowed_tools: Vec<ToolKind>,
+    allowed_tools: HashSet<ToolKind>,
 }
 
 impl ToolIsolationLayer {
-    pub fn new(allowed: Vec<ToolKind>) -> Self {
+    pub fn new(allowed: impl IntoIterator<Item = ToolKind>) -> Self {
         Self {
             gateways: HashMap::new(),
-            allowed_tools: allowed,
+            allowed_tools: allowed.into_iter().collect(),
         }
     }
 
@@ -210,14 +210,7 @@ impl ToolIsolationLayer {
             started_at: chrono::Utc::now(),
         };
 
-        let result = ToolExecutionResult {
-            success: true,
-            stdout: format!("[tool:{}] command: {} {:?}", pod.tool_kind, request.command, request.args),
-            stderr: String::new(),
-            exit_code: 0,
-            execution_time_ms: start.elapsed().as_millis() as u64,
-            sandbox_violations: Vec::new(),
-        };
+        let result = execute_real_command(&request).await;
 
         pod.status = ToolStatus::Idle;
         gateway.audit_log.push(ToolCallAudit {
@@ -287,6 +280,47 @@ pub enum ToolIsolationError {
     CommandNotAllowed(String),
     #[error("Command denied: {0}")]
     CommandDenied(String),
+}
+
+/// Spawn the tool command in a real subprocess.
+async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionResult {
+    let start = std::time::Instant::now();
+
+    let program = match request.tool_kind {
+        ToolKind::Python => "python3",
+        ToolKind::Shell | ToolKind::Terminal => "/bin/sh",
+        ToolKind::Browser => "chromium",
+        ToolKind::FileSystem => "ls",
+        ToolKind::Network => "curl",
+        _ => &request.command,
+    };
+
+    let output = tokio::process::Command::new(program)
+        .args(&request.args)
+        .env_clear()
+        .envs(&request.env_vars)
+        .kill_on_drop(true)
+        .output()
+        .await;
+
+    match output {
+        Ok(out) => ToolExecutionResult {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+            exit_code: out.status.code().unwrap_or(-1),
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            sandbox_violations: Vec::new(),
+        },
+        Err(e) => ToolExecutionResult {
+            success: false,
+            stdout: String::new(),
+            stderr: format!("Failed to execute command: {}", e),
+            exit_code: -1,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            sandbox_violations: Vec::new(),
+        },
+    }
 }
 
 #[cfg(test)]

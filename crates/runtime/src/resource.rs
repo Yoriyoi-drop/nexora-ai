@@ -4,7 +4,7 @@
 
 use crate::{Result, InferenceError};
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 
 /// Resource manager for handling system resources
 pub struct ResourceManager {
@@ -19,23 +19,21 @@ impl ResourceManager {
         }
     }
     
-    /// Acquire resource
-    pub async fn acquire(&self) -> Result<()> {
-        let _permit = self.semaphore.acquire().await
+    /// Acquire resource — returns a permit that MUST be held for the duration of use
+    pub async fn acquire(&self) -> Result<ResourceGuard> {
+        let permit = self.semaphore.acquire_owned().await
             .map_err(|_| InferenceError::ResourceExhausted("Failed to acquire resource".to_string()))?;
-        
-        // Resource is released when permit is dropped
-        Ok(())
+        Ok(ResourceGuard { _permit: permit })
     }
 }
 
-/// Guard for acquired resources
+/// Guard for acquired resources — permit is alive as long as this guard lives
 pub struct ResourceGuard {
-    _semaphore: Arc<Semaphore>,
+    _permit: OwnedSemaphorePermit,
 }
 
-impl Drop for ResourceGuard {
-    fn drop(&mut self) {
-        // Resource is released when guard is dropped
+impl ResourceGuard {
+    pub fn new(_permit: OwnedSemaphorePermit) -> Self {
+        Self { _permit }
     }
 }

@@ -53,7 +53,7 @@ pub struct InferenceEngine {
     kv_cache: Arc<RwLock<KVCache>>,
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     model: CausalLM,
-    tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
+    tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     request_tx: mpsc::Sender<InferenceRequest>,
     request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
@@ -102,7 +102,7 @@ impl InferenceEngine {
 
     pub fn with_model(
         model: CausalLM,
-        tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
+        tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
         config: InferenceConfig,
     ) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
@@ -205,11 +205,11 @@ impl InferenceEngine {
     }
 
     /// Submit a streaming request.
-    /// Returns an UnboundedReceiver that yields GeneratedToken values.
+    /// Returns a bounded Receiver that yields GeneratedToken values (buffer=64, prevents runaway memory).
     pub async fn submit_streaming_request(
         &self,
         request: InferenceRequest,
-    ) -> Result<mpsc::UnboundedReceiver<GeneratedToken>> {
+    ) -> Result<mpsc::Receiver<GeneratedToken>> {
         if !self.config.enable_streaming {
             return Err(InferenceError::InvalidRequest(
                 "Streaming disabled".to_string(),
@@ -220,7 +220,7 @@ impl InferenceEngine {
             .as_ref()
             .ok_or_else(|| InferenceError::InternalError("No streaming engine".to_string()))?;
 
-        let (stream_id, rx) = se.write().await.create_stream().await?;
+        let (stream_id, mut rx) = se.write().await.create_stream().await?;
         let model = self.model.clone();
         let tokenizer = self.tokenizer.clone();
         let _cfg = self.config.clone();
@@ -236,11 +236,11 @@ impl InferenceEngine {
 
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
-                Some(tok) => match tok.read() {
-                    Ok(t) => t.encode(&request.prompt),
-                    Err(_) => request.prompt.bytes().map(|b| b as u32).collect(),
-                },
-                None => request.prompt.bytes().map(|b| b as u32).collect(),
+                    Some(tok) => {
+                        let t = tok.read();
+                        t.encode(&request.prompt)
+                    },
+                    None => request.prompt.bytes().map(|b| b as u32).collect(),
             };
 
             let mut kv_state = model.reset_cache();
@@ -277,9 +277,9 @@ impl InferenceEngine {
                 };
 
                 let token_text = match &tokenizer {
-                    Some(tok) => match tok.read() {
-                        Ok(t) => t.decode(&[token_id]),
-                        Err(_) => token_id_to_text_fallback(token_id),
+                    Some(tok) => {
+                        let t = tok.read();
+                        t.decode(&[token_id])
                     },
                     None => token_id_to_text_fallback(token_id),
                 };
@@ -625,9 +625,9 @@ impl InferenceEngine {
 
     fn encode_prompt(&self, prompt: &str) -> Vec<u32> {
         match &self.tokenizer {
-            Some(tok) => match tok.read() {
-                Ok(t) => t.encode(prompt),
-                Err(_) => prompt.bytes().map(|b| b as u32).collect(),
+            Some(tok) => {
+                let t = tok.read();
+                t.encode(prompt)
             },
             None => prompt.bytes().map(|b| b as u32).collect(),
         }
@@ -635,10 +635,10 @@ impl InferenceEngine {
 
     fn token_id_to_text(&self, token_id: u32) -> String {
         match &self.tokenizer {
-            Some(tok) => match tok.read() {
-                Ok(t) => t.decode(&[token_id]),
-                Err(_) => token_id_to_text_fallback(token_id),
-            },
+            Some(tok) => {
+                let guard = tok.read();
+                guard.decode(&[token_id])
+            }
             None => token_id_to_text_fallback(token_id),
         }
     }
@@ -656,7 +656,7 @@ fn token_id_to_text_fallback(token_id: u32) -> String {
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
     model: CausalLM,
-    tokenizer: Option<Arc<std::sync::RwLock<BpeTokenizer>>>,
+    tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
 }
 
@@ -686,9 +686,9 @@ impl InferenceEngineHandle {
             }
 
             let prompt_ids: Vec<u32> = match &self.tokenizer {
-                Some(tok) => match tok.read() {
-                    Ok(t) => t.encode(&breq.prompt),
-                    Err(_) => breq.prompt.bytes().map(|b| b as u32).collect(),
+                Some(tok) => {
+                    let t = tok.read();
+                    t.encode(&breq.prompt)
                 },
                 None => breq.prompt.bytes().map(|b| b as u32).collect(),
             };
@@ -724,9 +724,9 @@ impl InferenceEngineHandle {
                 };
 
                 let token_text: String = match &self.tokenizer {
-                    Some(tok) => match tok.read() {
-                        Ok(t) => t.decode(&[token_id]),
-                        Err(_) => token_id_to_text_fallback(token_id),
+                    Some(tok) => {
+                        let t = tok.read();
+                        t.decode(&[token_id])
                     },
                     None => token_id_to_text_fallback(token_id),
                 };

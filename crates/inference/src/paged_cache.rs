@@ -7,7 +7,7 @@
 //! - Eviction terprediksi (per-block, bukan per-entry)
 
 use std::collections::HashMap;
-use ndarray::Array2;
+use ndarray::{Array2, s};
 
 use nexora_foundation::models::transformer::KVCacheEntry;
 
@@ -334,9 +334,15 @@ impl PagedKVCache {
         k_proj: &Array2<f32>,
         v_proj: &Array2<f32>,
     ) {
-        let k_slice: Vec<f32> = k_proj.iter().copied().collect();
-        let v_slice: Vec<f32> = v_proj.iter().copied().collect();
-        self.append(seq_id, layer, token_pos, &k_slice, &v_slice);
+        let k_data: Vec<f32> = if k_proj.is_standard() {
+            k_proj.iter().copied().collect()
+        } else {
+            k_proj.iter().copied().collect()
+        };
+        let v_data: Vec<f32> = v_proj.iter().copied().collect();
+        let k_slice: &[f32] = &k_data;
+        let v_slice: &[f32] = &v_data;
+        self.append(seq_id, layer, token_pos, k_slice, v_slice);
     }
 
     /// Read KV data for a token position.
@@ -377,20 +383,26 @@ impl PagedKVCache {
             let mut k_flat = Array2::zeros((num_tokens, cols));
             let mut v_flat = Array2::zeros((num_tokens, cols));
 
-            for pos in 0..num_tokens {
+            // Group by block and use slice assignment for contiguous regions
+            let mut pos = 0;
+            while pos < num_tokens {
                 let logical = pos / self.config.block_size;
                 let offset = pos % self.config.block_size;
+                let remaining_in_block = self.config.block_size - offset;
+                let tokens_in_block = remaining_in_block.min(num_tokens - pos);
 
                 if let Some(phys) = table.layers[layer].get(logical).copied().flatten() {
                     if let Some(block) = self.blocks[layer].get(phys) {
-                        if offset < block.filled {
-                            for c in 0..cols {
-                                k_flat[[pos, c]] = block.k[[offset, c]];
-                                v_flat[[pos, c]] = block.v[[offset, c]];
-                            }
+                        let valid = tokens_in_block.min(block.filled.saturating_sub(offset));
+                        if valid > 0 {
+                            let k_rows = block.k.slice(s![offset..offset + valid, ..]);
+                            k_flat.slice_mut(s![pos..pos + valid, ..]).assign(&k_rows);
+                            let v_rows = block.v.slice(s![offset..offset + valid, ..]);
+                            v_flat.slice_mut(s![pos..pos + valid, ..]).assign(&v_rows);
                         }
                     }
                 }
+                pos += tokens_in_block;
             }
 
             entries.push(KVCacheEntry {
@@ -433,6 +445,20 @@ impl PagedKVCache {
     pub fn memory_usage_bytes(&self) -> usize {
         let per_block = self.config.block_size * self.config.num_kv_heads * self.config.head_dim * 4 * 2;
         self.total_blocks() * per_block
+    }
+}
+
+impl nexora_foundation::models::transformer::PagedCacheReader for PagedKVCache {
+    fn read(&self, seq_id: u64, layer: usize, token_pos: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+        PagedKVCache::read(self, seq_id, layer, token_pos)
+    }
+
+    fn num_tokens(&self, seq_id: u64) -> Option<usize> {
+        self.sequences.get(&seq_id).map(|t| t.num_tokens)
+    }
+
+    fn append(&mut self, seq_id: u64, layer: usize, token_pos: usize, k_row: &[f32], v_row: &[f32]) {
+        PagedKVCache::append(self, seq_id, layer, token_pos, k_row, v_row);
     }
 }
 
@@ -686,5 +712,94 @@ mod tests {
 
         // First append allocates one block per layer
         assert!(cache.num_allocated > 0);
+    }
+
+    #[test]
+    fn test_forward_paged_integration() {
+        use ndarray::Array1;
+        use nexora_foundation::models::transformer::{CausalLM, TransformerConfig};
+
+        let cfg = PagedCacheConfig {
+            block_size: 4,
+            num_layers: 2,
+            num_kv_heads: 4,
+            head_dim: 64,
+            max_blocks: 1024,
+            max_seq_len: 512,
+        };
+
+        let mc = TransformerConfig {
+            hidden_size: 512,
+            intermediate_size: 1024,
+            num_heads: 8,
+            num_kv_heads: 4,
+            num_layers: 2,
+            max_seq_len: 512,
+            vocab_size: 256,
+            ..Default::default()
+        };
+
+        let model = CausalLM::new(mc);
+        let mut paged_cache = PagedKVCache::new(cfg);
+        paged_cache.register_sequence(1);
+
+        let input = [1u32, 2u32, 3u32];
+        for (i, &token) in input.iter().enumerate() {
+            let logits = model.forward_paged(&[token], &mut paged_cache, 1);
+            assert_eq!(logits.len(), 256);
+            if i > 0 {
+                let got = paged_cache.num_tokens(1).unwrap_or(0);
+                assert_eq!(got, i + 1, "after token {i}, cache should have {} entries", i + 1);
+            }
+        }
+
+        assert_eq!(paged_cache.num_tokens(1), Some(3));
+        assert!(paged_cache.total_blocks() > 0);
+    }
+
+    #[test]
+    fn test_paged_vs_flat_cache_parity() {
+        use ndarray::Array1;
+        use nexora_foundation::models::transformer::{CausalLM, KVCacheEntry, TransformerConfig};
+
+        let cfg = PagedCacheConfig {
+            block_size: 4,
+            num_layers: 2,
+            num_kv_heads: 4,
+            head_dim: 64,
+            max_blocks: 1024,
+            max_seq_len: 512,
+        };
+
+        let mc = TransformerConfig {
+            hidden_size: 512,
+            intermediate_size: 1024,
+            num_heads: 8,
+            num_kv_heads: 4,
+            num_layers: 2,
+            max_seq_len: 512,
+            vocab_size: 256,
+            ..Default::default()
+        };
+
+        let model = CausalLM::new(mc);
+        let mut flat_cache: Vec<KVCacheEntry> = model.reset_cache();
+        let mut paged_cache = PagedKVCache::new(cfg);
+        paged_cache.register_sequence(1);
+
+        let tokens = [5u32, 10u32, 15u32];
+        for (i, &token) in tokens.iter().enumerate() {
+            let logits_flat = model.forward(&[token], &mut flat_cache);
+            let logits_paged = model.forward_paged(&[token], &mut paged_cache, 1);
+
+            for j in 0..logits_flat.len() {
+                let diff = (logits_flat[j] - logits_paged[j]).abs();
+                assert!(
+                    diff < 1e-4,
+                    "mismatch at token {i}, logit {j}: flat={} paged={}",
+                    logits_flat[j], logits_paged[j]
+                );
+            }
+        }
     }
 }

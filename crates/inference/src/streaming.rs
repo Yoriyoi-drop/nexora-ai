@@ -16,7 +16,7 @@ pub struct StreamInfo {
 }
 
 struct ActiveStream {
-    sender: mpsc::UnboundedSender<GeneratedToken>,
+    sender: mpsc::Sender<GeneratedToken>,
     token_count: usize,
     created_at: Instant,
     last_token_at: Instant,
@@ -53,7 +53,7 @@ impl StreamingEngine {
 
     pub async fn create_stream(
         &self,
-    ) -> Result<(Uuid, mpsc::UnboundedReceiver<GeneratedToken>), anyhow::Error> {
+    ) -> Result<(Uuid, mpsc::Receiver<GeneratedToken>), anyhow::Error> {
         let stream_id = Uuid::new_v4();
 
         {
@@ -69,7 +69,7 @@ impl StreamingEngine {
             }
         }
 
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(64);
         {
             let mut streams = self.active_streams.write().await;
             streams.insert(
@@ -207,7 +207,7 @@ mod tests {
 
         let received = rx.recv().await.unwrap();
         assert_eq!(received.token_id, 1);
-        assert_eq!(received.token_text, "hello");
+        assert_eq!(&*received.token_text, "hello");
 
         engine.close_stream(stream_id).await;
     }
