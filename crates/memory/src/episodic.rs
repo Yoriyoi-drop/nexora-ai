@@ -179,7 +179,7 @@ impl EpisodicMemory {
     pub async fn search(&self, query: &str) -> Result<Option<Vec<crate::MemorySearchResult>>> {
         trace!("Searching episodes: {}", query);
         
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(self.episodes.len());
         let query_lower = query.to_lowercase();
         
         for episode in self.episodes.values() {

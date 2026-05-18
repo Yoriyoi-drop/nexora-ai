@@ -277,7 +277,7 @@ impl TokenLoop {
                     break;
                 }
                 if run_state == STATE_ERROR {
-                    let msg = self.state_error.read().await.clone().unwrap_or_default();
+                    let msg = self.state_error.read().await.as_ref().map_or_else(|| "unknown".to_string(), |s| s.clone());
                     return Err(InferenceError::InternalError(format!("Loop error: {}", msg)));
                 }
                 return Err(InferenceError::InternalError("Loop not in running state".to_string()));

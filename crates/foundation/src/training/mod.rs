@@ -154,8 +154,14 @@ impl Trainer {
             return None;
         }
 
-        let trainable = self.trainable.as_ref().expect("Trainable not prepared");
-        let optimizer = self.optimizer.as_mut().expect("Optimizer not prepared");
+        let trainable = match self.trainable.as_ref() {
+            Some(t) => t,
+            None => { warn!("train_step called without prepare()"); return None; }
+        };
+        let optimizer = match self.optimizer.as_mut() {
+            Some(o) => o,
+            None => { warn!("train_step called without prepare()"); return None; }
+        };
 
         let seq = tokens.len().min(self.config.seq_length);
         if seq == 0 {
@@ -203,7 +209,7 @@ impl Trainer {
             if let Some(ref path) = self.config.save_path {
                 if self.step % self.config.save_every == 0 {
                     trainable.sync_to_inference(&mut self.model);
-                    let save_file = path.clone() + ".step-" + &self.step.to_string() + ".safetensors";
+                    let save_file = format!("{}.step-{}.safetensors", path, self.step);
                     if let Err(e) = trainable.save_checkpoint(&save_file) {
                         warn!("Failed to save checkpoint at step {}: {}", self.step, e);
                     }
@@ -269,8 +275,13 @@ impl Trainer {
     }
 
     pub fn evaluate_loss(&self, sequences: &[Vec<u32>], seq_length: usize) -> EvalMetrics {
-        let trainable = self.trainable.as_ref()
-            .expect("evaluate_loss requires trainable to be prepared (call prepare() first)");
+        let trainable = match self.trainable.as_ref() {
+            Some(t) => t,
+            None => {
+                warn!("evaluate_loss called without prepare()");
+                return EvalMetrics { avg_loss: 0.0, perplexity: 0.0, total_tokens: 0 };
+            }
+        };
 
         let mut total_loss = 0.0f64;
         let mut total_tokens = 0usize;
@@ -337,7 +348,7 @@ impl Trainer {
             if let Some(ref trainable) = self.trainable {
                 let mut model_clone = self.model.clone();
                 trainable.sync_to_inference(&mut model_clone);
-                let save_file = path.clone() + ".epoch-" + &epoch.to_string() + ".safetensors";
+                let save_file = format!("{}.epoch-{}.safetensors", path, epoch);
                 if let Err(e) = trainable.save_checkpoint(&save_file) {
                     warn!("Failed to save epoch checkpoint: {}", e);
                 }

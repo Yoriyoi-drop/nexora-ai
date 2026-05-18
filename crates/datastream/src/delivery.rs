@@ -6,9 +6,7 @@ use crate::types::{DataSample, BatchConfig};
 
 pub struct TrainingDeliveryLayer {
     pub batch_config: BatchConfig,
-    pub max_queue_depth: usize,
     pub output_format: OutputFormat,
-    pub enable_gpu_direct: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -23,9 +21,7 @@ impl Default for TrainingDeliveryLayer {
     fn default() -> Self {
         Self {
             batch_config: BatchConfig::default(),
-            max_queue_depth: 1024,
             output_format: OutputFormat::JsonLines,
-            enable_gpu_direct: false,
         }
     }
 }
@@ -37,11 +33,6 @@ impl TrainingDeliveryLayer {
 
     pub fn with_format(mut self, format: OutputFormat) -> Self {
         self.output_format = format;
-        self
-    }
-
-    pub fn with_gpu_direct(mut self, enable: bool) -> Self {
-        self.enable_gpu_direct = enable;
         self
     }
 

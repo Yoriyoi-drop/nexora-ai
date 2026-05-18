@@ -92,7 +92,7 @@ where
     /// Processes up to `max_batch_size` ready sequences through the model,
     /// sampling the next token for each.
     pub fn step(&mut self) -> StepResult {
-        let mut completed = Vec::new();
+        let mut completed = Vec::with_capacity(self.max_batch_size.min(self.sequences.len()));
         let mut processed = 0_usize;
 
         let ready_ids: Vec<u64> = self
@@ -215,13 +215,13 @@ where
 
     /// Remove all completed sequences, returning their responses.
     pub fn drain_completed(&mut self) -> Vec<InferenceResponse> {
-        let mut results = Vec::new();
         let to_remove: Vec<u64> = self
             .sequences
             .iter()
             .filter(|(_, s)| s.is_finished())
             .map(|(id, _)| *id)
             .collect();
+        let mut results = Vec::with_capacity(to_remove.len());
 
         for seq_id in to_remove {
             self.samplers.remove(&seq_id);

@@ -183,7 +183,8 @@ impl RequestScheduler {
                 RequestStatus::Processing => stats.active_requests += 1,
                 RequestStatus::Completed => stats.completed_requests += 1,
                 RequestStatus::Failed(_) => stats.failed_requests += 1,
-                _ => {}
+                RequestStatus::Cancelled => {}
+                RequestStatus::Timeout => {}
             }
         }
         stats

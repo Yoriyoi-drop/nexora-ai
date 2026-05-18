@@ -281,8 +281,9 @@ impl SGD {
             if let Some(g) = p.grad() {
                 let update = if self.momentum > 0.0 {
                     let vel = self.velocities[i].get_or_insert_with(|| ArrayD::zeros(g.shape().to_vec()));
-                    *vel = vel.clone() * self.momentum + &g * self.lr;
-                    vel.clone()
+                    let new_vel = &*vel * self.momentum + &g * self.lr;
+                    *vel = new_vel.clone();
+                    new_vel
                 } else {
                     &g * self.lr
                 };

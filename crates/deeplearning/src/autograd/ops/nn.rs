@@ -202,6 +202,8 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
 
             // dL/dx_i = (1/N * sigma) * (N * dL/dy_i - sum(dL/dy) - x_hat_i * sum(dL/dy * x_hat))
             let mut dx = grad.clone();
+            let g_slice = grad.as_slice().expect("grad should be contiguous");
+            let x_slice = x.as_slice().expect("x should be contiguous");
             for b in 0..batch {
                 let m = mean[b];
                 let s = std[b];
@@ -209,8 +211,8 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
                 let mut sum_dy_xhat = 0.0;
                 for j in 0..dim {
                     let idx = b * dim + j;
-                    let gv = grad.iter().copied().collect::<Vec<f32>>()[idx];
-                    let xv = x.iter().copied().collect::<Vec<f32>>()[idx];
+                    let gv = g_slice[idx];
+                    let xv = x_slice[idx];
                     let xhat = (xv - m) / s;
                     sum_dy += gv;
                     sum_dy_xhat += gv * xhat;
@@ -218,11 +220,10 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
                 let inv_s = 1.0 / s;
                 for j in 0..dim {
                     let idx = b * dim + j;
-                    let gv = grad.iter().copied().collect::<Vec<f32>>()[idx];
-                    let xv = x.iter().copied().collect::<Vec<f32>>()[idx];
+                    let gv = g_slice[idx];
+                    let xv = x_slice[idx];
                     let xhat = (xv - m) / s;
                     let dx_val = inv_s * (gv - sum_dy / n - xhat * sum_dy_xhat / n);
-                    // Multiply by weight gradient if weight exists
                     let mut inner = dx.clone();
                     inner.as_slice_mut().expect("tensor should be contiguous")[idx] = dx_val;
                     dx = inner;
