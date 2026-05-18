@@ -3218,17 +3218,6 @@ dependencies = [
 
 [[package]]
 name = "ndarray-rand"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65608f937acc725f5b164dcf40f4f0bc5d67dc268ab8a649d3002606718c4588"
-dependencies = [
- "ndarray 0.15.6",
- "rand 0.8.6",
- "rand_distr 0.4.3",
-]
-
-[[package]]
-name = "ndarray-rand"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f093b3db6fd194718dcdeea6bd8c829417deae904e3fcc7732dabcd4416d25d8"
@@ -3368,7 +3357,7 @@ dependencies = [
  "async-trait",
  "fastrand",
  "ndarray 0.15.6",
- "ndarray-rand 0.15.0",
+ "ndarray-rand",
  "rand 0.8.6",
  "rand_distr 0.4.3",
  "serde",
@@ -3540,7 +3529,7 @@ dependencies = [
  "log",
  "md5",
  "ndarray 0.15.6",
- "ndarray-rand 0.14.0",
+ "ndarray-rand",
  "num-traits",
  "num_cpus",
  "once_cell",
@@ -3566,7 +3555,7 @@ version = "0.1.0"
 dependencies = [
  "lru",
  "ndarray 0.15.6",
- "ndarray-rand 0.15.0",
+ "ndarray-rand",
  "rand 0.8.6",
  "rand_distr 0.4.3",
  "thiserror 1.0.69",
@@ -3591,7 +3580,7 @@ dependencies = [
  "md5",
  "mockall",
  "ndarray 0.15.6",
- "ndarray-rand 0.15.0",
+ "ndarray-rand",
  "nexora-alignment",
  "nexora-atqs",
  "nexora-common",
@@ -3745,7 +3734,7 @@ dependencies = [
  "lru",
  "md5",
  "ndarray 0.15.6",
- "ndarray-rand 0.15.0",
+ "ndarray-rand",
  "nexora-common",
  "nexora-core",
  "nexora-foundation",
@@ -3850,7 +3839,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "ndarray 0.15.6",
- "ndarray-rand 0.15.0",
+ "ndarray-rand",
  "once_cell",
  "rand 0.8.6",
  "regex",
@@ -4005,7 +3994,7 @@ name = "nexora-vogp"
 version = "0.1.0"
 dependencies = [
  "ndarray 0.15.6",
- "ndarray-rand 0.15.0",
+ "ndarray-rand",
  "nexora-hldva-t",
  "rand 0.8.6",
  "rand_distr 0.4.3",
