@@ -158,11 +158,11 @@ impl InferenceEngine {
     }
 
     /// Submit a standard (non-streaming) inference request.
-    /// Returns an UnboundedReceiver that will receive exactly one response.
+    /// Returns a Receiver that will receive exactly one response (buffer=1).
     pub async fn submit_request(
         &self,
         request: InferenceRequest,
-    ) -> Result<mpsc::UnboundedReceiver<InferenceResponse>> {
+    ) -> Result<mpsc::Receiver<InferenceResponse>> {
         let state = self.state.read().await.clone();
         match state {
             EngineState::Ready => {}
@@ -190,7 +190,7 @@ impl InferenceEngine {
             }
         }
 
-        let (response_tx, response_rx) = mpsc::unbounded_channel();
+        let (response_tx, response_rx) = mpsc::channel(1);
         self.scheduler
             .write()
             .await

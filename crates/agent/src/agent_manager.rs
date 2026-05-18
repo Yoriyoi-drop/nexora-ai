@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc as StdArc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{RwLock, mpsc, oneshot};
 use uuid::Uuid;
 use tracing::{info, warn, error, debug};
@@ -57,10 +58,14 @@ pub struct AgentManager {
     state: StdArc<AgentState>,
     /// Konfigurasi
     config: AgentManagerConfig,
-    /// Channel untuk menerima command (shared via Arc agar Clone tidak duplikasi)
-    command_rx: StdArc<RwLock<Option<mpsc::UnboundedReceiver<ManagerCommand>>>>,
+    /// Channel untuk menerima command (bounded, buffer=256)
+    command_rx: StdArc<RwLock<Option<mpsc::Receiver<ManagerCommand>>>>,
     /// Channel untuk mengirim command
-    command_tx: StdArc<mpsc::UnboundedSender<ManagerCommand>>,
+    command_tx: StdArc<mpsc::Sender<ManagerCommand>>,
+    /// Shared memory store singleton (not created per-call)
+    memory_store: StdArc<nexora_memory::MemoryLayers>,
+    /// Health check loop cancellation flag
+    is_running: StdArc<AtomicBool>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -115,7 +120,7 @@ pub enum ManagerCommand {
 impl AgentManager {
     /// Create new agent manager
     pub fn new(config: AgentManagerConfig) -> Self {
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (command_tx, command_rx) = mpsc::channel(256);
         
         Self {
             registry: StdArc::new(AgentRegistry::new()),
@@ -125,6 +130,8 @@ impl AgentManager {
             config,
             command_rx: StdArc::new(RwLock::new(Some(command_rx))),
             command_tx: StdArc::new(command_tx),
+            memory_store: StdArc::new(nexora_memory::MemoryLayers::new()),
+            is_running: StdArc::new(AtomicBool::new(true)),
         }
     }
     
@@ -209,20 +216,26 @@ impl AgentManager {
         info!("Command loop ended");
     }
     
-    /// Health check loop
+    /// Health check loop (cancellable via is_running flag)
     async fn run_health_check_loop(&self) {
         info!("Starting health check loop");
         
         let interval = tokio::time::Duration::from_secs(self.config.health_check_interval_seconds);
         let mut interval_timer = tokio::time::interval(interval);
         
-        loop {
+        while self.is_running.load(Ordering::Relaxed) {
             interval_timer.tick().await;
+            
+            if !self.is_running.load(Ordering::Relaxed) {
+                break;
+            }
             
             if let Err(e) = self.perform_health_check().await {
                 error!("Health check failed: {}", e);
             }
         }
+        
+        info!("Health check loop ended");
     }
     
     /// Internal spawn agent implementation
@@ -237,15 +250,14 @@ impl AgentManager {
         }
         
         // Create agent instance based on type
-        let agent = self.create_agent_instance(&agent_type).await?;
+        let mut agent = self.create_agent_instance(&agent_type).await?;
         let agent_id = agent.id();
         
-        // Initialize agent
-        let mut agent_clone = agent;
-        agent_clone.initialize(config.clone()).await?;
+        // Initialize agent before wrapping
+        agent.initialize(config.clone()).await?;
         
-        // Register agent
-        self.registry.register_agent(agent_id, agent_type.clone(), agent_clone).await?;
+        // Register agent (wraps in Arc<Mutex> internally)
+        self.registry.register_agent(agent_id, agent_type.clone(), agent).await?;
         
         // Start agent lifecycle
         self.lifecycle.start_agent(agent_id).await?;
@@ -290,21 +302,18 @@ impl AgentManager {
     async fn send_message_internal(&self, agent_id: Uuid, message: AgentMessage) -> Result<AgentResponse> {
         debug!("Sending message to agent: {}", agent_id);
         
-        let agent = self.registry.get_agent(agent_id).await?
-            .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))?;
-        
-        // Send message to agent
-        let mut agent_clone = agent;
-        agent_clone.receive(message).await?;
+        let agent_handle = self.registry.get_agent(agent_id).await?;
+        let mut agent = agent_handle.lock().await;
+        agent.receive(message).await?;
         
         // Create context
         let context = crate::AgentContext::new(Uuid::new_v4());
         
         // Process message
-        let response = agent_clone.process(context).await?;
+        let response = agent.process(context).await?;
         
         // Send response
-        agent_clone.respond(response.clone()).await?;
+        agent.respond(response.clone()).await?;
         
         debug!("Message processed successfully for agent: {}", agent_id);
         Ok(response)
@@ -312,17 +321,15 @@ impl AgentManager {
     
     /// Internal get status implementation
     async fn get_status_internal(&self, agent_id: Uuid) -> Result<AgentStatus> {
-        let agent = self.registry.get_agent(agent_id).await?
-            .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))?;
-        
+        let agent_handle = self.registry.get_agent(agent_id).await?;
+        let agent = agent_handle.lock().await;
         Ok(agent.status())
     }
     
     /// Internal get stats implementation
     async fn get_stats_internal(&self, agent_id: Uuid) -> Result<AgentStats> {
-        let agent = self.registry.get_agent(agent_id).await?
-            .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))?;
-        
+        let agent_handle = self.registry.get_agent(agent_id).await?;
+        let agent = agent_handle.lock().await;
         Ok(agent.get_stats())
     }
     
@@ -337,9 +344,8 @@ impl AgentManager {
         let mut results = HashMap::new();
         
         for (agent_id, _, _) in agents {
-            let agent = self.registry.get_agent(agent_id).await?
-                .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))?;
-            
+            let agent_handle = self.registry.get_agent(agent_id).await?;
+            let agent = agent_handle.lock().await;
             let healthy = agent.health_check().await.unwrap_or(false);
             results.insert(agent_id, healthy);
         }
@@ -350,6 +356,9 @@ impl AgentManager {
     /// Internal shutdown implementation
     async fn shutdown_internal(&self) -> Result<()> {
         info!("Shutting down AgentManager");
+        
+        // Signal health check loop to stop
+        self.is_running.store(false, Ordering::Relaxed);
         
         // Stop all agents
         let agents = self.registry.list_agents().await?;
@@ -391,7 +400,7 @@ impl AgentManager {
         match agent_type {
             "context" => {
                 // Create context agent
-                let memory_store = self.get_memory_store().await?;
+                let memory_store = self.get_memory_store();
                 let config = crate::context_agent::ContextAgentConfig::default();
                 let agent = crate::context_agent::ContextAgent::new(memory_store, config);
                 Ok(Box::new(agent))
@@ -440,12 +449,9 @@ impl AgentManager {
         }
     }
     
-    /// Get memory store instance
-    async fn get_memory_store(&self) -> Result<StdArc<nexora_memory::MemoryLayers>> {
-        // Create or get memory store instance
-        // In a real implementation, this might use dependency injection
-        let memory_store = StdArc::new(nexora_memory::MemoryLayers::new());
-        Ok(memory_store)
+    /// Get memory store singleton (no longer creates new instance per call)
+    fn get_memory_store(&self) -> StdArc<nexora_memory::MemoryLayers> {
+        self.memory_store.clone()
     }
 }
 
@@ -459,6 +465,8 @@ impl Clone for AgentManager {
             config: self.config.clone(),
             command_rx: StdArc::clone(&self.command_rx),
             command_tx: StdArc::clone(&self.command_tx),
+            memory_store: StdArc::clone(&self.memory_store),
+            is_running: StdArc::clone(&self.is_running),
         }
     }
 }

@@ -28,7 +28,7 @@ pub struct SchedulerStats {
 
 struct ScheduledRequest {
     _request_id: Uuid,
-    response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
+    response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
     status: RequestStatus,
     _submitted_at: chrono::DateTime<chrono::Utc>,
     batch_key: Option<BatchKey>,
@@ -72,7 +72,7 @@ impl RequestScheduler {
     pub async fn submit_request(
         &self,
         request_id: Uuid,
-        response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
+        response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
     ) -> Result<(), anyhow::Error> {
         let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;
@@ -93,7 +93,7 @@ impl RequestScheduler {
     pub async fn submit_request_batched(
         &self,
         request: &crate::InferenceRequest,
-        response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
+        response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
     ) -> Result<BatchKey, anyhow::Error> {
         let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;

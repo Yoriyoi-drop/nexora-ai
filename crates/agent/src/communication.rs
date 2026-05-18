@@ -2,7 +2,7 @@
 //! 
 //! Agent-to-agent messaging system untuk multi-stage reasoning.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc, broadcast};
 use uuid::Uuid;
@@ -85,11 +85,11 @@ pub struct MessageTracking {
 /// Message bus untuk inter-agent communication
 pub struct MessageBus {
     /// Channel untuk incoming messages
-    _message_tx: mpsc::UnboundedSender<InterAgentMessage>,
+    _message_tx: mpsc::UnboundedSender<Arc<InterAgentMessage>>,
     /// Receiver untuk incoming messages
-    _message_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<InterAgentMessage>>>>,
-    /// Agent subscribers (agent_id -> sender)
-    subscribers: Arc<RwLock<HashMap<Uuid, mpsc::UnboundedSender<InterAgentMessage>>>>,
+    _message_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<Arc<InterAgentMessage>>>>>,
+    /// Per-agent message channels (bounded, buffer=16)
+    subscribers: Arc<RwLock<HashMap<Uuid, mpsc::Sender<Arc<InterAgentMessage>>>>>,
     /// Topic subscribers (topic -> vec of agent IDs)
     topic_subscribers: Arc<RwLock<HashMap<String, Vec<Uuid>>>>,
     /// Role-based subscribers (role -> vec of agent IDs)
@@ -98,8 +98,8 @@ pub struct MessageBus {
     message_tracking: Arc<RwLock<HashMap<Uuid, MessageTracking>>>,
     /// Broadcast channel untuk events
     event_tx: broadcast::Sender<MessageBusEvent>,
-    /// Message queue untuk pending messages
-    message_queue: Arc<RwLock<Vec<InterAgentMessage>>>,
+    /// Message queue untuk pending messages (VecDeque for O(1) front removal)
+    message_queue: Arc<RwLock<VecDeque<Arc<InterAgentMessage>>>>,
 }
 
 /// Events dari message bus
@@ -131,15 +131,15 @@ impl MessageBus {
             role_subscribers: Arc::new(RwLock::new(HashMap::new())),
             message_tracking: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
-            message_queue: Arc::new(RwLock::new(Vec::new())),
+            message_queue: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
     
     /// Subscribe agent ke message bus
-    pub async fn subscribe(&self, agent_id: Uuid) -> Result<mpsc::UnboundedReceiver<InterAgentMessage>> {
+    pub async fn subscribe(&self, agent_id: Uuid) -> Result<mpsc::Receiver<Arc<InterAgentMessage>>> {
         debug!("Agent {} subscribing to message bus", agent_id);
         
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(16);
         
         // Register subscriber
         {
@@ -212,11 +212,12 @@ impl MessageBus {
     
     /// Send message ke agent tertentu
     pub async fn send_message(&self, message: InterAgentMessage) -> Result<()> {
+        let message = Arc::new(message);
         debug!("Sending message {} from {} to {:?}", 
                message.message_id, message.source_agent_id, message.destination_agent_id);
         
         // Track message
-        self.track_message(message.clone()).await?;
+        self.track_message((*message).clone()).await?;
         
         // Route message based on destination
         match message.destination_agent_id {
@@ -271,9 +272,11 @@ impl MessageBus {
     }
     
     /// Get pending messages count
+    #[allow(clippy::let_and_return)]
     pub async fn get_pending_count(&self) -> usize {
         let queue = self.message_queue.read().await;
-        queue.len()
+        let len = queue.len();
+        len
     }
     
     /// Cleanup old messages
@@ -300,10 +303,14 @@ impl MessageBus {
     }
     
     /// Send message ke specific agent
-    async fn send_to_agent(&self, agent_id: Uuid, message: InterAgentMessage) -> Result<()> {
-        let subscribers = self.subscribers.read().await;
+    async fn send_to_agent(&self, agent_id: Uuid, message: Arc<InterAgentMessage>) -> Result<()> {
+        // Clone sender under lock, drop lock, then send (avoids holding lock across await)
+        let sender = {
+            let subscribers = self.subscribers.read().await;
+            subscribers.get(&agent_id).cloned()
+        };
         
-        if let Some(sender) = subscribers.get(&agent_id) {
+        if let Some(sender) = sender {
             if let Err(_) = sender.send(message.clone()) {
                 // Agent tidak bisa menerima message, queue dulu
                 self.queue_message(message.clone()).await?;
@@ -331,8 +338,8 @@ impl MessageBus {
         Ok(())
     }
     
-    /// Route message berdasarkan strategy
-    async fn route_message(&self, message: InterAgentMessage) -> Result<()> {
+    /// Route message berdasarkan strategy (uses Arc sharing — cheap clone)
+    async fn route_message(&self, message: Arc<InterAgentMessage>) -> Result<()> {
         // Check untuk topic-based routing
         if let Some(topic) = message.metadata.get("topic") {
             if let Some(topic_str) = topic.as_str() {
@@ -340,9 +347,7 @@ impl MessageBus {
                 if let Some(subscribers) = topic_subscribers.get(topic_str) {
                     for &agent_id in subscribers {
                         if Some(agent_id) != message.destination_agent_id {
-                            let mut msg = message.clone();
-                            msg.destination_agent_id = Some(agent_id);
-                            self.send_to_agent(agent_id, msg).await?;
+                            self.send_to_agent(agent_id, message.clone()).await?;
                         }
                     }
                     return Ok(());
@@ -357,9 +362,7 @@ impl MessageBus {
                 if let Some(subscribers) = role_subscribers.get(role_str) {
                     for &agent_id in subscribers {
                         if Some(agent_id) != message.destination_agent_id {
-                            let mut msg = message.clone();
-                            msg.destination_agent_id = Some(agent_id);
-                            self.send_to_agent(agent_id, msg).await?;
+                            self.send_to_agent(agent_id, message.clone()).await?;
                         }
                     }
                     return Ok(());
@@ -372,9 +375,7 @@ impl MessageBus {
         for (&agent_id, _) in subscribers.iter() {
             if Some(agent_id) != message.destination_agent_id && 
                agent_id != message.source_agent_id {
-                let mut msg = message.clone();
-                msg.destination_agent_id = Some(agent_id);
-                self.send_to_agent(agent_id, msg).await?;
+                self.send_to_agent(agent_id, message.clone()).await?;
             }
         }
         
@@ -382,30 +383,30 @@ impl MessageBus {
     }
     
     /// Queue message untuk nanti
-    async fn queue_message(&self, message: InterAgentMessage) -> Result<()> {
+    async fn queue_message(&self, message: Arc<InterAgentMessage>) -> Result<()> {
         let mut queue = self.message_queue.write().await;
-        queue.push(message);
+        queue.push_back(message);
         Ok(())
     }
     
-    /// Process queued messages untuk agent
+    /// Process queued messages untuk agent (VecDeque front-pop for O(1) removal)
     async fn process_queued_messages(&self, agent_id: Uuid) -> Result<()> {
         let mut queue = self.message_queue.write().await;
+        let mut processed = 0usize;
         let mut i = 0;
         
         while i < queue.len() {
-            let message = queue[i].clone();
+            let should_deliver = {
+                let msg = &queue[i];
+                msg.destination_agent_id == Some(agent_id) || 
+                msg.destination_agent_id.is_none()
+            };
             
-            // Check jika message ini untuk agent ini
-            if message.destination_agent_id == Some(agent_id) || 
-               message.destination_agent_id.is_none() {
-                // Remove from queue
-                let message = queue.remove(i);
-                
-                // Send immediately
-                self.send_to_agent(agent_id, message).await?;
-                
-                // Don't increment i since we removed element
+            if should_deliver {
+                if let Some(message) = queue.remove(i) {
+                    self.send_to_agent(agent_id, message).await?;
+                    processed += 1;
+                }
             } else {
                 i += 1;
             }

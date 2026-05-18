@@ -34,7 +34,7 @@ pub struct BatchRequest {
     pub temperature: f32,
     pub top_k: u32,
     pub top_p: f32,
-    pub response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>,
+    pub response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
 }
 
 /// A batch of compatible requests to be processed together.
@@ -86,7 +86,7 @@ impl BatchCollector {
     }
 
     /// Add a request to the pending pool. Returns the batch key it was grouped into.
-    pub fn add_request(&mut self, request: crate::InferenceRequest, response_tx: tokio::sync::mpsc::UnboundedSender<crate::InferenceResponse>) -> BatchKey {
+    pub fn add_request(&mut self, request: crate::InferenceRequest, response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>) -> BatchKey {
         let key = BatchKey::from_request(&request);
         let entry = self.pending.entry(key.clone()).or_insert_with(|| Batch::new(key.clone()));
         entry.add_request(BatchRequest {

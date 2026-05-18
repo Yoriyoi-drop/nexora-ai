@@ -61,9 +61,9 @@ pub struct LifecycleManager {
     /// Event channel untuk lifecycle events
     event_tx: mpsc::UnboundedSender<AgentLifecycleEvent>,
     /// Event receiver
-    _event_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>>>>,
-    /// Event subscribers
-    event_subscribers: Arc<std::sync::Mutex<Vec<mpsc::UnboundedSender<AgentLifecycleEvent>>>>,
+    _event_rx: Arc<RwLock<Option<mpsc::Receiver<AgentLifecycleEvent>>>>,
+    /// Event subscribers (bounded, buffer=32 per subscriber)
+    event_subscribers: Arc<tokio::sync::Mutex<Vec<mpsc::Sender<AgentLifecycleEvent>>>>,
     /// Konfigurasi
     config: AgentManagerConfig,
 }
@@ -71,13 +71,13 @@ pub struct LifecycleManager {
 impl LifecycleManager {
     /// Create new lifecycle manager
     pub fn new(config: AgentManagerConfig) -> Self {
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (event_tx, event_rx) = mpsc::channel(64);
         
         Self {
             agent_status: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
             _event_rx: Arc::new(RwLock::new(Some(event_rx))),
-            event_subscribers: Arc::new(std::sync::Mutex::new(Vec::new())),
+            event_subscribers: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             config,
         }
     }
@@ -316,12 +316,12 @@ impl LifecycleManager {
     }
     
     /// Get event subscriber
-    pub fn get_event_subscriber(&self) -> Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>> {
+    pub async fn get_event_subscriber(&self) -> Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>> {
         // Implement proper subscription mechanism
         let (tx, rx) = mpsc::unbounded_channel();
         
         // Add subscriber to the list
-        let mut subscribers = self.event_subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        let mut subscribers = self.event_subscribers.lock().await;
         subscribers.push(tx);
         
         Some(rx)
