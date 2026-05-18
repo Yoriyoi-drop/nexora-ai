@@ -28,6 +28,9 @@ impl NexoraApi {
             Some(serde_json::json!({"text": text})),
         ).await?;
         let body = response.text().await?;
+        if body.len() > 50_000_000 {
+            return Err(anyhow::anyhow!("API response too large: {} bytes", body.len()));
+        }
         Ok(serde_json::from_str(&body)?)
     }
 }

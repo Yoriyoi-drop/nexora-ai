@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use once_cell::sync::Lazy;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tokio::signal;
 use chrono::Utc;
 use rand::seq::SliceRandom;
@@ -40,8 +40,12 @@ fn atomic_save(trainer: &mut Trainer, path: &Path, metadata: &serde_json::Value)
     let meta_path = path.with_extension("safetensors.json");
     if let Ok(meta_json) = serde_json::to_string_pretty(metadata) {
         let tmp_meta = meta_path.with_extension("json.tmp");
-        let _ = std::fs::write(&tmp_meta, &meta_json);
-        let _ = std::fs::rename(&tmp_meta, &meta_path);
+        if let Err(e) = std::fs::write(&tmp_meta, &meta_json) {
+            warn!("Failed to write metadata: {}", e);
+        }
+        if let Err(e) = std::fs::rename(&tmp_meta, &meta_path) {
+            warn!("Failed to rename metadata: {}", e);
+        }
     }
     Ok(())
 }
@@ -161,8 +165,12 @@ impl CheckpointManager {
         while self.saved_steps.len() > self.keep_last {
             if let Some(old_step) = self.saved_steps.first().copied() {
                 let old_path = self.output_base.with_extension(format!("step_{}.safetensors", old_step));
-                let _ = std::fs::remove_file(&old_path);
-                let _ = std::fs::remove_file(old_path.with_extension("safetensors.json"));
+                if let Err(e) = std::fs::remove_file(&old_path) {
+                    warn!("Failed to remove old checkpoint {}: {}", old_path.display(), e);
+                }
+                if let Err(e) = std::fs::remove_file(old_path.with_extension("safetensors.json")) {
+                    warn!("Failed to remove old checkpoint metadata: {}", e);
+                }
                 self.saved_steps.remove(0);
             }
         }
@@ -908,7 +916,9 @@ impl crate::cli::commands::Cli {
                                                 tokens, lr: lr as f64,
                                                 elapsed, reason: "periodic",
                                             };
-                                            let _ = ckpt_mgr.save(&mut trainer, &meta);
+                                            if let Err(e) = ckpt_mgr.save(&mut trainer, &meta) {
+                                                error!("Checkpoint save failed at step {}: {}", step, e);
+                                            }
                                         }
                                     }
                                 }
@@ -1020,7 +1030,9 @@ impl crate::cli::commands::Cli {
         }
 
         // Cleanup resume file
-        let _ = std::fs::remove_file(&resume_path);
+        if let Err(e) = std::fs::remove_file(&resume_path) {
+            warn!("Failed to remove resume file {}: {}", resume_path.display(), e);
+        }
 
         let report = serde_json::json!({
             "epochs": epochs,
@@ -1242,7 +1254,9 @@ fn train_nxr_model(
                                 tokens, lr: lr as f64,
                                 elapsed, reason: "periodic",
                             };
-                            let _ = ckpt_mgr.save(&mut trainer, &meta);
+                            if let Err(e) = ckpt_mgr.save(&mut trainer, &meta) {
+                                error!("Checkpoint save failed at step {}: {}", step, e);
+                            }
                         }
 
                         if step % val_every == 0 && !val_sequences.is_empty() {
@@ -1264,7 +1278,9 @@ fn train_nxr_model(
                                         tokens, lr: lr as f64,
                                         elapsed, reason: "best_validation",
                                     };
-                                    let _ = ckpt_mgr.save_best(&mut trainer, &meta, val_metrics.avg_loss);
+                                    if let Err(e) = ckpt_mgr.save_best(&mut trainer, &meta, val_metrics.avg_loss) {
+                                        error!("Best checkpoint save failed at step {}: {}", step, e);
+                                    }
                                     true
                                 }
                             };
@@ -1355,7 +1371,9 @@ fn train_nxr_model(
         });
         let meta_path = final_path.with_extension("safetensors.json");
         if let Ok(meta_json) = serde_json::to_string_pretty(&extra_meta) {
-            let _ = std::fs::write(&meta_path, &meta_json);
+            if let Err(e) = std::fs::write(&meta_path, &meta_json) {
+                warn!("Failed to write final metadata: {}", e);
+            }
         }
     }
 

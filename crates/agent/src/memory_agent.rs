@@ -337,7 +337,8 @@ impl MemoryAgent {
         memory_type: Option<MemoryType>,
         limit: Option<u32>,
     ) -> Result<Vec<nexora_memory::MemoryEntry>> {
-        debug!("Searching memories with term: {}", search_term);
+        let truncated = if search_term.len() > 100 { format!("{} [truncated {} chars]", &search_term[..100], search_term.len()) } else { search_term.clone() };
+        debug!("Searching memories with term: {}", truncated);
         
         let query = MemoryQuery {
             user_id,

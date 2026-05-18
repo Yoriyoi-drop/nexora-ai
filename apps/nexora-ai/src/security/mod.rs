@@ -353,9 +353,9 @@ mod tests {
         let token = SecurityUtils::generate_secure_token(32);
         assert_eq!(token.len(), 32);
         
-        let hash = SecurityUtils::hash_password("password", "salt");
-        assert!(SecurityUtils::verify_password("password", "salt", &hash));
-        assert!(!SecurityUtils::verify_password("wrong", "salt", &hash));
+        let hash = SecurityUtils::hash_password("password").unwrap();
+        assert!(SecurityUtils::verify_password("password", &hash).unwrap());
+        assert!(!SecurityUtils::verify_password("wrong", &hash).unwrap());
         
         let dangerous = SecurityUtils::is_dangerous_content("This contains a password");
         assert!(dangerous);

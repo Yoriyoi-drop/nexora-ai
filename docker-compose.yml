@@ -55,7 +55,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./crates/database/init.sql:/docker-entrypoint-initdb.d/init.sql
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-nexora_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nexora_secure_password}
@@ -92,7 +92,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./crates/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -110,8 +110,8 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./crates/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./crates/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-nexora_admin}
       - GF_USERS_ALLOW_SIGN_UP=false
@@ -165,7 +165,10 @@ services:
       - minio
     entrypoint: >
       sh -c "
-      until mc alias set minio http://minio:9000 ${MINIO_USER:-nexora_admin} ${MINIO_PASSWORD:-nexora_secure_password}; do
+      for i in $$(seq 1 30); do
+        if mc alias set minio http://minio:9000 ${MINIO_USER:-nexora_admin} ${MINIO_PASSWORD:-nexora_secure_password}; then
+          break
+        fi
         echo 'Waiting for MinIO...'
         sleep 1
       done

@@ -265,8 +265,10 @@ impl DatabasePool {
         }
     }
 
-    /// Execute query with prepared statement
+    /// Execute query with prepared statement (legacy)
+    #[deprecated(note = "Use execute_query_params with bind parameters instead")]
     pub async fn execute_prepared(&self, query: &str) -> Result<Vec<sqlx::postgres::PgRow>> {
+        warn!("execute_prepared is deprecated - use execute_query_params with bind parameters to prevent SQL injection");
         let start_time = Instant::now();
 
         let query_builder = sqlx::query(query);
@@ -490,7 +492,7 @@ impl DatabasePool {
                 interval.tick().await;
 
                 let start = Instant::now();
-                let result = sqlx::query(&test_query).fetch_one(&pool).await;
+                let result = sqlx::query_scalar::<_, i32>(&test_query).fetch_one(&pool).await;
                 let duration = start.elapsed();
 
                 let is_healthy = result.is_ok() && duration < Duration::from_secs(5);

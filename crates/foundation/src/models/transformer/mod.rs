@@ -1,19 +1,8 @@
-pub mod config;
-pub mod rms_norm;
-pub mod rope;
-pub mod gqa;
-pub mod swiglu;
-pub mod block;
-pub mod model;
-pub mod trainable;
-pub mod mtp;
+// Transformer model implementation
+//
+// Re-exported from `nexora-transformer` crate.
 
-pub use config::TransformerConfig;
-pub use model::CausalLM;
-pub use gqa::{KVCacheEntry, PagedCacheReader};
-pub use rms_norm::RMSNorm;
-pub use rope::RoPE;
-pub use trainable::TrainableCausalLM;
-pub use mtp::{MTPConfig, MTPHeads, MTPInference};
+pub use nexora_transformer::*;
 
-pub(crate) use model::sample_token;
+// Re-export sample_token as pub(crate) for internal foundation use
+pub(crate) use nexora_transformer::sample_token;

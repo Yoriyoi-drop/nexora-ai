@@ -1,0 +1,14 @@
+[package]
+name = "nexora-training"
+version = "0.1.0"
+edition = "2021"
+description = "Training pipeline for Nexora - gradient accumulation, LR scheduling, checkpointing"
+
+[dependencies]
+nexora-transformer = { path = "../transformer" }
+nexora-deeplearning = { path = "../deeplearning" }
+ndarray.workspace = true
+serde.workspace = true
+tracing.workspace = true
+rand.workspace = true
+anyhow.workspace = true

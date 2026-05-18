@@ -1,0 +1,11 @@
+[package]
+name = "nexora-has-moe-ffn"
+version = "0.1.0"
+edition = "2021"
+description = "Heterogeneous Attention-based Sparse MoE Feed-Forward Network"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+ndarray.workspace = true
+rand.workspace = true

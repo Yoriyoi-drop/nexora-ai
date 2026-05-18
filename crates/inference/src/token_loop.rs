@@ -365,8 +365,9 @@ impl TokenLoop {
                 }
             }
             
+            let truncated_text = if gen.token_text.len() > 50 { format!("{} [truncated {} chars]", &gen.token_text[..50], gen.token_text.len()) } else { gen.token_text.to_string() };
             debug!("Generated token {} at step {}: {}", 
-                   gen.token_id, step, gen.token_text);
+                   gen.token_id, step, truncated_text);
         }
         
         // Create response

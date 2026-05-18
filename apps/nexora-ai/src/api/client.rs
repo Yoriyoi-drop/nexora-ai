@@ -83,7 +83,8 @@ impl ApiClient {
     
     /// Process request
     pub async fn process_request(&self, request: ProcessRequest) -> Result<ProcessResponse> {
-        info!("Processing API request: {}", request.input);
+        let truncated = if request.input.len() > 100 { format!("{} [truncated {} chars]", &request.input[..100], request.input.len()) } else { request.input.clone() };
+        info!("Processing API request: {}", truncated);
         
         let body = serde_json::to_value(request)?;
         let response = self.make_request(reqwest::Method::POST, "process", Some(body)).await?;
@@ -115,7 +116,8 @@ impl ApiClient {
     
     /// Chat
     pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
-        info!("Chat request: {} (conversation_id: {:?})", request.message, request.conversation_id);
+        let truncated = if request.message.len() > 100 { format!("{} [truncated {} chars]", &request.message[..100], request.message.len()) } else { request.message.clone() };
+        info!("Chat request: {} (conversation_id: {:?})", truncated, request.conversation_id);
         
         let body = serde_json::to_value(request)?;
         let response = self.make_request(reqwest::Method::POST, "chat", Some(body)).await?;

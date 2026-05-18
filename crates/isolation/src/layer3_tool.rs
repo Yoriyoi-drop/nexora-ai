@@ -292,16 +292,31 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
         ToolKind::Browser => "chromium",
         ToolKind::FileSystem => "ls",
         ToolKind::Network => "curl",
-        _ => &request.command,
+        _ => return ToolExecutionResult {
+            success: false,
+            stdout: String::new(),
+            stderr: "Unknown tool kind - command execution blocked for safety".to_string(),
+            exit_code: -1,
+            execution_time_ms: 0,
+            sandbox_violations: vec!["unsafe_tool_kind".to_string()],
+        },
     };
 
-    let output = tokio::process::Command::new(program)
-        .args(&request.args)
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(&request.args)
         .env_clear()
-        .envs(&request.env_vars)
-        .kill_on_drop(true)
-        .output()
-        .await;
+        .kill_on_drop(true);
+
+    // Strip dangerous environment variables
+    let denied_env_keys = ["LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
+        "LD_OPENCL", "LD_ORIGIN_PATH", "PATH", "PYTHONPATH", "BASH_ENV"];
+    for (key, value) in &request.env_vars {
+        if !denied_env_keys.contains(&key.as_str()) {
+            cmd.env(key, value);
+        }
+    }
+
+    let output = cmd.output().await;
 
     match output {
         Ok(out) => ToolExecutionResult {
@@ -353,7 +368,7 @@ mod tests {
             timeout_seconds: None,
             env_vars: HashMap::new(),
         });
-        assert!(result.is_ok());
+        assert!(tokio::runtime::Runtime::new().unwrap().block_on(result).is_ok());
     }
 
     #[test]
@@ -373,7 +388,7 @@ mod tests {
             timeout_seconds: None,
             env_vars: HashMap::new(),
         });
-        assert!(result.is_err());
+        assert!(tokio::runtime::Runtime::new().unwrap().block_on(result).is_err());
     }
 }
 

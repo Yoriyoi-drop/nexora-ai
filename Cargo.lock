@@ -3317,6 +3317,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexora-alignment"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "chrono",
+ "ndarray 0.15.6",
+ "nexora-shared",
+ "rand 0.8.6",
+ "serde",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "nexora-api"
 version = "0.1.0"
 dependencies = [
@@ -3343,6 +3359,23 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "nexora-atqs"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fastrand",
+ "ndarray 0.15.6",
+ "ndarray-rand 0.15.0",
+ "rand 0.8.6",
+ "rand_distr 0.4.3",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "tracing",
 ]
 
 [[package]]
@@ -3528,6 +3561,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexora-erp"
+version = "0.1.0"
+dependencies = [
+ "lru",
+ "ndarray 0.15.6",
+ "ndarray-rand 0.15.0",
+ "rand 0.8.6",
+ "rand_distr 0.4.3",
+ "thiserror 1.0.69",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "nexora-foundation"
 version = "0.1.0"
 dependencies = [
@@ -3545,11 +3592,25 @@ dependencies = [
  "mockall",
  "ndarray 0.15.6",
  "ndarray-rand 0.15.0",
+ "nexora-alignment",
+ "nexora-atqs",
  "nexora-common",
  "nexora-core",
  "nexora-deeplearning",
+ "nexora-erp",
  "nexora-hallucination",
+ "nexora-has-moe-ffn",
+ "nexora-hldva-t",
+ "nexora-multimodal",
+ "nexora-oracle",
+ "nexora-quantization",
+ "nexora-shared",
  "nexora-tokenizer",
+ "nexora-training",
+ "nexora-traits",
+ "nexora-transformer",
+ "nexora-validation",
+ "nexora-vogp",
  "once_cell",
  "parking_lot",
  "proptest",
@@ -3585,6 +3646,28 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "nexora-has-moe-ffn"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.15.6",
+ "rand 0.8.6",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "nexora-hldva-t"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nexora-atqs",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3743,6 +3826,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexora-multimodal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ndarray 0.15.6",
+ "nexora-atqs",
+ "nexora-has-moe-ffn",
+ "nexora-shared",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nexora-oracle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ndarray 0.15.6",
+ "ndarray-rand 0.15.0",
+ "once_cell",
+ "rand 0.8.6",
+ "regex",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-quantization"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.15.6",
+]
+
+[[package]]
 name = "nexora-runtime"
 version = "0.1.0"
 dependencies = [
@@ -3753,6 +3877,29 @@ dependencies = [
  "mockall",
  "num_cpus",
  "proptest",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-shared"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "ndarray 0.15.6",
+ "nexora-atqs",
+ "nexora-deeplearning",
+ "nexora-erp",
+ "nexora-has-moe-ffn",
+ "nexora-tokenizer",
+ "nexora-vogp",
+ "parking_lot",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -3778,6 +3925,92 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "nexora-training"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ndarray 0.15.6",
+ "nexora-deeplearning",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "nexora-traits"
+version = "0.1.0"
+dependencies = [
+ "nexora-atqs",
+ "serde",
+]
+
+[[package]]
+name = "nexora-transformer"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.15.6",
+ "nexora-deeplearning",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "nexora-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "chrono",
+ "flate2",
+ "hex",
+ "hmac 0.12.1",
+ "mockall",
+ "once_cell",
+ "parking_lot",
+ "pathdiff",
+ "pbkdf2 0.12.2",
+ "proptest",
+ "rand 0.8.6",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "unicode-segmentation",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-validation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "regex",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "nexora-vogp"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.15.6",
+ "ndarray-rand 0.15.0",
+ "nexora-hldva-t",
+ "rand 0.8.6",
+ "rand_distr 0.4.3",
+ "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -4188,6 +4421,16 @@ dependencies = [
  "hmac 0.12.1",
  "password-hash 0.4.2",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest 0.10.7",
+ "hmac 0.12.1",
 ]
 
 [[package]]
@@ -7742,7 +7985,7 @@ dependencies = [
  "crossbeam-utils",
  "flate2",
  "hmac 0.12.1",
- "pbkdf2",
+ "pbkdf2 0.11.0",
  "sha1",
  "time",
  "zstd 0.11.2+zstd.1.5.2",

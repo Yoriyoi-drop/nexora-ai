@@ -320,7 +320,9 @@ impl RequestScheduler {
         };
 
         for request_id in active_ids {
-            let _ = self.cancel_request(request_id).await;
+            if let Err(e) = self.cancel_request(request_id).await {
+                warn!("Failed to cancel request {} during scheduler shutdown: {}", request_id, e);
+            }
         }
 
         *self.state.write().await = SchedulerState::Shutdown;

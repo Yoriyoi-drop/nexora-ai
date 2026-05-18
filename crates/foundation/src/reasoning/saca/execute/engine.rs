@@ -324,11 +324,12 @@ impl SandboxCodeExecutor {
         Ok(())
     }
     
-    /// Validate code for security issues
+    /// Validate code for security issues using combined blocklist and heuristics
     fn validate_security(&self, code: &str) -> Result<(), String> {
         let dangerous_patterns = [
             "std::process::Command",
             "std::fs::remove_dir_all",
+            "std::fs::remove_file",
             "unsafe",
             "transmute",
             "os.system",
@@ -339,7 +340,6 @@ impl SandboxCodeExecutor {
             "eval(",
             "exec(",
             "compile(",
-            "open(",
             "shutil",
             "glob.glob",
             "os.walk",
@@ -371,6 +371,14 @@ impl SandboxCodeExecutor {
             "signal",
             "fcntl",
             "resource",
+            "BaseException",
+            "__subclasshook__",
+            "__reduce__",
+            "sys.modules",
+            "sys.path",
+            "breakpoint",
+            "help(",
+            "input(",
         ];
         
         for pattern in &dangerous_patterns {
@@ -378,7 +386,27 @@ impl SandboxCodeExecutor {
                 return Err(format!("Dangerous pattern detected: {}", pattern));
             }
         }
-        
+
+        let lines: Vec<&str> = code.lines().collect();
+        for line in &lines {
+            let trimmed = line.trim();
+            if trimmed.starts_with("import ") {
+                let import_name = trimmed.trim_start_matches("import ").trim();
+                if !import_name.starts_with('_')
+                    && !import_name.contains('(')
+                    && !import_name.contains(')')
+                {
+                    let allowed = ["math", "random", "json", "re", "collections",
+                        "itertools", "functools", "operator", "typing",
+                        "dataclasses", "enum", "string", "decimal", "datetime",
+                        "statistics", "bisect", "heapq", "copy", "pprint"];
+                    if !allowed.contains(&import_name) {
+                        return Err(format!("Import not allowed: {}", import_name));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
     
@@ -401,6 +429,9 @@ impl SandboxCodeExecutor {
         match Command::new("python3")
             .arg("-c")
             .arg(code)
+            .stdin(std::process::Stdio::null())
+            .env_clear()
+            .env("PYTHONIOENCODING", "utf-8")
             .output()
         {
             Ok(output) => {

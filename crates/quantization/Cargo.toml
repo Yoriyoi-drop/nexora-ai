@@ -1,0 +1,8 @@
+[package]
+name = "nexora-quantization"
+version = "0.1.0"
+edition = "2021"
+description = "Weight quantization helpers — INT8 and INT4 (packed/groupwise)"
+
+[dependencies]
+ndarray.workspace = true

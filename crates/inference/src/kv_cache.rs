@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -19,7 +20,7 @@ pub struct CacheStats {
 
 struct CacheEntry {
     key: Vec<u8>,
-    value: Vec<f32>,
+    value: Arc<Vec<f32>>,
     access_count: AtomicUsize,
     created_at: Instant,
     last_access: AtomicU64,
@@ -101,7 +102,8 @@ impl KVCache {
                     entry.access_count.fetch_add(1, Ordering::Relaxed);
                     entry.last_access.store(timestamp_nanos(), Ordering::Relaxed);
                     self.stats_hits.fetch_add(1, Ordering::Relaxed);
-                    return Some(entry.value.clone());
+                    // Arc clone is O(1) — avoids full Vec copy on every cache hit
+                    return Some(entry.value.as_ref().clone());
                 }
             }
         }
@@ -111,6 +113,7 @@ impl KVCache {
     }
 
     pub async fn insert(&self, key: Vec<u8>, value: Vec<f32>) {
+        let value = Arc::new(value);
         let entry_size = value.len() * std::mem::size_of::<f32>() + key.len();
         if entry_size > self.max_entry_bytes {
             warn!("KV insert rejected: {} bytes exceeds limit", entry_size);

@@ -287,6 +287,9 @@ pub trait DatabaseConnection: Send + Sync {
 
     /// Close connection
     async fn close(&mut self) -> Result<()>;
+
+    /// Downcast to Any for type-safe downcasting (required for connection pool round-trip)
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// Query result

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use uuid::Uuid;
-use tracing::{info, debug};
+use tracing::{info, debug, warn};
 use chrono::{DateTime, Utc};
 
 use crate::{AgentError, Result, AgentStatus};
@@ -83,9 +83,10 @@ impl LifecycleManager {
     }
     
     /// Emit lifecycle event
-    async fn emit_event(&self, event: AgentLifecycleEvent) -> Result<()> {
-        let _ = self.event_tx.send(event);
-        Ok(())
+    fn emit_event(&self, event: AgentLifecycleEvent) {
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
     }
     
     /// Start agent lifecycle
@@ -111,7 +112,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Initializing { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         // Transition to ready
         self.transition_to_ready(agent_id).await?;
@@ -136,7 +139,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Shutdown { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         // Final status update
         {
@@ -180,7 +185,7 @@ impl LifecycleManager {
         
         // Emit restart event
         let event = AgentLifecycleEvent::Restarted { agent_id, timestamp: now };
-        self.emit_event(event).await?;
+        self.emit_event(event);
         
         // Restart lifecycle
         self.start_agent(agent_id).await?;
@@ -205,7 +210,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Paused { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         Ok(())
     }
@@ -227,7 +234,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Resumed { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         Ok(())
     }
@@ -247,7 +256,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Processing { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         Ok(())
     }
@@ -268,7 +279,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::ProcessingComplete { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         Ok(())
     }
@@ -289,7 +302,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Error { agent_id, error: error.clone(), timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         Ok(())
     }
@@ -391,7 +406,9 @@ impl LifecycleManager {
         
         // Emit event
         let event = AgentLifecycleEvent::Ready { agent_id, timestamp: now };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Lifecycle event receiver dropped");
+        }
         
         Ok(())
     }

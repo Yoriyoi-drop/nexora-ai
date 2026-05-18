@@ -189,7 +189,8 @@ impl Cli {
         format: &str,
         output: &Option<PathBuf>,
     ) -> NexoraResult<()> {
-        info!("Processing input: {}", input);
+        let truncated = if input.len() > 100 { format!("{} [truncated {} chars]", &input[..100], input.len()) } else { input.to_string() };
+        info!("Processing input: {}", truncated);
         
         let response = nexora.process_request(input).await
             .map_err(|e| NexoraError::processing(format!("Request processing failed: {}", e)))?;
@@ -225,7 +226,8 @@ impl Cli {
         temperature: f32,
         output: &Option<PathBuf>,
     ) -> NexoraResult<()> {
-        info!("Generating text from prompt: {}", prompt);
+        let truncated = if prompt.len() > 100 { format!("{} [truncated {} chars]", &prompt[..100], prompt.len()) } else { prompt.to_string() };
+        info!("Generating text from prompt: {}", truncated);
         
         let generated = nexora.generate_text(prompt, max_tokens, temperature).await
             .map_err(|e| NexoraError::model(format!("Text generation failed: {}", e)))?;

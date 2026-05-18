@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_batch_collector_grouping() {
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::channel(16);
         let mut collector = BatchCollector::new(4, 5000);
 
         let req1 = make_request("model-a", 0.7, 40, 0.9);
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_batch_drain_full() {
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::channel(16);
         let mut collector = BatchCollector::new(2, 5000);
 
         let req1 = make_request("model-a", 0.7, 40, 0.9);
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_batch_collector_drain_all() {
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::channel(16);
         let mut collector = BatchCollector::new(10, 5000);
 
         let req1 = make_request("model-a", 0.7, 40, 0.9);

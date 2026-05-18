@@ -1,0 +1,15 @@
+[package]
+name = "nexora-erp"
+version = "0.1.0"
+edition = "2021"
+description = "Entropic Resonance Pruning (ERP) - Strengthened Architecture"
+
+[dependencies]
+ndarray.workspace = true
+ndarray-rand = "0.15"
+rand.workspace = true
+rand_distr = "0.4"
+thiserror.workspace = true
+tracing.workspace = true
+lru = "0.12"
+uuid.workspace = true

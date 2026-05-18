@@ -431,14 +431,17 @@ impl SQLiteConnection {
 
     #[cfg(feature = "sqlite")]
     pub async fn ping(&self) -> bool {
-        let guard = match self.conn.as_ref() {
-            Some(m) => match m.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            },
-            None => return false,
-        };
-        guard.execute_batch("SELECT 1").is_ok()
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || {
+            let guard = match conn.as_ref() {
+                Some(m) => match m.lock() {
+                    Ok(g) => g,
+                    Err(_) => return false,
+                },
+                None => return false,
+            };
+            guard.execute_batch("SELECT 1").is_ok()
+        }).await.unwrap_or(false)
     }
 
     #[cfg(not(feature = "sqlite"))]
@@ -458,12 +461,13 @@ impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn begin_transaction(&mut self) -> Result<()> {
         if self.transaction_depth == 0 {
-            let guard = self
-                .conn
-                .as_ref()
+            let conn = self.conn.clone()
                 .ok_or_else(|| anyhow!("Connection not open"))?;
-            let conn = guard.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
-            conn.execute_batch("BEGIN TRANSACTION")?;
+            tokio::task::spawn_blocking(move || {
+                let guard = conn.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
+                guard.execute_batch("BEGIN TRANSACTION")?;
+                Ok::<_, anyhow::Error>(())
+            }).await.map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
         }
         self.transaction_depth += 1;
         Ok(())
@@ -479,12 +483,13 @@ impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn commit_transaction(&mut self) -> Result<()> {
         if self.transaction_depth == 1 {
-            let guard = self
-                .conn
-                .as_ref()
+            let conn = self.conn.clone()
                 .ok_or_else(|| anyhow!("Connection not open"))?;
-            let conn = guard.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
-            conn.execute_batch("COMMIT")?;
+            tokio::task::spawn_blocking(move || {
+                let guard = conn.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
+                guard.execute_batch("COMMIT")?;
+                Ok::<_, anyhow::Error>(())
+            }).await.map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
         }
         if self.transaction_depth > 0 {
             self.transaction_depth -= 1;
@@ -502,12 +507,13 @@ impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn rollback_transaction(&mut self) -> Result<()> {
         if self.transaction_depth == 1 {
-            let guard = self
-                .conn
-                .as_ref()
+            let conn = self.conn.clone()
                 .ok_or_else(|| anyhow!("Connection not open"))?;
-            let conn = guard.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
-            conn.execute_batch("ROLLBACK")?;
+            tokio::task::spawn_blocking(move || {
+                let guard = conn.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
+                guard.execute_batch("ROLLBACK")?;
+                Ok::<_, anyhow::Error>(())
+            }).await.map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
         }
         if self.transaction_depth > 0 {
             self.transaction_depth -= 1;
@@ -566,68 +572,79 @@ impl SQLiteConnectionPool {
 
         loop {
             let start_time = Instant::now();
-            *self.waiting_requests.write().await += 1;
-
             {
+                let mut waiting = self.waiting_requests.write().await;
+                *waiting += 1;
+            }
+
+            // Phase 1: try to reuse an idle connection (single lock)
+            let reused = {
                 let mut connections = self.connections.write().await;
 
-                if let Some(pos) = connections.iter().position(|c| !c.is_active) {
-                    let conn = connections.swap_remove(pos);
+                let pos = connections.iter().position(|c| !c.is_active);
+
+                if let Some(pos) = pos {
+                    let mut conn = connections.swap_remove(pos);
 
                     #[cfg(feature = "sqlite")]
                     if !conn.ping().await {
                         let mut stats = self.statistics.write().await;
                         stats.destroyed_connections += 1;
                         stats.total_connections = stats.total_connections.saturating_sub(1);
-                        *self.waiting_requests.write().await -= 1;
-                        // Continue loop to retry
+                        let mut waiting = self.waiting_requests.write().await;
+                        *waiting = waiting.saturating_sub(1);
                         tokio::time::sleep(Duration::from_millis(10)).await;
                         continue;
                     }
 
-                    {
-                        let mut stats = self.statistics.write().await;
-                        stats.idle_connections = stats.idle_connections.saturating_sub(1);
-                        stats.active_connections += 1;
-                        let wait_time = start_time.elapsed();
-                        stats.total_wait_time_ms += wait_time.as_millis() as u64;
-                        stats.average_wait_time_ms = if stats.total_connections > 0 {
-                            stats.total_wait_time_ms as f64 / stats.total_connections as f64
-                        } else {
-                            0.0
-                        };
-                    }
-                    *self.waiting_requests.write().await -= 1;
+                    let mut stats = self.statistics.write().await;
+                    stats.idle_connections = stats.idle_connections.saturating_sub(1);
+                    stats.active_connections += 1;
+                    let wait_time = start_time.elapsed();
+                    stats.total_wait_time_ms += wait_time.as_millis() as u64;
+                    stats.average_wait_time_ms = if stats.total_connections > 0 {
+                        stats.total_wait_time_ms as f64 / stats.total_connections as f64
+                    } else {
+                        0.0
+                    };
+                    let mut waiting = self.waiting_requests.write().await;
+                    *waiting = waiting.saturating_sub(1);
                     return Ok(conn);
                 }
-            }
+                false
+            };
 
-            if let Ok(connections) = self.connections.try_read() {
-                if connections.len() < self.config.max_connections {
-                    drop(connections);
+            // Phase 2: create new connection if pool not full
+            if !reused {
+                let can_create = {
+                    let connections = self.connections.read().await;
+                    connections.len() < self.config.max_connections
+                };
+
+                if can_create {
                     let new_id = format!("sqlite_conn_{}", uuid::Uuid::new_v4());
                     match SQLiteConnection::new(new_id, &self.database_path).await {
                         Ok(conn) => {
-                            {
-                                let mut stats = self.statistics.write().await;
-                                stats.total_connections += 1;
-                                stats.created_connections += 1;
-                                stats.active_connections += 1;
-                                let wait_time = start_time.elapsed();
-                                stats.total_wait_time_ms += wait_time.as_millis() as u64;
-                                stats.average_wait_time_ms = if stats.total_connections > 0 {
-                                    stats.total_wait_time_ms as f64 / stats.total_connections as f64
-                                } else {
-                                    0.0
-                                };
-                            }
-                            *self.waiting_requests.write().await -= 1;
+                            let mut stats = self.statistics.write().await;
+                            stats.total_connections += 1;
+                            stats.created_connections += 1;
+                            stats.active_connections += 1;
+                            let wait_time = start_time.elapsed();
+                            stats.total_wait_time_ms += wait_time.as_millis() as u64;
+                            stats.average_wait_time_ms = if stats.total_connections > 0 {
+                                stats.total_wait_time_ms as f64 / stats.total_connections as f64
+                            } else {
+                                0.0
+                            };
+                            let mut waiting = self.waiting_requests.write().await;
+                            *waiting = waiting.saturating_sub(1);
                             return Ok(conn);
                         }
                         Err(e) => {
                             let mut stats = self.statistics.write().await;
                             stats.connection_errors += 1;
-                            *self.waiting_requests.write().await -= 1;
+                            let mut waiting = self.waiting_requests.write().await;
+                            *waiting = waiting.saturating_sub(1);
                             return Err(anyhow!("Failed to create SQLite connection: {}", e));
                         }
                     }
@@ -635,7 +652,8 @@ impl SQLiteConnectionPool {
             }
 
             if Instant::now() >= deadline {
-                *self.waiting_requests.write().await -= 1;
+                let mut waiting = self.waiting_requests.write().await;
+                *waiting = waiting.saturating_sub(1);
                 return Err(anyhow!("SQLite connection pool exhausted"));
             }
 
@@ -716,7 +734,7 @@ impl ConnectionPool for SQLiteConnectionPool {
 
     async fn return_connection(
         &self,
-        connection: Box<dyn crate::DatabaseConnection>,
+        mut connection: Box<dyn crate::DatabaseConnection>,
     ) -> Result<()> {
         let was_active = connection.is_active();
         let id = connection.id().to_string();
@@ -727,32 +745,29 @@ impl ConnectionPool for SQLiteConnectionPool {
         }
 
         if was_active {
-            // BUG: The original SQLite connection's `conn` (rusqlite::Connection) is dropped
-            // here and replaced with `conn: None`. This destroys the live database connection.
-            // A proper fix requires: either (a) downcasting `Box<dyn DatabaseConnection>` to
-            // `SQLiteConnection` via `std::any::Any`, or (b) redesigning the trait to
-            // preserve the concrete connection type through the pool round-trip.
-            tracing::warn!(
-                "return_connection drops active SQLite connection {}. \
-                 Connection handle destroyed — pool gets a stub with conn: None.",
-                id
-            );
+            // Downcast to SQLiteConnection via as_any_mut to preserve the rusqlite::Connection
+            let sqlite_conn = connection.as_any_mut()
+                .downcast_mut::<SQLiteConnection>()
+                .ok_or_else(|| anyhow!("Failed to downcast to SQLiteConnection"))?;
+
+            // Clone the Arc<Mutex<Connection>> to preserve the live connection
+            let preserved_conn = sqlite_conn.conn.take();
+            sqlite_conn.is_active = false;
 
             let mut connections = self.connections.write().await;
-            let stat = SQLiteConnection {
-                id,
+            connections.push(SQLiteConnection {
+                id: id.clone(),
                 _connection_info: ConnectionInfo {
                     database_path: self.database_path.clone(),
-                    is_connected: false,
+                    is_connected: preserved_conn.is_some(),
                     created_at: Instant::now(),
                     last_activity: Instant::now(),
                 },
                 is_active: false,
                 transaction_depth: 0,
                 #[cfg(feature = "sqlite")]
-                conn: None,
-            };
-            connections.push(stat);
+                conn: preserved_conn,
+            });
             let mut stats = self.statistics.write().await;
             stats.active_connections = stats.active_connections.saturating_sub(1);
             stats.idle_connections += 1;
@@ -856,6 +871,11 @@ impl crate::DatabaseConnection for SQLiteConnection {
 
     async fn close(&mut self) -> Result<()> {
         self.is_active = false;
+        self.conn = None;
         Ok(())
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }

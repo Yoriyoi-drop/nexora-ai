@@ -16,6 +16,9 @@ use super::{
 };
 use super::models::*;
 
+const MAX_SSE_LINE_SIZE: usize = 1_000_000;
+const MAX_ERROR_RESPONSE_SIZE: usize = 100_000;
+
 /// BLAA API client
 #[derive(Debug, Clone)]
 pub struct BlaaClient {
@@ -256,6 +259,9 @@ impl BlaaClient {
     
     /// Parse API error response
     fn parse_api_error(&self, error_text: &str) -> BlaaError {
+        if error_text.len() > MAX_ERROR_RESPONSE_SIZE {
+            return BlaaError::ApiRequest(format!("API error response too large: {} bytes", error_text.len()));
+        }
         match serde_json::from_str::<BlaaErrorResponse>(error_text) {
             Ok(error_response) => {
                 let error_info = error_response.error;
@@ -327,6 +333,10 @@ impl Stream for ChatCompletionStream {
                             if data.trim() == "[DONE]" {
                                 continue;
                             }
+                            if data.len() > MAX_SSE_LINE_SIZE {
+                                debug!("Skipping oversized SSE line: {} bytes", data.len());
+                                continue;
+                            }
                             match serde_json::from_str::<ChatCompletionChunk>(data.trim()) {
                                 Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),
                                 Err(_) => debug!("Skipping non-chunk SSE line: {}", data.trim()),
@@ -351,6 +361,11 @@ impl Stream for ChatCompletionStream {
                         if let Some(data) = line.strip_prefix("data: ") {
                             if data.trim() == "[DONE]" {
                                 return Poll::Ready(None);
+                            }
+                            if data.len() > MAX_SSE_LINE_SIZE {
+                                return Poll::Ready(Some(Err(BlaaError::InvalidResponse(
+                                    format!("SSE data line too large: {} bytes", data.len())
+                                ))));
                             }
                             match serde_json::from_str::<ChatCompletionChunk>(data.trim()) {
                                 Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),

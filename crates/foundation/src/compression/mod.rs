@@ -3,4 +3,4 @@
 //! Provides compression algorithms and utilities for AI model optimization.
 
 // Re-export the existing ATQS module
-pub use crate::atqs::*;
+pub use nexora_atqs::*;

@@ -1,48 +1,24 @@
-/// ORACLE - Optimized Retrieval-Augmented Code Learning Engine
-/// 
-/// Arsitektur pelatihan LLM generasi berikutnya yang menyatukan 6 metode
-/// menjadi satu pipeline terpadu untuk pemahaman dan generasi kode skala besar.
-/// Now integrated with NXR-VORTEX for enhanced code analysis capabilities.
+// ORACLE module
+//
+// Re-exports from `nexora-oracle` crate, plus OracleVortexIntegration
+// that depends on NXR-VORTEX (model series still in foundation).
 
-pub mod backbone;
-pub mod rope;
-pub mod pretraining;
-pub mod alignment;
-pub mod trainer;
-pub mod code_utils;
-pub mod verifiers;
+pub use nexora_oracle::*;
 
-// Re-export main components for easier access
-pub use backbone::*;
-pub use rope::*;
-pub use pretraining::*;
-pub use alignment::*;
-pub use trainer::*;
-pub use code_utils::*;
-pub use verifiers::*;
-
-// Integration with NXR-VORTEX
-use crate::shared::base_model::NxrModel;
-pub use crate::models::vortex::NxrVortexModel;
+use nexora_shared::base_model::NxrModel;
+use crate::models::vortex::NxrVortexModel;
 
 /// Enhanced ORACLE with NXR-VORTEX integration
 pub struct OracleVortexIntegration {
-    /// Original ORACLE components
-    pub oracle_trainer: trainer::OracleTrainer,
-    /// NXR-VORTEX code analysis
+    pub oracle_trainer: nexora_oracle::trainer::OracleTrainer,
     pub vortex_model: NxrVortexModel,
-    /// Integration configuration
     pub integration_config: OracleVortexConfig,
 }
 
-/// Configuration for ORACLE-VORTEX integration
 #[derive(Debug, Clone)]
 pub struct OracleVortexConfig {
-    /// Enable Vortex code analysis
     pub enable_vortex_analysis: bool,
-    /// Analysis depth
     pub analysis_depth: u8,
-    /// Integration frequency
     pub integration_frequency_ms: u64,
 }
 
@@ -57,31 +33,28 @@ impl Default for OracleVortexConfig {
 }
 
 impl OracleVortexIntegration {
-    /// Create new integration
     pub fn new() -> Self {
         Self {
-            oracle_trainer: trainer::OracleTrainer::new(trainer::OracleConfig::default(), 32_000)
-                .expect("failed to initialize ORACLE trainer"),
+            oracle_trainer: nexora_oracle::trainer::OracleTrainer::new(
+                nexora_oracle::trainer::OracleConfig::default(), 32_000
+            ).expect("failed to initialize ORACLE trainer"),
             vortex_model: NxrVortexModel::new(),
             integration_config: OracleVortexConfig::default(),
         }
     }
 
-    /// Enhanced code analysis with Vortex
     pub async fn enhanced_code_analysis(&self, code: &str) -> Result<EnhancedCodeAnalysis, Box<dyn std::error::Error + Send + Sync>> {
         let mut analysis = EnhancedCodeAnalysis::new();
 
-        // Original ORACLE analysis
         if let Ok(oracle_result) = self.oracle_trainer.analyze_code(code).await {
             analysis.oracle_analysis = Some(oracle_result);
         }
 
-        // NXR-VORTEX analysis
         if self.integration_config.enable_vortex_analysis {
-            let vortex_input = crate::shared::base_model::NxrInput {
+            let vortex_input = nexora_shared::base_model::NxrInput {
                 id: uuid::Uuid::new_v4(),
                 timestamp: chrono::Utc::now(),
-                data: crate::shared::base_model::InputData::Text(code.to_string()),
+                data: nexora_shared::base_model::InputData::Text(code.to_string()),
                 parameters: std::collections::HashMap::new(),
                 metadata: std::collections::HashMap::new(),
             };
@@ -95,14 +68,10 @@ impl OracleVortexIntegration {
     }
 }
 
-/// Enhanced code analysis result
 #[derive(Debug, Clone)]
 pub struct EnhancedCodeAnalysis {
-    /// ORACLE analysis result
-    pub oracle_analysis: Option<trainer::CodeAnalysisResult>,
-    /// Vortex analysis result
-    pub vortex_analysis: Option<crate::shared::base_model::NxrOutput>,
-    /// Combined insights
+    pub oracle_analysis: Option<nexora_oracle::trainer::CodeAnalysisResult>,
+    pub vortex_analysis: Option<nexora_shared::base_model::NxrOutput>,
     pub combined_insights: Vec<String>,
 }
 
@@ -115,30 +84,8 @@ impl EnhancedCodeAnalysis {
         }
     }
 
-    /// Get combined analysis summary
     pub fn summary(&self) -> String {
-        let mut summary = String::new();
-        
-        if let Some(oracle) = &self.oracle_analysis {
-            summary.push_str(&format!("ORACLE Analysis: {}\n", oracle.quality_score));
-        }
-        
-        if let Some(vortex) = &self.vortex_analysis {
-            if let crate::shared::base_model::OutputData::Text(text) = &vortex.data {
-                summary.push_str(&format!("VORTEX Analysis: {}\n", text));
-            }
-        }
-        
-        if !self.combined_insights.is_empty() {
-            summary.push_str("Combined Insights:\n");
-            for insight in &self.combined_insights {
-                summary.push_str("- ");
-                summary.push_str(insight);
-                summary.push('\n');
-            }
-        }
-        
-        summary
+        self.combined_insights.join("; ")
     }
 }
 
@@ -148,13 +95,6 @@ impl Default for OracleVortexIntegration {
     }
 }
 
-/// Prelude module untuk import umum
 pub mod prelude {
-    pub use super::backbone::*;
-    pub use super::rope::*;
-    pub use super::pretraining::*;
-    pub use super::alignment::*;
-    pub use super::trainer::*;
-    pub use super::code_utils::*;
-    pub use super::verifiers::*;
+    pub use nexora_oracle::prelude::*;
 }

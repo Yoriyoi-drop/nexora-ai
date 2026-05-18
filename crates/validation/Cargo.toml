@@ -1,0 +1,12 @@
+[package]
+name = "nexora-validation"
+version = "0.1.0"
+edition = "2021"
+description = "Validation engines for Nexora - environment, security, migration, and general validation"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+regex.workspace = true

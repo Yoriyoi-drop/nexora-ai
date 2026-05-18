@@ -8,6 +8,7 @@ use tokio::sync::{RwLock, mpsc, broadcast};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use tracing::warn;
 use tracing::debug;
 
 use crate::{AgentError, Result, MessagePriority};
@@ -149,7 +150,9 @@ impl MessageBus {
         
         // Emit event
         let event = MessageBusEvent::AgentSubscribed { agent_id };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Message bus event receiver dropped");
+        }
         
         // Process any queued messages
         self.process_queued_messages(agent_id).await?;
@@ -185,7 +188,9 @@ impl MessageBus {
         
         // Emit event
         let event = MessageBusEvent::AgentUnsubscribed { agent_id };
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_err() {
+            warn!("Message bus event receiver dropped");
+        }
         
         Ok(())
     }
@@ -328,7 +333,9 @@ impl MessageBus {
                     message_id: message.message_id, 
                     agent_id 
                 };
-                let _ = self.event_tx.send(event);
+                if self.event_tx.send(event).is_err() {
+            warn!("Message bus event receiver dropped");
+        }
             }
         } else {
             // Agent tidak subscribed, queue dulu

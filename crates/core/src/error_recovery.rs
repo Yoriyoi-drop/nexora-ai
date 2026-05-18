@@ -122,16 +122,21 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+/// Circuit breaker inner state (single lock to prevent deadlocks)
+struct CircuitBreakerInner {
+    state: CircuitState,
+    failure_count: u32,
+    success_count: u32,
+    last_failure_time: Option<Instant>,
+    monitoring_start: Instant,
+}
+
 /// Circuit breaker untuk fault tolerance
 #[derive(Clone)]
 pub struct CircuitBreaker {
     name: String,
     config: CircuitBreakerConfig,
-    state: Arc<ParkingRwLock<CircuitState>>,
-    failure_count: Arc<ParkingRwLock<u32>>,
-    success_count: Arc<ParkingRwLock<u32>>,
-    last_failure_time: Arc<ParkingRwLock<Option<Instant>>>,
-    monitoring_start: Arc<ParkingRwLock<Instant>>,
+    inner: Arc<ParkingRwLock<CircuitBreakerInner>>,
 }
 
 impl CircuitBreaker {
@@ -139,11 +144,13 @@ impl CircuitBreaker {
         Self {
             name,
             config,
-            state: Arc::new(ParkingRwLock::new(CircuitState::Closed)),
-            failure_count: Arc::new(ParkingRwLock::new(0)),
-            success_count: Arc::new(ParkingRwLock::new(0)),
-            last_failure_time: Arc::new(ParkingRwLock::new(None)),
-            monitoring_start: Arc::new(ParkingRwLock::new(Instant::now())),
+            inner: Arc::new(ParkingRwLock::new(CircuitBreakerInner {
+                state: CircuitState::Closed,
+                failure_count: 0,
+                success_count: 0,
+                last_failure_time: None,
+                monitoring_start: Instant::now(),
+            })),
         }
     }
     
@@ -203,18 +210,79 @@ impl CircuitBreaker {
     }
     
     fn can_execute(&self) -> bool {
-        let state = *self.state.read();
-        
-        match state {
+        let inner = self.inner.read();
+        match inner.state {
             CircuitState::Closed => true,
             CircuitState::Open => {
-                // Check if recovery timeout has passed
-                if let Some(last_failure) = *self.last_failure_time.read() {
-                    let elapsed = last_failure.elapsed();
-                    elapsed >= Duration::from_millis(self.config.recovery_timeout_ms)
+                if let Some(last_failure) = inner.last_failure_time {
+                    last_failure.elapsed() >= Duration::from_millis(self.config.recovery_timeout_ms)
                 } else {
                     true
                 }
+            }
+            CircuitState::HalfOpen => true,
+        }
+    }
+    
+    fn record_success(&self) {
+        let mut inner = self.inner.write();
+        
+        match inner.state {
+            CircuitState::Closed => {
+                inner.failure_count = 0;
+            }
+            CircuitState::HalfOpen => {
+                inner.success_count += 1;
+                
+                if inner.success_count >= self.config.success_threshold {
+                    inner.state = CircuitState::Closed;
+                    inner.failure_count = 0;
+                    inner.success_count = 0;
+                    info!("Circuit breaker '{}' closed after recovery", self.name);
+                }
+            }
+            CircuitState::Open => {
+                inner.state = CircuitState::HalfOpen;
+                inner.success_count = 1;
+                debug!("Circuit breaker '{}' moved to half-open state", self.name);
+            }
+        }
+    }
+    
+    fn record_failure(&self) {
+        let mut inner = self.inner.write();
+        inner.failure_count += 1;
+        inner.last_failure_time = Some(Instant::now());
+        
+        match inner.state {
+            CircuitState::Closed => {
+                if inner.failure_count >= self.config.failure_threshold {
+                    inner.state = CircuitState::Open;
+                    warn!("Circuit breaker '{}' opened after {} failures", self.name, inner.failure_count);
+                }
+            }
+            CircuitState::HalfOpen => {
+                inner.state = CircuitState::Open;
+                warn!("Circuit breaker '{}' re-opened during recovery", self.name);
+            }
+            CircuitState::Open => {}
+        }
+    }
+    
+    pub fn get_state(&self) -> CircuitState {
+        self.inner.read().state
+    }
+    
+    pub fn get_stats(&self) -> CircuitBreakerStats {
+        let inner = self.inner.read();
+        CircuitBreakerStats {
+            name: self.name.clone(),
+            state: inner.state,
+            failure_count: inner.failure_count,
+            success_count: inner.success_count,
+            last_failure_time: inner.last_failure_time,
+        }
+    }
             }
             CircuitState::HalfOpen => true,
         }

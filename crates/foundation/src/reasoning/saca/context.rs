@@ -349,6 +349,9 @@ impl ContextEngine {
     fn parse_package_json(&self, content: &str) -> SACAResult<Vec<String>> {
         let mut dependencies = Vec::new();
         
+        if content.len() > 10_000_000 {
+            return Ok(dependencies);
+        }
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
             if let Some(deps) = json.get("dependencies").and_then(|d| d.as_object()) {
                 for dep_name in deps.keys() {

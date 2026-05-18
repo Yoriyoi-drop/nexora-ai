@@ -316,23 +316,12 @@ fn benchmark_individual_components(c: &mut Criterion) {
             |b, &size| {
                 b.iter(|| {
                     let config = create_atqs_config();
-                    let mut compression = CompressionEngine::new(config).unwrap();
+                    let compression = CompressionEngine::new(config).unwrap();
                     
-                    // Create dummy UnifiedToken data
-                    let mut tokens = Vec::with_capacity(size);
-                    for i in 0..size {
-                        tokens.push(UnifiedToken {
-                            token_id: i,
-                            modality: ModalityType::Text,
-                            embedding: vec![0.5; 768],
-                            position: i,
-                            timestamp: None,
-                            spatial_coords: None,
-                        });
-                    }
-                    let _result = compression.compress(black_box(tokens)).unwrap_or_else(|e| {
+                    let input_str = "test ".repeat(size / 5);
+                    let _result = compression.compress_string(black_box(&input_str)).unwrap_or_else(|e| {
                         debug!("Compression failed: {:?}", e);
-                        vec![] // Return empty vector on error
+                        String::new()
                     });
                 });
             },

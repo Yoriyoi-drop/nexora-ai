@@ -1,0 +1,9 @@
+[package]
+name = "nexora-traits"
+version = "0.1.0"
+edition = "2021"
+description = "Trait definitions for Nexora Foundation - tensor, model, and core traits"
+
+[dependencies]
+nexora-atqs = { path = "../atqs" }
+serde.workspace = true

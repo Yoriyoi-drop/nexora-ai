@@ -1,35 +1,26 @@
-// Foundation Multimodal Framework (CAFFEINE)
-// 
-// Comprehensive multimodal cognition and processing system
-// Now integrated with NXR-SPECTRA for enhanced creative multimodal synthesis.
+// Multimodal AI framework
+//
+// Re-exports from `nexora-multimodal` crate, plus CaffeineSpectraIntegration
+// that depends on NXR-SPECTRA (model series still in foundation).
 
-pub mod caffeine;
+pub use nexora_multimodal::*;
 
-// Re-export main components
-pub use caffeine::*;
-
-// Integration with NXR-SPECTRA
-use crate::shared::base_model::NxrModel;
-pub use crate::models::spectra::NxrSpectraModel;
+use nexora_multimodal::caffeine::MultiModalInputs as CaffeineInputs;
+use nexora_multimodal::caffeine::TextInput;
+use nexora_shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput, OutputData};
+use crate::models::spectra::NxrSpectraModel;
 
 /// Enhanced CAFFEINE with NXR-SPECTRA integration
 pub struct CaffeineSpectraIntegration {
-    /// Original CAFFEINE multimodal processor
-    pub caffeine_processor: caffeine::CaffeineProcessor,
-    /// NXR-SPECTRA creative synthesis
+    pub caffeine_processor: nexora_multimodal::caffeine::CaffeineProcessor,
     pub spectra_model: NxrSpectraModel,
-    /// Integration configuration
     pub integration_config: CaffeineSpectraConfig,
 }
 
-/// Configuration for CAFFEINE-SPECTRA integration
 #[derive(Debug, Clone)]
 pub struct CaffeineSpectraConfig {
-    /// Enable creative synthesis
     pub enable_creative_synthesis: bool,
-    /// Cross-modal creativity level
     pub creativity_level: f32,
-    /// Artistic style adaptation
     pub style_adaptation: bool,
 }
 
@@ -43,69 +34,6 @@ impl Default for CaffeineSpectraConfig {
     }
 }
 
-impl CaffeineSpectraIntegration {
-    /// Create new integration
-    pub fn new() -> Self {
-        Self {
-            caffeine_processor: caffeine::CaffeineProcessor::new(),
-            spectra_model: NxrSpectraModel::new(),
-            integration_config: CaffeineSpectraConfig::default(),
-        }
-    }
-
-    /// Enhanced multimodal processing with creative synthesis
-    pub async fn enhanced_multimodal_processing(&self, inputs: &MultimodalInputs) -> std::result::Result<EnhancedMultimodalResult, Box<dyn std::error::Error>> {
-        let mut result = EnhancedMultimodalResult::new();
-
-        // Original CAFFEINE multimodal processing
-        if let Ok(caffeine_result) = self.caffeine_processor.process_multimodal(inputs).await {
-            result.caffeine_processing = Some(caffeine_result);
-        }
-
-        // NXR-SPECTRA creative synthesis
-        if self.integration_config.enable_creative_synthesis {
-            let combined_input = self.combine_multimodal_inputs(inputs);
-            let spectra_input = crate::shared::base_model::NxrInput {
-                id: uuid::Uuid::new_v4(),
-                timestamp: chrono::Utc::now(),
-                data: crate::shared::base_model::InputData::Text(combined_input),
-                parameters: std::collections::HashMap::new(),
-                metadata: std::collections::HashMap::new(),
-            };
-
-            if let Ok(spectra_result) = self.spectra_model.infer(&spectra_input).await {
-                result.spectra_synthesis = Some(spectra_result);
-            }
-        }
-
-        // Combine multimodal and creative results
-        result.combine_results(&self.integration_config);
-
-        Ok(result)
-    }
-
-    fn combine_multimodal_inputs(&self, inputs: &MultimodalInputs) -> String {
-        let mut combined = String::new();
-        
-        if let Some(text) = &inputs.text {
-            combined.push_str(&format!("Text: {}\n", text));
-        }
-        
-        if let Some(image) = &inputs.image {
-            combined.push_str(&format!("Image: {}\n", image));
-        }
-        
-        if let Some(audio) = &inputs.audio {
-            combined.push_str(&format!("Audio: {}\n", audio));
-        }
-        
-        combined.push_str(&format!("Creativity Level: {:.2}\n", self.integration_config.creativity_level));
-        
-        combined
-    }
-}
-
-/// Multimodal input structure
 #[derive(Debug, Clone)]
 pub struct MultimodalInputs {
     pub text: Option<String>,
@@ -113,16 +41,11 @@ pub struct MultimodalInputs {
     pub audio: Option<String>,
 }
 
-/// Enhanced multimodal result with creative synthesis
 #[derive(Debug, Clone)]
 pub struct EnhancedMultimodalResult {
-    /// CAFFEINE multimodal processing
-    pub caffeine_processing: Option<caffeine::MultimodalResult>,
-    /// SPECTRA creative synthesis
-    pub spectra_synthesis: Option<crate::shared::base_model::NxrOutput>,
-    /// Combined multimodal insights
+    pub caffeine_processing: Option<nexora_multimodal::caffeine::MultimodalResult>,
+    pub spectra_synthesis: Option<NxrOutput>,
     pub combined_insights: Vec<String>,
-    /// Creative cross-modal outputs
     pub creative_outputs: Vec<String>,
 }
 
@@ -136,65 +59,89 @@ impl EnhancedMultimodalResult {
         }
     }
 
-    /// Combine multimodal and creative results
-    fn combine_results(&mut self, config: &CaffeineSpectraConfig) {
-        // Combine insights from both systems
-        if let Some(caffeine) = &self.caffeine_processing {
-            self.combined_insights.push(format!("Multimodal Processing: {}", caffeine.processing_summary));
+    pub fn combine_results(&mut self) {
+        if let Some(ref _caf) = self.caffeine_processing {
+            self.combined_insights.push("CAFFEINE processing completed".to_string());
         }
-
-        if let Some(spectra) = &self.spectra_synthesis {
-            if let crate::shared::base_model::OutputData::Text(text) = &spectra.data {
-                self.combined_insights.push(format!("Creative Synthesis: {}", text));
-                
-                // Generate creative cross-modal outputs
-                if text.contains("visual") {
-                    self.creative_outputs.push("Enhanced visual composition with artistic style".to_string());
-                }
-                if text.contains("audio") {
-                    self.creative_outputs.push("Musical composition with emotional depth".to_string());
-                }
-                if text.contains("text") {
-                    self.creative_outputs.push("Creative narrative with cross-modal elements".to_string());
-                }
-            }
-        }
-
-        // Apply creativity level to outputs
-        if config.creativity_level > 0.8 {
-            self.creative_outputs.push("High-creativity cross-modal synthesis achieved".to_string());
+        if self.spectra_synthesis.is_some() {
+            self.combined_insights.push("SPECTRA synthesis completed".to_string());
         }
     }
 
-    /// Get comprehensive multimodal summary
     pub fn summary(&self) -> String {
-        let mut summary = String::new();
-        
-        if !self.combined_insights.is_empty() {
-            summary.push_str("Combined Multimodal Insights:\n");
-            for insight in &self.combined_insights {
-                summary.push_str("- ");
-                summary.push_str(insight);
-                summary.push('\n');
+        let mut parts = vec![];
+        if self.caffeine_processing.is_some() {
+            parts.push("caffeine");
+        }
+        if self.spectra_synthesis.is_some() {
+            parts.push("spectra");
+        }
+        format!("EnhancedMultimodalResult({})", parts.join("+"))
+    }
+}
+
+impl CaffeineSpectraIntegration {
+    pub fn new() -> Self {
+        Self {
+            caffeine_processor: nexora_multimodal::caffeine::CaffeineProcessor::new(),
+            spectra_model: NxrSpectraModel::new(),
+            integration_config: CaffeineSpectraConfig::default(),
+        }
+    }
+
+    pub async fn enhanced_multimodal_processing(&self, inputs: &MultimodalInputs) -> std::result::Result<EnhancedMultimodalResult, Box<dyn std::error::Error>> {
+        let mut result = EnhancedMultimodalResult::new();
+
+        let caffeine_inputs = self.to_caffeine_inputs(inputs);
+        if let Ok(caffeine_result) = self.caffeine_processor.process_multimodal(&caffeine_inputs).await {
+            result.caffeine_processing = Some(caffeine_result);
+        }
+        if self.integration_config.enable_creative_synthesis {
+            let combined_input = self.combine_multimodal_inputs(inputs);
+            let spectra_input = NxrInput {
+                id: uuid::Uuid::new_v4(),
+                timestamp: chrono::Utc::now(),
+                data: InputData::Text(combined_input),
+                parameters: std::collections::HashMap::new(),
+                metadata: std::collections::HashMap::new(),
+            };
+            if let Ok(spectra_result) = self.spectra_model.infer(&spectra_input).await {
+                result.spectra_synthesis = Some(spectra_result);
             }
         }
-        
-        if !self.creative_outputs.is_empty() {
-            summary.push_str("\nCreative Cross-Modal Outputs:\n");
-            for output in &self.creative_outputs {
-                summary.push_str("- ");
-                summary.push_str(output);
-                summary.push('\n');
-            }
+        result.combine_results();
+        Ok(result)
+    }
+
+    fn to_caffeine_inputs(&self, inputs: &MultimodalInputs) -> CaffeineInputs {
+        CaffeineInputs {
+            text: inputs.text.as_ref().map(|t| TextInput {
+                text: t.clone(),
+                tokens: None,
+                language: "en".to_string(),
+            }),
+            image: None,
+            audio: None,
+            video: None,
+            context: None,
         }
-        
-        summary
+    }
+
+    fn combine_multimodal_inputs(&self, inputs: &MultimodalInputs) -> String {
+        let mut combined = String::new();
+        if let Some(text) = &inputs.text {
+            combined.push_str(&format!("Text: {}\n", text));
+        }
+        if let Some(image) = &inputs.image {
+            combined.push_str(&format!("Image: {}\n", image));
+        }
+        if let Some(audio) = &inputs.audio {
+            combined.push_str(&format!("Audio: {}\n", audio));
+        }
+        combined
     }
 }
 
 impl Default for CaffeineSpectraIntegration {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
-

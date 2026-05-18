@@ -19,7 +19,8 @@ impl crate::cli::commands::Cli {
         if interactive {
             self.run_interactive_chat(nexora, conversation_id, history_file).await
         } else if let Some(msg) = message {
-            info!("Chat message: {}", msg);
+            let truncated = if msg.len() > 100 { format!("{} [truncated {} chars]", &msg[..100], msg.len()) } else { msg.clone() };
+            info!("Chat message: {}", truncated);
             let response = nexora.chat(msg, conversation_id.clone()).await?;
             println!("{}", response);
             Ok(())

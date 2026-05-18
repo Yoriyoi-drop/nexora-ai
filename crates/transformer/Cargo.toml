@@ -1,0 +1,13 @@
+[package]
+name = "nexora-transformer"
+version = "0.1.0"
+edition = "2021"
+description = "Transformer model implementation for Nexora - CausalLM, GQA, RoPE, SwiGLU, MTP"
+
+[dependencies]
+ndarray.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+nexora-deeplearning = { path = "../deeplearning" }

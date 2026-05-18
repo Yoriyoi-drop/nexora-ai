@@ -1,5 +1,7 @@
 //! Validation utilities untuk Nexora
 
+const MAX_JSON_INPUT_SIZE: usize = 10 * 1024 * 1024;
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 use anyhow::Result;
@@ -166,9 +168,15 @@ impl ValidationUtils {
         if json_str.trim().is_empty() {
             return Err(anyhow::anyhow!("JSON cannot be empty"));
         }
-        
-        serde_json::from_str::<serde_json::Value>(json_str)
-            .map_err(|e| anyhow::anyhow!("Invalid JSON: {}", e))?;
+        if json_str.len() > MAX_JSON_INPUT_SIZE {
+            return Err(anyhow::anyhow!(
+                "JSON input too large: {} bytes (max {})",
+                json_str.len(), MAX_JSON_INPUT_SIZE
+            ));
+        }
+        if let Err(e) = serde_json::from_str::<serde_json::Value>(json_str) {
+            return Err(anyhow::anyhow!("Invalid JSON: {}", e));
+        }
         
         Ok(())
     }

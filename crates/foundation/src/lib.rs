@@ -82,3 +82,9 @@ pub enum FoundationError {
     #[error("Not implemented")]
     NotImplemented,
 }
+
+impl From<nexora_transformer::TransformerError> for FoundationError {
+    fn from(e: nexora_transformer::TransformerError) -> Self {
+        FoundationError::Processing(e.to_string())
+    }
+}

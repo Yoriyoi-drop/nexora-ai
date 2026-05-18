@@ -79,9 +79,9 @@ async fn test_scheduler_batching_grouping() {
         .with_top_k(40)
         .with_top_p(0.9);
 
-    let (tx1, _rx1) = mpsc::unbounded_channel();
-    let (tx2, _rx2) = mpsc::unbounded_channel();
-    let (tx3, _rx3) = mpsc::unbounded_channel();
+    let (tx1, _rx1) = mpsc::channel(16);
+    let (tx2, _rx2) = mpsc::channel(16);
+    let (tx3, _rx3) = mpsc::channel(16);
 
     scheduler.submit_request(req1.request_id, tx1).await.unwrap();
     let req2 = InferenceRequest::new("world".to_string())
@@ -111,7 +111,7 @@ async fn test_scheduler_stats_with_batching() {
     let scheduler = RequestScheduler::new().with_max_batch_size(8);
 
     let req = InferenceRequest::new("test".to_string());
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::channel(16);
     scheduler.submit_request(req.request_id, tx).await.unwrap();
     scheduler.add_to_batch_collector(&req).await;
 
@@ -198,7 +198,7 @@ async fn test_batch_collector_timed_flush() {
 
     let req = InferenceRequest::new("timeout-test".to_string())
         .with_model("model-x".to_string());
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::channel(16);
     collector.add_request(req, tx);
 
     assert!(collector.drain_ready().is_empty());
@@ -216,7 +216,7 @@ async fn test_batch_collector_max_size_flush() {
     for i in 0..3 {
         let req = InferenceRequest::new(format!("req-{}", i))
             .with_model("batch-model".to_string());
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::channel(16);
         collector.add_request(req, tx);
     }
 

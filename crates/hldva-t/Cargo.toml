@@ -1,0 +1,13 @@
+[package]
+name = "nexora-hldva-t"
+version = "0.1.0"
+edition = "2021"
+description = "Hierarchical Latent Diffusion with Vision-Text Alignment using Transformers"
+
+[dependencies]
+nexora-atqs = { path = "../atqs" }
+serde.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

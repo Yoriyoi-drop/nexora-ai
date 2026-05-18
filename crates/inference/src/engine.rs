@@ -499,7 +499,9 @@ impl InferenceEngine {
 
         let ids: Vec<Uuid> = self.active_requests.read().await.keys().copied().collect();
         for id in ids {
-            let _ = self.cancel_request(id).await;
+            if let Err(e) = self.cancel_request(id).await {
+                warn!("Failed to cancel request {} during shutdown: {}", id, e);
+            }
         }
         self.scheduler.write().await.shutdown().await?;
         if let Some(se) = &self.streaming_engine {
@@ -685,7 +687,9 @@ impl InferenceEngineHandle {
                 let err_resp = response
                     .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
                     .with_inference_time(start.elapsed().as_millis() as u64);
-                let _ = self.scheduler.write().await.send_response(breq.request_id, err_resp).await;
+                if let Err(e) = self.scheduler.write().await.send_response(breq.request_id, err_resp).await {
+                    warn!("Failed to send empty-prompt error to {}: {}", breq.request_id, e);
+                }
                 continue;
             }
 
@@ -764,7 +768,9 @@ impl InferenceEngineHandle {
             }
         }
 
-        let _ = self.scheduler.write().await.complete_batch(&batch).await;
+        if let Err(e) = self.scheduler.write().await.complete_batch(&batch).await {
+            error!("Failed to complete batch {}: {}", batch.batch_id, e);
+        }
         debug!("Batch {} completed", batch.batch_id);
     }
 

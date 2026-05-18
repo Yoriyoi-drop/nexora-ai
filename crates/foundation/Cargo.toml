@@ -19,6 +19,20 @@ tracing.workspace = true
 uuid.workspace = true
 
 # Internal dependencies
+nexora-atqs = { path = "../atqs" }
+nexora-erp = { path = "../erp" }
+nexora-has-moe-ffn = { path = "../has-moe-ffn" }
+nexora-hldva-t = { path = "../hldva-t" }
+nexora-vogp = { path = "../vogp" }
+nexora-traits = { path = "../traits" }
+nexora-transformer = { path = "../transformer" }
+nexora-shared = { path = "../shared" }
+nexora-validation = { path = "../validation" }
+nexora-alignment = { path = "../alignment" }
+nexora-oracle = { path = "../oracle" }
+nexora-training = { path = "../training" }
+nexora-multimodal = { path = "../multimodal" }
+nexora-quantization = { path = "../quantization" }
 nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-deeplearning = { path = "../deeplearning" }

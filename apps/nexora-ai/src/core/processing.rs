@@ -135,6 +135,9 @@ impl RequestProcessor {
         info!("Processing JSON data");
         
         // Try to parse as JSON
+        if data.len() > 10_000_000 {
+            return Ok("JSON input too large (max 10MB)".to_string());
+        }
         match serde_json::from_str::<serde_json::Value>(data) {
             Ok(json) => {
                 let keys = json.as_object().map(|obj| obj.keys().count()).unwrap_or(0);

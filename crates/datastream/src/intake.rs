@@ -182,7 +182,9 @@ pub async fn dynamic_batcher(
                             }
                             None => {
                                 if !batch.is_empty() {
-                                    let _ = batch_tx.send(batch).await;
+                                    if batch_tx.send(batch).await.is_err() {
+                                        warn!("dynamic_batcher: failed to send final batch");
+                                    }
                                 }
                                 return;
                             }
@@ -196,6 +198,7 @@ pub async fn dynamic_batcher(
 
             if !batch.is_empty() {
                 if batch_tx.send(batch).await.is_err() {
+                    warn!("dynamic_batcher: failed to send final batch on timeout");
                     return;
                 }
             }
