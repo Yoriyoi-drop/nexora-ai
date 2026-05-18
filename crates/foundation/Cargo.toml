@@ -14,7 +14,7 @@ thiserror.workspace = true
 rayon.workspace = true
 ndarray.workspace = true
 ndarray-rand = "0.15"
-rand_distr = "0.4"
+rand_distr = "0.5"
 tracing.workspace = true
 uuid.workspace = true
 
