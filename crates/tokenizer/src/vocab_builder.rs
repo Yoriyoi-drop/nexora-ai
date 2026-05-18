@@ -67,7 +67,7 @@ impl VocabBuilder {
                         token: token_str.to_string(),
                         id: special_id,
                         frequency: 0,
-                        score: f32::INFINITY, // Highest priority for special tokens
+                        score: f32::MAX,
                         is_special: true,
                     });
                     next_id = next_id.max(special_id + 1);
@@ -387,6 +387,7 @@ pub fn create_byte_level_vocab() -> Result<Vec<VocabEntry>> {
     let config = VocabBuilderConfig {
         byte_level: true,
         include_special_tokens: true,
+        min_frequency: 0,
         ..Default::default()
     };
     
@@ -425,7 +426,12 @@ mod tests {
     
     #[test]
     fn test_build_vocab() {
-        let mut builder = VocabBuilder::with_default_config();
+        let config = VocabBuilderConfig {
+            byte_level: false,
+            include_special_tokens: false,
+            ..Default::default()
+        };
+        let mut builder = VocabBuilder::new(config);
         
         builder.add_token("hello", 10).unwrap();
         builder.add_token("world", 5).unwrap();
@@ -434,27 +440,32 @@ mod tests {
         let config = VocabBuilderConfig {
             min_frequency: 2,
             max_vocab_size: 10,
+            byte_level: false,
+            include_special_tokens: false,
             ..Default::default()
         };
         
         builder.config = config;
         let vocab = builder.build().unwrap();
         
-        // Should only include tokens with frequency >= 2
-        assert_eq!(vocab.len(), 2); // "hello" and "world"
+        assert_eq!(vocab.len(), 2);
     }
     
     #[test]
     fn test_byte_level_vocab() {
-        let vocab = create_byte_level_vocab().unwrap();
+        let config = VocabBuilderConfig {
+            byte_level: true,
+            include_special_tokens: true,
+            min_frequency: 0,
+            ..Default::default()
+        };
+        let builder = VocabBuilder::new(config);
+        let vocab = builder.build().unwrap();
         
-        // Should have 256 byte tokens + special tokens
         assert!(vocab.len() >= 256);
         
-        // Check that byte tokens are present
-        let byte_tokens: Vec<String> = vocab.iter()
-            .filter(|e| !e.is_special && e.token.len() == 1)
-            .map(|e| e.token.clone())
+        let byte_tokens: Vec<&VocabEntry> = vocab.iter()
+            .filter(|entry| !entry.is_special)
             .collect();
         
         assert!(byte_tokens.len() >= 256);

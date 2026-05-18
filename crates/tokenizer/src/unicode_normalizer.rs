@@ -32,16 +32,14 @@ impl Default for NormalizationConfig {
         let mut custom_replacements = HashMap::new();
         custom_replacements.insert('"', "\"".to_string());
         custom_replacements.insert('\'', "'".to_string());
-        custom_replacements.insert('\n', " ".to_string());
-        custom_replacements.insert('\t', " ".to_string());
         
         Self {
             form: NormalizationForm::NFC,
             preserve_case: true,
-            preserve_whitespace: false,
+            preserve_whitespace: true,
             preserve_indent: false,
-            normalize_line_endings: true,
-            remove_control_chars: true,
+            normalize_line_endings: false,
+            remove_control_chars: false,
             custom_replacements,
         }
     }
@@ -218,16 +216,19 @@ impl UnicodeNormalizer {
         let mut result = String::new();
         let mut prev_was_space = false;
         let mut in_indent = true;
+        let mut leading = true;
         
         for ch in text.chars() {
             if ch == '\n' {
                 result.push('\n');
                 prev_was_space = false;
                 in_indent = true;
+                leading = false;
             } else if ch.is_whitespace() {
                 if self.config.preserve_indent && in_indent {
                     result.push(ch);
-                } else if !prev_was_space {
+                    leading = false;
+                } else if !prev_was_space && !leading {
                     result.push(' ');
                     prev_was_space = true;
                 }
@@ -235,7 +236,12 @@ impl UnicodeNormalizer {
                 result.push(ch);
                 prev_was_space = false;
                 in_indent = false;
+                leading = false;
             }
+        }
+        
+        if result.ends_with(' ') {
+            result.pop();
         }
         
         result

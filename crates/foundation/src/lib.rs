@@ -38,6 +38,7 @@ pub mod training;
 pub mod shared;
 pub mod models;
 pub mod clustering_orchestrator;
+pub mod quantization;
 
 // Hallucination integration — always exposes types, impl gated by feature
 pub mod hallucination_integration;

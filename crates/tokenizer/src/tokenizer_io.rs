@@ -439,6 +439,9 @@ mod tests {
         tokenizer.add_token("e", 1).unwrap();
         tokenizer.add_token("l", 1).unwrap();
         tokenizer.add_token("o", 1).unwrap();
+        tokenizer.add_token("w", 1).unwrap();
+        tokenizer.add_token("r", 1).unwrap();
+        tokenizer.add_token("d", 1).unwrap();
         
         // Create token ID sequences
         let hello_tokens = tokenizer.tokenize("hello").unwrap();
