@@ -14,6 +14,8 @@ pub struct ServerConfig {
     pub request_timeout_seconds: u64,
     pub enable_cors: bool,
     pub cors_origins: Vec<String>,
+    pub api_keys: Vec<String>,
+    pub enable_auth: bool,
 }
 
 impl Default for ServerConfig {
@@ -27,7 +29,9 @@ impl Default for ServerConfig {
             max_connections: 1000,
             request_timeout_seconds: 30,
             enable_cors: true,
-            cors_origins: vec!["*".to_string()],
+            cors_origins: vec![],
+            api_keys: vec![],
+            enable_auth: false,
         }
     }
 }

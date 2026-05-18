@@ -1,13 +1,16 @@
 use std::sync::Arc;
+use std::collections::HashSet;
 use anyhow::Result;
 use axum::{
     Router, routing::get, routing::post, Extension,
-    http::{Request, Method, HeaderName, HeaderMap},
+    http::{Request, Method, HeaderName, StatusCode},
     middleware::{self, Next},
-    response::Response,
+    response::{Response, IntoResponse},
     body::Body,
+    Json,
 };
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use serde::Serialize;
 use tracing::info;
 
 use crate::NexoraAI;
@@ -19,6 +22,11 @@ pub async fn create_router(
     config: &ServerConfig,
 ) -> Result<Router> {
     let _ = init_metrics();
+
+    let valid_keys: Arc<HashSet<String>> = Arc::new(
+        config.api_keys.iter().cloned().collect()
+    );
+    let enable_auth = config.enable_auth;
 
     let mut app = Router::new()
         .route("/health", get(health_check))
@@ -52,6 +60,8 @@ pub async fn create_router(
     }
 
     app = app
+        .layer(Extension(valid_keys))
+        .layer(Extension(enable_auth))
         .layer(middleware::from_fn(auth_middleware_layer))
         .layer(middleware::from_fn(request_logging_layer))
         .layer(TraceLayer::new_for_http());
@@ -60,16 +70,39 @@ pub async fn create_router(
     Ok(app)
 }
 
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
 /// Axum middleware for API key authentication
 async fn auth_middleware_layer<B>(
+    Extension(valid_keys): Extension<Arc<HashSet<String>>>,
+    Extension(enable_auth): Extension<bool>,
     req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, axum::response::Response> {
-    if req.headers().get("authorization").is_none() && req.headers().get("x-api-key").is_none() {
-        // No auth header — pass through (auth is optional by default)
+    if !enable_auth || valid_keys.is_empty() {
         return Ok(next.run(req).await);
     }
-    Ok(next.run(req).await)
+
+    let api_key = req.headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .or_else(|| {
+            req.headers()
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+        });
+
+    match api_key {
+        Some(key) if valid_keys.contains(key) => Ok(next.run(req).await),
+        _ => {
+            let resp = ErrorResponse { error: "Unauthorized: invalid or missing API key".into() };
+            Err((StatusCode::UNAUTHORIZED, Json(resp)).into_response())
+        }
+    }
 }
 
 /// Axum middleware for request logging

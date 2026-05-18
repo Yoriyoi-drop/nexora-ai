@@ -40,9 +40,9 @@ services:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=nexora_admin
-      - MONGO_INITDB_ROOT_PASSWORD=nexora_secure_password
-      - MONGO_INITDB_DATABASE=nexora
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-nexora_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-nexora_secure_password}
+      - MONGO_INITDB_DATABASE=${MONGO_DB:-nexora}
     restart: unless-stopped
     networks:
       - nexora_network
@@ -57,9 +57,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     environment:
-      - POSTGRES_USER=nexora_user
-      - POSTGRES_PASSWORD=nexora_secure_password
-      - POSTGRES_DB=nexora
+      - POSTGRES_USER=${POSTGRES_USER:-nexora_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nexora_secure_password}
+      - POSTGRES_DB=${POSTGRES_DB:-nexora}
     restart: unless-stopped
     networks:
       - nexora_network
@@ -72,10 +72,10 @@ services:
       - "6432:6432"
     environment:
       - DATABASES_HOST=postgres
-      - DATABASES_PORT=5432
-      - DATABASES_USER=nexora_user
-      - DATABASES_PASSWORD=nexora_secure_password
-      - DATABASES_DBNAME=nexora
+      - DATABASES_PORT=${POSTGRES_PORT:-5432}
+      - DATABASES_USER=${POSTGRES_USER:-nexora_user}
+      - DATABASES_PASSWORD=${POSTGRES_PASSWORD:-nexora_secure_password}
+      - DATABASES_DBNAME=${POSTGRES_DB:-nexora}
       - POOL_MODE=transaction
       - MAX_CLIENT_CONN=1000
       - DEFAULT_POOL_SIZE=25
@@ -113,7 +113,7 @@ services:
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=nexora_admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-nexora_admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
@@ -131,10 +131,10 @@ services:
       - influxdb_data:/var/lib/influxdb2
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=nexora_admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=nexora_secure_password
-      - DOCKER_INFLUXDB_INIT_ORG=nexora
-      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USER:-nexora_admin}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-nexora_secure_password}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-nexora}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-metrics}
       - DOCKER_INFLUXDB_INIT_RETENTION=365d
     restart: unless-stopped
     networks:
@@ -150,8 +150,8 @@ services:
     volumes:
       - minio_data:/data
     environment:
-      - MINIO_ROOT_USER=nexora_admin
-      - MINIO_ROOT_PASSWORD=nexora_secure_password
+      - MINIO_ROOT_USER=${MINIO_USER:-nexora_admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD:-nexora_secure_password}
     command: server /data --console-address ":9001"
     restart: unless-stopped
     networks:
@@ -165,7 +165,7 @@ services:
       - minio
     entrypoint: >
       sh -c "
-      until mc alias set minio http://minio:9000 nexora_admin nexora_secure_password; do
+      until mc alias set minio http://minio:9000 ${MINIO_USER:-nexora_admin} ${MINIO_PASSWORD:-nexora_secure_password}; do
         echo 'Waiting for MinIO...'
         sleep 1
       done

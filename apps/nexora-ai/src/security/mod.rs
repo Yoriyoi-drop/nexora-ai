@@ -254,22 +254,23 @@ impl SecurityUtils {
             .collect()
     }
 
-    /// Hash a password securely
-    pub fn hash_password(password: &str, salt: &str) -> String {
-        use sha2::Sha256;
-        use hmac::{Hmac, Mac};
-        
-        let mut mac = Hmac::<Sha256>::new_from_slice(salt.as_bytes()).unwrap();
-        mac.update(password.as_bytes());
-        let result = mac.finalize();
-        
-        hex::encode(result.into_bytes())
+    /// Hash a password using Argon2id (OWASP-recommended)
+    /// Returns PHC string: $argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>
+    pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
+        use argon2::password_hash::{SaltString, rand_core::OsRng};
+        let salt = SaltString::generate(&mut OsRng);
+        let config = argon2::Argon2::default();
+        config.hash_password(password.as_bytes(), &salt).map(|hash| hash.to_string())
     }
 
-    /// Verify a password hash
-    pub fn verify_password(password: &str, salt: &str, hash: &str) -> bool {
-        let computed_hash = Self::hash_password(password, salt);
-        computed_hash == hash
+    /// Verify a password against an Argon2id PHC string
+    pub fn verify_password(password: &str, hash: &str) -> Result<bool, argon2::password_hash::Error> {
+        use argon2::PasswordHash;
+        use argon2::PasswordVerifier;
+        let parsed_hash = PasswordHash::new(hash)?;
+        Ok(argon2::Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok())
     }
 
     /// Check if a string contains potentially dangerous content
