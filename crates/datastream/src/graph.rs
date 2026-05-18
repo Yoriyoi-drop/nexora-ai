@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::sync::Arc;
 use parking_lot::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::filter::Filter;
 use crate::types::{DataSample, FilterResult, FilterAction, PipelineMetrics, FilterMetric};
@@ -182,7 +182,10 @@ impl ExecutionGraph {
                 for handle in handles {
                     match handle.await {
                         Ok(result) => filter_results.push(result),
-                        Err(_) => return ExecutionResult::Cancelled,
+                        Err(e) => {
+                            warn!("Filter task join error: {:?}, cancelling execution", e);
+                            return ExecutionResult::Cancelled;
+                        },
                     }
                 }
             } else {

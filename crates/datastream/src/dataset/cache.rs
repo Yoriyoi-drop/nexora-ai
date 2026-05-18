@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use parking_lot::RwLock;
-use tracing::{info, debug};
+use tracing::{info, debug, warn};
 
 use crate::types::DataSample;
 use super::scanner::ShardPath;
@@ -123,7 +123,9 @@ pub struct TokenizerCache {
 
 impl TokenizerCache {
     pub fn new(cache_dir: PathBuf) -> Self {
-        std::fs::create_dir_all(&cache_dir).ok();
+        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+            warn!("Failed to create tokenizer cache dir {}: {}", cache_dir.display(), e);
+        }
         Self {
             cache_dir,
             memory_cache: HashMap::new(),

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
 use uuid::Uuid;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Model dependency graph untuk coordination
 #[derive(Debug, Clone)]

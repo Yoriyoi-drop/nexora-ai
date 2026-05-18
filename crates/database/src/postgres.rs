@@ -5,6 +5,7 @@
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tracing::warn;
 use tokio::sync::RwLock;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client, Config, NoTls};
@@ -836,7 +837,10 @@ impl PostgreSQLConnection {
                     // Note: This would require interior mutability in a real implementation
                     true
                 }
-                Err(_) => false,
+                Err(e) => {
+                    warn!("Database health check failed: {:?}", e);
+                    false
+                },
             }
         } else {
             false
@@ -868,7 +872,10 @@ impl PostgreSQLConnection {
                     let value: crate::Value = match row.try_get::<_, Option<String>>(i) {
                         Ok(Some(val)) => crate::Value::String(val),
                         Ok(None) => crate::Value::Null,
-                        Err(_) => crate::Value::Null,
+                        Err(e) => {
+                            warn!("Failed to parse column '{}' value as String: {:?}", column_name, e);
+                            crate::Value::Null
+                        },
                     };
                     row_data.insert(column_name.to_string(), value);
                 }

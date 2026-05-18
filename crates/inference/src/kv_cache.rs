@@ -202,7 +202,10 @@ impl KVCache {
                     .sum();
                 (guard.len(), mem)
             }
-            Err(_) => (0, 0),
+            Err(e) => {
+                warn!("KV cache stats read error: {:?}", e);
+                (0, 0)
+            },
         };
         CacheStats {
             cache_size,

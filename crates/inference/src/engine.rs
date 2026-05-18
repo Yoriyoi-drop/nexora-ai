@@ -361,12 +361,15 @@ impl InferenceEngine {
 
             let token_id = match sampler.sample(logits_slice) {
                 Ok(idx) => idx as u32,
-                Err(_) => logits
-                    .iter()
-                    .enumerate()
-                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
-                    .map(|(i, _)| i as u32)
-                    .unwrap_or(0),
+                Err(e) => {
+                    warn!("Sampler failed in greedy path: {:?}, falling back to argmax", e);
+                    logits
+                        .iter()
+                        .enumerate()
+                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
+                        .map(|(i, _)| i as u32)
+                        .unwrap_or(0)
+                },
             };
 
             let token_text = self.token_id_to_text(token_id);
@@ -583,8 +586,8 @@ impl InferenceEngine {
                     }
                 }
                 Ok(None) => break,
-                Err(_) => {
-                    // Timeout — try to flush timed-out batches
+                Err(e) => {
+                    warn!("Batch scheduler error: {:?}, flushing timed-out batches", e);
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
                         let engine = InferenceEngineHandle {
                             scheduler: self.scheduler.clone(),
@@ -716,12 +719,15 @@ impl InferenceEngineHandle {
 
                 let token_id = match sampler.sample(&logits.to_vec()) {
                     Ok(idx) => idx as u32,
-                    Err(_) => logits
-                        .iter()
-                        .enumerate()
-                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
-                        .map(|(i, _)| i as u32)
-                        .unwrap_or(0),
+                    Err(e) => {
+                        warn!("Sampler failed in speculative path: {:?}, falling back to argmax", e);
+                        logits
+                            .iter()
+                            .enumerate()
+                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
+                            .map(|(i, _)| i as u32)
+                            .unwrap_or(0)
+                    },
                 };
 
                 let token_text: String = match &self.tokenizer {

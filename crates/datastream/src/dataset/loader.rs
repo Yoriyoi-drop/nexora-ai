@@ -153,7 +153,9 @@ impl StreamingLoader {
                         }
                     }
                 } else if let Err(e) = validation {
-                    recovery.handle_failure(&first_compatible.path, &e.to_string()).ok();
+                    if let Err(e2) = recovery.handle_failure(&first_compatible.path, &e.to_string()) {
+                        warn!("Failure handler itself failed: {:?}", e2);
+                    }
                 }
             }
         }
@@ -271,7 +273,9 @@ impl StreamingLoader {
                         optimizer_state: None,
                         best_val_loss: None,
                     };
-                    state.save(rsp).ok();
+                    if let Err(e) = state.save(rsp) {
+                warn!("Failed to save streaming state: {:?}", e);
+            }
                 }
             }
 
@@ -394,7 +398,9 @@ async fn load_shard_integrated(
     // Tokenizer cache: if cache_dir is set, cache token IDs
     if let Some(cache_dir) = cache_dir {
         let token_cache_dir = cache_dir.join("tokens");
-        std::fs::create_dir_all(&token_cache_dir).ok();
+        if let Err(e) = std::fs::create_dir_all(&token_cache_dir) {
+            warn!("Failed to create token cache dir {}: {}", token_cache_dir.display(), e);
+        }
         let mut token_cache = TokenizerCache::new(token_cache_dir);
         for sample in &mut samples {
             if sample.text.len() < 10000 {

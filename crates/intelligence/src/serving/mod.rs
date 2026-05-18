@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 /// Model serving configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,7 +184,10 @@ async fn infer_handler(
     match result {
         Ok(Ok(resp)) => Ok(resp),
         Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
-        Err(_) => Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string())),
+        Err(e) => {
+            warn!("Inference handler join error: {:?}", e);
+            Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()))
+        },
     }
 }
 
@@ -244,6 +247,9 @@ async fn openai_chat_handler(
     match result {
         Ok(Ok(resp)) => Ok(resp),
         Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
-        Err(_) => Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string())),
+        Err(e) => {
+            warn!("OpenAI chat handler join error: {:?}", e);
+            Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()))
+        },
     }
 }

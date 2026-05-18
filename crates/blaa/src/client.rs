@@ -329,7 +329,7 @@ impl Stream for ChatCompletionStream {
                             }
                             match serde_json::from_str::<ChatCompletionChunk>(data.trim()) {
                                 Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),
-                                Err(_) => continue,
+                                Err(_) => debug!("Skipping non-chunk SSE line: {}", data.trim()),
                             }
                         } else {
                             continue;
@@ -354,7 +354,7 @@ impl Stream for ChatCompletionStream {
                             }
                             match serde_json::from_str::<ChatCompletionChunk>(data.trim()) {
                                 Ok(chunk) => return Poll::Ready(Some(Ok(chunk))),
-                                Err(_) => {}
+                                Err(_) => debug!("Skipping non-chunk SSE line in buffer: {}", data.trim()),
                             }
                         }
                     }
