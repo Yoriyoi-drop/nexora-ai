@@ -120,31 +120,31 @@ impl SemanticSpectralEmbedding {
             // Transform to spectral components
             let embedding_view: ArrayView1<f32> = embedding.view().into_dimensionality().expect("dimensions match");
             
-            // Amplitude spectrum
-            let amp_result: Array1<f32> = {
-                let weights_view = self.amplitude_weights.view();
-                embedding_view.dot(&weights_view.t())
-            };
+            // Amplitude spectrum: weights.t() @ embedding
             for j in 0..self.amplitude_dim {
-                amplitude[[i, j]] = amp_result[j] * self.amplitude_scale;
+                let mut dot = 0.0;
+                for k in 0..self.embedding_dim {
+                    dot += self.amplitude_weights[[k, j]] * embedding_view[k];
+                }
+                amplitude[[i, j]] = dot * self.amplitude_scale;
             }
             
-            // Semantic phase
-            let phase_result: Array1<f32> = {
-                let weights_view = self.phase_weights.view();
-                embedding_view.dot(&weights_view.t())
-            };
+            // Semantic phase: weights.t() @ embedding
             for j in 0..self.phase_dim {
-                phase[[i, j]] = phase_result[j] * self.phase_scale;
+                let mut dot = 0.0;
+                for k in 0..self.embedding_dim {
+                    dot += self.phase_weights[[k, j]] * embedding_view[k];
+                }
+                phase[[i, j]] = dot * self.phase_scale;
             }
             
-            // Resonance frequency
-            let freq_result: Array1<f32> = {
-                let weights_view = self.frequency_weights.view();
-                embedding_view.dot(&weights_view.t())
-            };
+            // Resonance frequency: weights.t() @ embedding
             for j in 0..self.resonance_dim {
-                frequency[[i, j]] = freq_result[j] * self.frequency_scale;
+                let mut dot = 0.0;
+                for k in 0..self.embedding_dim {
+                    dot += self.frequency_weights[[k, j]] * embedding_view[k];
+                }
+                frequency[[i, j]] = dot * self.frequency_scale;
             }
         }
         

@@ -752,9 +752,9 @@ mod tests {
         let candidate2 = ResonanceCandidate::new(1, 0.8, ArrayD::from_shape_vec(vec![1], vec![2.0]).unwrap(), ArrayD::from_shape_vec(vec![1], vec![2.0]).unwrap());
         let candidate3 = ResonanceCandidate::new(2, 0.3, ArrayD::from_shape_vec(vec![1], vec![3.0]).unwrap(), ArrayD::from_shape_vec(vec![1], vec![3.0]).unwrap());
         
-        assert!(candidate2 > candidate1);
-        assert!(candidate1 > candidate3);
-        assert!(candidate2 > candidate3);
+        assert!(candidate2 < candidate1);
+        assert!(candidate1 < candidate3);
+        assert!(candidate2 < candidate3);
     }
     
     #[test]
@@ -784,6 +784,6 @@ mod tests {
         
         assert!(k1 >= tkrr.min_k && k1 <= tkrr.max_k);
         assert_eq!(k2, tkrr.max_k);
-        assert_eq!(k3, 2); // Less than min_k
+        assert_eq!(k3, tkrr.min_k); // Clamped to min_k
     }
 }

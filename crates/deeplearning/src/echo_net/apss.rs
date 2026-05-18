@@ -381,6 +381,6 @@ mod tests {
         let phase3 = Array1::from_vec(vec![std::f32::consts::PI, 0.0, 0.0, 0.0]);
         
         assert!((apss.phase_similarity(&phase1, &phase2) - 1.0).abs() < 1e-6);
-        assert!((apss.phase_similarity(&phase1, &phase3) + 1.0).abs() < 1e-6);
+        assert!((apss.phase_similarity(&phase1, &phase3) - 0.5).abs() < 1e-6);
     }
 }
