@@ -1,0 +1,20 @@
+[package]
+name = "nexora-gnac"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+rand = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

@@ -8,7 +8,7 @@ pub use nexora_multimodal::*;
 use nexora_multimodal::caffeine::MultiModalInputs as CaffeineInputs;
 use nexora_multimodal::caffeine::TextInput;
 use nexora_shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput, OutputData};
-use crate::models::spectra::NxrSpectraModel;
+use nexora_models::spectra::NxrSpectraModel;
 
 /// Enhanced CAFFEINE with NXR-SPECTRA integration
 pub struct CaffeineSpectraIntegration {

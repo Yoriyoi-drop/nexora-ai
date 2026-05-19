@@ -3,7 +3,7 @@
 pub use nexora_atqs::*;
 
 use crate::shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput, OutputData};
-pub use crate::models::swift::NxrSwiftModel;
+pub use nexora_models::swift::NxrSwiftModel;
 
 /// Enhanced ATQS with NXR-SWIFT integration
 pub struct AtqsSwiftIntegration {

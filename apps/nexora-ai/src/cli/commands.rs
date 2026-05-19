@@ -140,6 +140,58 @@ pub enum Commands {
         output: Option<PathBuf>,
     },
     
+    /// Train foundation model in-place (updates registered model weights)
+    #[command(aliases = &["tf"])]
+    TrainFoundation {
+        /// Training data (.arrow or text)
+        #[arg(short, long)]
+        data: PathBuf,
+
+        /// Model ID to train (default: omnis). Use "all" for all models.
+        #[arg(short = 'm', long, default_value = "omnis")]
+        model_id: String,
+
+        /// Number of training steps
+        #[arg(short = 's', long, default_value = "100")]
+        steps: usize,
+
+        /// Batch size
+        #[arg(short = 'b', long, default_value = "4")]
+        batch_size: usize,
+
+        /// Learning rate
+        #[arg(short = 'l', long, default_value = "0.01")]
+        learning_rate: f32,
+
+        /// Sequence length
+        #[arg(short = 'S', long, default_value = "64")]
+        seq_length: usize,
+
+        /// Output checkpoint path (.safetensors)
+        #[arg(short = 'o', long)]
+        output: Option<PathBuf>,
+
+        /// Validation data (optional)
+        #[arg(short = 'V', long)]
+        val_data: Option<PathBuf>,
+
+        /// Train all models in parallel
+        #[arg(short = 'P', long)]
+        parallel: bool,
+    },
+
+    /// Load a trained checkpoint into a model
+    #[command(aliases = &["lc"])]
+    LoadCheckpoint {
+        /// Model ID to load into (e.g. omnis, swift)
+        #[arg(short, long)]
+        model: String,
+
+        /// Path to .safetensors checkpoint
+        #[arg(short, long)]
+        path: PathBuf,
+    },
+
     /// Train a model
     #[command(aliases = &["t"])]
     Train {
@@ -170,6 +222,10 @@ pub enum Commands {
         /// Enable acceleration (ROCm GPU or CPU BLAS)
         #[arg(short = 'g', long)]
         gpu: bool,
+
+        /// Sequence length for training (context window)
+        #[arg(long, default_value = "128")]
+        seq_length: usize,
 
         /// Resume from last checkpoint
         #[arg(short = 'R', long, default_value_t = false)]

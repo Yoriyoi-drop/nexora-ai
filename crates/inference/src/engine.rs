@@ -14,7 +14,7 @@ use crate::streaming::StreamingEngine;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
-use nexora_foundation::models::transformer::{CausalLM, TransformerConfig};
+use nexora_transformer::{CausalLM, TransformerConfig};
 use nexora_tokenizer::BpeTokenizer;
 
 #[derive(Debug, Clone)]

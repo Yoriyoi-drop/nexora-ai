@@ -8,6 +8,53 @@ use tracing::{info, warn};
 use crate::{NexoraAI, NexoraConfig};
 use super::commands::{Cli, Commands, ConfigAction, TokenizerAction, MemoryAction};
 
+/// Load dataset from either .arrow or text file. Arrow is preferred.
+fn load_dataset(path: &PathBuf) -> NexoraResult<Vec<String>> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if ext == "arrow" || path.is_dir() {
+        let source = nexora_datastream::SourceInfo {
+            name: "train_foundation".into(),
+            url: None,
+            trust_score: 1.0,
+            category: nexora_datastream::SourceCategory::Other,
+            fetch_timestamp: chrono::Utc::now().timestamp(),
+        };
+        if path.is_dir() {
+            let mut entries: Vec<_> = std::fs::read_dir(path)
+                .map_err(|e| NexoraError::Io { source: e })?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().map_or(false, |ext| ext == "arrow"))
+                .collect();
+            entries.sort_by_key(|e| e.file_name());
+            let mut all_lines = Vec::new();
+            for entry in &entries {
+                let samples = nexora_datastream::arrow_reader::read_arrow_file(&entry.path(), source.clone())
+                    .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
+                for s in &samples {
+                    all_lines.push(s.text.clone());
+                }
+            }
+            info!("Loaded {} samples from arrow directory {:?}", all_lines.len(), path);
+            Ok(all_lines)
+        } else {
+            let samples = nexora_datastream::arrow_reader::read_arrow_file(path, source)
+                .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
+            let lines: Vec<String> = samples.into_iter().map(|s| s.text).collect();
+            info!("Loaded {} samples from arrow file {:?}", lines.len(), path);
+            Ok(lines)
+        }
+    } else {
+        let raw_text = std::fs::read_to_string(path)
+            .map_err(|e| NexoraError::Io { source: e })?;
+        let lines: Vec<String> = raw_text.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.to_string())
+            .collect();
+        info!("Loaded {} lines from text file {:?}", lines.len(), path);
+        Ok(lines)
+    }
+}
+
 impl Cli {
     /// Run CLI application
     pub async fn run(&self) -> NexoraResult<()> {
@@ -59,6 +106,14 @@ impl Cli {
                     Commands::Process { input, format, output } => {
                         self.run_process(&nexora, input, format, output).await
                     }
+                    Commands::TrainFoundation { data, model_id, steps, batch_size, learning_rate, seq_length, output, val_data, parallel } => {
+                        self.run_train_foundation(&nexora, data, model_id, *steps, *batch_size, *learning_rate, *seq_length, output, val_data, *parallel).await
+                            .map_err(|e| NexoraError::processing(format!("TrainFoundation command failed: {}", e)))
+                    }
+                    Commands::LoadCheckpoint { model, path } => {
+                        self.run_load_checkpoint(model, path).await
+                            .map_err(|e| NexoraError::processing(format!("LoadCheckpoint command failed: {}", e)))
+                    }
                     Commands::Generate { prompt, max_tokens, temperature, output } => {
                         self.run_generate(&nexora, prompt, *max_tokens, *temperature, output).await
                     }
@@ -72,8 +127,8 @@ impl Cli {
                     Commands::Codegen { description, language, output } => {
                         self.run_codegen(&nexora, description, language, output).await
                     }
-                    Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, resume } => {
-                        self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *resume).await
+                    Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, seq_length, resume } => {
+                        self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *seq_length, *resume).await
                             .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
                     }
                     Commands::Evaluate { model, test_data, tokenizer, output } => {
@@ -235,7 +290,169 @@ impl Cli {
         
         Ok(())
     }
-    
+
+    async fn run_train_foundation(
+        &self,
+        _nexora: &NexoraAI,
+        data: &PathBuf,
+        model_id: &str,
+        steps: usize,
+        batch_size: usize,
+        learning_rate: f32,
+        seq_length: usize,
+        output: &Option<PathBuf>,
+        val_data: &Option<PathBuf>,
+        parallel: bool,
+    ) -> NexoraResult<()> {
+        info!("=== FOUNDATION TRAINING ===");
+        info!("Data: {:?}, Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", data, model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
+
+        if !data.exists() {
+            return Err(NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("Training data not found: {:?}", data)) });
+        }
+        let lines = load_dataset(data)?;
+
+        let val_lines: Vec<String> = match val_data {
+            Some(path) if path.exists() => load_dataset(path)?,
+            _ => Vec::new(),
+        };
+
+        let model_ids: Vec<nexora_foundation::NxrModelId> = if model_id.to_lowercase() == "all" {
+            nexora_foundation::NxrModelId::all().to_vec()
+        } else {
+            let parsed = match model_id.to_lowercase().as_str() {
+                "omnis" => nexora_foundation::NxrModelId::Omnis,
+                "vortex" => nexora_foundation::NxrModelId::Vortex,
+                "aether" => nexora_foundation::NxrModelId::Aether,
+                "spectra" => nexora_foundation::NxrModelId::Spectra,
+                "nexum" => nexora_foundation::NxrModelId::Nexum,
+                "axiom" => nexora_foundation::NxrModelId::Axiom,
+                "cipher" => nexora_foundation::NxrModelId::Cipher,
+                "swift" => nexora_foundation::NxrModelId::Swift,
+                "kronos" => nexora_foundation::NxrModelId::Kronos,
+                "genesis" => nexora_foundation::NxrModelId::Genesis,
+                other => return Err(NexoraError::validation("model_id", format!("Invalid model ID: {}", other))),
+            };
+            vec![parsed]
+        };
+
+        let save_path = output.as_ref().map(|p| p.to_string_lossy().to_string());
+
+        let trainer_cfg = nexora_foundation::training::TrainerConfig {
+            learning_rate,
+            max_steps: steps,
+            seq_length,
+            vocab_size: 512,
+            save_path,
+            save_every: 100,
+            report_every: 1,
+            batch_size,
+            weight_decay: 0.01,
+            max_grad_norm: Some(1.0),
+            warmup_steps: (steps / 20).max(1),
+            val_every_steps: (steps / 5).max(1),
+            early_stop_patience: 3,
+        };
+
+        let registry = nexora_foundation::shared::model_registry::global_registry();
+        let val_ref: Vec<String> = val_lines;
+        let tc_seq = trainer_cfg.clone();
+
+        let out_path = output.clone();
+        if parallel {
+            let mut handles = Vec::with_capacity(model_ids.len());
+            for mid in model_ids {
+                let lines = lines.clone();
+                let vr = val_ref.clone();
+                let tc = trainer_cfg.clone();
+                let reg = registry.clone();
+                let out = out_path.clone();
+                handles.push(tokio::spawn(async move {
+                    let raw = reg.get_model_raw(&mid).await
+                        .map_err(|e| format!("Model {:?} not found: {}", mid, e))?;
+                    let model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
+                        .map_err(|_| "Failed to downcast".to_string())?;
+                    let val_opt: Option<&[String]> = if vr.is_empty() { None } else { Some(&vr) };
+                    let report = model.train_on_data(&lines, tc, val_opt).await
+                        .map_err(|e| format!("Training failed: {}", e))?;
+                    if let Some(p) = &out {
+                        let save_path = format!("{}_{}.safetensors", p.display(), mid);
+                        let _ = model.save_checkpoint(&save_path).await;
+                    }
+                    Ok::<_, String>((mid, report))
+                }));
+            }
+
+            let results = futures::future::join_all(handles).await;
+            for r in results {
+                match r {
+                    Ok(Ok((mid, report))) => {
+                        info!("  {:?} | Steps: {} | Loss: {:.4} | Tokens: {} | {:.1}s",
+                            mid, report.steps, report.final_loss, report.total_tokens, report.duration_secs);
+                    }
+                    Ok(Err(e)) => info!("  Error: {}", e),
+                    Err(e) => info!("  Task panicked: {}", e),
+                }
+            }
+        } else {
+            for mid in model_ids {
+                let raw = registry.get_model_raw(&mid).await
+                    .map_err(|e| NexoraError::model(format!("Model {:?} not found: {}", mid, e)))?;
+                let model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
+                    .map_err(|_| NexoraError::model("Failed to downcast".to_string()))?;
+
+                let val_opt: Option<&[String]> = if val_ref.is_empty() { None } else { Some(&val_ref) };
+                let report = model.train_on_data(&lines, tc_seq.clone(), val_opt).await
+                    .map_err(|e| NexoraError::model(format!("Training {:?} failed: {}", mid, e)))?;
+
+                if let Some(p) = &output {
+                    let save_path = format!("{}_{}.safetensors", p.display(), mid);
+                    let _ = model.save_checkpoint(&save_path).await;
+                }
+
+                info!("  {:?} | Steps: {} | Loss: {:.4} | Tokens: {} | {:.1}s",
+                    mid, report.steps, report.final_loss, report.total_tokens, report.duration_secs);
+
+                let sample = model.generate_text("The", 20, 0.8).await
+                    .map_err(|e| NexoraError::model(format!("Generation failed: {}", e)))?;
+                info!("  {:?} sample: {:?}", mid, sample);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Load checkpoint into a model
+    async fn run_load_checkpoint(
+        &self,
+        model: &str,
+        path: &PathBuf,
+    ) -> NexoraResult<()> {
+        use nexora_foundation::NxrModelId;
+        let model_id = match model {
+            "omnis" => NxrModelId::Omnis,
+            "vortex" => NxrModelId::Vortex,
+            "aether" => NxrModelId::Aether,
+            "spectra" => NxrModelId::Spectra,
+            "nexum" => NxrModelId::Nexum,
+            "axiom" => NxrModelId::Axiom,
+            "cipher" => NxrModelId::Cipher,
+            "swift" => NxrModelId::Swift,
+            "kronos" => NxrModelId::Kronos,
+            "genesis" => NxrModelId::Genesis,
+            other => return Err(NexoraError::validation("model", format!("Invalid model ID: {}", other))),
+        };
+        let registry = nexora_foundation::shared::model_registry::global_registry();
+        let raw = registry.get_model_raw(&model_id).await
+            .map_err(|e| NexoraError::model(format!("Model '{:?}' not found: {}", model_id, e)))?;
+        let causal_model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
+            .map_err(|_| NexoraError::model("Failed to downcast model".to_string()))?;
+        causal_model.load_checkpoint(&path.to_string_lossy()).await
+            .map_err(|e| NexoraError::model(format!("Failed to load checkpoint: {}", e)))?;
+        info!("Checkpoint loaded into model '{}' from {}", model, path.display());
+        Ok(())
+    }
+
     /// Run analyze command
     async fn run_analyze(
         &self,

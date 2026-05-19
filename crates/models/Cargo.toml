@@ -1,0 +1,27 @@
+[package]
+name = "nexora-models"
+version = "0.1.0"
+edition = "2021"
+description = "NXR Model Series implementations - 10 model types with agent-based architectures"
+
+[dependencies]
+nexora-shared = { path = "../shared" }
+nexora-erp = { path = "../erp" }
+nexora-vogp = { path = "../vogp" }
+nexora-has-moe-ffn = { path = "../has-moe-ffn" }
+nexora-transformer = { path = "../transformer" }
+nexora-alignment = { path = "../alignment" }
+nexora-hallucination = { path = "../hallucination", optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+ndarray = { workspace = true }
+rand.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["full"] }
+async-trait = "0.1"
+
+[features]
+default = ["hallucination"]
+hallucination = ["nexora-hallucination"]

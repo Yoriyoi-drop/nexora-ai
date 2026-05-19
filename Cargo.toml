@@ -28,14 +28,19 @@ members = [
     "crates/shared",
     "crates/validation",
     "crates/multimodal",
+    "crates/reasoning",
     "crates/oracle",
     "crates/training",
     "crates/alignment",
+    "crates/autograd",
     "crates/traits",
     "crates/transformer",
     "crates/vogp",
     "crates/quantization",
     "crates/isolation",
+    "crates/star-x",
+    "crates/gnac",
+    "crates/echo-net",
     "apps/nexora-ai",
     "apps/dashboard",
 ]
@@ -87,6 +92,7 @@ async-trait = "0.1"
 futures = "0.3"
 # Random
 rand = "0.8"
+itertools = "0.12"
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 # HTTP server

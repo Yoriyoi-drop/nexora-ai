@@ -336,3 +336,101 @@ impl Default for ClusteringOrchestrator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_orchestrator_new_creates_empty_history() {
+        let o = ClusteringOrchestrator::new();
+        assert!(o.history.is_empty());
+    }
+
+    #[test]
+    fn test_orchestrator_default() {
+        let o = ClusteringOrchestrator::default();
+        assert!(o.history.is_empty());
+    }
+
+    #[test]
+    fn test_silhouette_score_identical_points() {
+        let o = ClusteringOrchestrator::new();
+        let data = vec![vec![1.0, 2.0], vec![1.0, 2.0]];
+        let labels = vec![0, 0];
+        let score = o.silhouette_score(&data, &labels);
+        assert_eq!(score, 0.0, "Identical points should give 0 silhouette");
+    }
+
+    #[test]
+    fn test_silhouette_score_perfect_separation() {
+        let o = ClusteringOrchestrator::new();
+        let data = vec![
+            vec![0.0, 0.0], vec![0.1, 0.1],
+            vec![10.0, 10.0], vec![10.1, 10.1],
+        ];
+        let labels = vec![0, 0, 1, 1];
+        let score = o.silhouette_score(&data, &labels);
+        assert!(score > 0.5, "Well-separated clusters should have high silhouette");
+    }
+
+    #[test]
+    fn test_davies_bouldin_index_two_clusters() {
+        let o = ClusteringOrchestrator::new();
+        let data = vec![vec![0.0], vec![0.1], vec![10.0], vec![10.1]];
+        let labels = vec![0, 0, 1, 1];
+        let db = o.davies_bouldin_index(&data, &labels);
+        assert!(db > 0.0, "DB index should be positive");
+        assert!(db < 2.0, "Well-separated clusters should have low DB index");
+    }
+
+    #[test]
+    fn test_davies_bouldin_index_single_cluster() {
+        let o = ClusteringOrchestrator::new();
+        let data = vec![vec![1.0], vec![2.0]];
+        let labels = vec![0, 0];
+        let db = o.davies_bouldin_index(&data, &labels);
+        assert_eq!(db, 0.0, "Single cluster should give 0 DB index");
+    }
+
+    #[test]
+    fn test_euclidean_distance() {
+        let o = ClusteringOrchestrator::new();
+        let dist = o.euclidean(&[0.0, 0.0], &[3.0, 4.0]);
+        assert!((dist - 5.0).abs() < 1e-6, "3-4-5 triangle, got {dist}");
+    }
+
+    #[test]
+    fn test_cluster_returns_result_with_algorithm() {
+        let mut o = ClusteringOrchestrator::new();
+        let request = ClusterRequest {
+            data: vec![vec![1.0f32]; 5],
+            granularity: ClusterGranularity::Neuron,
+            metric: ClusterMetric::Euclidean,
+            constraints: ClusterConstraints::default(),
+        };
+        let result = o.cluster(request);
+        assert_eq!(result.algorithm_used, "erp_spectral", "Small neuron data should use spectral");
+    }
+
+    #[test]
+    fn test_cluster_request_default_constraints() {
+        let constraints = ClusterConstraints::default();
+        assert_eq!(constraints.min_clusters, 2);
+        assert_eq!(constraints.max_clusters, 64);
+        assert_eq!(constraints.time_limit_ms, 1000);
+    }
+
+    #[test]
+    fn test_cluster_quality_fields() {
+        let q = ClusterQuality {
+            silhouette_score: 0.7,
+            davies_bouldin_index: 0.3,
+            cluster_stability: 0.9,
+            intra_cluster_variance: 0.1,
+            inter_cluster_distance: 0.8,
+        };
+        assert!(q.silhouette_score > 0.5);
+        assert!(q.davies_bouldin_index < 0.5);
+    }
+}

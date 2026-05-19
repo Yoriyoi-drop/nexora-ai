@@ -16,7 +16,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| Runtime::new().expect("Failed to cr
 use nexora_foundation::multimodal::caffeine::{Caffeine, CaffeineConfig, MultiModalInputs};
 use nexora_foundation::multimodal::caffeine::types::{UnifiedToken, ModalityType, TextInput, ImageInput, ImageFormat, ContextInfo, TaskType, MultiModalOutputs, PerformanceMetrics, ActionOutput};
 use nexora_foundation::multimodal::caffeine::config::{EncodersConfig, QFormerConfig, TokenizerConfig, ActionConfig};
-use nexora_foundation::compression::prelude::*;
+use nexora_foundation::atqs::prelude::*;
 use nexora_foundation::has_moe_ffn::*;
 
 /// Initialize logger untuk benchmark

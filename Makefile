@@ -1,6 +1,6 @@
 .PHONY: all build check clippy fmt test test-fast clean \
         run dev debug \
-        train train-resume evaluate \
+        train train-resume train-foundation evaluate load-checkpoint \
         health info perf mem \
         chat generate process analyze \
         docker-up docker-down logs \
@@ -21,9 +21,17 @@ EPOCHS        ?= 10
 BATCH         ?= 32
 LR            ?= 0.001
 
-# --- Evaluate ---
+# --- Foundation training ---
+MODEL_ID      ?= swift
+STEPS         ?= 100
+SEQ_LEN       ?= 64
+VAL_DATA      ?=
+
+# --- Evaluate / Load ---
 MODEL         ?= ./checkpoints/model.safetensors
 TEST_DATA     ?= ./test_data
+CKPT_MODEL    ?= omnis
+CKPT_PATH     ?= ./checkpoints/model.final.safetensors
 
 # --- Misc ---
 PROMPT        ?= "Hello"
@@ -86,6 +94,19 @@ train-resume:
 		--data $(DATA) --output $(OUTPUT) \
 		--epochs $(EPOCHS) --batch-size $(BATCH) --learning-rate $(LR) \
 		-g -R $(TRAIN_FLAGS)
+
+train-foundation:
+	cargo run --bin $(BIN) -- train-foundation \
+		--data $(DATA) --model-id $(MODEL_ID) \
+		--steps $(STEPS) --batch-size $(BATCH) --learning-rate $(LR) \
+		--seq-length $(SEQ_LEN) --output $(OUTPUT) \
+		$(if $(VAL_DATA),--val-data $(VAL_DATA),) \
+		$(if $(PARALLEL),--parallel,) \
+		$(TRAIN_FLAGS)
+
+load-checkpoint:
+	cargo run --bin $(BIN) -- load-checkpoint \
+		--model $(CKPT_MODEL) --path $(CKPT_PATH)
 
 evaluate:
 	cargo run --bin $(BIN) -- evaluate \
@@ -164,6 +185,8 @@ help:
 	@echo ' TRAINING'
 	@echo '   make train               nexora train (DATA=./training_data)'
 	@echo '   make train-resume        nexora train --resume'
+	@echo '   make train-foundation    nexora train-foundation (model in-place)'
+	@echo '   make load-checkpoint     restore trained weights into a model'
 	@echo '   make evaluate            nexora evaluate'
 	@echo ''
 	@echo ' MONITORING'
@@ -186,6 +209,9 @@ help:
 	@echo ' VARIABEL (semua opsional, punya default)'
 	@echo '   DATA=./training_data     OUTPUT=./checkpoints/model'
 	@echo '   EPOCHS=10                BATCH=32               LR=0.001'
+	@echo '   MODEL_ID=swift           STEPS=100               SEQ_LEN=64'
+	@echo '   CKPT_MODEL=omnis         CKPT_PATH=./checkpoints/model.final.safetensors'
+	@echo '   PARALLEL=1               gunakan --parallel (set any value)'
 	@echo '   HOST=127.0.0.1           PORT=8080'
 	@echo '   PROMPT="Hello"           INPUT="test"'
 	@echo '   FILE=src/main.rs         LANG=rust'
@@ -196,6 +222,9 @@ help:
 	@echo ' CONTOH'
 	@echo '   make train DATA=./my_data EPOCHS=3 BATCH=64 LR=1e-4'
 	@echo '   make train-resume TRAIN_FLAGS=--tokenizer ./tok.json'
+	@echo '   make train-foundation DATA=./data.arrow MODEL_ID=omnis STEPS=1000'
+	@echo '   make train-foundation PARALLEL=1 MODEL_ID=all STEPS=500'
+	@echo '   make load-checkpoint CKPT_MODEL=omnis CKPT_PATH=./omnis.final.safetensors'
 	@echo '   make dev PORT=3000'
 	@echo '   make docker-up SERVICES="postgres redis"'
 	@echo '   make chat CHAT_FLAGS="--message hello"'

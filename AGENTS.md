@@ -42,6 +42,8 @@ cargo test --test <test_name>        # single integration test
 cargo run --bin nexora               # run CLI
 cargo run --bin nexora -- start      # start API server (http://localhost:8080)
 cargo run --bin nexora -- health     # health check
+cargo run --bin nexora -- load-checkpoint --model <id> --path <file>  # restore checkpoint
+cargo run --bin nexora -- train-foundation --data <file> --output <dir>  # in-place training
 cargo run --bin dashboard            # TUI dashboard
 ```
 
@@ -96,6 +98,7 @@ Real training via `cargo run --bin nexora -- train --data <file> --output <model
 | AdamW optimizer | `crates/deeplearning/src/autograd/mod.rs:150` | Bias correction, gradient clipping, decoupled weight decay |
 | Trainer | `crates/foundation/src/training/mod.rs` | Gradient accumulation (batch_size), LR warmup + cosine decay, checkpoint at save_every |
 | CLI | `apps/nexora-ai/src/cli/training.rs` | `train` + `evaluate` commands, DataStream filter pipeline |
+| CLI (foundation) | `apps/nexora-ai/src/cli/handlers.rs` | `train-foundation` — in-place training via `--output` |
 | Data pipeline | `crates/datastream/src/` | DAG-based streaming, length/quality/dedup filters |
 
 ### Training features
@@ -108,7 +111,39 @@ Real training via `cargo run --bin nexora -- train --data <file> --output <model
 - **Graceful shutdown**: Ctrl+C completes current batch before saving.
 - **BLAS acceleration**: Add `"blas"` to ndarray features in `crates/deeplearning/Cargo.toml` and install `libopenblas-dev` for 5-10x CPU matmul speedup.
 
-### Example
+### Checkpoint system (`train-foundation`)
+
+When `--output <base>` is set, `train_on_data` saves automatically:
+
+| Type | Every N steps | File pattern |
+|---|---|---|
+| Small checkpoint | 100 | `{base}.step-{N}.safetensors` |
+| Big checkpoint | 1000 | `{base}.big-{N}.safetensors` |
+| Final | end of training | `{base}.final.safetensors` |
+
+Restore a checkpoint into a model:
+```sh
+cargo run --bin nexora -- load-checkpoint --model omnis --path ./ckpt.final.safetensors
+```
+
+### Foundation training (`train-foundation`)
+```sh
+cargo run --bin nexora -- train-foundation \
+  --data training_data.arrow \
+  --model-id swift \
+  --steps 500 \
+  --output ./checkpoints/swift
+
+# All models in parallel:
+cargo run --bin nexora -- train-foundation \
+  --data training_data.arrow \
+  --model-id all \
+  --steps 1000 \
+  --output ./checkpoints/all \
+  --parallel
+```
+
+### Full pipeline example
 ```sh
 cargo run --bin nexora -- train \
   --data training_data.txt \

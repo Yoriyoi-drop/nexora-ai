@@ -14,7 +14,7 @@ use nexora_foundation::reasoning::{
     SACAIntegration,
 };
 
-use nexora_foundation::compression::{
+use nexora_foundation::atqs::{
     ATQSConfig,
     compression::CompressionEngine,
 };

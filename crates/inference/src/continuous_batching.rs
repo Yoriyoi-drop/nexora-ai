@@ -5,7 +5,7 @@ use tracing::warn;
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
-use nexora_foundation::models::transformer::KVCacheEntry;
+use nexora_transformer::KVCacheEntry;
 
 /// Result of a single continuous batching step.
 #[derive(Debug)]

@@ -15,9 +15,9 @@ use nexora_deeplearning::{
         EpisodicMemoryRetention,
     },
     echo_net::{EchoNetConfig, EchoNetState, EchoNetMetrics},
-    traits::{Forward, Backward, Stateful, Trainable},
     DLResult, DeepLearningError,
 };
+use nexora_deeplearning::star_x::traits::Forward;
 use nexora_deeplearning::star_x::core::{
     HierarchicalGating, SparseAttention, SelectiveUpdate, EpisodicMemory,
 };
@@ -185,7 +185,7 @@ impl DeepLearningEngine {
             DLArchitecture::StarX => {
                 let star_x_config = config.star_x_config.as_ref()
                     .ok_or_else(|| DeepLearningError::Configuration { reason: "star_x_config required for StarX architecture".into() })?;
-                DeepLearningState::StarX(StarXState::new(star_x_config)?)
+                DeepLearningState::StarX(StarXState::new(star_x_config))
             }
             DLArchitecture::EchoNet => {
                 let echo_net_config = config.echo_net_config.as_ref()
@@ -198,7 +198,7 @@ impl DeepLearningEngine {
                 let echo_net_config = config.echo_net_config.as_ref()
                     .ok_or_else(|| DeepLearningError::Configuration { reason: "echo_net_config required for Hybrid architecture".into() })?;
                 DeepLearningState::Hybrid {
-                    star_x: StarXState::new(star_x_config)?,
+                    star_x: StarXState::new(star_x_config),
                     echo_net: EchoNetState::new(echo_net_config)?,
                 }
             }
@@ -234,7 +234,7 @@ impl DeepLearningEngine {
                         sc.update_threshold, sc.relevance_alpha,
                     )?,
                     emr: PRwLock::new(EpisodicMemoryRetention::new(
-                        sc.memory_size, sc.hidden_size, sc.memory_write_threshold,
+                        sc.memory_size, sc.hidden_size, sc.memory_threshold,
                     )?),
                 })
             }
@@ -298,7 +298,7 @@ impl DeepLearningEngine {
                     &hte_output,
                     &starx_state.hidden_state,
                     &chunk_context,
-                    &starx_state.episodic_memory,
+                    &starx_state.memory_state,
                 )?;
 
                 let fused = pipeline.tgh.fuse_hierarchical(
@@ -357,7 +357,7 @@ impl DeepLearningEngine {
                         &hte_output,
                         &star_x.hidden_state,
                         &ArrayD::zeros(vec![star_x.hidden_state.len()]),
-                        &star_x.episodic_memory,
+                        &star_x.memory_state,
                     )?;
 
                     let fused = pipeline.tgh.fuse_hierarchical(
@@ -438,10 +438,10 @@ impl DeepLearningEngine {
 
                 let result_data: Vec<f32> = flat_grad.iter().enumerate().map(|(i, g)| {
                     let w = starx_state.hidden_state[i % hidden_size];
-                    let relevance = if starx_state.memory_priorities.is_empty() {
+                    let relevance = if starx_state.relevance_scores.is_empty() {
                         1.0
                     } else {
-                        starx_state.memory_priorities[i % starx_state.memory_priorities.len()]
+                        starx_state.relevance_scores[i % starx_state.relevance_scores.len()]
                     };
                     g * (w.abs() + 1.0) * (relevance.abs() + 0.1).recip()
                 }).collect();

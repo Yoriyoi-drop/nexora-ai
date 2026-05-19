@@ -6,7 +6,7 @@
 pub use nexora_oracle::*;
 
 use nexora_shared::base_model::NxrModel;
-use crate::models::vortex::NxrVortexModel;
+use nexora_models::vortex::NxrVortexModel;
 
 /// Enhanced ORACLE with NXR-VORTEX integration
 pub struct OracleVortexIntegration {

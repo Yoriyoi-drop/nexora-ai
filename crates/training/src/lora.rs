@@ -1,5 +1,5 @@
 use ndarray::{Array1, Array2};
-use nexora_deeplearning::autograd::{Tensor, TensorOps};
+use nexora_autograd::{Tensor, TensorOps};
 
 #[derive(Debug, Clone)]
 pub struct LoRAConfig {

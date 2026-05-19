@@ -7,7 +7,7 @@ use ndarray::Array1;
 use serde_json::Value;
 
 use crate::{InferenceRequest, InferenceResponse, Result as InferenceResult};
-use nexora_foundation::models::transformer::KVCacheEntry;
+use nexora_transformer::KVCacheEntry;
 
 /// Trait for model forward pass — abstracts over CausalLM for testing.
 pub trait ModelForward: Send + Sync {

@@ -1,6 +1,6 @@
 use ndarray::{Array1, Array2, ArrayD};
-use nexora_deeplearning::autograd::{self, Tensor, TensorOps, Adam};
-use nexora_deeplearning::autograd::ops::{embedding, rms_norm_2d, causal_softmax};
+use nexora_autograd::{self, Tensor, TensorOps, Adam};
+use nexora_autograd::ops::{embedding, rms_norm_2d, causal_softmax};
 
 use super::model::CausalLM;
 use super::config::TransformerConfig;
@@ -143,16 +143,16 @@ impl TrainableCausalLM {
         let num_groups = n_heads / n_kv_heads;
 
         let mut h = embedding(input_ids, &self.token_embedding);
-        h = h.reshape(&[1, seq_len, hidden]);
+        // h shape: [seq_len, hidden] — keep 2D throughout
 
         for block in &self.blocks {
             let residual = h.clone();
 
             let normed = rms_norm_2d(
-                &h.reshape(&[seq_len, hidden]),
+                &h,
                 &block.attention_norm.weight,
                 block.attention_norm.eps,
-            ).reshape(&[1, seq_len, hidden]);
+            );
 
             let q_proj = normed.matmul(&block.attention.wq.transpose());
             let k_proj = normed.matmul(&block.attention.wk.transpose());
@@ -160,30 +160,26 @@ impl TrainableCausalLM {
 
             let q_total = n_heads * head_dim;
             let k_total = n_kv_heads * head_dim;
-            let group_dim = num_groups * head_dim;
+            let scale = (head_dim as f32).sqrt();
+            let scale_t = Tensor::from_slice(&[scale], &[1]);
 
-            let mut attn_parts: Vec<Tensor> = Vec::with_capacity(n_kv_heads);
-            for g in 0..n_kv_heads {
-                let q_sel = identity_selector(q_total, group_dim, g * group_dim);
-                let kv_sel = identity_selector(k_total, head_dim, g * head_dim);
-
-                let q_g = q_proj.matmul(&q_sel);
-                let k_g = k_proj.matmul(&kv_sel);
-                let v_g = v_proj.matmul(&kv_sel);
-
-                let scale = (head_dim as f32).sqrt();
-                let scores = q_g.matmul(&k_g.transpose())
-                    .div(&Tensor::from_slice(&[scale], &[1]));
-
-                let attn = causal_softmax(&scores);
-                let out_g = attn.matmul(&v_g);
-                attn_parts.push(out_g);
-            }
-
+            // Per-head GQA: each query head attends to its assigned KV head
             let mut attn_out = Tensor::zeros(&[seq_len, q_total], false);
-            for g in 0..n_kv_heads {
-                let place_sel = identity_selector(q_total, group_dim, g * group_dim);
-                let placed = attn_parts[g].matmul(&place_sel.transpose());
+            for h_idx in 0..n_heads {
+                let kv_h = h_idx / num_groups;
+                let q_sel = identity_selector(q_total, head_dim, h_idx * head_dim);
+                let kv_sel = identity_selector(k_total, head_dim, kv_h * head_dim);
+
+                let q_h = q_proj.matmul(&q_sel);
+                let k_h = k_proj.matmul(&kv_sel);
+                let v_h = v_proj.matmul(&kv_sel);
+
+                let scores = q_h.matmul(&k_h.transpose()).div(&scale_t);
+                let attn = causal_softmax(&scores);
+                let out_h = attn.matmul(&v_h);
+
+                let place_sel = identity_selector(q_total, head_dim, h_idx * head_dim);
+                let placed = out_h.matmul(&place_sel.transpose());
                 attn_out = attn_out.add(&placed);
             }
 
@@ -193,10 +189,10 @@ impl TrainableCausalLM {
 
             let residual = h.clone();
             let normed = rms_norm_2d(
-                &h.reshape(&[seq_len, hidden]),
+                &h,
                 &block.ffn_norm.weight,
                 block.ffn_norm.eps,
-            ).reshape(&[1, seq_len, hidden]);
+            );
 
             let gate = normed.matmul(&block.ffn.w1.transpose());
             let hidden_states = normed.matmul(&block.ffn.w3.transpose());
@@ -206,11 +202,7 @@ impl TrainableCausalLM {
             h = residual.add(&ffn_out);
         }
 
-        h = rms_norm_2d(
-            &h.reshape(&[seq_len, hidden]),
-            &self.norm.weight,
-            self.norm.eps,
-        );
+        h = rms_norm_2d(&h, &self.norm.weight, self.norm.eps);
 
         let logits = h.matmul(&self.lm_head.transpose());
         logits

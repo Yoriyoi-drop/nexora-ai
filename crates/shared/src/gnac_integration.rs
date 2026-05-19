@@ -4,8 +4,7 @@
 //! dan semua NXR models. Memungkinkan visual graph-based architecture design,
 //! real-time architecture search, dan adaptive inference routing.
 
-use nexora_deeplearning::gnac::{
-    self,
+use nexora_gnac::{
     canvas::{NeuralGraph, GraphNode, GraphEdge},
     smart_tensor::{ShapePropagator, SmartTensorMetadata},
     lensing::{NeuralLens, GradientFailureLens, AttentionFlowLens, LatencyLens, MemoryLens, ActivationEntropyLens, LensObservation},

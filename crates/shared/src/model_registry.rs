@@ -2,6 +2,7 @@
 //! 
 //! Central registry for all NXR models with discovery and management
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -17,9 +18,9 @@ use super::{
 };
 
 /// A single atomic registry entry holding all components for one model.
-#[derive(Clone)]
 struct RegistryEntry {
     model: Option<Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>>,
+    model_raw: Option<Arc<dyn Any + Send + Sync>>,
     metadata: ModelMeta,
     capabilities: CapabilityVector,
     config: NxrModelConfig,
@@ -55,6 +56,19 @@ impl NxrModelRegistry {
         model_capabilities: CapabilityVector,
         config: NxrModelConfig,
     ) -> Result<(), RegistryError> {
+        self.register_model_raw(model_id, model, None, meta, model_capabilities, config).await
+    }
+
+    /// Register a model with raw Arc for downcasting
+    pub async fn register_model_raw(
+        &self,
+        model_id: NxrModelId,
+        model: Arc<dyn NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>>,
+        model_raw: Option<Arc<dyn Any + Send + Sync>>,
+        meta: ModelMeta,
+        model_capabilities: CapabilityVector,
+        config: NxrModelConfig,
+    ) -> Result<(), RegistryError> {
         // Validate model identity matches
         if model.identity().id != meta.id {
             return Err(RegistryError::IdentityMismatch);
@@ -72,6 +86,7 @@ impl NxrModelRegistry {
         }
         entries.insert(model_id, RegistryEntry {
             model: Some(model),
+            model_raw,
             metadata: meta,
             capabilities: caps,
             config,
@@ -100,6 +115,7 @@ impl NxrModelRegistry {
         }
         entries.insert(model_id, RegistryEntry {
             model: None,
+            model_raw: None,
             metadata: meta,
             capabilities: caps,
             config,
@@ -117,7 +133,7 @@ impl NxrModelRegistry {
         Ok(())
     }
 
-    /// Get model by ID
+    /// Get model by ID (as trait object)
     pub async fn get_model(
         &self,
         model_id: &NxrModelId,
@@ -126,6 +142,18 @@ impl NxrModelRegistry {
         entries
             .get(model_id)
             .and_then(|e| e.model.clone())
+            .ok_or(RegistryError::NotFound(*model_id))
+    }
+
+    /// Get model as Any for downcasting
+    pub async fn get_model_raw(
+        &self,
+        model_id: &NxrModelId,
+    ) -> Result<Arc<dyn Any + Send + Sync>, RegistryError> {
+        let entries = self.entries.read().await;
+        entries
+            .get(model_id)
+            .and_then(|e| e.model_raw.clone())
             .ok_or(RegistryError::NotFound(*model_id))
     }
 

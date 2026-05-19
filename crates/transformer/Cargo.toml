@@ -10,4 +10,4 @@ serde.workspace = true
 serde_json.workspace = true
 rand.workspace = true
 thiserror.workspace = true
-nexora-deeplearning = { path = "../deeplearning" }
+nexora-autograd = { path = "../autograd" }

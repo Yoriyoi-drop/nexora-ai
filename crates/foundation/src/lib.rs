@@ -13,7 +13,7 @@ pub mod validation_modules;
 pub mod safetensors;
 pub mod reasoning;
 pub mod atqs;
-pub mod compression;
+
 pub mod multimodal;
 
 // Include research modules
@@ -39,9 +39,9 @@ pub mod shared;
 pub mod models;
 pub mod clustering_orchestrator;
 pub mod quantization;
-
-// Hallucination integration — always exposes types, impl gated by feature
-pub mod hallucination_integration;
+pub mod causal_lm_model;
+pub mod init;
+pub mod model_agent_manager;
 
 // Re-export main components for easier access
 
@@ -52,7 +52,7 @@ pub use erp::*;
 
 // Re-export external framework modules
 pub use crate::reasoning::*;
-pub use crate::compression::*;
+pub use crate::atqs::*;
 pub use crate::multimodal::*;
 
 // Re-export NXR Model Series components
@@ -86,5 +86,47 @@ pub enum FoundationError {
 impl From<nexora_transformer::TransformerError> for FoundationError {
     fn from(e: nexora_transformer::TransformerError) -> Self {
         FoundationError::Processing(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_foundation_error_implementation() {
+        let e = FoundationError::Implementation("test".into());
+        assert_eq!(e.to_string(), "Implementation error: test");
+    }
+
+    #[test]
+    fn test_foundation_error_configuration() {
+        let e = FoundationError::Configuration("bad config".into());
+        assert_eq!(e.to_string(), "Configuration error: bad config");
+    }
+
+    #[test]
+    fn test_foundation_error_processing() {
+        let e = FoundationError::Processing("error".into());
+        assert_eq!(e.to_string(), "Processing error: error");
+    }
+
+    #[test]
+    fn test_foundation_error_timeout() {
+        let e = FoundationError::Timeout;
+        assert_eq!(e.to_string(), "Timeout error");
+    }
+
+    #[test]
+    fn test_foundation_error_not_implemented() {
+        let e = FoundationError::NotImplemented;
+        assert_eq!(e.to_string(), "Not implemented");
+    }
+
+    #[test]
+    fn test_foundation_error_from_transformer_error() {
+        let te = nexora_transformer::TransformerError::Configuration("invalid".into());
+        let fe: FoundationError = te.into();
+        assert!(fe.to_string().contains("invalid"));
     }
 }

@@ -25,6 +25,7 @@ ordered-float = "3.9"
 nexora-core = { path = "../core" }
 nexora-intelligence = { path = "../intelligence" }
 nexora-foundation = { path = "../foundation" }
+nexora-transformer = { path = "../transformer" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-blaa = { path = "../blaa" }
 nexora-tokenizer = { path = "../tokenizer" }

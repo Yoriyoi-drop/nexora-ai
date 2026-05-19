@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use ndarray::{Array2, s};
 
-use nexora_foundation::models::transformer::KVCacheEntry;
+use nexora_transformer::KVCacheEntry;
 use tracing::warn;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -457,7 +457,7 @@ impl PagedKVCache {
     }
 }
 
-impl nexora_foundation::models::transformer::PagedCacheReader for PagedKVCache {
+impl nexora_transformer::PagedCacheReader for PagedKVCache {
     fn read(&self, seq_id: u64, layer: usize, token_pos: usize) -> Option<(Vec<f32>, Vec<f32>)> {
         PagedKVCache::read(self, seq_id, layer, token_pos)
     }
@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn test_forward_paged_integration() {
         use ndarray::Array1;
-        use nexora_foundation::models::transformer::{CausalLM, TransformerConfig};
+        use nexora_transformer::{CausalLM, TransformerConfig};
 
         let cfg = PagedCacheConfig {
             block_size: 4,
@@ -769,7 +769,7 @@ mod tests {
     #[test]
     fn test_paged_vs_flat_cache_parity() {
         use ndarray::Array1;
-        use nexora_foundation::models::transformer::{CausalLM, KVCacheEntry, TransformerConfig};
+        use nexora_transformer::{CausalLM, KVCacheEntry, TransformerConfig};
 
         let cfg = PagedCacheConfig {
             block_size: 4,

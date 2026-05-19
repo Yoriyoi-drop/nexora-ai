@@ -27,7 +27,7 @@ pub use core::*;
 use nexora_foundation::shared::{
     base_model::{InputData, NxrInput},
     model_identity::NxrModelId,
-    model_registry::{global_registry, initialize_global_registry},
+    model_registry::global_registry,
 };
 /// Nexora AI System - Main orchestrator for all AI components
 /// 
@@ -39,7 +39,7 @@ use nexora_foundation::shared::{
 /// - Code analysis and generation
 /// 
 /// The system uses the NXR foundation model series for all AI inference.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NexoraAI {
     /// Foundation model registry (all registered NXR models)
     registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,
@@ -65,6 +65,9 @@ pub struct NexoraAI {
     /// Request processor for handling incoming requests
     request_processor: RequestProcessor,
 
+    /// Agent manager for multi-agent orchestration
+    agent_manager: Arc<nexora_agent::AgentManager>,
+
     /// Shared training metrics store (written by CLI, served to dashboard)
     pub train_metrics: Arc<RwLock<Value>>,
 }
@@ -76,15 +79,51 @@ impl NexoraAI {
         
         config.validate().map_err(|e| NexoraError::config(format!("Configuration validation failed: {}", e)))?;
         
-        // Initialize foundation model registry
-        initialize_global_registry().await
-            .map_err(|e| NexoraError::system(format!("Failed to initialize model registry: {}", e)))?;
+        // Step 1: Initialize foundation models — all 10 NXR models get real CausalLM instances
+        nexora_foundation::init::initialize_foundation_models().await
+            .map_err(|e| NexoraError::system(format!("Failed to initialize foundation models: {}", e)))?;
+
+        // Step 1b: Initialize model-internal agents — all 10 NXR model agent systems go live
+        nexora_foundation::model_agent_manager::init_model_agents().await;
         
         let registry = global_registry();
         
         let active_model_id = NxrModelId::Omnis;
         info!("Active model: {} ({})", active_model_id, active_model_id.fullname());
         
+        // Step 2: Initialize multi-agent system — spawn all 7 runtime agents
+        let agent_config = nexora_agent::agent_manager::AgentManagerConfig::default();
+        let agent_manager = Arc::new(nexora_agent::AgentManager::new(agent_config));
+        agent_manager.start().await
+            .map_err(|e| NexoraError::system(format!("Failed to start agent manager: {}", e)))?;
+
+        // Spawn all 7 agents: context, routing, inference, memory, planner, response, validation
+        let agent_types = vec!["context", "routing", "inference", "memory", "planner", "response", "validation"];
+        let mut spawned = Vec::new();
+        for agent_type in agent_types {
+            let cfg = nexora_agent::AgentConfig::default();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            agent_manager.command_sender().send(
+                nexora_agent::agent_manager::ManagerCommand::SpawnAgent {
+                    agent_type: agent_type.to_string(),
+                    config: cfg,
+                    response_tx: tx,
+                }
+            ).await.map_err(|e| NexoraError::system(format!("Failed to spawn {} agent: {}", agent_type, e)))?;
+            match rx.await {
+                Ok(Ok(agent_id)) => {
+                    spawned.push((agent_type, agent_id));
+                }
+                Ok(Err(e)) => {
+                    info!("Agent {} could not spawn: {} (non-fatal)", agent_type, e);
+                }
+                Err(_) => {
+                    info!("Agent {} spawn response channel closed (non-fatal)", agent_type);
+                }
+            }
+        }
+        info!("Agent system active: {}/7 agents spawned", spawned.len());
+
         // Initialize system monitoring
         let mut system = sysinfo::System::new_all();
         system.refresh_all();
@@ -118,6 +157,7 @@ impl NexoraAI {
             request_count: request_count.clone(),
             system_monitor,
             request_processor: RequestProcessor::new(request_count.clone()),
+            agent_manager,
             train_metrics,
         })
     }

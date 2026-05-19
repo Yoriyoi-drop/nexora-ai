@@ -1,0 +1,19 @@
+[package]
+name = "nexora-autograd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, optional = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+num_cpus = "1.16"
+half = "2"
+
+[features]
+default = ["std", "serde"]
+std = []
+serde = ["dep:serde"]

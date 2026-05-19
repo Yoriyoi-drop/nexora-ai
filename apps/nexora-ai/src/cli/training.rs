@@ -13,9 +13,9 @@ use serde_json::Value;
 
 use crate::NexoraAI;
 use nexora_foundation::training::{Trainer, TrainerConfig, EvalMetrics};
-use nexora_foundation::models::transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
+use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 use nexora_foundation::{NxrModelId, NxrModelConfig};
-use nexora_deeplearning::TensorOps;
+use nexora_deeplearning::autograd::TensorOps;
 use nexora_datastream::{
     DataSample, SourceInfo, SourceCategory, ExecutionResult,
     filter::{LengthFilter, QualityFilter, DedupFilter},
@@ -323,12 +323,13 @@ impl crate::cli::commands::Cli {
         batch_size: usize,
         learning_rate: f32,
         gpu: bool,
+        seq_length: usize,
         resume: bool,
     ) -> Result<()> {
         info!("=== NEXORA TRAINING ===");
         info!("Data: {:?}", data);
         info!("Output: {:?}", output);
-        info!("Epochs: {}, Batch: {}, LR: {}, GPU: {}, Resume: {}", epochs, batch_size, learning_rate, gpu, resume);
+        info!("Epochs: {}, Batch: {}, LR: {}, GPU: {}, SeqLen: {}, Resume: {}", epochs, batch_size, learning_rate, gpu, seq_length, resume);
         init_gpu(gpu);
 
         if !data.exists() {
@@ -346,7 +347,7 @@ impl crate::cli::commands::Cli {
         if data.is_dir() && has_manifest(data) {
             info!("Dataset streaming pipeline detected (manifest.json)");
             return Self::run_train_streaming(
-                data, output, tokenizer_path, epochs, batch_size, learning_rate, gpu, resume
+                data, output, tokenizer_path, epochs, batch_size, learning_rate, gpu, seq_length, resume
             ).await;
         }
 
@@ -503,7 +504,6 @@ impl crate::cli::commands::Cli {
             .collect();
         info!("  {} validation sequences", val_sequences.len());
 
-        let seq_length = 128;
         let max_steps = epochs.max(1) * train_samples.len().max(1) / batch_size.max(1);
 
         let trainer_config = TrainerConfig {
@@ -666,6 +666,7 @@ impl crate::cli::commands::Cli {
         batch_size: usize,
         learning_rate: f32,
         gpu: bool,
+        seq_length: usize,
         resume: bool,
     ) -> Result<()> {
         init_gpu(gpu);
@@ -735,7 +736,6 @@ impl crate::cli::commands::Cli {
         info!("  Vocab size final: {}", vocab_size);
 
         info!("[3/6] Inisialisasi streaming loader...");
-        let seq_length = 128;
         let streaming_config = StreamingConfig {
             batch_size,
             prefetch_batches: 4,

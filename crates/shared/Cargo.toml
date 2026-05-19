@@ -10,6 +10,7 @@ nexora-vogp = { path = "../vogp" }
 nexora-atqs = { path = "../atqs" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 nexora-deeplearning = { path = "../deeplearning" }
+nexora-gnac = { path = "../gnac" }
 nexora-tokenizer = { path = "../tokenizer" }
 serde.workspace = true
 serde_json.workspace = true

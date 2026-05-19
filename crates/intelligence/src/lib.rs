@@ -6,7 +6,7 @@
 //! ## Foundation Frameworks
 //! 
 //! Foundation frameworks are accessed through this layer:
-//! - ATQS (compression) → nexora_foundation::compression
+//! - ATQS (compression) → nexora_foundation::atqs
 //! - CAFFEINE (multimodal) → nexora_foundation::multimodal  
 //! - SACA (reasoning) → nexora_foundation::reasoning
 //! - SPARO (alignment) → nexora_foundation::alignment
@@ -28,7 +28,7 @@ pub mod unified_api;
 
 // Re-export foundation frameworks - modules verified existing
 pub use nexora_foundation::reasoning::saca::SACA;
-pub use nexora_foundation::compression;
+pub use nexora_foundation::atqs;
 pub use nexora_foundation::multimodal::caffeine::Caffeine;
 
 // Re-export main components for easier access

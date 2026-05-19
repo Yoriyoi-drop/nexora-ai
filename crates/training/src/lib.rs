@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tracing::warn;
-use nexora_deeplearning::autograd::{Tensor, TensorOps, Adam, clear_tape};
-use nexora_deeplearning::autograd::ops::cross_entropy_loss;
+use nexora_autograd::{Tensor, TensorOps, Adam, clear_tape};
+use nexora_autograd::ops::cross_entropy_loss;
 
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 

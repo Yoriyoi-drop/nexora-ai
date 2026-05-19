@@ -1,91 +1,48 @@
-//! Deep Learning Library for Nexora AI
+//! Deep Learning Library for Nexora AI — hub crate
 //!
-//! Implementasi modern deep learning architectures termasuk:
-//! - ECHO-Net Ω (Entropic Contextual Holographic Oscillation Network)
-//! - STAR-X (Selective Temporal Adaptive Resonance Network)
-//! - RNN, LSTM, GRU layers
-//! - Various deep learning components
+//! Re-exports from sub-crates:
+//! - `autograd`  — tape-based autograd engine (nexora-autograd)
+//! - `star_x`    — STAR-X tensor ops (nexora-star-x)
+//! - `gnac`      — GNAC graph composer (nexora-gnac)
+//! - `echo_net`  — ECHO-Net Ω (nexora-echo-net)
 
-pub mod star_x;
-pub mod echo_net;
-pub mod gnac;
-pub mod autograd;
+use thiserror::Error;
 
-#[cfg(feature = "gpu")]
-pub mod gpu;
-
-// Re-export main components
-pub use echo_net::*;
-pub use star_x::*;
-pub use gnac::*;
-pub use autograd::*;
-
-use anyhow::Result;
-
-/// Type alias untuk Result dengan DeepLearningError
-pub type DLResult<T> = Result<T, DeepLearningError>;
-
-/// Common error types for deep learning components
-#[derive(Debug, thiserror::Error)]
+/// Unified error type supporting conversions from all sub-crate error types.
+#[derive(Error, Debug)]
 pub enum DeepLearningError {
-    #[error("Tensor shape mismatch: expected {expected:?}, got {actual:?}")]
-    ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
-
-    #[error("Invalid input dimension: {dim}")]
-    InvalidDimension { dim: usize },
-
-    #[error("Memory allocation failed: {reason}")]
-    MemoryAllocation { reason: String },
-
-    #[error("Computation error: {reason}")]
-    Computation { reason: String },
-
+    #[error("{0}")]
+    Autograd(#[from] nexora_autograd::DeepLearningError),
+    #[error("{0}")]
+    StarX(#[from] nexora_star_x::DeepLearningError),
+    #[error("{0}")]
+    Gnac(#[from] nexora_gnac::DeepLearningError),
+    #[error("{0}")]
+    EchoNet(#[from] nexora_echo_net::DeepLearningError),
     #[error("Configuration error: {reason}")]
     Configuration { reason: String },
 }
 
 impl From<ndarray::ShapeError> for DeepLearningError {
-    fn from(_err: ndarray::ShapeError) -> Self {
-        DeepLearningError::ShapeMismatch {
-            expected: vec![],
-            actual: vec![],
-        }
+    fn from(err: ndarray::ShapeError) -> Self {
+        DeepLearningError::Autograd(nexora_autograd::DeepLearningError::from(err))
     }
 }
 
-/// Common traits for deep learning components
-pub mod traits {
-    use super::*;
+pub type DLResult<T> = Result<T, DeepLearningError>;
 
-    /// Trait untuk forward pass
-    pub trait Forward {
-        type Input;
-        type Output;
-
-        fn forward(&self, input: &Self::Input) -> DLResult<Self::Output>;
-    }
-
-    /// Trait untuk backward pass (training)
-    pub trait Backward {
-        type Gradient;
-
-        fn backward(&self, grad: &Self::Gradient) -> DLResult<Self::Gradient>;
-    }
-
-    /// Trait untuk stateful components (seperti RNN)
-    pub trait Stateful {
-        type State;
-
-        fn reset_state(&mut self);
-        fn get_state(&self) -> &Self::State;
-        fn set_state(&mut self, state: Self::State);
-    }
-
-    /// Trait untuk components yang bisa di-train
-    pub trait Trainable {
-        fn parameters(&self) -> Vec<&[f32]>;
-        fn parameters_mut(&mut self) -> Vec<&mut [f32]>;
-        fn gradients(&self) -> Vec<&[f32]>;
-        fn gradients_mut(&mut self) -> Vec<&mut [f32]>;
-    }
+pub mod autograd {
+    pub use nexora_autograd::*;
 }
+pub mod star_x {
+    pub use nexora_star_x::*;
+}
+pub mod gnac {
+    pub use nexora_gnac::*;
+}
+pub mod echo_net {
+    pub use nexora_echo_net::*;
+}
+
+#[cfg(feature = "gpu")]
+pub mod gpu;
