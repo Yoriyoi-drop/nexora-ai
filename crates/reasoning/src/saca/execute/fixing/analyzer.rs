@@ -2,7 +2,7 @@
 //! 
 //! Analyzes error logs and provides insights for fixing issues.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 
 /// Error analyzer for execution failures
 pub struct ErrorAnalyzer {

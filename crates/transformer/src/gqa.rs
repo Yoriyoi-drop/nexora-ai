@@ -82,7 +82,7 @@ impl GQA {
             .expect("GQA: q shape mismatch");
         let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA: k shape mismatch");
-        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA: v shape mismatch");
 
         for b in 0..batch_size {
@@ -181,7 +181,7 @@ impl GQA {
             .expect("GQA forward_with_kv: q shape");
         let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA forward_with_kv: k shape");
-        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA forward_with_kv: v shape");
 
         for b in 0..batch_size {
@@ -206,7 +206,7 @@ impl GQA {
             }
         }
 
-        let seq_len = if layer_idx < cache.len() {
+        let _seq_len = if layer_idx < cache.len() {
             let entry = &cache[layer_idx];
             entry.k.shape()[0] / batch_size + 1
         } else {
@@ -304,7 +304,7 @@ impl GQA {
             .expect("GQA paged: q shape");
         let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA paged: k shape");
-        let mut v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA paged: v shape");
 
         // RoPE for K

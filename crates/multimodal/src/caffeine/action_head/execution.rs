@@ -458,7 +458,7 @@ impl ActionHandler for AnalyzeHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("general");
         
-        let context = action.parameters.get("context")
+        let _context = action.parameters.get("context")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         

@@ -2,7 +2,6 @@
 //
 // Core tensor structure for Advanced Tensor Quantization and Compression system
 
-use ndarray::ArrayD;
 use std::fmt;
 
 /// Tensor structure using ATQS compression

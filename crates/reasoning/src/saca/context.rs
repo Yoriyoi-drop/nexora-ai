@@ -10,7 +10,6 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use std::path::Path;
 use std::collections::HashMap;
-use anyhow::Result;
 
 /// Repository Context engine
 pub struct ContextEngine {
@@ -73,7 +72,7 @@ impl ContextEngine {
         &self,
         repo_path: &str,
         modules: &[Module],
-        task: &CodingTask,
+        _task: &CodingTask,
     ) -> SACAResult<RepositoryContext> {
         let mut context = RepositoryContext {
             repository_path: Some(repo_path.to_string()),
@@ -447,7 +446,7 @@ impl ContextEngine {
     }
     
     /// Check if similar functionality already exists
-    async fn check_existing_functionality(&self, context: &RepositoryContext, module: &Module) -> SACAResult<()> {
+    async fn check_existing_functionality(&self, _context: &RepositoryContext, module: &Module) -> SACAResult<()> {
         // This would analyze if similar modules/functions already exist
         // For now, just log the analysis
         debug!("Checking existing functionality for module: {}", module.name);
@@ -514,7 +513,7 @@ impl FileAnalyzer for RustAnalyzer {
         extension == "rs"
     }
     
-    fn analyze(&self, content: &str, file_path: &str) -> SACAResult<FileAnalysis> {
+    fn analyze(&self, content: &str, _file_path: &str) -> SACAResult<FileAnalysis> {
         let mut imports = Vec::new();
         let mut functions = Vec::new();
         let mut structs = Vec::new();
@@ -573,7 +572,7 @@ impl FileAnalyzer for PythonAnalyzer {
         extension == "py"
     }
     
-    fn analyze(&self, content: &str, file_path: &str) -> SACAResult<FileAnalysis> {
+    fn analyze(&self, content: &str, _file_path: &str) -> SACAResult<FileAnalysis> {
         let mut imports = Vec::new();
         let mut functions = Vec::new();
         let mut classes = Vec::new();
@@ -625,7 +624,7 @@ impl FileAnalyzer for JavaScriptAnalyzer {
         extension == "js" || extension == "ts" || extension == "jsx" || extension == "tsx"
     }
     
-    fn analyze(&self, content: &str, file_path: &str) -> SACAResult<FileAnalysis> {
+    fn analyze(&self, content: &str, _file_path: &str) -> SACAResult<FileAnalysis> {
         let mut imports = Vec::new();
         let mut functions = Vec::new();
         let mut classes = Vec::new();
@@ -676,8 +675,8 @@ impl FileAnalyzer for GenericAnalyzer {
         true // Handle all file types
     }
     
-    fn analyze(&self, content: &str, file_path: &str) -> SACAResult<FileAnalysis> {
-        let line_count = content.lines().count();
+    fn analyze(&self, content: &str, _file_path: &str) -> SACAResult<FileAnalysis> {
+        let _line_count = content.lines().count();
         
         Ok(FileAnalysis {
             functions: Vec::new(),
@@ -694,7 +693,7 @@ impl FileAnalyzer for GenericAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
+    
     
     #[tokio::test]
     async fn test_context_analysis() {

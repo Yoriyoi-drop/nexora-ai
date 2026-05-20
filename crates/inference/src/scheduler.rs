@@ -158,9 +158,9 @@ impl RequestScheduler {
     }
 
     pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
+        let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;
         queue.clear();
-        let mut requests = self.requests.write().await;
         requests.retain(|_, req| matches!(req.status, RequestStatus::Processing));
         Ok(())
     }

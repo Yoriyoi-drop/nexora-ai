@@ -43,7 +43,7 @@ use tracing::{debug, error, info, warn};
 
 /// Database connection pool configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseConfig {
+pub struct PoolConfig {
     /// Database URL
     pub database_url: String,
     /// Maximum number of connections
@@ -64,7 +64,7 @@ pub struct DatabaseConfig {
     pub slow_query_threshold: Duration,
 }
 
-impl Default for DatabaseConfig {
+impl Default for PoolConfig {
     fn default() -> Self {
         Self {
             database_url: "postgresql://localhost/nexora".to_string(),
@@ -85,7 +85,7 @@ pub struct DatabasePool {
     /// SQLx connection pool
     pool: PgPool,
     /// Pool configuration
-    config: DatabaseConfig,
+    config: PoolConfig,
     /// Pool statistics
     stats: Arc<RwLock<PoolStatistics>>,
     /// Query cache
@@ -169,7 +169,7 @@ struct HealthChecker {
 
 impl DatabasePool {
     /// Create new database pool
-    pub async fn new(config: DatabaseConfig) -> Result<Self> {
+    pub async fn new(config: PoolConfig) -> Result<Self> {
         info!(
             "Creating database pool with max {} connections",
             config.max_connections
@@ -266,9 +266,9 @@ impl DatabasePool {
     }
 
     /// Execute query with prepared statement (legacy)
-    #[deprecated(note = "Use execute_query_params with bind parameters instead")]
+    #[deprecated(note = "Use direct sqlx::query().bind() instead for parameterized queries")]
     pub async fn execute_prepared(&self, query: &str) -> Result<Vec<sqlx::postgres::PgRow>> {
-        warn!("execute_prepared is deprecated - use execute_query_params with bind parameters to prevent SQL injection");
+        warn!("execute_prepared is deprecated - use sqlx::query().bind() instead to prevent SQL injection");
         let start_time = Instant::now();
 
         let query_builder = sqlx::query(query);
@@ -486,42 +486,51 @@ impl DatabasePool {
         let test_query = self.config.test_query.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(health_checker.interval);
+            let fut = std::panic::AssertUnwindSafe(async move {
+                let mut interval = tokio::time::interval(health_checker.interval);
 
-            loop {
-                interval.tick().await;
+                loop {
+                    interval.tick().await;
 
-                let start = Instant::now();
-                let result = sqlx::query_scalar::<_, i32>(&test_query).fetch_one(&pool).await;
-                let duration = start.elapsed();
+                    let start = Instant::now();
+                    let result = sqlx::query_scalar::<_, i32>(&test_query).fetch_one(&pool).await;
+                    let duration = start.elapsed();
 
-                let is_healthy = result.is_ok() && duration < Duration::from_secs(5);
+                    let is_healthy = result.is_ok() && duration < Duration::from_secs(5);
 
-                let mut last_check = health_checker.last_check.lock().await;
-                *last_check = Instant::now();
-                drop(last_check);
+                    let mut last_check = health_checker.last_check.lock().await;
+                    *last_check = Instant::now();
+                    drop(last_check);
 
-                let mut health_status = health_checker.is_healthy.write().await;
-                *health_status = is_healthy;
-                drop(health_status);
+                    let mut health_status = health_checker.is_healthy.write().await;
+                    *health_status = is_healthy;
+                    drop(health_status);
 
-                if !is_healthy {
-                    error!("Database health check failed");
+                    if !is_healthy {
+                        error!("Database health check failed");
+                    }
                 }
+            });
+            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                error!("Database health check loop panicked: {:?}", e);
             }
         });
 
         // Start statistics reset
         let stats = self.stats.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let fut = std::panic::AssertUnwindSafe(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(60));
 
-            loop {
-                interval.tick().await;
+                loop {
+                    interval.tick().await;
 
-                let mut stats_guard = stats.write().await;
-                stats_guard.last_reset = Instant::now();
-                // Reset counters that should be per-minute
+                    let mut stats_guard = stats.write().await;
+                    stats_guard.last_reset = Instant::now();
+                }
+            });
+            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                error!("Database stats reset loop panicked: {:?}", e);
             }
         });
 
@@ -577,29 +586,21 @@ impl DatabasePool {
     }
 
     async fn analyze_table(&self, table: &str) -> Result<TableStatistics> {
-        let query = format!(
-            "SELECT 
-                schemaname,
-                tablename,
-                n_tup_ins as inserts,
-                n_tup_upd as updates,
-                n_tup_del as deletes,
-                n_live_tup as live_tuples,
-                n_dead_tup as dead_tuples
-            FROM pg_stat_user_tables 
-            WHERE tablename = $1"
-        );
+        let query = "SELECT schemaname, tablename, n_tup_ins, n_tup_upd, n_tup_del, n_live_tup, n_dead_tup \
+                     FROM pg_stat_user_tables WHERE tablename = $1";
+        let row = sqlx::query(query)
+            .bind(table)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        let rows = self.execute_query(&query).await?;
-
-        if let Some(row) = rows.first() {
+        if let Some(row) = row {
             Ok(TableStatistics {
                 table_name: table.to_string(),
-                inserts: row.get::<Option<i64>, _>("inserts").unwrap_or(0),
-                updates: row.get::<Option<i64>, _>("updates").unwrap_or(0),
-                deletes: row.get::<Option<i64>, _>("deletes").unwrap_or(0),
-                live_tuples: row.get::<Option<i64>, _>("live_tuples").unwrap_or(0),
-                dead_tuples: row.get::<Option<i64>, _>("dead_tuples").unwrap_or(0),
+                inserts: row.try_get::<Option<i64>, _>("n_tup_ins").unwrap_or(None).unwrap_or(0),
+                updates: row.try_get::<Option<i64>, _>("n_tup_upd").unwrap_or(None).unwrap_or(0),
+                deletes: row.try_get::<Option<i64>, _>("n_tup_del").unwrap_or(None).unwrap_or(0),
+                live_tuples: row.try_get::<Option<i64>, _>("n_live_tup").unwrap_or(None).unwrap_or(0),
+                dead_tuples: row.try_get::<Option<i64>, _>("n_dead_tup").unwrap_or(None).unwrap_or(0),
             })
         } else {
             Ok(TableStatistics::default(table))
@@ -728,7 +729,7 @@ mod tests {
 
     #[test]
     fn test_database_config_default() {
-        let config = DatabaseConfig::default();
+        let config = PoolConfig::default();
         assert_eq!(config.max_connections, 20);
         assert_eq!(config.min_connections, 5);
     }

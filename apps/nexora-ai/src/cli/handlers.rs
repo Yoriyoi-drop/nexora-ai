@@ -1,6 +1,7 @@
 //! Command handlers for CLI operations
 
 use crate::error::{NexoraError, NexoraResult};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -8,51 +9,96 @@ use tracing::{info, warn};
 use crate::{NexoraAI, NexoraConfig};
 use super::commands::{Cli, Commands, ConfigAction, TokenizerAction, MemoryAction};
 
-/// Load dataset from either .arrow or text file. Arrow is preferred.
-fn load_dataset(path: &PathBuf) -> NexoraResult<Vec<String>> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if ext == "arrow" || path.is_dir() {
-        let source = nexora_datastream::SourceInfo {
-            name: "train_foundation".into(),
-            url: None,
-            trust_score: 1.0,
-            category: nexora_datastream::SourceCategory::Other,
-            fetch_timestamp: chrono::Utc::now().timestamp(),
-        };
-        if path.is_dir() {
-            let mut entries: Vec<_> = std::fs::read_dir(path)
-                .map_err(|e| NexoraError::Io { source: e })?
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "arrow"))
-                .collect();
-            entries.sort_by_key(|e| e.file_name());
-            let mut all_lines = Vec::new();
-            for entry in &entries {
-                let samples = nexora_datastream::arrow_reader::read_arrow_file(&entry.path(), source.clone())
-                    .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
-                for s in &samples {
-                    all_lines.push(s.text.clone());
-                }
-            }
-            info!("Loaded {} samples from arrow directory {:?}", all_lines.len(), path);
-            Ok(all_lines)
-        } else {
-            let samples = nexora_datastream::arrow_reader::read_arrow_file(path, source)
-                .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
-            let lines: Vec<String> = samples.into_iter().map(|s| s.text).collect();
-            info!("Loaded {} samples from arrow file {:?}", lines.len(), path);
-            Ok(lines)
-        }
-    } else {
-        let raw_text = std::fs::read_to_string(path)
-            .map_err(|e| NexoraError::Io { source: e })?;
-        let lines: Vec<String> = raw_text.lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| l.to_string())
+use nexora_datastream::{
+    DataSample, SourceInfo, SourceCategory, ExecutionResult,
+    filter::{LengthFilter, QualityFilter, DedupFilter},
+};
+
+/// Supported extensions for auto-detection.
+const SUPPORTED_EXTENSIONS: &[&str] = &["csv", "tsv", "json", "jsonl", "ndjson", "parquet", "arrow", "ipc", "feather"];
+
+/// Load dataset from any supported format (auto-detect by extension).
+/// If `path` is a directory, scans all supported files recursively.
+async fn load_dataset_raw(path: &PathBuf) -> NexoraResult<Vec<DataSample>> {
+    let source = SourceInfo {
+        name: "train_foundation".into(),
+        url: None,
+        trust_score: 1.0,
+        category: SourceCategory::Other,
+        fetch_timestamp: chrono::Utc::now().timestamp(),
+    };
+
+    if path.is_dir() {
+        let mut all = Vec::new();
+        let mut entries: Vec<_> = std::fs::read_dir(path)
+            .map_err(|e| NexoraError::Io { source: e })?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path().extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext))
+                    .unwrap_or(false)
+            })
             .collect();
-        info!("Loaded {} lines from text file {:?}", lines.len(), path);
-        Ok(lines)
+        entries.sort_by_key(|e| e.file_name());
+        for entry in &entries {
+            match nexora_datastream::format_loader::load_dataset(&entry.path(), source.clone()) {
+                Ok(samples) => {
+                    info!("Loaded {} samples from {:?}", samples.len(), entry.path());
+                    all.extend(samples);
+                }
+                Err(e) => warn!("Skipping {:?}: {}", entry.path(), e),
+            }
+        }
+        info!("Loaded total {} samples from directory {:?}", all.len(), path);
+        Ok(all)
+    } else {
+        nexora_datastream::format_loader::load_dataset(path, source)
+            .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })
     }
+}
+
+/// Run dataset through the DataStream DAG filter pipeline (LengthFilter → QualityFilter → DedupFilter).
+async fn filter_dataset(samples: Vec<DataSample>) -> NexoraResult<Vec<String>> {
+    let mut graph = nexora_datastream::ExecutionGraph::new();
+    graph.add_node("length", Arc::new(LengthFilter {
+        min_chars: 10,
+        min_words: 3,
+        ..Default::default()
+    }), vec![], true, 1);
+    graph.add_node("quality", Arc::new(QualityFilter {
+        min_quality_score: 0.1,
+        min_unique_word_ratio: 0.1,
+        ..Default::default()
+    }), vec!["length".into()], true, 2);
+    graph.add_node("dedup", Arc::new(DedupFilter::new()), vec!["quality".into()], false, 3);
+    graph.finalize();
+
+    let total = samples.len();
+    let mut accepted: Vec<String> = Vec::new();
+    let mut filter_rejected: HashMap<String, u64> = HashMap::new();
+
+    for s in samples {
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let result = graph.execute(s, cancel_rx).await;
+        drop(cancel_tx);
+        if let ExecutionResult::Rejected { ref filter_name, .. } = &result {
+            *filter_rejected.entry(filter_name.clone()).or_insert(0) += 1;
+        }
+        if result.is_accepted() {
+            if let Some(sample) = result.sample() {
+                accepted.push(sample.text.clone());
+            }
+        }
+    }
+
+    let rejection_breakdown: Vec<String> = filter_rejected.iter()
+        .map(|(name, count)| format!("{}: {}", name, count))
+        .collect();
+    info!("  filter rejection: {:?}", rejection_breakdown);
+    info!("  {} samples passed filter (from {})", accepted.len(), total);
+
+    Ok(accepted)
 }
 
 impl Cli {
@@ -110,6 +156,9 @@ impl Cli {
                         self.run_train_foundation(&nexora, data, model_id, *steps, *batch_size, *learning_rate, *seq_length, output, val_data, *parallel).await
                             .map_err(|e| NexoraError::processing(format!("TrainFoundation command failed: {}", e)))
                     }
+                    Commands::CollectData { sources, max_samples, max_shard_size_mb, output } => {
+                        self.run_collect_data(sources, *max_samples, *max_shard_size_mb, output).await
+                    }
                     Commands::LoadCheckpoint { model, path } => {
                         self.run_load_checkpoint(model, path).await
                             .map_err(|e| NexoraError::processing(format!("LoadCheckpoint command failed: {}", e)))
@@ -117,8 +166,8 @@ impl Cli {
                     Commands::Generate { prompt, max_tokens, temperature, output } => {
                         self.run_generate(&nexora, prompt, *max_tokens, *temperature, output).await
                     }
-                    Commands::Chat { interactive, message, conversation_id, history_file } => {
-                        self.run_chat(&nexora, *interactive, message, conversation_id, history_file).await
+                    Commands::Chat { message, conversation_id, history_file } => {
+                        self.run_chat(&nexora, message, conversation_id, history_file).await
                             .map_err(|e| NexoraError::processing(format!("Chat command failed: {}", e)))
                     }
                     Commands::Analyze { file, language, format, output } => {
@@ -127,8 +176,8 @@ impl Cli {
                     Commands::Codegen { description, language, output } => {
                         self.run_codegen(&nexora, description, language, output).await
                     }
-                    Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, seq_length, resume } => {
-                        self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *seq_length, *resume).await
+                    Commands::Train { data, output, tokenizer, epochs, batch_size, learning_rate, gpu, seq_length, resume, model_id, parallel } => {
+                        self.run_train(&nexora, data, output, tokenizer, *epochs, *batch_size, *learning_rate, *gpu, *seq_length, *resume, model_id, *parallel).await
                             .map_err(|e| NexoraError::processing(format!("Train command failed: {}", e)))
                     }
                     Commands::Evaluate { model, test_data, tokenizer, output } => {
@@ -310,10 +359,15 @@ impl Cli {
         if !data.exists() {
             return Err(NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("Training data not found: {:?}", data)) });
         }
-        let lines = load_dataset(data)?;
+        info!("[1/2] Loading + filtering dataset via DataStream DAG pipeline...");
+        let raw_samples = load_dataset_raw(data).await?;
+        let lines = filter_dataset(raw_samples).await?;
 
         let val_lines: Vec<String> = match val_data {
-            Some(path) if path.exists() => load_dataset(path)?,
+            Some(path) if path.exists() => {
+                let raw_val = load_dataset_raw(path).await?;
+                filter_dataset(raw_val).await?
+            }
             _ => Vec::new(),
         };
 
@@ -507,6 +561,84 @@ impl Cli {
         Ok(())
     }
     
+    /// Collect dataset from web sources and save as .arrow (auto-sharded to max_shard_size_mb).
+    async fn run_collect_data(
+        &self,
+        sources: &str,
+        max_samples: usize,
+        max_shard_size_mb: usize,
+        output: &PathBuf,
+    ) -> NexoraResult<()> {
+        info!("=== COLLECT DATA ===");
+        info!("Sources: {}, Max: {}, ShardSize: {}MB, Output: {:?}", sources, max_samples, max_shard_size_mb, output);
+
+        let reg = nexora_datastream::SourceRegistry::build_default();
+        let names: Vec<String> = if sources.is_empty() {
+            vec![]
+        } else {
+            sources.split(',').map(|s| s.trim().to_lowercase()).collect()
+        };
+
+        let available = reg.names();
+        let requested: Vec<String> = if names.is_empty() {
+            available.iter().map(|s| s.to_string()).collect()
+        } else {
+            let mut valid = Vec::new();
+            for name in &names {
+                if available.contains(&name.as_str()) {
+                    valid.push(name.clone());
+                } else {
+                    warn!("Unknown source: '{}'. Available: {:?}", name, available);
+                }
+            }
+            valid
+        };
+
+        info!("Fetching from: {:?}", requested);
+        let samples = reg.collect_all(&requested, Some(max_samples)).await;
+        info!("Collected {} total samples", samples.len());
+
+        if samples.is_empty() {
+            return Err(NexoraError::processing("No samples collected".to_string()));
+        }
+
+        // Determine output directory and shard base name
+        let (out_dir, base_name) = if output.extension().map_or(false, |e| e == "arrow") {
+            let parent = output.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+            let stem = output.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            (parent, stem)
+        } else {
+            (output.clone(), "shard".to_string())
+        };
+        std::fs::create_dir_all(&out_dir)
+            .map_err(|e| NexoraError::Io { source: e })?;
+
+        // Estimate samples per shard: assume ~500 bytes/sample (text + metadata overhead)
+        let max_bytes = (max_shard_size_mb as u64) * 1024 * 1024;
+        let est_bytes_per_sample = 500u64;
+        let samples_per_shard = (max_bytes / est_bytes_per_sample).max(1) as usize;
+        let num_shards = samples.len().div_ceil(samples_per_shard);
+
+        if num_shards == 1 {
+            let path = out_dir.join(format!("{}.arrow", base_name));
+            nexora_datastream::arrow_writer::write_arrow_file(&samples, &path)
+                .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            info!("  saved: {:?} ({} samples, {} MB)", path, samples.len(), size / 1024 / 1024);
+        } else {
+            for (i, chunk) in samples.chunks(samples_per_shard).enumerate() {
+                let path = out_dir.join(format!("{}_{:04}.arrow", base_name, i + 1));
+                nexora_datastream::arrow_writer::write_arrow_file(chunk, &path)
+                    .map_err(|e| NexoraError::Io { source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                info!("  shard {:04}: {:?} ({} samples, {} MB)", i + 1, path, chunk.len(), size / 1024 / 1024);
+            }
+        }
+
+        info!("Dataset saved to {:?} ({} shards, {} total samples)", out_dir, num_shards, samples.len());
+        Ok(())
+    }
+
     /// Run info command
     async fn run_info(
         &self,

@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2};
+use ndarray::Array2;
 use nexora_autograd::{Tensor, TensorOps};
 
 #[derive(Debug, Clone)]
@@ -239,9 +239,9 @@ impl LoRAModel {
         Ok(())
     }
 
-    pub fn load_adapter(&mut self, path: &str, target_shapes: &[Vec<usize>]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_adapter(&mut self, path: &str, _target_shapes: &[Vec<usize>]) -> Result<(), Box<dyn std::error::Error>> {
         let loaded = nexora_transformer::safetensors::load_safetensors(path)?;
-        for (mut layer_pair) in self.layers.chunks_mut(2) {
+        for layer_pair  in self.layers.chunks_mut(2) {
             if layer_pair.len() < 2 { continue; }
             let name = &layer_pair[0].0;
             let layer = &mut layer_pair[0].1;

@@ -204,7 +204,7 @@ impl ToolIsolationLayer {
             return Err(ToolIsolationError::CommandDenied(request.command));
         }
 
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
         pod.status = ToolStatus::Executing {
             agent_id: request.agent_id,
             started_at: chrono::Utc::now(),

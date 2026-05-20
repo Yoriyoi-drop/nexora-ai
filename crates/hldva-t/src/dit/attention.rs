@@ -88,7 +88,7 @@ impl MultiHeadAttention {
         // Process each head
         for head in 0..self.num_heads {
             let head_start = head * self.head_dim * seq_len;
-            let head_end = (head + 1) * self.head_dim * seq_len;
+            let _head_end = (head + 1) * self.head_dim * seq_len;
             
             // Calculate attention scores
             for i in 0..seq_len {

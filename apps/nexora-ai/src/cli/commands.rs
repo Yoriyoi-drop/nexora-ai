@@ -87,12 +87,8 @@ pub enum Commands {
         output: Option<PathBuf>,
     },
     
-    /// Chat with the AI
+    /// Chat with the AI (interactive by default, use --message for one-shot)
     Chat {
-        /// Start interactive chat session
-        #[arg(short, long)]
-        interactive: bool,
-        
         /// Message to send (non-interactive mode)
         #[arg(short, long)]
         message: Option<String>,
@@ -180,6 +176,26 @@ pub enum Commands {
         parallel: bool,
     },
 
+    /// Collect dataset from web sources and save as .arrow
+    #[command(aliases = &["cd"])]
+    CollectData {
+        /// Source providers (comma-separated: hackernews,wikipedia,reddit). Empty = all.
+        #[arg(short, long, default_value = "")]
+        sources: String,
+
+        /// Max total samples to collect
+        #[arg(short = 'm', long, default_value = "500")]
+        max_samples: usize,
+
+        /// Max shard size in MB (dataset split into shards)
+        #[arg(long, default_value = "500")]
+        max_shard_size_mb: usize,
+
+        /// Output .arrow file or directory
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
     /// Load a trained checkpoint into a model
     #[command(aliases = &["lc"])]
     LoadCheckpoint {
@@ -230,6 +246,14 @@ pub enum Commands {
         /// Resume from last checkpoint
         #[arg(short = 'R', long, default_value_t = false)]
         resume: bool,
+
+        /// Model ID to train (default: all). Use specific name for single model.
+        #[arg(short = 'm', long, default_value = "all")]
+        model_id: String,
+
+        /// Train all models in parallel
+        #[arg(short = 'P', long)]
+        parallel: bool,
     },
     
     /// Evaluate model

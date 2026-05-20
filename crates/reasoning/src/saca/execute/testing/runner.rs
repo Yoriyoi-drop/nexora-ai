@@ -2,7 +2,7 @@
 //! 
 //! Executes test cases and collects results.
 
-use crate::saca::{types::*, error::*};
+use crate::saca::error::*;
 use super::generator::{TestCase, TestType};
 use std::io::Write;
 use std::process::{Command, Stdio};

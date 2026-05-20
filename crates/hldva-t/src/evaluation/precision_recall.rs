@@ -140,7 +140,7 @@ impl PrecisionRecallMetric {
         &self,
         real_features: &[Tensor],
         generated_features: &[Tensor],
-        metric: DistanceMetric,
+        _metric: DistanceMetric,
     ) -> HLDVAResult<(f32, f32)> {
         // This would use different distance metrics (cosine, Manhattan, etc.)
         // For now, we'll use the default Euclidean distance

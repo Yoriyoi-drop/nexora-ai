@@ -91,16 +91,16 @@ impl StreamingEngine {
         stream_id: Uuid,
         token: GeneratedToken,
     ) -> Result<(), anyhow::Error> {
-        let streams = self.active_streams.read().await;
-        match streams.get(&stream_id) {
-            Some(active) => {
-                active
-                    .sender
-                    .send(token)
+        // Clone sender outside lock to avoid holding read lock across .send().await
+        let sender = {
+            let streams = self.active_streams.read().await;
+            streams.get(&stream_id).map(|s| s.sender.clone())
+        };
+        match sender {
+            Some(tx) => {
+                tx.send(token)
                     .await
                     .map_err(|_| anyhow::anyhow!("Stream {} receiver dropped", stream_id))?;
-                drop(streams);
-                // update token_count outside read lock
                 let mut streams = self.active_streams.write().await;
                 if let Some(entry) = streams.get_mut(&stream_id) {
                     entry.token_count += 1;

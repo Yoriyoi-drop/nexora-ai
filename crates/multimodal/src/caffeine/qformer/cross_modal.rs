@@ -2,7 +2,6 @@
 //! 
 //! Implements attention between different modalities
 
-use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
 use ndarray::ArrayD;
 use std::collections::HashMap;
@@ -162,7 +161,7 @@ impl CrossModalAttention {
         hidden_dim: usize,
         head_idx: usize,
     ) -> Result<()> {
-        let dim_count = end_dim - start_dim;
+        let _dim_count = end_dim - start_dim;
         
         // Process queries in batches for better cache performance
         const BATCH_SIZE: usize = 4;

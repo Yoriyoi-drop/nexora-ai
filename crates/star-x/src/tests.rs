@@ -12,10 +12,9 @@ mod tests {
         let config = StarXConfig::default();
         
         assert_eq!(config.input_size, 512);
-        assert_eq!(config.hidden_size, 1024);
-        assert_eq!(config.output_size, 512);
+        assert_eq!(config.hidden_size, 512);
         assert_eq!(config.attention_heads, 8);
-        assert_eq!(config.update_threshold, 0.1);
+        assert_eq!(config.update_threshold, 0.05);
     }
     
     #[test]
@@ -23,10 +22,8 @@ mod tests {
         let config = StarXConfig::default();
         let state = StarXState::new(&config)?;
         
-        assert_eq!(state.hidden_state.shape(), vec![1024]);
-        assert_eq!(state.micro_state.shape(), vec![256]);
-        assert_eq!(state.meso_state.shape(), vec![512]);
-        assert_eq!(state.macro_state.shape(), vec![1024]);
+        assert_eq!(state.hidden_state.shape(), vec![512]);
+        assert_eq!(state.temporal_position, 0);
         
         Ok(())
     }

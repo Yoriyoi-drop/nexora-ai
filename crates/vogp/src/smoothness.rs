@@ -3,7 +3,7 @@
 //! Implementasi smoothness penalty yang adaptif dengan EMA stabilization
 //! untuk membuat training stabil lintas arsitektur dan scale-invariant.
 
-use ndarray::{ArrayD, ArrayViewD, s};
+use ndarray::ArrayD;
 use serde::{Deserialize, Serialize};
 
 /// Adaptive Smoothness Penalty Component

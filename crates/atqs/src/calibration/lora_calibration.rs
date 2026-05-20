@@ -1,12 +1,8 @@
 //! LoRA-based calibration for compressed models
 //! Implements Low-Rank Adaptation for post-training fine-tuning
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::{Standard, StandardNormal};
-use rand;
-use std::collections::HashMap;
-use crate::types::{CalibrationDataset, LayerType};
+use ndarray::{Array, ArrayD};
+use crate::types::CalibrationDataset;
 
 /// LoRA calibration configuration
 #[derive(Debug, Clone)]
@@ -161,7 +157,7 @@ fn train_lora_adapters(
     let mut trained_adapters = adapters.to_vec();
     let mut optimizer = create_optimizer(config)?;
     
-    for step in 0..config.calibration_steps {
+    for _step in 0..config.calibration_steps {
         // Sample batch from calibration data
         let batch = sample_calibration_batch(calibration_data, config.batch_size)?;
         
@@ -414,9 +410,9 @@ fn compute_lora_gradients(
 
 /// Compute gradient for a single LoRA adapter
 fn compute_single_adapter_gradient(
-    model: &dyn crate::FoundationModel,
+    _model: &dyn crate::FoundationModel,
     adapter: &LoRAAdapter,
-    batch: &CalibrationBatch,
+    _batch: &CalibrationBatch,
 ) -> Result<LoRAGradients, crate::ATQSError> {
     // Simplified gradient computation
     let grad_a = Array::zeros(adapter.lora_a.shape());

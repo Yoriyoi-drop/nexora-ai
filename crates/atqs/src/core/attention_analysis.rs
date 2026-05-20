@@ -1,7 +1,7 @@
 //! Attention-aware analysis for ATQS-Compress
 //! Implements attention-guided tensor decomposition and refinement
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
+use ndarray::ArrayD;
 use std::collections::HashMap;
 
 /// Attention patterns and metrics
@@ -42,7 +42,7 @@ pub fn analyze_attention_patterns(
     let mut cross_layer_correlations = HashMap::new();
     
     // Analyze each layer's attention patterns
-    for (layer_idx, weights) in attention_weights.iter().enumerate() {
+    for (_layer_idx, weights) in attention_weights.iter().enumerate() {
         let pattern = analyze_layer_attention(weights, config)?;
         layer_patterns.push(pattern);
     }
@@ -440,7 +440,7 @@ fn apply_joint_attention_optimization(
     global_sparsity: f32,
     config: &AttentionConfig,
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
-    let shape = tensor.shape();
+    let _shape = tensor.shape();
     let mut result = tensor.clone();
     
     // Apply attention-weighted smoothing

@@ -1,9 +1,7 @@
 //! Quantum entanglement profiling for layer sensitivity analysis
 //! Implements iPEPS-TRG based entanglement analysis
 
-use ndarray::{Array, Array2, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
+use ndarray::{Array, Array2, ArrayD, ArrayView};
 use std::collections::HashMap;
 use crate::core::{iPEPSNetwork, LatticeType};
 

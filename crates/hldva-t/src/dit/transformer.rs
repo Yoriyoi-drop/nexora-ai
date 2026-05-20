@@ -241,7 +241,7 @@ impl AdaptiveComputationTime {
         let mut halting_prob = 0.0;
         let mut ponder_time = 0;
         
-        for (i, layer) in layers.iter().enumerate() {
+        for (_i, layer) in layers.iter().enumerate() {
             if ponder_time >= self.max_ponder {
                 break;
             }

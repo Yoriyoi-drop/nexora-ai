@@ -143,7 +143,7 @@ impl MultiBandHolographicWriter {
     fn filter_into_bands(&self, wave: &ComplexTensor) -> DLResult<Vec<Array2<Complex>>> {
         let mut band_waves = Vec::with_capacity(self.bands.len());
         
-        for (band_idx, band) in self.bands.iter().enumerate() {
+        for (band_idx, _band) in self.bands.iter().enumerate() {
             let filtered_wave = self.apply_frequency_filter(wave, band_idx)?;
             band_waves.push(filtered_wave);
         }

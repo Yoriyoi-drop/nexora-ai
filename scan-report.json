@@ -1,0 +1,299 @@
+{
+  "scan_date": "2026-05-19",
+  "summary": {
+    "total_crates": 4,
+    "total_rs_files": 28,
+    "total_ready": 20,
+    "total_not_ready": 8
+  },
+  "crates": [
+    {
+      "name": "crates/tokenizer",
+      "total_files": 9,
+      "ready": 9,
+      "not_ready": 0,
+      "files": [
+        {
+          "path": "crates/tokenizer/src/lib.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Module re-exports only — no tests needed"
+        },
+        {
+          "path": "crates/tokenizer/src/trie.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 7
+        },
+        {
+          "path": "crates/tokenizer/src/bpe_tokenizer.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 4
+        },
+        {
+          "path": "crates/tokenizer/src/tokenizer_core.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 8
+        },
+        {
+          "path": "crates/tokenizer/src/special_tokens.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 5
+        },
+        {
+          "path": "crates/tokenizer/src/pretokenizer.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 7
+        },
+        {
+          "path": "crates/tokenizer/src/vocab_builder.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 9
+        },
+        {
+          "path": "crates/tokenizer/src/unicode_normalizer.rs",
+          "status": "READY",
+          "issues": [
+            "NFC/NFD paths in apply_unicode_normalization are pass-through stubs (no actual composition/decomposition)",
+            "Comment acknowledges it's a 'simplified implementation' without external unicode-normalization crate"
+          ],
+          "has_tests": true,
+          "test_count": 10
+        },
+        {
+          "path": "crates/tokenizer/src/tokenizer_io.rs",
+          "status": "READY",
+          "issues": [
+            "calculate_vocab_overlap always returns 0 (stub — no access to inner vocabularies)"
+          ],
+          "has_tests": true,
+          "test_count": 7
+        }
+      ]
+    },
+    {
+      "name": "crates/training",
+      "total_files": 3,
+      "ready": 3,
+      "not_ready": 0,
+      "files": [
+        {
+          "path": "crates/training/src/lib.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "test_coverage_by": "crates/training/tests/training_e2e.rs",
+          "reasoning": "Full Trainer implementation with prepare/train_batch/evaluate/checkpoint. Tested via integration tests."
+        },
+        {
+          "path": "crates/training/src/lora.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 5
+        },
+        {
+          "path": "crates/training/tests/training_e2e.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 3,
+          "reasoning": "Integration test file"
+        }
+      ]
+    },
+    {
+      "name": "crates/traits",
+      "total_files": 4,
+      "ready": 4,
+      "not_ready": 0,
+      "files": [
+        {
+          "path": "crates/traits/src/lib.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Module re-exports only"
+        },
+        {
+          "path": "crates/traits/src/model_traits.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Trait definitions only (ModelInference, ModelTraining, ModelOptimization, etc.) — no runtime implementations to test"
+        },
+        {
+          "path": "crates/traits/src/tensor_traits.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Trait definitions only (TensorOps, TensorMath, TensorTransform, etc.) — no runtime implementations to test"
+        },
+        {
+          "path": "crates/traits/src/core_traits.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Trait definitions only (Initializable, Resettable, Serializable, etc.) — no runtime implementations to test"
+        }
+      ]
+    },
+    {
+      "name": "crates/transformer",
+      "total_files": 12,
+      "ready": 4,
+      "not_ready": 8,
+      "files": [
+        {
+          "path": "crates/transformer/src/lib.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Module declarations + error enum — no tests needed"
+        },
+        {
+          "path": "crates/transformer/src/config.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Data struct with computed methods — low complexity"
+        },
+        {
+          "path": "crates/transformer/src/safetensors/mod.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": false,
+          "reasoning": "Module re-export only"
+        },
+        {
+          "path": "crates/transformer/src/mtp.rs",
+          "status": "READY",
+          "issues": [],
+          "has_tests": true,
+          "test_count": 4
+        },
+        {
+          "path": "crates/transformer/src/rms_norm.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — math-heavy normalization layer clearly should have tests"],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/rope.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — RoPE rotation math clearly should have tests"],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/swiglu.rs",
+          "status": "NOT_READY",
+          "issues": [
+            "No tests — SwiGLU FFN computation should have tests",
+            "Dead code: `silu` function is defined but never used in forward (SiLU logic is inlined)"
+          ],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/gqa.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — GQA attention with KV cache logic is complex and critical"],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/block.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — Transformer block forward/no_cache/paged logic should have tests"],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/model.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — CausalLM forward/generate/checkpoint loading is the model core"],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/trainable.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — TrainableCausalLM forward/checkpoint/sync logic should have tests"],
+          "has_tests": false
+        },
+        {
+          "path": "crates/transformer/src/safetensors/io.rs",
+          "status": "NOT_READY",
+          "issues": ["No tests — safetensors binary format serialization/deserialization should have tests"],
+          "has_tests": false
+        }
+      ]
+    }
+  ],
+  "key_findings": [
+    "crates/tokenizer: 9/9 files READY — strongest crate; every module has unit tests except lib.rs",
+    "crates/training: 3/3 files READY — Trainer fully implemented with e2e integration tests",
+    "crates/traits: 4/4 files READY — all trait interface definitions",
+    "crates/transformer: 4/12 files READY, 8/12 NOT_READY — all implementations are complete but 8 critical files lack test coverage",
+    "No todo!()/unimplemented!() calls found in any of the 4 target crates",
+    "No TODO/FIXME/HACK comments found in any of the 4 target crates"
+  ],
+  "priority_action_items": [
+    {
+      "file": "crates/transformer/src/rms_norm.rs",
+      "gap": "Missing tests",
+      "impact": "high",
+      "suggestion": "Add tests for forward and forward_1d with known inputs/outputs"
+    },
+    {
+      "file": "crates/transformer/src/rope.rs",
+      "gap": "Missing tests",
+      "impact": "high",
+      "suggestion": "Add tests for precompute_freqs_cis, apply, and apply_single"
+    },
+    {
+      "file": "crates/transformer/src/swiglu.rs",
+      "gap": "Missing tests + dead code",
+      "impact": "medium",
+      "suggestion": "Add tests for forward; remove or use the silu helper"
+    },
+    {
+      "file": "crates/transformer/src/gqa.rs",
+      "gap": "Missing tests",
+      "impact": "critical",
+      "suggestion": "Add tests for forward, forward_with_kv, and forward_with_paged — attention is the model's core"
+    },
+    {
+      "file": "crates/transformer/src/block.rs",
+      "gap": "Missing tests",
+      "impact": "high",
+      "suggestion": "Add tests for forward, forward_no_cache, forward_paged"
+    },
+    {
+      "file": "crates/transformer/src/model.rs",
+      "gap": "Missing tests",
+      "impact": "critical",
+      "suggestion": "Add tests for forward, generate, sample_token, and from_checkpoint"
+    },
+    {
+      "file": "crates/transformer/src/trainable.rs",
+      "gap": "Missing tests",
+      "impact": "high",
+      "suggestion": "Add tests for from_inference, forward, sync_to_inference, save/load_checkpoint roundtrip"
+    },
+    {
+      "file": "crates/transformer/src/safetensors/io.rs",
+      "gap": "Missing tests",
+      "impact": "medium",
+      "suggestion": "Add save/load roundtrip tests for safetensors format"
+    }
+  ]
+}

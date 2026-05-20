@@ -4,7 +4,7 @@
 //! untuk alignment model bahasa pada preferensi kode yang clean, efisien, dan aman.
 
 use anyhow::Result;
-use ndarray::{Array1, Array2, Array3};
+use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -236,7 +236,7 @@ impl CodeDpoTrainer {
             let score1 = quality1 + security1 + efficiency1;
             let score2 = quality2 + security2 + efficiency2;
             
-            let (chosen_code, rejected_code, chosen_score, rejected_score) = if score1 > score2 {
+            let (chosen_code, rejected_code, _chosen_score, _rejected_score) = if score1 > score2 {
                 (&code1, &code2, score1, score2)
             } else {
                 (&code2, &code1, score2, score1)

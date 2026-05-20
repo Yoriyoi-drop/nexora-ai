@@ -45,7 +45,7 @@ impl DDPMSampler {
     }
     
     /// Single denoising step
-    fn denoise_step(&self, noisy: &Tensor, predicted_noise: &Tensor, timestep: usize) -> HLDVAResult<Tensor> {
+    fn denoise_step(&self, noisy: &Tensor, predicted_noise: &Tensor, _timestep: usize) -> HLDVAResult<Tensor> {
         let noisy_data = noisy.data();
         let predicted_noise_data = predicted_noise.data();
         

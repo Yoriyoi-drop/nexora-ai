@@ -2,7 +2,7 @@
 //! 
 //! Generates test cases for implementations based on code analysis.
 
-use crate::saca::{types::*, error::*};
+use crate::saca::error::*;
 
 /// Test generator for implementations
 pub struct TestGenerator;

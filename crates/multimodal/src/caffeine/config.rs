@@ -1,7 +1,6 @@
 //! Configuration types for CAFFEINE
 
 use serde::{Deserialize, Serialize};
-use nexora_atqs::compression::adaptive_rank::CompressionEngine;
 use nexora_atqs::config::ATQSConfig;
 use nexora_has_moe_ffn::HasMoeFFNConfig;
 

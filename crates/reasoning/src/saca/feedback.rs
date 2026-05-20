@@ -3,12 +3,12 @@
 //! Implements closed-loop feedback for SACA phases
 //! Each phase provides signals to other phases for continuous improvement
 
-use super::{types::*, config::*, error::*};
+use super::{types::*, error::*};
 use super::config::FeedbackConfig;
 use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Feedback system for SACA
 pub struct FeedbackSystem {
@@ -38,7 +38,7 @@ impl FeedbackSystem {
     pub async fn generate_feedback(
         &self,
         solution: &SACASolution,
-        context: &RepositoryContext,
+        _context: &RepositoryContext,
     ) -> SACAResult<SACAFeedback> {
         debug!("Generating feedback for solution improvement");
         
@@ -206,7 +206,7 @@ impl FeedbackSystem {
     /// Generate improvement suggestions
     async fn generate_improvements(
         &self,
-        solution: &SACASolution,
+        _solution: &SACASolution,
         issues: &[String],
     ) -> SACAResult<Vec<String>> {
         let mut suggestions = Vec::new();
@@ -249,7 +249,7 @@ impl FeedbackSystem {
     /// Derive new constraints from issues
     async fn derive_constraints(
         &self,
-        solution: &SACASolution,
+        _solution: &SACASolution,
         issues: &[String],
     ) -> SACAResult<Vec<String>> {
         let mut constraints = Vec::new();

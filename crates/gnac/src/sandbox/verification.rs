@@ -84,7 +84,7 @@ impl ModelVerifier {
         }
     }
 
-    fn check_fairness(graph: &NeuralGraph) -> VerificationCheck {
+    fn check_fairness(_graph: &NeuralGraph) -> VerificationCheck {
         VerificationCheck {
             name: "Fairness Deviation".to_string(),
             status: CheckStatus::Passed,

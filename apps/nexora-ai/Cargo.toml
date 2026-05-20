@@ -13,7 +13,7 @@ nexora-memory = { path = "../../crates/memory" }
 nexora-inference = { path = "../../crates/inference" }
 nexora-blaa = { path = "../../crates/blaa" }
 nexora-infrastructure = { path = "../../crates/infrastructure" }
-nexora-datastream = { path = "../../crates/datastream", features = ["arrow", "compression-zstd", "compression-lz4", "mmap"] }
+nexora-datastream = { path = "../../crates/datastream", features = ["dataset"] }
 nexora-deeplearning = { path = "../../crates/deeplearning" }
 nexora-transformer = { path = "../../crates/transformer" }
 nexora-monitoring = { path = "../../crates/monitoring" }
@@ -54,10 +54,13 @@ psutil = "3.2"
 reqwest.workspace = true
 arrow = { version = "53", default-features = false, features = ["ipc"] }
 mimalloc = { version = "0.1", optional = true }
+blas-src = { workspace = true }
+openblas-src = { workspace = true }
 
 [features]
 default = []
 production = ["mimalloc"]
+gpu = ["nexora-deeplearning/gpu"]
 
 [[bin]]
 name = "nexora"

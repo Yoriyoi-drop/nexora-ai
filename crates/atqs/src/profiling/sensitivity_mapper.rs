@@ -4,15 +4,9 @@
 //! Improved with AWQ-style gradient-norm sensitivity scoring
 //! menggantikan cosine similarity heuristic.
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn, Array1, Array2};
-use std::collections::HashMap;
 use crate::profiling::{
     LayerAnalysis, LayerEntanglementProfile, WeightStatistics,
-    gradient_sensitivity::{
-        self, GradientSensitivityConfig, GradientSensitivity,
-        compute_gradient_sensitivity, compute_per_channel_scale,
-        compute_quantization_error_bound, protect_routing_layer,
-    },
+    gradient_sensitivity::GradientSensitivityConfig,
 };
 
 /// Sensitivity mapping configuration
@@ -206,7 +200,7 @@ fn compute_gradient_based_sensitivity(
     layer_idx: usize,
     analysis: &LayerAnalysis,
     entanglement_profile: Option<&LayerEntanglementProfile>,
-    config: &SensitivityMappingConfig,
+    _config: &SensitivityMappingConfig,
 ) -> Result<LayerSensitivity, crate::ATQSError> {
     // AWQ-style: gradient-norm * activation-magnitude sebagai sensitivity score
     let grad_norm = analysis.gradient_statistics
@@ -218,9 +212,9 @@ fn compute_gradient_based_sensitivity(
         * (analysis.weight_statistics.rank_estimate as f32 / 100.0).sqrt();
 
     // Activation magnitude proxy dari weight distribution
-    let activation_magnitude = (analysis.weight_statistics.mean.abs()
+    let activation_magnitude = analysis.weight_statistics.mean.abs()
         * (1000.0 / analysis.weight_statistics.max.max(1.0)).max(1.0)
-        * analysis.weight_statistics.sparsity.max(0.01));
+        * analysis.weight_statistics.sparsity.max(0.01);
 
     // AWQ sensitivity formula: S = ||gradient_weighted_activation||²
     let gradient_sensitivity = grad_norm * weight_norm * (1.0 + activation_magnitude.log10().abs().min(1.0));
@@ -408,7 +402,7 @@ fn analyze_sensitivity_distribution(
 /// Router-aware: MoE routing layers dilindungi dari aggressive quantization
 fn create_compression_strategy(
     sensitivities: &[LayerSensitivity],
-    distribution: &SensitivityDistribution,
+    _distribution: &SensitivityDistribution,
     config: &SensitivityMappingConfig,
 ) -> Result<CompressionStrategy, crate::ATQSError> {
     let mut layer_strategies = Vec::new();

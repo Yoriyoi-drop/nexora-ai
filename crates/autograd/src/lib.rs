@@ -8,6 +8,29 @@ pub mod mixed_precision;
 pub mod data_parallel;
 pub mod training_pipeline;
 
+#[cfg(feature = "gpu")]
+pub mod gpu;
+#[cfg(feature = "gpu")]
+pub mod gpu_caps;
+#[cfg(feature = "gpu")]
+pub mod gpu_memory;
+#[cfg(feature = "gpu")]
+pub mod gpu_profiler;
+#[cfg(feature = "gpu")]
+pub mod gpu_check;
+#[cfg(feature = "gpu")]
+pub mod gpu_mixed;
+#[cfg(feature = "gpu")]
+pub mod gpu_adam;
+#[cfg(feature = "gpu")]
+pub mod gpu_async;
+#[cfg(feature = "gpu")]
+pub mod gpu_sampler;
+#[cfg(feature = "gpu")]
+pub mod gpu_kv_cache;
+#[cfg(feature = "gpu")]
+pub use gpu_caps::GpuCapabilities;
+
 pub use tensor::Tensor;
 pub use tape::clear_tape;
 pub use device::{Device, Storage};
@@ -182,7 +205,7 @@ pub struct MLP {
 }
 
 impl MLP {
-    pub fn new(layer_sizes: &[usize], activation: &str) -> Self {
+    pub fn new(layer_sizes: &[usize], _activation: &str) -> Self {
         let mut layers: Vec<Box<dyn Module>> = Vec::with_capacity(layer_sizes.len() - 1);
         for i in 0..layer_sizes.len() - 1 {
             layers.push(Box::new(Linear::new(layer_sizes[i], layer_sizes[i + 1], true)));
@@ -219,9 +242,9 @@ pub struct Adam {
     pub eps: f32,
     pub weight_decay: f32,
     pub max_grad_norm: Option<f32>,
-    pub(crate) step: usize,
-    pub(crate) m: Vec<ArrayD<f32>>,
-    pub(crate) v: Vec<ArrayD<f32>>,
+    pub step: usize,
+    pub m: Vec<ArrayD<f32>>,
+    pub v: Vec<ArrayD<f32>>,
 }
 
 impl Adam {
@@ -306,6 +329,79 @@ impl Adam {
                 }
 
                 p.subtract_from_data(&update);
+            }
+        }
+    }
+
+    pub fn optimizer_tensor_names(&self) -> Vec<String> {
+        let mut names = Vec::with_capacity(self.m.len() * 2 + 5);
+        names.push("opt.step".into());
+        names.push("opt.lr".into());
+        names.push("opt.beta1".into());
+        names.push("opt.beta2".into());
+        names.push("opt.eps".into());
+        names.push("opt.weight_decay".into());
+        for i in 0..self.m.len() {
+            names.push(format!("opt.m.{}", i));
+            names.push(format!("opt.v.{}", i));
+        }
+        names
+    }
+
+    pub fn collect_optimizer_tensors(&self) -> Vec<(&str, ArrayD<f32>)> {
+        let mut tensors: Vec<(&str, ArrayD<f32>)> = Vec::with_capacity(self.m.len() * 2 + 6);
+        tensors.push(("opt.step", ArrayD::from_shape_vec(vec![1], vec![self.step as f32]).unwrap()));
+        tensors.push(("opt.lr", ArrayD::from_shape_vec(vec![1], vec![self.lr]).unwrap()));
+        tensors.push(("opt.beta1", ArrayD::from_shape_vec(vec![1], vec![self.beta1]).unwrap()));
+        tensors.push(("opt.beta2", ArrayD::from_shape_vec(vec![1], vec![self.beta2]).unwrap()));
+        tensors.push(("opt.eps", ArrayD::from_shape_vec(vec![1], vec![self.eps]).unwrap()));
+        tensors.push(("opt.weight_decay", ArrayD::from_shape_vec(vec![1], vec![self.weight_decay]).unwrap()));
+        for (i, arr) in self.m.iter().enumerate() {
+            let key = format!("opt.m.{}", i);
+            let leaked: &'static str = Box::leak(key.into_boxed_str());
+            tensors.push((leaked, arr.clone()));
+        }
+        for (i, arr) in self.v.iter().enumerate() {
+            let key = format!("opt.v.{}", i);
+            let leaked: &'static str = Box::leak(key.into_boxed_str());
+            tensors.push((leaked, arr.clone()));
+        }
+        tensors
+    }
+
+    pub fn load_optimizer_state(&mut self, tensors: &std::collections::HashMap<String, ArrayD<f32>>) {
+        if let Some(arr) = tensors.get("opt.step") {
+            self.step = arr.iter().next().copied().unwrap_or(0.0) as usize;
+        }
+        if let Some(arr) = tensors.get("opt.lr") {
+            self.lr = arr.iter().next().copied().unwrap_or(self.lr);
+        }
+        if let Some(arr) = tensors.get("opt.beta1") {
+            self.beta1 = arr.iter().next().copied().unwrap_or(self.beta1);
+        }
+        if let Some(arr) = tensors.get("opt.beta2") {
+            self.beta2 = arr.iter().next().copied().unwrap_or(self.beta2);
+        }
+        if let Some(arr) = tensors.get("opt.eps") {
+            self.eps = arr.iter().next().copied().unwrap_or(self.eps);
+        }
+        if let Some(arr) = tensors.get("opt.weight_decay") {
+            self.weight_decay = arr.iter().next().copied().unwrap_or(self.weight_decay);
+        }
+        for i in 0..self.m.len() {
+            let m_key = format!("opt.m.{}", i);
+            let v_key = format!("opt.v.{}", i);
+            if let Some(arr) = tensors.get(&m_key) {
+                let shape = arr.shape().to_vec();
+                if shape == self.m[i].shape().to_vec() {
+                    self.m[i] = arr.clone();
+                }
+            }
+            if let Some(arr) = tensors.get(&v_key) {
+                let shape = arr.shape().to_vec();
+                if shape == self.v[i].shape().to_vec() {
+                    self.v[i] = arr.clone();
+                }
             }
         }
     }

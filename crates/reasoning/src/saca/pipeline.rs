@@ -267,7 +267,7 @@ impl SACAPipeline {
     }
     
     /// Update final metrics after pipeline completion
-    async fn update_final_metrics(&self, solution: &SACASolution) -> SACAResult<()> {
+    async fn update_final_metrics(&self, _solution: &SACASolution) -> SACAResult<()> {
         // Update global metrics based on solution performance
         let metrics = self.phase_metrics.read().await;
         
@@ -377,7 +377,7 @@ mod tests {
         let metrics = pipeline.get_phase_metrics().await;
         assert!(!metrics.is_empty());
         
-        for (phase, phase_metrics) in metrics {
+        for (_phase, phase_metrics) in metrics {
             assert!(phase_metrics.average_time_ms >= 0.0);
             assert!(phase_metrics.success_rate >= 0.0);
             assert!(phase_metrics.success_rate <= 1.0);

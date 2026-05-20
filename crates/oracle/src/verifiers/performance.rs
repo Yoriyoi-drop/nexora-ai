@@ -5,7 +5,6 @@
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::verifiers::{

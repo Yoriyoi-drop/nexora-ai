@@ -90,8 +90,36 @@ impl Default for MySQLConfig {
 
 /// MySQL database implementation
 #[cfg(feature = "mysql")]
-#[derive(Debug)]
-pub struct MySQLDatabase {
+mod mysql_impl {
+    use super::*;
+    use mysql::prelude::Queryable;
+
+    fn convert_mysql_value(val: mysql::Value) -> Value {
+        match val {
+            mysql::Value::NULL => Value::Null,
+            mysql::Value::Int(i) => Value::I64(i),
+            mysql::Value::UInt(u) => Value::I64(u as i64),
+            mysql::Value::Float(f) => Value::F32(f),
+            mysql::Value::Double(d) => Value::F64(d),
+            mysql::Value::Bytes(b) => Value::String(String::from_utf8_lossy(&b).to_string()),
+            mysql::Value::Date(y, m, d, h, min, sec, us) => {
+                Value::Timestamp(std::time::UNIX_EPOCH + std::time::Duration::from_secs(
+                    chrono::NaiveDateTime::new(
+                        chrono::NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32)
+                            .unwrap_or_default(),
+                        chrono::NaiveTime::from_hms_micro_opt(
+                            h as u32, min as u32, sec as u32, us,
+                        )
+                        .unwrap_or_default(),
+                    )
+                    .and_utc()
+                    .timestamp() as u64,
+                ))
+            }
+        }
+    }
+
+    pub struct MySQLDatabase {
     pool: mysql::Pool,
     config: MySQLConfig,
 }
@@ -106,8 +134,7 @@ impl MySQLDatabase {
 #[cfg(feature = "mysql")]
 #[async_trait]
 impl Database for MySQLDatabase {
-    async fn connect(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Test connection
+    async fn connect(&self) -> Result<()> {
         let _conn = self.pool.get_conn()?;
         Ok(())
     }
@@ -116,10 +143,9 @@ impl Database for MySQLDatabase {
         &self,
         query: &str,
         params: Vec<Value>,
-    ) -> Result<QueryResult, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResult> {
         let mut conn = self.pool.get_conn()?;
 
-        // Convert params to MySQL format
         let mysql_params: Vec<mysql::Value> = params
             .into_iter()
             .map(|v| match v {
@@ -133,10 +159,26 @@ impl Database for MySQLDatabase {
             .collect();
 
         let result = conn.exec_iter(query, mysql_params)?;
+        let affected = result.affected_rows() as u64;
+        let columns = result.columns().to_vec();
+
+        // Collect rows from result
+        let rows: Vec<HashMap<String, Value>> = result
+            .map(|row_result| {
+                row_result.map(|row| {
+                    let mut row_data = HashMap::new();
+                    for (i, column) in columns.iter().enumerate() {
+                        let val: mysql::Value = row.get(i).unwrap_or(mysql::Value::NULL);
+                        row_data.insert(column.name_str().to_string(), convert_mysql_value(val));
+                    }
+                    row_data
+                })
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(QueryResult {
-            rows: Vec::new(),
-            affected_rows: result.affected_rows() as u64,
+            rows,
+            affected_rows: affected,
             execution_time_ms: 0,
             query: query.to_string(),
         })
@@ -145,10 +187,9 @@ impl Database for MySQLDatabase {
     async fn execute_statement(
         &self,
         statement: &Statement,
-    ) -> Result<ExecuteResult, Box<dyn std::error::Error>> {
+    ) -> Result<ExecuteResult> {
         let mut conn = self.pool.get_conn()?;
 
-        // Convert params to MySQL format
         let mysql_params: Vec<mysql::Value> = statement
             .parameter_types
             .iter()
@@ -173,33 +214,23 @@ impl Database for MySQLDatabase {
         })
     }
 
-    async fn begin_transaction(&self) -> Result<Transaction, Box<dyn std::error::Error>> {
-        let mut conn = self
-            .pool
-            .get_conn()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-
-        // Start transaction
+    async fn begin_transaction(&self) -> Result<Transaction> {
+        let mut conn = self.pool.get_conn()?;
         conn.query("START TRANSACTION")
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            .map_err(|e| anyhow!("Gagal memulai transaksi MySQL: {}", e))?;
 
         Ok(Transaction::new(conn))
     }
 
-    async fn get_info(&self) -> Result<DatabaseInfo, Box<dyn std::error::Error>> {
-        let mut conn = self
-            .pool
-            .get_conn()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    async fn get_info(&self) -> Result<DatabaseInfo> {
+        let mut conn = self.pool.get_conn()?;
 
-        // Get database version
         let version_result: Vec<String> = conn.query("SELECT VERSION()")?;
         let version = version_result
             .first()
             .cloned()
             .unwrap_or_else(|| "Unknown".to_string());
 
-        // Get database size
         let size_result: Vec<(String,)> = conn.query(
             "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) FROM information_schema.tables"
         )?;
@@ -213,34 +244,33 @@ impl Database for MySQLDatabase {
             version,
             database_size_mb,
             connection_count: self.pool.status().connections,
-            uptime_seconds: 0, // MySQL doesn't provide connection pool uptime
+            uptime_seconds: 0,
             last_activity: Some(std::time::SystemTime::now()),
         })
     }
 
-    async fn get_pool_status(&self) -> Result<PoolStatus, Box<dyn std::error::Error>> {
+    async fn get_pool_status(&self) -> Result<PoolStatus> {
         let pool_status = self.pool.status();
 
         Ok(PoolStatus {
             total_connections: pool_status.connections,
-            active_connections: pool_status.connections, // Simplified - MySQL doesn't distinguish
-            idle_connections: 0, // MySQL pool doesn't expose idle connections
+            active_connections: pool_status.connections,
+            idle_connections: 0,
             max_connections: self.config.pool_size as u32,
-            waiting_requests: 0,       // MySQL doesn't track waiting requests
-            average_wait_time_ms: 0.0, // MySQL doesn't provide this metric
+            waiting_requests: 0,
+            average_wait_time_ms: 0.0,
         })
     }
 
-    async fn disconnect(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // MySQL pool will be closed when dropped
+    async fn disconnect(&self) -> Result<()> {
         Ok(())
     }
 
-    fn is_connected(&self) -> bool {
-        // Simple connection check
+    async fn is_connected(&self) -> bool {
         self.pool.get_conn().is_ok()
     }
 }
+} // mod mysql_impl
 
 /// Database trait for common operations
 #[async_trait::async_trait]

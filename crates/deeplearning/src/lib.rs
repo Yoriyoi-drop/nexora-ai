@@ -45,4 +45,4 @@ pub mod echo_net {
 }
 
 #[cfg(feature = "gpu")]
-pub mod gpu;
+pub use nexora_autograd::gpu;

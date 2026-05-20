@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use chrono::{DateTime, Utc};
 use sysinfo::System;
 use procfs::process::Process as ProcProcess;
@@ -397,24 +397,28 @@ impl InferenceRuntime {
     async fn initialize_resource_monitoring(&self) -> Result<()> {
         let runtime = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                tokio::time::Duration::from_secs(runtime.config.resource_monitor_interval_seconds)
-            );
-            
-            loop {
-                interval.tick().await;
-                
-                // Check if runtime is still active
-                let state = runtime.get_state().await;
-                match state {
-                    RuntimeState::Ready | RuntimeState::Busy => {
-                        if let Err(e) = runtime.update_resource_usage().await {
-                            warn!("Failed to update resource usage: {}", e);
+            let fut = std::panic::AssertUnwindSafe(async move {
+                let mut interval = tokio::time::interval(
+                    tokio::time::Duration::from_secs(runtime.config.resource_monitor_interval_seconds)
+                );
+
+                loop {
+                    interval.tick().await;
+
+                    let state = runtime.get_state().await;
+                    match state {
+                        RuntimeState::Ready | RuntimeState::Busy => {
+                            if let Err(e) = runtime.update_resource_usage().await {
+                                warn!("Failed to update resource usage: {}", e);
+                            }
                         }
+                        RuntimeState::ShuttingDown | RuntimeState::Shutdown => break,
+                        _ => continue,
                     }
-                    RuntimeState::ShuttingDown | RuntimeState::Shutdown => break,
-                    _ => continue,
                 }
+            });
+            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                error!("Resource monitoring loop panicked: {:?}", e);
             }
         });
         
@@ -425,23 +429,27 @@ impl InferenceRuntime {
     async fn initialize_performance_tracking(&self) -> Result<()> {
         let runtime = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                tokio::time::Duration::from_secs(runtime.config.metrics_interval_seconds)
-            );
-            
-            loop {
-                interval.tick().await;
-                
-                // Check if runtime is still active
-                let state = runtime.get_state().await;
-                match state {
-                    RuntimeState::Ready | RuntimeState::Busy => {
-                        // Performance metrics are updated externally by request processing
+            let fut = std::panic::AssertUnwindSafe(async move {
+                let mut interval = tokio::time::interval(
+                    tokio::time::Duration::from_secs(runtime.config.metrics_interval_seconds)
+                );
+
+                loop {
+                    interval.tick().await;
+
+                    let state = runtime.get_state().await;
+                    match state {
+                        RuntimeState::Ready | RuntimeState::Busy => {
+                            // Performance metrics are updated externally by request processing
                         // This task could handle periodic aggregation if needed
                     }
                     RuntimeState::ShuttingDown | RuntimeState::Shutdown => break,
                     _ => continue,
                 }
+            }
+            });
+            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                error!("Performance tracking loop panicked: {:?}", e);
             }
         });
         

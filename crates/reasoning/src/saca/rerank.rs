@@ -7,7 +7,6 @@ use super::{types::*, config::*, error::*};
 use nexora_oracle::verifiers::performance::PerformanceThresholds;
 use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use rayon::prelude::*;
 
@@ -251,7 +250,7 @@ impl RerankEngine {
         &self,
         best_candidate: ScoredCandidate,
         all_executions: &[SACAExecutionResult],
-        context: &RepositoryContext,
+        _context: &RepositoryContext,
     ) -> SACAResult<SACASolution> {
         // Find the execution result for the best candidate
         let execution_result = all_executions
@@ -367,140 +366,6 @@ impl RerankEngine {
         })
     }
     
-    /// Normalize scores across all candidates
-    async fn normalize_scores(&self, candidates: Vec<ScoredCandidate>) -> SACAResult<Vec<ScoredCandidate>> {
-        if candidates.is_empty() {
-            return Ok(candidates);
-        }
-        
-        // Collect all scores for each metric
-        let mut all_metric_scores = std::collections::HashMap::new();
-        
-        for candidate in &candidates {
-            for (metric_name, score) in &candidate.metrics {
-                all_metric_scores.entry(metric_name.clone())
-                    .or_insert_with(Vec::new)
-                    .push(*score);
-            }
-        }
-        
-        // Normalize each metric
-        let mut normalized_candidates = candidates;
-        
-        for candidate in &mut normalized_candidates {
-            for (metric_name, score) in &mut candidate.metrics {
-                if let Some(all_scores) = all_metric_scores.get(metric_name) {
-                    *score = self.normalizer.normalize(*score, all_scores)?;
-                }
-            }
-        }
-        
-        Ok(normalized_candidates)
-    }
-    
-    /// Apply weighting to calculate final scores
-    async fn apply_weighting(&self, candidates: Vec<ScoredCandidate>) -> SACAResult<Vec<ScoredCandidate>> {
-        let mut weighted_candidates = candidates;
-        
-        for candidate in &mut weighted_candidates {
-            let mut final_score = 0.0;
-            
-            // Apply weights from configuration
-            final_score += candidate.metrics.get("correctness").unwrap_or(&0.0) * self.config.criteria.correctness_weight;
-            final_score += candidate.metrics.get("performance").unwrap_or(&0.0) * self.config.criteria.performance_weight;
-            final_score += candidate.metrics.get("readability").unwrap_or(&0.0) * self.config.criteria.readability_weight;
-            final_score += candidate.metrics.get("maintainability").unwrap_or(&0.0) * self.config.criteria.maintainability_weight;
-            final_score += candidate.metrics.get("test_coverage").unwrap_or(&0.0) * self.config.criteria.test_coverage_weight;
-            final_score += candidate.metrics.get("documentation").unwrap_or(&0.0) * self.config.criteria.documentation_weight;
-            
-            candidate.final_score = final_score;
-        }
-        
-        Ok(weighted_candidates)
-    }
-    
-    /// Create final solution from best candidate
-    async fn create_solution(
-        &self,
-        best_candidate: ScoredCandidate,
-        all_executions: &[SACAExecutionResult],
-        context: &RepositoryContext,
-    ) -> SACAResult<SACASolution> {
-        // Find the execution result for the best candidate
-        let execution_result = all_executions
-            .iter()
-            .find(|r| r.candidate_id == best_candidate.candidate_id)
-            .ok_or_else(|| SACAError::RerankError("Execution result not found".to_string()))?;
-        
-        // Calculate test coverage
-        let test_coverage = self.calculate_test_coverage(execution_result).await;
-        
-        // Determine performance grade
-        let performance_grade = self.determine_performance_grade(&best_candidate).await;
-        
-        // Create solved modules (simplified for now)
-        let solved_modules = vec![SolvedModule {
-            module: Module {
-                id: "main".to_string(),
-                name: "MainModule".to_string(),
-                description: "Main implementation module".to_string(),
-                inputs: vec![],
-                outputs: vec![],
-                dependencies: vec![],
-                complexity: ModuleComplexity::Medium,
-                estimated_lines: 100,
-            },
-            implementation: "// Final implementation".to_string(),
-            executed_candidates: Some(vec![execution_result.clone()]),
-            quality_metrics: ModuleQualityMetrics {
-                correctness: *best_candidate.metrics.get("correctness").unwrap_or(&0.0),
-                efficiency: *best_candidate.metrics.get("performance").unwrap_or(&0.0),
-                readability: *best_candidate.metrics.get("readability").unwrap_or(&0.0),
-                maintainability: *best_candidate.metrics.get("maintainability").unwrap_or(&0.0),
-                test_coverage,
-                documentation_score: *best_candidate.metrics.get("documentation").unwrap_or(&0.0),
-            },
-        }];
-        
-        Ok(SACASolution {
-            session_id: uuid::Uuid::new_v4(),
-            modules: solved_modules,
-            quality_score: best_candidate.final_score,
-            total_iterations: 1,
-            total_feedback_loops: 0,
-            execution_time: chrono::Duration::milliseconds(execution_result.execution_time_ms as i64),
-            final_code: "// Final generated code".to_string(),
-            test_coverage,
-            performance_grade,
-        })
-    }
-    
-    /// Calculate test coverage percentage
-    async fn calculate_test_coverage(&self, _execution_result: &SACAExecutionResult) -> f32 {
-        if _execution_result.test_results.is_empty() {
-            return 0.0;
-        }
-        
-        let passed_tests = _execution_result.test_results.iter().filter(|t| t.passed).count();
-        let total_tests = _execution_result.test_results.len();
-        
-        passed_tests as f32 / total_tests as f32
-    }
-    
-    /// Determine performance grade based on metrics
-    async fn determine_performance_grade(&self, candidate: &ScoredCandidate) -> PerformanceGrade {
-        let score = candidate.final_score;
-        
-        if score >= 0.9 {
-            PerformanceGrade::Excellent
-        } else if score >= 0.75 {
-            PerformanceGrade::Good
-        } else if score >= 0.6 {
-            PerformanceGrade::Average
-        } else {
-            PerformanceGrade::Poor
-        }
-    }
 }
 
 /// Scored candidate with metrics

@@ -48,7 +48,7 @@ impl ImageEncoder {
         let pixels: Vec<f32> = input.data.iter().map(|&b| b as f32 / 255.0).collect();
         let patch_size = self.config.patch_size;
         let num_patches_x = input.width / patch_size;
-        let num_patches_y = input.height / patch_size;
+        let _num_patches_y = input.height / patch_size;
         
         let mut data = vec![0.0f32; total_elements];
         

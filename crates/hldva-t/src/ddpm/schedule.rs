@@ -115,7 +115,7 @@ impl NoiseSchedule {
         let predicted_noise_data = predicted_noise.data();
         let alpha = self.get_alpha(timestep);
         let beta = self.get_beta(timestep);
-        let alpha_bar = self.get_alpha_bar(timestep);
+        let _alpha_bar = self.get_alpha_bar(timestep);
         let sqrt_one_minus_alpha_bar = self.get_sqrt_one_minus_alpha_bar(timestep);
         
         if noisy_data.len() != predicted_noise_data.len() {

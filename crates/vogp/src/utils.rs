@@ -3,12 +3,12 @@
 //! Helper functions dan tools untuk mendukung implementasi VOGP+
 //! termasuk data augmentation, gradient approximation, dan monitoring.
 
-use ndarray::{Array1, Array2, ArrayD, ArrayView1, ArrayView2, IxDyn, s};
+use ndarray::{Array2, ArrayD, s};
 use rand::prelude::*;
 use rand_distr::StandardNormal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{debug, info};
+use tracing::info;
 
 /// Data augmentation utilities untuk consistency learning
 pub struct AugmentationUtils;

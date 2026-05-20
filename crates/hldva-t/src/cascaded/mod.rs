@@ -92,7 +92,7 @@ impl CascadedModel {
         let mut current_latent = base_latent;
         
         // Process each upsampling stage
-        for (stage_idx, upsampler_config) in self.config.upsamplers.iter().enumerate() {
+        for (_stage_idx, upsampler_config) in self.config.upsamplers.iter().enumerate() {
             let upscaled = self.upsample(
                 current_latent,
                 clip_embedding,
@@ -222,7 +222,7 @@ impl UpsamplerStage {
         &self,
         latent: LatentSpace,
         clip_embedding: &ClipEmbedding,
-        negative_embedding: Option<&ClipEmbedding>,
+        _negative_embedding: Option<&ClipEmbedding>,
     ) -> HLDVAResult<LatentSpace> {
         // Use fewer timesteps for upsampling (faster inference)
         let num_steps = 20;

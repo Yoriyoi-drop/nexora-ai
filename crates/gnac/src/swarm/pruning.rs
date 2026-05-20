@@ -9,7 +9,7 @@ pub struct GraphPruner;
 
 impl GraphPruner {
     /// Prune graf berdasarkan redundancy score
-    pub fn prune(graph: &mut NeuralGraph, config: &SwarmConfig) {
+    pub fn prune(graph: &mut NeuralGraph, _config: &SwarmConfig) {
         let mut to_remove = HashSet::with_capacity(graph.nodes.len());
 
         // Prune node dengan kontribusi marginal rendah
@@ -23,7 +23,7 @@ impl GraphPruner {
         }
 
         // Prune berdasarkan entropy
-        for (id, edge) in &graph.edges {
+        for (_id, edge) in &graph.edges {
             if edge.entropy_score < 0.01 {
                 // Edge dengan entropy hampir 0: aktivasi dead
                 // Tandai node output-nya

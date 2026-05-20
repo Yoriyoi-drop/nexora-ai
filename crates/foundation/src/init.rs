@@ -8,13 +8,13 @@ use crate::shared::{
     model_identity::NxrModelId,
     model_config::NxrModelConfig,
     capability_spec::predefined as cap_predefined,
-    ModelMeta, ModelTier,
+    ModelMeta,
 };
 use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
 use crate::shared::NxrModel;
 
 fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
-    let cfg = NxrModelConfig::for_model(model_id);
+    let _cfg = NxrModelConfig::for_model(model_id);
     let low = || TransformerConfig {
         vocab_size,
         hidden_size: 128,

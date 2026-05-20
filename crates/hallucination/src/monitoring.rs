@@ -42,7 +42,7 @@ impl Monitor {
     }
 
     pub fn record(&self, action: &str, input: &str) {
-        let entry = AuditEntry {
+        let _entry = AuditEntry {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp: chrono::Utc::now(),
             input: input.chars().take(200).collect(),
@@ -67,7 +67,7 @@ impl Monitor {
         self.total_checked.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn log_entry(&self, entry: AuditEntry) {
+    pub fn log_entry(&self, _entry: AuditEntry) {
         if self.audit_log.len() >= self.config.max_audit_log {}
     }
 

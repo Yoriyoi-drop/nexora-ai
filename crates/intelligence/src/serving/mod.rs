@@ -211,7 +211,7 @@ async fn openai_chat_handler(
 
         let created = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let response = serde_json::json!({

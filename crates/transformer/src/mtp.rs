@@ -1,7 +1,6 @@
 use ndarray::Array1;
 use rand::Rng;
 use crate::CausalLM;
-use super::config::TransformerConfig;
 use super::gqa::KVCacheEntry;
 
 #[derive(Debug, Clone)]

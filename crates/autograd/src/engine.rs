@@ -4,6 +4,8 @@ use ndarray::ArrayD;
 
 use super::tape;
 use super::Tensor;
+#[cfg(feature = "gpu")]
+use crate::gpu::GpuContext;
 
 pub(crate) fn backward_engine(output: &Tensor) {
     let mut visited = HashSet::new();
@@ -54,23 +56,66 @@ pub(crate) fn backward_engine(output: &Tensor) {
             if let Some(fn_idx) = t.get_grad_fn_idx() {
                 let inputs = tape::with_tape(|tap| tap.inputs(fn_idx));
                 let saved = tape::with_tape(|tap| tap.saved(fn_idx));
-                let backward_fn = tape::with_tape_mut(|tap| tap.take_backward(fn_idx));
 
-                if let Some(backward) = backward_fn {
-                    let grad_inputs = backward(&grad_out, &saved);
-
-                    for (i, inp) in inputs.iter().enumerate() {
-                        if i < grad_inputs.len() && inp.requires_grad() {
-                            let g = grad_inputs[i].clone();
-                            grads.entry(inp.id())
-                                .and_modify(|existing| {
-                                    if existing.shape() == g.shape() {
-                                        *existing += &g;
-                                    } else {
-                                        *existing = g.clone();
+                #[cfg(feature = "gpu")]
+                let used_gpu: bool = {
+                    if tape::has_gpu_backward(fn_idx) {
+                        if let Ok(ctx) = GpuContext::global() {
+                            let saved_gpu = tape::saved_gpu(fn_idx);
+                            let gpu_backward = tape::take_gpu_backward(fn_idx);
+                            if let Some(backward_gpu) = gpu_backward {
+                                match crate::gpu::GpuTensor::from_cpu(&grad_out) {
+                                    Ok(grad_gpu) => {
+                                        let grad_inputs_gpu = backward_gpu(&saved_gpu, &grad_gpu, ctx);
+                                        for (i, inp) in inputs.iter().enumerate() {
+                                            if i < grad_inputs_gpu.len() && inp.requires_grad() {
+                                                let g = grad_inputs_gpu[i].to_cpu();
+                                                grads.entry(inp.id())
+                                                    .and_modify(|existing| {
+                                                        if existing.shape() == g.shape() {
+                                                            *existing += &g;
+                                                        } else {
+                                                            *existing = g.clone();
+                                                        }
+                                                    })
+                                                    .or_insert(g);
+                                            }
+                                        }
+                                        true
                                     }
-                                })
-                                .or_insert(g);
+                                    Err(_) => false,
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                #[cfg(not(feature = "gpu"))]
+                let used_gpu = false;
+
+                if !used_gpu {
+                    let backward_fn = tape::with_tape_mut(|tap| tap.take_backward(fn_idx));
+                    if let Some(backward) = backward_fn {
+                        let grad_inputs = backward(&grad_out, &saved);
+                        for (i, inp) in inputs.iter().enumerate() {
+                            if i < grad_inputs.len() && inp.requires_grad() {
+                                let g = grad_inputs[i].clone();
+                                grads.entry(inp.id())
+                                    .and_modify(|existing| {
+                                        if existing.shape() == g.shape() {
+                                            *existing += &g;
+                                        } else {
+                                            *existing = g.clone();
+                                        }
+                                    })
+                                    .or_insert(g);
+                            }
                         }
                     }
                 }

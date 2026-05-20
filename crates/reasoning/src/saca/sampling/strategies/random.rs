@@ -2,10 +2,9 @@
 //! 
 //! Implements random sampling approach for generating diverse candidates.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::generators::{AlgorithmGenerator, AlgorithmType, StandardAlgorithmGenerator};
 use rand::Rng;
-use uuid::Uuid;
 
 /// Random sampling strategy
 pub struct RandomSamplingStrategy {

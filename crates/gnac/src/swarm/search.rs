@@ -72,7 +72,7 @@ impl SwarmAgent {
         let mut graph = NeuralGraph::new("swarm_candidate");
 
         let input_node = GraphNode::new(NodeType::Input, "input", -200.0, 0.0);
-        let input_id = graph.add_node(input_node);
+        let _input_id = graph.add_node(input_node);
 
         for i in 0..num_nodes {
             let node_type = self.search_space.allowed_node_types
@@ -98,7 +98,7 @@ impl SwarmAgent {
             self.initialize();
         }
 
-        for iteration in 0..self.config.max_iterations {
+        for _iteration in 0..self.config.max_iterations {
             // Evaluasi fitness
             self.fitness_scores = self.population
                 .iter()

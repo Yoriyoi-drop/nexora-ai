@@ -44,6 +44,7 @@ cargo run --bin nexora -- start      # start API server (http://localhost:8080)
 cargo run --bin nexora -- health     # health check
 cargo run --bin nexora -- load-checkpoint --model <id> --path <file>  # restore checkpoint
 cargo run --bin nexora -- train-foundation --data <file> --output <dir>  # in-place training
+cargo run --bin nexora -- collect-data --sources hackernews,wikipedia,reddit --max-samples 1000 --output ./data/  # collect dataset from web → .arrow
 cargo run --bin dashboard            # TUI dashboard
 ```
 

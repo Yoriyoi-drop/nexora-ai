@@ -19,6 +19,8 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Database drivers (optional)
 tokio-postgres = { version = "0.7", optional = true }
+tokio-postgres-rustls = { version = "0.12", optional = true }
+rustls = { version = "0.23", optional = true, features = ["ring"] }
 rusqlite = { version = "0.29", features = ["bundled"], optional = true }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite"], optional = true }
 mysql = { version = "25", optional = true }
@@ -26,7 +28,7 @@ futures = "0.3"
 
 [features]
 default = ["postgres", "sqlite", "sqlx"]
-postgres = ["tokio-postgres"]
+postgres = ["tokio-postgres", "tokio-postgres-rustls", "rustls"]
 sqlite = ["rusqlite"]
 sqlx = ["dep:sqlx"]
 mysql = ["dep:mysql"]

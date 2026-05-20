@@ -7,8 +7,7 @@ use super::generators::*;
 use crate::saca::{types::*, config::*, error::*};
 use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 /// Large-Scale Sampling engine
@@ -216,6 +215,6 @@ impl DiversityCalculator {
         let algorithm_similarity = if a.algorithm == b.algorithm { 1.0 } else { 0.0 };
         
         // Weighted average
-        (approach_similarity * 0.6 + algorithm_similarity * 0.4)
+        approach_similarity * 0.6 + algorithm_similarity * 0.4
     }
 }

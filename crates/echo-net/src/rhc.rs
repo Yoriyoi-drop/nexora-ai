@@ -134,7 +134,7 @@ impl RecursiveHolographicCompression {
         
         // Compress through each level
         for level_idx in 0..self.num_levels {
-            let level = &self.levels[level_idx];
+            let _level = &self.levels[level_idx];
             
             // Apply compression at this level
             let compressed = self.compress_level(&current_data, level_idx, timestamp)?;
@@ -179,7 +179,7 @@ impl RecursiveHolographicCompression {
     }
     
     /// Apply FFT pooling compression
-    fn apply_fft_pooling(&self, input: &Array2<f32>, level: &CompressionLevel) -> DLResult<Array2<f32>> {
+    fn apply_fft_pooling(&self, input: &Array2<f32>, _level: &CompressionLevel) -> DLResult<Array2<f32>> {
         // Apply FFT to input
         let fft_result = HolographicFFT::fft_2d(input)?;
         
@@ -236,7 +236,7 @@ impl RecursiveHolographicCompression {
     }
     
     /// Combine FFT pooled data with summary
-    fn combine_compression_results(&self, fft_pooled: &Array2<f32>, summary: &Array1<f32>, level: &CompressionLevel) -> DLResult<Array2<f32>> {
+    fn combine_compression_results(&self, fft_pooled: &Array2<f32>, summary: &Array1<f32>, _level: &CompressionLevel) -> DLResult<Array2<f32>> {
         let (rows, cols) = fft_pooled.dim();
         let mut combined = Array2::zeros((rows, cols + summary.len()));
         
@@ -287,7 +287,7 @@ impl RecursiveHolographicCompression {
     }
     
     /// Calculate importance scores for compression
-    fn calculate_importance_scores(&mut self, input: &Array2<f32>, level_idx: usize) -> DLResult<Array1<f32>> {
+    fn calculate_importance_scores(&mut self, input: &Array2<f32>, _level_idx: usize) -> DLResult<Array1<f32>> {
         let mut importance = Array1::zeros(input.nrows());
         
         for i in 0..input.nrows() {

@@ -1,4 +1,3 @@
-use crate::types::InGenCheckResult;
 use regex::Regex;
 
 #[derive(Debug, Clone)]

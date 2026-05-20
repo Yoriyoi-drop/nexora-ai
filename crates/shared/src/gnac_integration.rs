@@ -5,21 +5,19 @@
 //! real-time architecture search, dan adaptive inference routing.
 
 use nexora_gnac::{
-    canvas::{NeuralGraph, GraphNode, GraphEdge},
-    smart_tensor::{ShapePropagator, SmartTensorMetadata},
+    canvas::NeuralGraph,
+    smart_tensor::ShapePropagator,
     lensing::{NeuralLens, GradientFailureLens, AttentionFlowLens, LatencyLens, MemoryLens, ActivationEntropyLens, LensObservation},
     rce::{ResourceEstimator, ResourceConstraints, ResourceReport, HardwareTarget},
-    swarm::{SwarmAgent, SwarmConfig, SearchSpace, GraphPruner, compute_fitness, estimate_accuracy},
-    execution::{EagerExecutor, CompiledExecutor, ExecutionBackend, GraphIR},
-    scheduler::{MemoryCheckpointer, AsyncExecutor, TensorPager},
-    logic::{ConditionNode, RecurrentLoopNode, AdaptiveSchedulerNode, RLFeedbackNode, ContextMemoryNode},
+    swarm::{SwarmAgent, SwarmConfig, SearchSpace, estimate_accuracy},
+    execution::ExecutionBackend,
+    scheduler::{MemoryCheckpointer, TensorPager},
     intervention::{AnomalyDetector, DiagnosticAssistant, DetectedAnomaly},
-    elastic::{ElasticRouter, PrecisionScaler, DepthController, ElasticStrategy},
-    distillation::{DistillationEngine, DistillationConfig, ExportManager},
-    experiment::{Experiment, ExperimentSnapshot, GraphDiff},
-    collaboration::{LiveEditingManager, BranchManager},
-    sandbox::{SecurityManager, ModelVerifier, DataAccessPolicy, VerificationReport},
-    GnacConfig, NodeType, DType, TensorDesc, HealthStatus,
+    elastic::{ElasticRouter, ElasticStrategy},
+    distillation::ExportManager,
+    experiment::{Experiment, ExperimentSnapshot},
+    sandbox::{ModelVerifier, VerificationReport},
+    GnacConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

@@ -112,7 +112,7 @@ impl CausalLM {
 
     pub fn forward(&self, input_ids: &[u32], kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32> {
         let batch_size = 1;
-        let seq_len = input_ids.len();
+        let _seq_len = input_ids.len();
 
         let mut h = Array2::zeros((batch_size, self.config.hidden_size));
 

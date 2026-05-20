@@ -584,7 +584,7 @@ impl SQLiteConnectionPool {
                 let pos = connections.iter().position(|c| !c.is_active);
 
                 if let Some(pos) = pos {
-                    let mut conn = connections.swap_remove(pos);
+                    let conn = connections.swap_remove(pos);
 
                     #[cfg(feature = "sqlite")]
                     if !conn.ping().await {

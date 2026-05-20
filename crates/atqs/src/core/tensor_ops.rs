@@ -2,9 +2,6 @@
 //! Implements Tucker and Tensor-Train decomposition methods
 
 use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
-use std::collections::HashMap;
 use crate::error::ATQSError;
 
 /// Trait for ATQS compression operations
@@ -347,7 +344,7 @@ fn unfold_and_svd(
     rank: usize,
 ) -> Result<(ArrayD<f32>, ArrayD<f32>), crate::ATQSError> {
     // Reshape for unfolding
-    let mut shape = tensor.shape().to_vec();
+    let shape = tensor.shape().to_vec();
     let rows = shape.iter().take(mode + 1).product();
     let cols = shape.iter().skip(mode + 1).product();
     
@@ -487,7 +484,7 @@ fn compute_svd_truncated(
         sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
         
         if sigma > 1e-10 {
-            let mut u_normalized = u_vec / sigma;
+            let u_normalized = u_vec / sigma;
             
             // Store results
             for j in 0..m {

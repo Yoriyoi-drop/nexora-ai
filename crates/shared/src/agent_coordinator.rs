@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use crate::base_model::NxrModelResult;
-use super::agent_types::{AgentStatus, TaskRoutingRule, CommunicationChannel, TaskPriority, AgentResult};
+use super::agent_types::{TaskRoutingRule, CommunicationChannel, AgentResult};
 
 /// Generic Agent Coordinator
 #[derive(Debug, Clone)]

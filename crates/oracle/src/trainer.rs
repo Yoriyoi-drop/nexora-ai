@@ -7,15 +7,12 @@
 use anyhow::Result;
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use uuid::Uuid;
 
 use crate::backbone::{OracleBackbone, OracleBackboneConfig};
 use crate::rope::{ExtendedRope, ExtendedRopeConfig, CrossFilePositionTracker};
 use crate::pretraining::{OraclePretrainer, OraclePretrainingConfig, TrainingBatch, TrainingExample};
 use crate::alignment::{CodeDpoTrainer, CodeDpoConfig, CodePreferencePair};
 use crate::code_utils::CodeTokenizer;
-use crate::verifiers::CodeVerifier;
 
 /// Konfigurasi lengkap ORACLE
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -686,7 +683,7 @@ pub mod utils {
         let flops_per_step = {
             // Simplified FLOP estimation
             let d_model = config.backbone.d_model;
-            let n_heads = config.backbone.n_heads;
+            let _n_heads = config.backbone.n_heads;
             let seq_len = 8192; // Default sequence length
             
             // Attention FLOPs
@@ -718,7 +715,7 @@ pub mod utils {
     fn _estimate_flops_per_step(backbone_config: &OracleBackboneConfig, vocab_size: usize) -> u64 {
         // Simplified FLOP estimation
         let d_model = backbone_config.d_model;
-        let n_heads = backbone_config.n_heads;
+        let _n_heads = backbone_config.n_heads;
         let seq_len = 8192; // Default sequence length
         
         // Attention FLOPs

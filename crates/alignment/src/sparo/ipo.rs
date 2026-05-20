@@ -4,12 +4,11 @@
 //! dan menjaga kemampuan generalisasi.
 
 use anyhow::Result;
-use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::core::{PolicyModel, ReasoningTrace, JudgeFeedback, FeedbackType};
+use super::core::PolicyModel;
 
 /// Konfigurasi IPO
 #[derive(Debug, Clone, Serialize, Deserialize)]

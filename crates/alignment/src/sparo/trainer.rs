@@ -4,9 +4,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
-use rand::seq::SliceRandom;
 
 use super::core::{
     SparoConfig, PolicyModel, ReasoningTrace, JudgeFeedback,
@@ -115,7 +113,7 @@ impl SparoTrainer {
             // Step 5: SPIN - Self-play improvement
             if iteration % 5 == 0 { // Every 5 iterations
                 let tournament = self.run_self_play(prompts)?;
-                let spin_loss = self.spin_trainer.update_models(&tournament)?;
+                let _spin_loss = self.spin_trainer.update_models(&tournament)?;
                 
                 // Check for student promotion
                 if self.spin_trainer.promote_student_to_teacher(&tournament)? {

@@ -3,6 +3,7 @@
 //! Extracted dari memory_model.rs untuk modular structure
 
 use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
 pub use crate::memory_model::MemoryType;
 
 
@@ -58,5 +59,3 @@ impl Default for MemoryConfig {
         }
     }
 }
-
-use std::collections::HashMap;

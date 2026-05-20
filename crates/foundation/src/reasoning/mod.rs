@@ -6,7 +6,7 @@
 pub use nexora_reasoning::saca::*;
 pub use nexora_reasoning::*;
 
-use nexora_shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput, OutputData};
+use nexora_shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput};
 use nexora_models::aether::NxrAetherModel;
 
 /// Enhanced SACA with NXR-ÆTHER integration

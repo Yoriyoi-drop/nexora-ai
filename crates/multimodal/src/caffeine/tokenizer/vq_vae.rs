@@ -3,7 +3,6 @@
 //! VQ-VAE: EMA-based codebook (existing)
 //! FSQ: Lookup-free quantization (SOTA — tidak ada codebook collapse)
 
-use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
 
 /// FSQ levels per dimension — fixed rounding boundaries
@@ -342,7 +341,7 @@ impl VectorQuantizedVAE {
     pub fn get_compression_ratio(&self) -> f32 {
         // Compression ratio = original_size / compressed_size
         let original_size = self.token_dim as f32 * 4.0; // 4 bytes per float
-        let compressed_size = (self.num_codebooks as f32 * (self.codebook_size as f32).log2() / 8.0); // bits to bytes
+        let compressed_size = self.num_codebooks as f32 * (self.codebook_size as f32).log2() / 8.0; // bits to bytes
         original_size / compressed_size
     }
     

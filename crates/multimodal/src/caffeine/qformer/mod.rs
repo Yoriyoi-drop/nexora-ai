@@ -526,9 +526,9 @@ impl TriQueryFormer {
         temporal: &ArrayD<f32>,
     ) -> Result<ArrayD<f32>> {
         // Validate input tensors
-        let semantic_shape = semantic.shape();
-        let spatial_shape = spatial.shape();
-        let temporal_shape = temporal.shape();
+        let _semantic_shape = semantic.shape();
+        let _spatial_shape = spatial.shape();
+        let _temporal_shape = temporal.shape();
         
         // Flatten all query features with error handling
         let semantic_flat = semantic.view().into_dimensionality::<ndarray::Ix2>()

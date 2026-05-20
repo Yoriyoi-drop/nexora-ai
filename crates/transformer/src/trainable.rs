@@ -1,10 +1,9 @@
-use ndarray::{Array1, Array2, ArrayD};
-use nexora_autograd::{self, Tensor, TensorOps, Adam};
+use ndarray::{Array1, Array2};
+use nexora_autograd::{self, Tensor, TensorOps};
 use nexora_autograd::ops::{embedding, rms_norm_2d, causal_softmax};
 
 use super::model::CausalLM;
 use super::config::TransformerConfig;
-use super::gqa::KVCacheEntry;
 
 fn identity_selector(rows: usize, cols: usize, offset: usize) -> Tensor {
     let mut data = vec![0.0f32; rows * cols];

@@ -188,7 +188,7 @@ impl HLDVATrainer {
             // Forward pass through VAE
             let latent_space = LatentSpace::new(batch.images.clone(), Resolution::new(64, 64), 4);
             let reconstructed = self.pipeline.vae_decoder.decode(&latent_space)?;
-            let mu = Tensor::new(vec![0.0], vec![1]);
+            let _mu = Tensor::new(vec![0.0], vec![1]);
             let kl_loss = Tensor::new(vec![0.0], vec![1]);
             
             // Calculate reconstruction loss
@@ -453,7 +453,7 @@ impl HLDVATrainer {
         }
     }
     
-    fn calculate_finetune_loss(&self, output: &HLDVAOutput, batch: &TrainingBatch) -> HLDVAResult<f32> {
+    fn calculate_finetune_loss(&self, output: &HLDVAOutput, _batch: &TrainingBatch) -> HLDVAResult<f32> {
         // Simplified fine-tuning loss
         let clip_score = output.metrics.clip_score.unwrap_or(0.0);
         Ok(1.0 - clip_score) // Maximize CLIP score

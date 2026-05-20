@@ -2,7 +2,7 @@
 
 use crate::types::*;
 use nexora_atqs::Tensor;
-use rand::{Rng, thread_rng};
+use rand::Rng;
 
 /// Latent Space representation
 #[derive(Debug, Clone)]

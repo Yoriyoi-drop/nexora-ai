@@ -1,9 +1,7 @@
 //! Quantum-inspired tensor networks for ATQS-Compress
 //! Implements MPO and iPEPS tensor network methods
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
+use ndarray::{Array, ArrayD, ArrayView};
 use std::collections::HashMap;
 
 /// Quantum-inspired tensor network types
@@ -80,7 +78,7 @@ pub fn create_mpo_from_weights(
     let mut physical_dims = Vec::new();
 
     // Create MPO tensors using successive SVD
-    let mut current_matrix = weights.clone();
+    let current_matrix = weights.clone();
     let mut accumulated_rows = rows;
 
     for i in 0..order {
@@ -188,7 +186,7 @@ pub fn apply_trg_coarse_graining(
     }
 
     // Perform TRG coarse-graining steps
-    let mut current_tensor = tensor.clone();
+    let current_tensor = tensor.clone();
     
     // Step 1: Contract neighboring tensors
     let contracted = contract_neighbors(&current_tensor)?;
@@ -484,7 +482,7 @@ fn compute_eigenvalues(matrix: &ArrayD<f32>) -> Result<Vec<f32>, crate::ATQSErro
         
         let mut eigenvalue = 0.0;
         
-        for iteration in 0..max_iterations {
+        for _iteration in 0..max_iterations {
             // Matrix-vector multiplication
             let mut new_vector = Array::zeros(n);
             for i in 0..n {
@@ -537,7 +535,7 @@ fn compute_eigenvalues(matrix: &ArrayD<f32>) -> Result<Vec<f32>, crate::ATQSErro
 
 /// Compute mutual information for MPO
 fn compute_mutual_info_mpo(
-    mpo: &MPONetwork,
+    _mpo: &MPONetwork,
     site1: usize,
     site2: usize,
 ) -> Result<f32, crate::ATQSError> {
@@ -547,7 +545,7 @@ fn compute_mutual_info_mpo(
 }
 
 /// Estimate correlation length from transfer matrix
-fn estimate_correlation_length_mpo(mpo: &MPONetwork) -> Result<f32, crate::ATQSError> {
+fn estimate_correlation_length_mpo(_mpo: &MPONetwork) -> Result<f32, crate::ATQSError> {
     // Simplified correlation length estimation
     Ok(2.5)
 }

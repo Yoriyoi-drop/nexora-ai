@@ -31,18 +31,25 @@ tokio-stream = "0.1"
 url = "2"
 tempfile = { workspace = true }
 
+# Dataset format parsers
+csv = { workspace = true, optional = true }
+parquet = { workspace = true, optional = true }
+
 # Dataset streaming (optional)
 zstd = { workspace = true, optional = true }
 lz4_flex = { workspace = true, optional = true }
 memmap2 = { workspace = true, optional = true }
 
 [features]
-default = []
+default = ["csv", "json"]
 arrow = ["dep:arrow"]
+csv = ["dep:csv"]
+json = []
+parquet = ["dep:parquet"]
 compression-zstd = ["dep:zstd"]
 compression-lz4 = ["dep:lz4_flex"]
 mmap = ["dep:memmap2"]
 
-# Enable all dataset streaming features
-dataset = ["arrow", "compression-zstd", "compression-lz4", "mmap"]
-dataset-minimal = ["arrow"]
+# Enable all dataset loading features
+dataset = ["arrow", "csv", "json", "parquet", "compression-zstd", "compression-lz4", "mmap"]
+dataset-minimal = ["arrow", "csv", "json"]

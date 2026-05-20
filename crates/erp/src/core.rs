@@ -4,11 +4,8 @@
 //! dengan distribusi informasi yang sangat mirip.
 
 use crate::{ERPConfig, ERPError};
-use ndarray::{Array1, Array2, Array3};
-use ndarray_rand::RandomExt;
-use rand::{Rng, SeedableRng};
-use rand_distr::Standard;
-use std::collections::HashMap;
+use ndarray::{Array1, Array2};
+use rand::Rng;
 
 /// Information signature untuk neuron
 #[derive(Debug, Clone)]
@@ -74,8 +71,8 @@ impl ResonanceMapper {
         let mut signatures = Vec::new();
         let mut neuron_id = 0;
 
-        for (layer_idx, layer_weights) in weights.iter().enumerate() {
-            let (output_dim, input_dim) = layer_weights.dim();
+        for (_layer_idx, layer_weights) in weights.iter().enumerate() {
+            let (output_dim, _input_dim) = layer_weights.dim();
             
             for i in 0..output_dim {
                 // Extract activation distribution untuk neuron i

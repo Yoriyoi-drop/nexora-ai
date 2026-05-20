@@ -16,17 +16,14 @@ nexora-star-x = { path = "../star-x" }
 nexora-gnac = { path = "../gnac" }
 nexora-echo-net = { path = "../echo-net" }
 
-# GPU compute backend (wgpu — cross-platform)
-wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl"] }
-pollster = { version = "0.4", optional = true }
-bytemuck = { version = "1", optional = true }
-ndarray = { workspace = true }
+ndarray = { workspace = true, features = ["blas"] }
+openblas-src = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
 default = ["std"]
 std = []
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+gpu = ["nexora-autograd/gpu"]
 full = ["std", "gpu"]
 
 [lib]

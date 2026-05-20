@@ -514,7 +514,7 @@ impl DualLossCalculator {
     fn compute_fim_loss(&self, batch: &TrainingBatch, logits: &Array3<f32>) -> Result<f32> {
         let mut total_fim_loss = 0.0;
         let mut num_examples = 0;
-        let (batch_size, seq_len, vocab_size) = logits.dim();
+        let (batch_size, _seq_len, _vocab_size) = logits.dim();
         
         for (idx, example) in batch.examples.iter().enumerate() {
             if idx >= batch_size { break; }

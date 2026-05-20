@@ -40,9 +40,13 @@ pub mod intelligence;
 pub mod delivery;
 pub mod types;
 pub mod source;
+pub mod format_loader;
 
 #[cfg(feature = "arrow")]
 pub mod arrow_reader;
+
+#[cfg(feature = "arrow")]
+pub mod arrow_writer;
 
 #[cfg(feature = "arrow")]
 pub mod dataset;

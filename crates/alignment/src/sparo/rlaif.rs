@@ -570,7 +570,7 @@ impl RlaifManager {
         // Create consensus feedback
         let mut consensus_feedbacks = Vec::new();
         
-        for (key, group_feedbacks) in aggregated {
+        for (_key, group_feedbacks) in aggregated {
             if let Some(consensus) = self.create_consensus_feedback(&group_feedbacks)? {
                 consensus_feedbacks.push(consensus);
             }
@@ -599,7 +599,7 @@ impl RlaifManager {
             .join("; ");
         
         let aggregated_feedback = match &first_feedback.feedback_type {
-            FeedbackType::Independent { step_id, is_good, confidence } => {
+            FeedbackType::Independent { step_id, is_good, confidence: _ } => {
                 let avg_confidence = feedbacks.iter()
                     .map(|f| match &f.feedback_type {
                         FeedbackType::Independent { confidence, .. } => *confidence,
@@ -619,7 +619,7 @@ impl RlaifManager {
                     created_at: chrono::Utc::now(),
                 }
             },
-            FeedbackType::Pairwise { preferred, rejected, confidence } => {
+            FeedbackType::Pairwise { preferred, rejected, confidence: _ } => {
                 let avg_confidence = feedbacks.iter()
                     .map(|f| match &f.feedback_type {
                         FeedbackType::Pairwise { confidence, .. } => *confidence,
@@ -692,7 +692,7 @@ pub mod utils {
     }
     
     /// Create mock judge for testing
-    pub fn create_mock_judge(name: &str, confidence: f32) -> Box<dyn AiJudge> {
+    pub fn create_mock_judge(_name: &str, confidence: f32) -> Box<dyn AiJudge> {
         Box::new(Gpt4Judge::new(confidence))
     }
     
@@ -700,7 +700,7 @@ pub mod utils {
     pub fn validate_feedback(feedbacks: &[JudgeFeedback]) -> Result<()> {
         for feedback in feedbacks {
             match &feedback.feedback_type {
-                FeedbackType::Independent { step_id, confidence, .. } => {
+                FeedbackType::Independent { step_id: _, confidence, .. } => {
                     if *confidence < 0.0 || *confidence > 1.0 {
                         return Err(anyhow::anyhow!("Invalid confidence value: {}", confidence));
                     }

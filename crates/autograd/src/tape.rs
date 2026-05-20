@@ -2,6 +2,8 @@ use ndarray::ArrayD;
 use std::cell::RefCell;
 
 use super::Tensor;
+#[cfg(feature = "gpu")]
+use crate::gpu::{GpuContext, GpuTensor};
 
 thread_local! {
     pub(crate) static TAPE: RefCell<AutogradTape> = RefCell::new(AutogradTape {
@@ -9,10 +11,17 @@ thread_local! {
     });
 }
 
+#[cfg(feature = "gpu")]
+pub(crate) type GpuBackwardFn = Box<dyn FnOnce(&[GpuTensor], &GpuTensor, &GpuContext) -> Vec<GpuTensor> + Send>;
+
 pub(crate) struct GradFn {
     pub inputs: Vec<Tensor>,
     pub saved: Vec<ArrayD<f32>>,
     pub backward: Option<Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>>>,
+    #[cfg(feature = "gpu")]
+    pub saved_gpu: Vec<GpuTensor>,
+    #[cfg(feature = "gpu")]
+    pub gpu_backward: Option<GpuBackwardFn>,
 }
 
 pub(crate) struct AutogradTape {
@@ -64,7 +73,70 @@ pub fn register_grad_fn(
             inputs,
             saved,
             backward: Some(backward),
+            #[cfg(feature = "gpu")]
+            saved_gpu: Vec::new(),
+            #[cfg(feature = "gpu")]
+            gpu_backward: None,
         })
+    })
+}
+
+/// Register a GPU-native backward function.
+/// `saved_gpu` contains GPU tensors needed for backward.
+/// `gpu_backward` is called with (saved_gpu, upstream_grad_gpu, ctx) -> Vec<GpuTensor>
+#[cfg(feature = "gpu")]
+pub fn register_gpu_grad_fn(
+    inputs: Vec<Tensor>,
+    saved: Vec<ArrayD<f32>>,
+    saved_gpu: Vec<GpuTensor>,
+    backward: Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>>,
+    gpu_backward: Option<GpuBackwardFn>,
+) -> usize {
+    TAPE.with(|tape| {
+        tape.borrow_mut().push(GradFn {
+            inputs,
+            saved,
+            backward: Some(backward),
+            saved_gpu,
+            gpu_backward,
+        })
+    })
+}
+
+/// Check if a grad node has GPU backward
+#[cfg(feature = "gpu")]
+pub(crate) fn has_gpu_backward(idx: usize) -> bool {
+    TAPE.with(|tape| {
+        let t = tape.borrow();
+        if idx < t.nodes.len() {
+            t.nodes[idx].gpu_backward.is_some()
+        } else {
+            false
+        }
+    })
+}
+
+/// Take GPU backward function
+#[cfg(feature = "gpu")]
+pub(crate) fn take_gpu_backward(idx: usize) -> Option<GpuBackwardFn> {
+    TAPE.with(|tape| {
+        if idx < tape.borrow().nodes.len() {
+            tape.borrow_mut().nodes[idx].gpu_backward.take()
+        } else {
+            None
+        }
+    })
+}
+
+/// Get saved GPU tensors
+#[cfg(feature = "gpu")]
+pub(crate) fn saved_gpu(idx: usize) -> Vec<GpuTensor> {
+    TAPE.with(|tape| {
+        if idx < tape.borrow().nodes.len() {
+            tape.borrow().nodes[idx].saved_gpu.clone()
+        } else {
+            vec![]
+        }
     })
 }
 

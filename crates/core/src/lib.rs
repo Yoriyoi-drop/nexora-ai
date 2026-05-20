@@ -15,7 +15,11 @@ pub mod error;
 pub mod ml_intent;
 pub mod coordination;
 pub mod async_executor;
+pub mod error_recovery;
 pub mod utils;
+
+#[cfg(test)]
+mod tests;
 
 // Re-export execution layer
 pub use execution::*;

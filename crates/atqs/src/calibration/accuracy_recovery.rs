@@ -1,7 +1,7 @@
 //! Accuracy recovery methods for compressed models
 //! Implements various techniques to restore model performance
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
+use ndarray::{Array, ArrayD};
 use std::collections::HashMap;
 use crate::types::CalibrationDataset;
 
@@ -170,9 +170,9 @@ fn apply_layerwise_finetuning(
     let mut layer_improvements = Vec::new();
     let mut current_accuracy = evaluate_model_accuracy(model, validation_data)?;
     
-    for iteration in 0..config.max_iterations {
+    for _iteration in 0..config.max_iterations {
         // Fine-tune layers sequentially
-        for (layer_idx, layer) in layers.iter().enumerate() {
+        for (layer_idx, _layer) in layers.iter().enumerate() {
             let layer_accuracy_before = evaluate_layer_accuracy(model, layer_idx, validation_data)?;
             
             // Fine-tune this layer
@@ -580,7 +580,7 @@ fn apply_uniform_quantization(
 /// Estimate activation magnitude dari weight dan calibration data
 fn estimate_activation_magnitude(
     weights: &ArrayD<f32>,
-    validation_data: &CalibrationDataset,
+    _validation_data: &CalibrationDataset,
     _layer_idx: usize,
 ) -> Result<f32, crate::ATQSError> {
     // Proxy: weight distribution spread
@@ -702,7 +702,7 @@ fn compute_layer_gradient(
     // Approximate gradient using finite differences
     let mut gradient = Array::zeros(weights.shape());
     
-    for (idx, &weight) in weights.indexed_iter() {
+    for (idx, &_weight) in weights.indexed_iter() {
         let epsilon = 1e-6;
         
         // Perturb weight

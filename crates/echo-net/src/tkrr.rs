@@ -424,7 +424,7 @@ impl TopKResonanceRouting {
     }
     
     /// Generate sparse routing context
-    fn generate_sparse_routing_context(&self, candidates: &[ResonanceCandidate], resonance_data: &[ArrayD<f32>], holographic_memory: &[ArrayD<f32>]) -> DLResult<ArrayD<f32>> {
+    fn generate_sparse_routing_context(&self, candidates: &[ResonanceCandidate], _resonance_data: &[ArrayD<f32>], _holographic_memory: &[ArrayD<f32>]) -> DLResult<ArrayD<f32>> {
         if candidates.is_empty() {
             return Err(DeepLearningError::Configuration {
                 reason: "No candidates selected for routing".to_string(),

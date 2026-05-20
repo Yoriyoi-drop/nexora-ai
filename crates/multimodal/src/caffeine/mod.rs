@@ -304,7 +304,7 @@ impl Caffeine {
         let mut sorted_decisions = routing_decisions.to_vec();
         sorted_decisions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
         
-        for (token_idx, token) in tokens {
+        for (_token_idx, token) in tokens {
             // Select expert based on token characteristics and modality
             let selected_expert = self.select_optimal_expert(token, &sorted_decisions, modality_name)?;
             expert_assignments.push(selected_expert);
@@ -374,7 +374,7 @@ impl Caffeine {
     }
     
     // Expert selection methods for different modalities
-    fn select_text_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_text_expert(&self, _token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
         // Prefer experts with high confidence for text processing
         decisions
             .iter()
@@ -384,7 +384,7 @@ impl Caffeine {
             .unwrap_or(0)
     }
     
-    fn select_image_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_image_expert(&self, _token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
         // Prefer experts specialized in visual processing
         decisions
             .iter()
@@ -394,7 +394,7 @@ impl Caffeine {
             .unwrap_or(1)
     }
     
-    fn select_audio_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_audio_expert(&self, _token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
         decisions
             .iter()
             .filter(|d| d.confidence > 0.5)
@@ -403,7 +403,7 @@ impl Caffeine {
             .unwrap_or(2)
     }
     
-    fn select_video_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_video_expert(&self, _token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
         decisions
             .iter()
             .filter(|d| d.confidence > 0.6)
@@ -412,7 +412,7 @@ impl Caffeine {
             .unwrap_or(3)
     }
     
-    fn select_action_expert(&self, token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
+    fn select_action_expert(&self, _token: &crate::caffeine::types::UnifiedToken, decisions: &[nexora_has_moe_ffn::types::RoutingDecision]) -> usize {
         decisions
             .iter()
             .filter(|d| d.confidence > 0.7)

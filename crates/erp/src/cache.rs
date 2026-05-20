@@ -3,7 +3,7 @@
 //! Implementasi dari cache-aware resonant inference untuk
 //! reuse activation patterns dan reduce recomputation.
 
-use crate::{ERPConfig, ERPError, GatePattern};
+use crate::{ERPError, GatePattern};
 use ndarray::Array1;
 use std::collections::HashMap;
 use lru::LruCache;

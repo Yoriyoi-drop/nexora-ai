@@ -1,7 +1,6 @@
 //! Configuration types for ATQS (Attention Tensor Quantum System)
 
 use serde::{Deserialize, Serialize};
-use crate::compression::SparseConfig;
 
 /// Main ATQS configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,10 +2,9 @@
 //! 
 //! Implements diversity-focused sampling to maximize solution space exploration.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::generators::{AlgorithmGenerator, AlgorithmType, StandardAlgorithmGenerator};
 use std::collections::HashSet;
-use uuid::Uuid;
 
 /// Diverse sampling strategy
 pub struct DiverseSamplingStrategy {

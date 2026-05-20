@@ -4,7 +4,6 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use tracing::Level;
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
@@ -105,7 +104,7 @@ pub fn init_logging(config: LoggingConfig) -> Result<()> {
 
 /// Simple logging utilities
 pub mod utils {
-    use super::*;
+    
     use std::time::Instant;
     
     /// Measure execution time of a function

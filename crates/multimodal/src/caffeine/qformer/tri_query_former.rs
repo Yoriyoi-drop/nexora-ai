@@ -2,7 +2,6 @@
 //! 
 //! Individual query sets for semantic, spatial, and temporal processing
 
-use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
 use ndarray::ArrayD;
 

@@ -569,7 +569,7 @@ impl ResonanceEnergyClipping {
     }
     
     /// Update energy statistics
-    fn update_energy_statistics(&mut self, original_energy: f32, clipped_energy: f32, clipping_ratio: f32) -> DLResult<()> {
+    fn update_energy_statistics(&mut self, _original_energy: f32, clipped_energy: f32, clipping_ratio: f32) -> DLResult<()> {
         self.energy_stats.current_energy = clipped_energy;
         
         // Update average energy

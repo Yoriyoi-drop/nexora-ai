@@ -34,7 +34,6 @@ pub use feedback::*;
 pub use integration::*;
 
 use nexora_core::async_executor::AsyncTaskExecutor;
-use nexora_common::error::NexoraError;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, debug, warn};
@@ -145,7 +144,7 @@ impl SACA {
     }
     
     /// Execute the complete 6-phase pipeline
-    async fn execute_pipeline(&self, task: &CodingTask, session: &SACASession) -> Result<SACASolution, SACAError> {
+    async fn execute_pipeline(&self, task: &CodingTask, _session: &SACASession) -> Result<SACASolution, SACAError> {
         let mut current_task = task.clone();
         let mut iteration = 0;
         let mut feedback_loops = 0;

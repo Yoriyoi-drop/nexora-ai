@@ -2,7 +2,7 @@
 //! 
 //! Implements sequential execution of candidates one by one.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::engine::ExecuteEngine;
 
 /// Sequential execution strategy

@@ -19,7 +19,7 @@ use nexora_deeplearning::{
 };
 use nexora_deeplearning::star_x::traits::Forward;
 use nexora_deeplearning::star_x::core::{
-    HierarchicalGating, SparseAttention, SelectiveUpdate, EpisodicMemory,
+    HierarchicalGating, SelectiveUpdate,
 };
 use ndarray::ArrayD;
 use parking_lot::RwLock as PRwLock;
@@ -420,7 +420,7 @@ impl DeepLearningEngine {
 
         match &*state {
             DeepLearningState::StarX(_) => {
-                let pipeline = self.starx_pipeline.as_ref()
+                let _pipeline = self.starx_pipeline.as_ref()
                     .ok_or_else(|| DeepLearningError::Configuration {
                         reason: "StarX pipeline not initialized".into()
                     })?;
@@ -460,7 +460,7 @@ impl DeepLearningEngine {
                 ArrayD::from_shape_vec(gradient.shape(), result_data)
                     .map_err(DeepLearningError::from)
             }
-            DeepLearningState::Hybrid { star_x, echo_net } => {
+            DeepLearningState::Hybrid { star_x, echo_net: _ } => {
                 let flat_grad = gradient.clone().into_shape(gradient.len())
                     .map_err(DeepLearningError::from)?;
                 let hidden_size = star_x.hidden_state.len();

@@ -2,7 +2,7 @@
 //! 
 //! Implements performance-focused sampling to generate high-performance candidates.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::generators::{AlgorithmGenerator, AlgorithmType, StandardAlgorithmGenerator, OptimizedAlgorithmGenerator, HybridAlgorithmGenerator};
 
 /// Performance-focused sampling strategy

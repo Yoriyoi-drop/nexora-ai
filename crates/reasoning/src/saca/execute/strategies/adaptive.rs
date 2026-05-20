@@ -2,7 +2,7 @@
 //! 
 //! Implements adaptive execution that switches between sequential and parallel based on conditions.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::engine::ExecuteEngine;
 use super::{SequentialExecutionStrategy, ParallelExecutionStrategy};
 

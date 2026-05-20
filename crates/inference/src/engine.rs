@@ -551,7 +551,10 @@ impl InferenceEngine {
                     state: self.state.clone(),
                 };
                 let task = tokio::spawn(async move {
-                    engine.process_batch(batch).await;
+                    let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
+                    if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                        error!("Batch processing panicked: {:?}", e);
+                    }
                 });
                 // Track under a synthetic batch ID
                 let bid = Uuid::new_v4();
@@ -581,7 +584,10 @@ impl InferenceEngine {
                             state: self.state.clone(),
                         };
                         let task = tokio::spawn(async move {
-                            engine.process_batch(batch).await;
+                            let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
+                            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                                error!("Batch processing panicked: {:?}", e);
+                            }
                         });
                         let bid = Uuid::new_v4();
                         self.active_requests.write().await.insert(bid, task);
@@ -598,7 +604,10 @@ impl InferenceEngine {
                             state: self.state.clone(),
                         };
                         let task = tokio::spawn(async move {
-                            engine.process_batch(batch).await;
+                            let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
+                            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                                error!("Batch processing panicked: {:?}", e);
+                            }
                         });
                         let bid = Uuid::new_v4();
                         self.active_requests.write().await.insert(bid, task);
@@ -713,13 +722,12 @@ impl InferenceEngineHandle {
             });
 
             for pos in 0..max_gen {
-                let input = if pos == 0 {
-                    all_ids.clone()
+                let logits = if pos == 0 {
+                    self.model.forward(all_ids.as_slice(), &mut kv_state)
                 } else {
-                    vec![*all_ids.last().unwrap_or(&0)]
+                    let last = vec![*all_ids.last().unwrap_or(&0)];
+                    self.model.forward(&last, &mut kv_state)
                 };
-
-                let logits = self.model.forward(&input, &mut kv_state);
 
                 let token_id = match sampler.sample(&logits.to_vec()) {
                     Ok(idx) => idx as u32,

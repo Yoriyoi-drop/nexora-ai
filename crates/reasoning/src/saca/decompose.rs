@@ -115,7 +115,7 @@ impl DecomposeEngine {
     }
     
     /// Functional decomposition approach
-    async fn functional_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn functional_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
         
         // Core logic module
@@ -250,7 +250,7 @@ impl DecomposeEngine {
     }
     
     /// Layered decomposition approach
-    async fn layered_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn layered_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
         
         // Presentation layer
@@ -335,7 +335,7 @@ impl DecomposeEngine {
     }
     
     /// Data-driven decomposition approach
-    async fn data_driven_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn data_driven_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
         
         // Data model
@@ -413,7 +413,7 @@ impl DecomposeEngine {
     }
     
     /// Pipeline decomposition approach
-    async fn pipeline_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn pipeline_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
         
         // Pipeline coordinator

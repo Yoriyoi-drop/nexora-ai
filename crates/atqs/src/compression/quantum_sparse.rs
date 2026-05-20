@@ -1,7 +1,7 @@
 //! Quantum-sparse tensorization for ATQS-Compress
 //! Combines quantum-inspired tensor networks with sparse augmentation
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
+use ndarray::{Array, ArrayD};
 use std::collections::HashMap;
 use crate::core::{
     QuantumNetwork, EntanglementMetrics, LatticeType, GlobalAttentionMap, AttentionPattern,

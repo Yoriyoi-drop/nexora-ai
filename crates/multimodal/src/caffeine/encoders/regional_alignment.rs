@@ -27,7 +27,7 @@ impl RegionalAlignment {
     pub fn extract_regional_features(
         &mut self,
         image_features: &ArrayD<f32>,
-        image_input: &ImageInput,
+        _image_input: &ImageInput,
     ) -> Result<Vec<ArrayD<f32>>> {
         let shape = image_features.shape();
         let batch_size = shape[0];
@@ -35,7 +35,7 @@ impl RegionalAlignment {
         let embed_dim = shape[2];
         
         // Calculate grid dimensions
-        let grid_size = (self.num_regions as f32).sqrt() as usize;
+        let _grid_size = (self.num_regions as f32).sqrt() as usize;
         let patches_per_region = seq_len / self.num_regions;
         
         let mut regional_features = Vec::new();

@@ -8,7 +8,6 @@ use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use anyhow::Result;
 
 /// Chain-of-Thought reasoning engine
 pub struct CoTEngine {
@@ -266,7 +265,7 @@ impl CoTEngine {
     }
     
     /// Add deep reasoning steps
-    async fn add_deep_reasoning_steps(&self, steps: &mut Vec<ReasoningStep>, task: &CodingTask) -> SACAResult<()> {
+    async fn add_deep_reasoning_steps(&self, steps: &mut Vec<ReasoningStep>, _task: &CodingTask) -> SACAResult<()> {
         // Performance considerations
         steps.push(ReasoningStep {
             step_number: steps.len() as u32 + 1,
@@ -287,7 +286,7 @@ impl CoTEngine {
     }
     
     /// Add exhaustive reasoning steps
-    async fn add_exhaustive_reasoning_steps(&self, steps: &mut Vec<ReasoningStep>, task: &CodingTask) -> SACAResult<()> {
+    async fn add_exhaustive_reasoning_steps(&self, steps: &mut Vec<ReasoningStep>, _task: &CodingTask) -> SACAResult<()> {
         // Alternative approaches
         steps.push(ReasoningStep {
             step_number: steps.len() as u32 + 1,
@@ -343,7 +342,7 @@ impl CoTEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
+    
     
     #[tokio::test]
     async fn test_cot_reasoning() {

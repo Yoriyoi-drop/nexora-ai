@@ -143,7 +143,7 @@ impl VAEEncoder {
             return Err(HLDVAError::Model("Invalid image shape".to_string()));
         }
         
-        let (height, width, channels) = (
+        let (height, width, _channels) = (
             image_shape[0],
             image_shape[1],
             image_shape[2],
@@ -500,7 +500,7 @@ impl UpsampleBlock {
 }
 
 // Re-export dependencies
-use super::dit::{Linear, LayerNorm};
+use super::dit::Linear;
 
 /// Conv2D Layer
 pub struct Conv2D {

@@ -10,7 +10,6 @@
 //! Quality Scorer: silhouette, davies-bouldin, cluster stability
 //! Cross-Level Mapper: hubungkan cluster neuron ↔ cluster layer → strategi kompresi
 
-use std::collections::HashMap;
 
 /// Unified clustering request — semua komponen pakai format ini
 #[derive(Debug, Clone)]

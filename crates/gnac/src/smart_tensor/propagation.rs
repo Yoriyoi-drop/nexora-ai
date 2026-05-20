@@ -63,7 +63,7 @@ impl ShapePropagator {
                 if input.len() != 4 {
                     return Err(crate::DeepLearningError::InvalidDimension { dim: input.len() });
                 }
-                let (n, c, h, w) = (input[0], input[1], input[2], input[3]);
+                let (n, _c, h, w) = (input[0], input[1], input[2], input[3]);
                 // stride=1, padding=same, 64 filters
                 Ok(vec![vec![n, 64, h, w]])
             }

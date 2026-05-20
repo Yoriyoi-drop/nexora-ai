@@ -490,15 +490,18 @@ impl MergeSynthAgent {
                     None => MergeOutput::default(),
                 }
             }
-            MergeStrategy::Custom(_) => inputs
-                .first()
-                .map(|i| MergeOutput {
-                    result: i.data.clone(),
-                    source: i.source.clone(),
-                    confidence: i.confidence,
-                    merged_count: 1,
-                })
-                .unwrap_or_default(),
+            MergeStrategy::Custom(_) => {
+                tracing::debug!("Custom merge strategy — applying FirstWin fallback");
+                inputs
+                    .first()
+                    .map(|i| MergeOutput {
+                        result: i.data.clone(),
+                        source: i.source.clone(),
+                        confidence: i.confidence,
+                        merged_count: 1,
+                    })
+                    .unwrap_or_default()
+            }
         }
     }
 }

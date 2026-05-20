@@ -1,10 +1,8 @@
 //! Curriculum Learning module for HLDVA-T training
 
 use crate::types::*;
-use nexora_atqs::Tensor;
 use serde::{Deserialize, Serialize};
 use super::Dataset;
-use std::cell::RefCell;
 
 /// Curriculum Learning Scheduler
 pub struct CurriculumScheduler {
@@ -65,7 +63,7 @@ impl CurriculumScheduler {
     
     /// Check if should advance to next stage
     fn should_advance_stage(&self, metrics: &TrainingMetrics) -> bool {
-        let current_difficulty = self.get_difficulty();
+        let _current_difficulty = self.get_difficulty();
         
         // Advance if performance is good enough
         metrics.loss < self.config.stage_advancement_threshold &&

@@ -1,3 +1,6 @@
+extern crate blas_src;
+extern crate openblas_src;
+
 use nexora_ai::cli::Cli;
 use tracing::{error, info};
 use clap::Parser;

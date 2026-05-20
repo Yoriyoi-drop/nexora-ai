@@ -5,10 +5,7 @@
 
 use crate::{ERPConfig, ERPError, CompressedLayer};
 use ndarray::{Array1, Array2};
-use ndarray_rand::RandomExt;
-use rand::{Rng, SeedableRng};
-use rand_distr::Standard;
-use std::collections::HashMap;
+use rand::Rng;
 
 /// Context-gated reconstructor untuk ERP inference
 pub struct ContextReconstructor {
@@ -60,7 +57,7 @@ impl ContextReconstructor {
         let context_embedding = self.compute_context_embedding(input, layer.layer_idx);
 
         // Compute gate scores untuk setiap neuron/resonance group
-        for (i, resonance_rep) in layer.resonance_representations.iter().enumerate() {
+        for (_i, resonance_rep) in layer.resonance_representations.iter().enumerate() {
             let gate_score = self.gate_network.compute_gate_score(&context_embedding, resonance_rep);
             
             // Apply sparsity constraints
@@ -169,7 +166,7 @@ impl ContextReconstructor {
         let mut embedding = Array1::zeros(64); // Fixed embedding size
         
         // Hash input ke embedding space
-        for (i, &value) in input.iter().enumerate() {
+        for (_i, &value) in input.iter().enumerate() {
             let hash_idx = (value.abs() * 1000.0) as usize % embedding.len();
             embedding[hash_idx] += value;
         }
@@ -307,7 +304,7 @@ impl GateNetwork {
         
         // Apply weight decay untuk prevent overfitting
         let weight_decay = 1e-4;
-        self.gate_weights *= (1.0 - weight_decay);
+        self.gate_weights *= 1.0 - weight_decay;
     }
     
     /// Get current gate weights

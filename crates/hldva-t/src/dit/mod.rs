@@ -63,7 +63,7 @@ impl DiTModel {
             config.hidden_dim,
         )?;
         
-        let mut parameters = HashMap::new();
+        let parameters = HashMap::new();
         
         Ok(Self {
             config: config.clone(),
@@ -84,7 +84,7 @@ impl DiTModel {
         latent: &Tensor,
         timestep: Timestep,
         clip_embedding: &ClipEmbedding,
-        guidance_scale: f32,
+        _guidance_scale: f32,
     ) -> HLDVAResult<NoisePrediction> {
         // Step 1: Patch embedding
         let patches = self.patch_embedding.embed(latent)?;

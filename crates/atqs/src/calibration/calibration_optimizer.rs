@@ -1,9 +1,7 @@
 //! Calibration optimizer for ATQS-Compress
 //! Optimizes calibration parameters and schedules
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
+use ndarray::{Array, ArrayD};
 use std::collections::HashMap;
 use crate::types::{CalibrationDataset, CalibrationBatch};
 
@@ -89,7 +87,7 @@ pub fn optimize_calibration(
         let outputs = forward_pass_batch(model, &batch.inputs)?;
         
         // Compute loss
-        let loss = compute_batch_loss(&outputs, &batch.targets)?;
+        let _loss = compute_batch_loss(&outputs, &batch.targets)?;
         
         // Backward pass
         let gradients = compute_gradients(model, &batch)?;
@@ -275,7 +273,7 @@ fn compute_gradients(
     let mut gradients = HashMap::new();
     let layers = model.get_layers();
     
-    for (layer_idx, layer) in layers.iter().enumerate() {
+    for (layer_idx, _layer) in layers.iter().enumerate() {
         let layer_gradients = compute_layer_gradients(model, layer_idx, batch)?;
         
         for (param_name, gradient) in layer_gradients {
@@ -330,7 +328,7 @@ fn compute_weight_gradients(
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
     
     // Compute gradients for each weight
-    for (idx, &weight) in weights.indexed_iter() {
+    for (idx, &_weight) in weights.indexed_iter() {
         
         // Perturb weight
         let mut perturbed_weights = weights.clone();
@@ -364,7 +362,7 @@ fn compute_bias_gradients(
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
     
     // Compute gradients for each bias
-    for (idx, &bias) in biases.indexed_iter() {
+    for (idx, &_bias) in biases.indexed_iter() {
         
         // Perturb bias
         let mut perturbed_biases = biases.clone();
@@ -464,7 +462,7 @@ fn evaluate_validation_loss(
 fn update_validation_metrics(
     state: &mut OptimizationState,
     val_loss: f32,
-    config: &CalibrationOptimizerConfig,
+    _config: &CalibrationOptimizerConfig,
 ) -> Result<(), crate::ATQSError> {
     state.convergence_metrics.validation_scores.push(val_loss);
     
@@ -562,7 +560,26 @@ fn update_layer_biases(
     layer_idx: usize,
     biases: &ArrayD<f32>,
 ) -> Result<(), crate::ATQSError> {
-    // Simplified - would need actual implementation
+    let layers = model.get_layers();
+    if layer_idx >= layers.len() {
+        return Ok(());
+    }
+
+    let layer = &layers[layer_idx];
+    let weights = layer.get_weights();
+    let weight_rows = weights.shape()[0];
+    let bias_size = biases.shape().iter().product::<usize>();
+
+    // Biases are stored as the second half of weights (simplified layout)
+    if bias_size <= weight_rows {
+        let mut updated = weights.to_owned();
+        let bias_start = weight_rows - bias_size;
+        for i in 0..bias_size {
+            updated[bias_start + i] = biases[i];
+        }
+        model.update_layer_weights(layer_idx, updated)?;
+    }
+
     Ok(())
 }
 
@@ -814,7 +831,9 @@ impl CalibrationOptimizer for AdaGradOptimizer {
         gradient: &ArrayD<f32>,
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError> {
-        let param_key = format!("{}_{}_{}", layer_idx, param_type, state.step);
+        // BUGFIX: Key tidak boleh include `state.step` karena step berubah setiap iterasi,
+        // menyebabkan accumulated gradients tidak pernah ditemukan kembali (always re-initialized).
+        let param_key = format!("{}_{}", layer_idx, param_type);
         
         // Get or initialize accumulated gradients
         let accumulated = self.accumulated_gradients.entry(param_key.clone())
@@ -923,12 +942,24 @@ impl CalibrationOptimizer for RMSPropOptimizer {
 
 struct LAMBOptimizer {
     _config: CalibrationOptimizerConfig,
+    m: HashMap<String, ArrayD<f32>>,
+    v: HashMap<String, ArrayD<f32>>,
+    beta1: f32,
+    beta2: f32,
+    epsilon: f32,
+    t: usize,
 }
 
 impl LAMBOptimizer {
     fn new(config: &CalibrationOptimizerConfig) -> Self {
         Self {
             _config: config.clone(),
+            m: HashMap::new(),
+            v: HashMap::new(),
+            beta1: 0.9,
+            beta2: 0.999,
+            epsilon: 1e-6,
+            t: 0,
         }
     }
 }
@@ -942,9 +973,42 @@ impl CalibrationOptimizer for LAMBOptimizer {
         gradient: &ArrayD<f32>,
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError> {
-        // Simplified LAMB update
-        let update = gradient.mapv(|g| -state.learning_rate * g);
+        let param_key = format!("layer_{}_{}", layer_idx, param_type);
+
+        // Initialize moments if needed
+        if !self.m.contains_key(&param_key) {
+            self.m.insert(param_key.clone(), Array::zeros(gradient.shape()));
+            self.v.insert(param_key.clone(), Array::zeros(gradient.shape()));
+        }
+
+        let m = self.m.get_mut(&param_key).ok_or_else(|| {
+            crate::ATQSError::InvalidInput(format!("m not found for {}", param_key))
+        })?;
+        let v = self.v.get_mut(&param_key).ok_or_else(|| {
+            crate::ATQSError::InvalidInput(format!("v not found for {}", param_key))
+        })?;
+
+        // Adam moments
+        *m = m.mapv(|x| self.beta1 * x) + gradient.mapv(|x| (1.0 - self.beta1) * x);
+        *v = v.mapv(|x| self.beta2 * x) + gradient.mapv(|x| (1.0 - self.beta2) * x * x);
+
+        let m_hat = m.mapv(|x| x / (1.0 - self.beta1.powi(self.t as i32 + 1)));
+        let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32 + 1)));
+
+        // Adam update
+        let adam_update = m_hat.mapv(|x| x * state.learning_rate)
+            / v_hat.mapv(|x| x.sqrt() + self.epsilon);
+
+        // LAMB trust ratio: layer-wise normalization
+        let adam_norm = adam_update.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon;
+        let weight_norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon;
+        let trust_ratio = weight_norm / adam_norm;
+
+        let update = adam_update.mapv(|x| x * trust_ratio);
+
         apply_parameter_update(model, layer_idx, param_type, &update)?;
+
+        self.t += 1;
         Ok(())
     }
 }

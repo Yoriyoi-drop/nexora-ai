@@ -5,9 +5,7 @@
 
 use crate::{ERPConfig, ERPError, CompressedLayer};
 use ndarray::{Array1, Array2};
-use ndarray_rand::RandomExt;
-use rand::{Rng, SeedableRng};
-use rand_distr::Standard;
+use rand::Rng;
 use std::collections::HashMap;
 use std::time::Instant;
 

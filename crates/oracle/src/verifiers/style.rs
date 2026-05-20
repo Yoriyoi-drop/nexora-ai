@@ -3,7 +3,6 @@
 //! Implements style verification for code formatting and best practices.
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use regex::Regex;
 

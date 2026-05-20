@@ -58,7 +58,7 @@ impl NoiseGenerator {
             }
             NoisePattern::Stripes => {
                 let (h, w) = if shape.len() >= 3 { (shape[1], shape[2]) } else { (shape[0], 1) };
-                for y in 0..h {
+                for _y in 0..h {
                     for x in 0..w {
                         let value = if x % 4 < 2 { 1.0 } else { -1.0 };
                         noise_data.push(value);

@@ -4,9 +4,7 @@
 //! terinspirasi oleh Prospect Theory dari Kahneman & Tversky.
 
 use anyhow::Result;
-use ndarray::Array1;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::core::{PolicyModel, ReasoningTrace, JudgeFeedback, FeedbackType};
@@ -72,9 +70,9 @@ impl ProspectTheoryCalculator {
     /// Hitung probability weighting function
     pub fn probability_weighting(&self, p: f32) -> f32 {
         let p_clamped = p.clamp(0.001, 0.999); // Avoid extreme values
-        (p_clamped.powf(self.config.probability_weighting) / 
+        p_clamped.powf(self.config.probability_weighting) / 
          (p_clamped.powf(self.config.probability_weighting) + 
-          (1.0 - p_clamped).powf(self.config.probability_weighting)).powf(1.0 / self.config.probability_weighting))
+          (1.0 - p_clamped).powf(self.config.probability_weighting)).powf(1.0 / self.config.probability_weighting)
     }
     
     /// Hitung prospect value
@@ -274,13 +272,13 @@ pub mod utils {
     
     /// Convert feedback ke independent labels
     pub fn feedback_to_labels(
-        traces: &[ReasoningTrace],
+        _traces: &[ReasoningTrace],
         feedback: &[JudgeFeedback],
     ) -> Result<Vec<IndependentLabel>> {
         let mut labels = Vec::new();
         
         for fb in feedback {
-            if let FeedbackType::Independent { step_id, is_good, confidence } = &fb.feedback_type {
+            if let FeedbackType::Independent { step_id: _, is_good, confidence } = &fb.feedback_type {
                 // Simplified implementation
                 let label = IndependentLabel {
                     id: Uuid::new_v4(),

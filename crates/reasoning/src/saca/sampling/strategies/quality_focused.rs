@@ -2,7 +2,7 @@
 //! 
 //! Implements quality-focused sampling to generate high-quality candidates.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::generators::{AlgorithmGenerator, AlgorithmType, StandardAlgorithmGenerator, OptimizedAlgorithmGenerator};
 
 /// Quality-focused sampling strategy
@@ -38,7 +38,7 @@ impl QualityFocusedSamplingStrategy {
         ];
         
         // Generate candidates with quality focus
-        for (i, algorithm_type) in quality_algorithm_types.iter().enumerate() {
+        for (_i, algorithm_type) in quality_algorithm_types.iter().enumerate() {
             if candidates.len() >= num_candidates as usize {
                 break;
             }

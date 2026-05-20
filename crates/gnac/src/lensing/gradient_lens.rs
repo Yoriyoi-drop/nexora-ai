@@ -16,12 +16,12 @@ impl NeuralLens for GradientFailureLens {
 
         for edge in graph.edges.values() {
             match edge.gradient {
-                GradientStatus::Exploding(norm) => {
+                GradientStatus::Exploding(_norm) => {
                     critical_nodes.push(edge.source_node);
                     critical_nodes.push(edge.target_node);
                     critical_edges.push(edge.id);
                 }
-                GradientStatus::Vanishing(norm) => {
+                GradientStatus::Vanishing(_norm) => {
                     warning_nodes.push(edge.source_node);
                     warning_nodes.push(edge.target_node);
                 }

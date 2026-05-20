@@ -1,9 +1,7 @@
 //! Sparse augmentation for tensor decomposition
 //! Implements low-rank + sparse decomposition methods
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
+use ndarray::{Array, ArrayD, ArrayView};
 use std::collections::HashMap;
 
 /// Sparse augmentation configuration
@@ -146,7 +144,7 @@ pub fn optimize_sparse_augmentation(
     let mut best_result = None;
     let mut best_error = f32::INFINITY;
     
-    for iteration in 0..max_iterations {
+    for _iteration in 0..max_iterations {
         // Apply sparse augmentation
         let result = apply_sparse_augmentation(original_tensor, &current_low_rank, config)?;
         

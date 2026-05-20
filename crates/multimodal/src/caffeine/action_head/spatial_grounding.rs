@@ -5,7 +5,6 @@
 use crate::caffeine::types::*;
 use crate::caffeine::config::BBoxFormat as ConfigBBoxFormat;
 use crate::caffeine::error::Result;
-use ndarray::ArrayD;
 
 /// Spatial grounding module
 pub struct SpatialGroundingModule {
@@ -149,7 +148,7 @@ impl SpatialGroundingModule {
     }
     
     /// Generate label from tokens
-    fn generate_label_from_tokens(&self, bbox: &BoundingBox, tokens: &[UnifiedToken]) -> Result<String> {
+    fn generate_label_from_tokens(&self, _bbox: &BoundingBox, tokens: &[UnifiedToken]) -> Result<String> {
         // Find most relevant tokens for this bbox
         let mut relevant_tokens = Vec::new();
         

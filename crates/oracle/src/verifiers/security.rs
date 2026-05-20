@@ -3,7 +3,6 @@
 //! Implements security verification for code vulnerabilities and threats.
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use regex::Regex;
 

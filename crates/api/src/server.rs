@@ -97,8 +97,21 @@ impl ApiServer {
         
         // Add CORS if enabled
         if config.enable_cors {
-            let cors = CorsLayer::new()
-                .allow_origin(Any)
+            let cors = if config.cors_origins.is_empty() {
+                warn!("CORS enabled with no allowed origins — requests from all origins blocked. Set cors_origins in config.");
+                CorsLayer::new()
+                    .allow_origin(tower_http::cors::AllowOrigin::predicate(|origin: &axum::http::HeaderValue, _| {
+                        let origin_str = origin.to_str().unwrap_or("");
+                        origin_str == "http://localhost:3000" || origin_str == "http://localhost:8080"
+                    }))
+            } else {
+                let origins: Vec<String> = config.cors_origins.clone();
+                CorsLayer::new()
+                    .allow_origin(tower_http::cors::AllowOrigin::predicate(move |origin: &axum::http::HeaderValue, _| {
+                        let origin_str = origin.to_str().unwrap_or("");
+                        origins.iter().any(|o| o == origin_str)
+                    }))
+            }
                 .allow_methods([
                     axum::http::Method::GET,
                     axum::http::Method::POST,

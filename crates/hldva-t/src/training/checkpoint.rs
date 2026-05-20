@@ -171,7 +171,7 @@ impl CheckpointManager {
     }
     
     /// Export checkpoint to different format
-    pub fn export_checkpoint(&self, checkpoint: &TrainingCheckpoint, format: ExportFormat) -> HLDVAResult<()> {
+    pub fn export_checkpoint(&self, _checkpoint: &TrainingCheckpoint, format: ExportFormat) -> HLDVAResult<()> {
         match format {
             ExportFormat::PyTorch => {
                 println!("Exporting checkpoint to PyTorch format");

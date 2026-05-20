@@ -126,7 +126,7 @@ impl TimeEmbedding {
         // Sinusoidal positional encoding
         let mut encoding = Vec::with_capacity(self.hidden_dim);
         
-        for (i, &freq) in self.frequencies.iter().enumerate() {
+        for (_i, &freq) in self.frequencies.iter().enumerate() {
             encoding.push((t * freq).sin());
             encoding.push((t * freq).cos());
         }
@@ -232,7 +232,7 @@ impl PositionEmbedding {
         let y_f = y as f32;
         
         // Alternate between x and y encoding
-        for (i, &freq) in self.frequencies.iter().enumerate() {
+        for (_i, &freq) in self.frequencies.iter().enumerate() {
             // X position encoding
             encoding.push((x_f * freq).sin());
             encoding.push((x_f * freq).cos());

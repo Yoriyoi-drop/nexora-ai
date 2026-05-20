@@ -3,7 +3,7 @@
 //! Implementasi consistency learning yang memaksa model menghasilkan prediksi
 //! mirip untuk data asli dan augmentasi, menciptakan "virtual dataset expansion".
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2, s};
+use ndarray::{Array1, Array2, ArrayView1, s};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -395,7 +395,7 @@ impl PseudoLabelConsistency {
         &self,
         pseudo_labels: &Array2<f32>,
         augmented_data: &[Array2<f32>],
-        step: usize,
+        _step: usize,
     ) -> f32 {
         // Implementasi consistency dengan pseudo-labels
         // Compute consistency loss between original predictions and pseudo-labels
@@ -509,7 +509,7 @@ impl TemporalConsistency {
         &mut self,
         current_predictions: &Array2<f32>,
         prediction_history: &[Array2<f32>],
-        step: usize,
+        _step: usize,
     ) -> f32 {
         if prediction_history.is_empty() {
             return 0.0;

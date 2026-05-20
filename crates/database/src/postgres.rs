@@ -203,8 +203,21 @@ impl PostgreSQLDatabase {
             credentials.build_connection_string_safe()
         );
 
-        let config: Config = connection_string.parse()?;
-        let (client, connection) = config.connect(NoTls).await?;
+        let mut config: Config = connection_string.parse()?;
+
+        #[cfg(feature = "tls")]
+        let tls = {
+            use rustls::pki_types::CertificateDer;
+            tokio_postgres_rustls::MakeRustlsConnect::new(
+                rustls::ClientConfig::builder()
+                    .with_native_roots()?
+                    .with_no_client_auth(),
+            )
+        };
+        #[cfg(not(feature = "tls"))]
+        let tls = NoTls;
+
+        let (client, connection) = config.connect(tls).await?;
 
         // Spawn the connection task
         tokio::spawn(async move {
@@ -801,8 +814,21 @@ impl PostgreSQLConnection {
             credentials.build_connection_string_safe()
         );
 
-        let config: Config = connection_string.parse()?;
-        let (client, connection) = config.connect(NoTls).await?;
+        let mut config: Config = connection_string.parse()?;
+
+        #[cfg(feature = "tls")]
+        let tls = {
+            use rustls::pki_types::CertificateDer;
+            tokio_postgres_rustls::MakeRustlsConnect::new(
+                rustls::ClientConfig::builder()
+                    .with_native_roots()?
+                    .with_no_client_auth(),
+            )
+        };
+        #[cfg(not(feature = "tls"))]
+        let tls = NoTls;
+
+        let (client, connection) = config.connect(tls).await?;
 
         // Spawn the connection task
         tokio::spawn(async move {
@@ -848,10 +874,13 @@ impl PostgreSQLConnection {
     }
 
     /// Execute a query on this connection
+    ///
+    /// Uses parameterized query to prevent SQL injection.
+    /// Each `$N` placeholder in the query is bound to the corresponding value in `params`.
     pub async fn execute_query(
         &self,
         query: &str,
-        _params: Vec<crate::Value>,
+        params: Vec<crate::Value>,
     ) -> Result<crate::QueryResult> {
         if !self.is_active {
             return Err(anyhow::anyhow!("Connection is not active"));
@@ -861,7 +890,23 @@ impl PostgreSQLConnection {
 
         if let Some(client) = &self.client {
             let statement = client.prepare(query).await?;
-            let rows = client.query(&statement, &[]).await?;
+
+            // Convert params with proper NULL handling for parameterized execution
+            let string_params: Vec<Option<String>> = params.iter().map(|v| match v {
+                crate::Value::Null => None,
+                crate::Value::Bool(b) => Some(b.to_string()),
+                crate::Value::I32(i) => Some(i.to_string()),
+                crate::Value::I64(i) => Some(i.to_string()),
+                crate::Value::F32(f) => Some(f.to_string()),
+                crate::Value::F64(f) => Some(f.to_string()),
+                crate::Value::String(s) => Some(s.clone()),
+                crate::Value::Bytes(b) => Some(String::from_utf8_lossy(b).to_string()),
+                crate::Value::Json(j) => Some(j.to_string()),
+                crate::Value::Timestamp(t) => Some(format!("{:?}", t)),
+            }).collect();
+            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+                string_params.iter().map(|s| s as &(dyn ToSql + Sync)).collect();
+            let rows = client.query(&statement, &param_refs).await?;
 
             // Convert rows to our format
             let mut result_rows = Vec::new();

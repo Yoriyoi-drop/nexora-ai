@@ -8,10 +8,7 @@
 
 use crate::{ERPConfig, ERPError, ERPEngine, CompressedLayer};
 use ndarray::{Array1, Array2};
-use ndarray_rand::RandomExt;
-use rand::{Rng, SeedableRng};
-use rand_distr::Standard;
-use std::collections::HashMap;
+use rand::Rng;
 
 /// ERP training manager
 pub struct ERPTrainer {
@@ -222,13 +219,13 @@ impl ERPTrainer {
     }
 
     /// Update gate weights dari reconstructor (workaround untuk visibility)
-    fn update_gate_weights_from_reconstructor(&self, reconstructor: &mut crate::reconstruction::ContextReconstructor, gradient: &Array2<f32>, learning_rate: f32) -> Result<(), ERPError> {
+    fn update_gate_weights_from_reconstructor(&self, _reconstructor: &mut crate::reconstruction::ContextReconstructor, gradient: &Array2<f32>, learning_rate: f32) -> Result<(), ERPError> {
         // Create a temporary gate network dengan weights dari reconstructor
         let mut temp_gate_network = crate::reconstruction::GateNetwork::new(self.config.clone());
         
         // Copy current weights dari reconstructor (dalam implementasi nyata, gunakan proper accessor)
         let current_weights = temp_gate_network.get_weights();
-        let weight_shape = current_weights.shape();
+        let _weight_shape = current_weights.shape();
         
         // Update dengan gradient
         temp_gate_network.update_weights(gradient, learning_rate);
@@ -285,7 +282,7 @@ impl ERPTrainer {
                 
                 // Compute loss
                 let error = total_output - target;
-                let loss = error.iter().map(|x| x * x).sum::<f32>() / output_dim as f32;
+                let _loss = error.iter().map(|x| x * x).sum::<f32>() / output_dim as f32;
                 
                 // Backpropagation untuk LoRA matrices
                 let lora_grad_b = error.to_owned().insert_axis(ndarray::Axis(1)).dot(&lora_a.dot(input).insert_axis(ndarray::Axis(0)).t());

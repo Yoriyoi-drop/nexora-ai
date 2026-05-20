@@ -1,7 +1,5 @@
 //! Training Scheduler module for HLDVA-T
 
-use crate::types::*;
-use nexora_atqs::Tensor;
 
 /// Training Scheduler
 pub struct TrainingScheduler {
@@ -60,7 +58,7 @@ impl TrainingScheduler {
                 eta_min + (self.config.initial_lr - eta_min) * 
                     (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
             }
-            LRSchedulerType::Warmup { warmup_steps, scheduler } => {
+            LRSchedulerType::Warmup { warmup_steps, scheduler: _ } => {
                 if self.current_step < *warmup_steps {
                     self.config.initial_lr * (self.current_step as f32 / *warmup_steps as f32)
                 } else {
@@ -169,7 +167,7 @@ impl BatchScheduler {
         
         // Adjust batch size based on memory usage and performance
         if memory_usage < self.memory_threshold && self.performance_window.len() >= 5 {
-            let avg_throughput = self.performance_window.iter().sum::<f32>() / self.performance_window.len() as f32;
+            let _avg_throughput = self.performance_window.iter().sum::<f32>() / self.performance_window.len() as f32;
             
             // Try to increase batch size if performance is improving
             if self.current_batch_size < self.max_batch_size {

@@ -243,7 +243,7 @@ impl SemanticSpectralEmbedding {
         });
         
         // Zero out amplitude for filtered frequencies
-        for ((idx, &freq), amp) in wave.frequency.indexed_iter().zip(wave.amplitude.iter_mut()) {
+        for ((_idx, &freq), amp) in wave.frequency.indexed_iter().zip(wave.amplitude.iter_mut()) {
             if freq < min_freq || freq > max_freq {
                 *amp = 0.0;
             }
@@ -326,7 +326,7 @@ impl SemanticSpectralEmbedding {
     
     /// Set parameters from Tensors
     pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
-        let names = ["embedding", "amp_w", "phase_w", "freq_w"];
+        let _names = ["embedding", "amp_w", "phase_w", "freq_w"];
         for (i, t) in tensors.iter().enumerate() {
             let d = t.data();
             match i {

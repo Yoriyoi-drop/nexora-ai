@@ -99,7 +99,7 @@ impl ResonanceClusterer {
     }
 
     /// Compute modularity gain untuk memindahkan node ke community
-    fn compute_modularity_gain(&self, node: usize, community: usize, communities: &[usize], graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature], resolution: f32) -> f32 {
+    fn compute_modularity_gain(&self, node: usize, community: usize, communities: &[usize], graph: &ResonanceGraph, _signatures: &[crate::core::NeuronSignature], resolution: f32) -> f32 {
         let mut intra_community_weight = 0.0;
         let mut total_community_weight = 0.0;
         let mut node_weight = 0.0;
@@ -115,7 +115,7 @@ impl ResonanceClusterer {
         // Hitung total weight untuk community
         for i in 0..communities.len() {
             if communities[i] == community {
-                for &(neighbor, weight) in &graph.adjacency[i] {
+                for &(_neighbor, weight) in &graph.adjacency[i] {
                     total_community_weight += weight;
                 }
             }
@@ -446,7 +446,7 @@ impl ResonanceClusterer {
     }
 
     /// Merge small group dengan nearest group
-    fn merge_small_group(&self, small_group: &mut ResonanceGroup, groups: &mut Vec<ResonanceGroup>, signatures: &[crate::core::NeuronSignature], min_size: usize, max_size: usize) {
+    fn merge_small_group(&self, small_group: &mut ResonanceGroup, groups: &mut Vec<ResonanceGroup>, signatures: &[crate::core::NeuronSignature], _min_size: usize, max_size: usize) {
         if groups.is_empty() {
             return;
         }
@@ -503,7 +503,7 @@ impl ResonanceClusterer {
         }
 
         let mut groups = Vec::new();
-        for (community, neurons) in community_map {
+        for (_community, neurons) in community_map {
             if neurons.len() > 1 && neurons.len() <= self.config.max_group_size {
                 let importance_scores = neurons.iter()
                     .map(|&idx| signatures[idx].fisher_info + signatures[idx].gradient_norm)

@@ -6,6 +6,40 @@ use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use nexora_shared::model_config::NxrModelConfig;
 
+/// Macro to generate simple getter/setter pairs for nested config fields.
+macro_rules! define_accessors {
+    ($sub:ident, $get_doc:expr, $set_doc:expr, $field:ident, $ty:ty, copy $getter:ident, $setter:ident) => {
+        #[doc = $get_doc]
+        pub fn $getter(&self) -> $ty {
+            self.$sub.$field
+        }
+        #[doc = $set_doc]
+        pub fn $setter(&mut self, val: $ty) {
+            self.$sub.$field = val;
+        }
+    };
+    ($sub:ident, $get_doc:expr, $set_doc:expr, $field:ident, $ty:ty, ref $getter:ident, $setter:ident) => {
+        #[doc = $get_doc]
+        pub fn $getter(&self) -> &$ty {
+            &self.$sub.$field
+        }
+        #[doc = $set_doc]
+        pub fn $setter(&mut self, val: $ty) {
+            self.$sub.$field = val;
+        }
+    };
+    ($sub:ident, $is_doc:expr, $set_doc:expr, $field:ident, is $getter:ident, $setter:ident) => {
+        #[doc = $is_doc]
+        pub fn $getter(&self) -> bool {
+            self.$sub.$field
+        }
+        #[doc = $set_doc]
+        pub fn $setter(&mut self, val: bool) {
+            self.$sub.$field = val;
+        }
+    };
+}
+
 /// NXR-NEXUM Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NexumConfig {
@@ -565,164 +599,27 @@ impl NexumConfig {
     }
 
     /// Get orchestration mode
-    pub fn get_orchestration_mode(&self) -> &OrchestrationMode {
-        &self.orchestration.orchestration_mode
-    }
-
-    /// Set orchestration mode
-    pub fn set_orchestration_mode(&mut self, mode: OrchestrationMode) {
-        self.orchestration.orchestration_mode = mode;
-    }
-
-    /// Get agent coordination strategy
-    pub fn get_agent_coordination_strategy(&self) -> &AgentCoordinationStrategy {
-        &self.orchestration.agent_coordination_strategy
-    }
-
-    /// Set agent coordination strategy
-    pub fn set_agent_coordination_strategy(&mut self, strategy: AgentCoordinationStrategy) {
-        self.orchestration.agent_coordination_strategy = strategy;
-    }
-
-    /// Get task distribution method
-    pub fn get_task_distribution_method(&self) -> &TaskDistributionMethod {
-        &self.orchestration.task_distribution_method
-    }
-
-    /// Set task distribution method
-    pub fn set_task_distribution_method(&mut self, method: TaskDistributionMethod) {
-        self.orchestration.task_distribution_method = method;
-    }
-
-    /// Get communication protocol
-    pub fn get_communication_protocol(&self) -> &CommunicationProtocol {
-        &self.orchestration.communication_protocol
-    }
-
-    /// Set communication protocol
-    pub fn set_communication_protocol(&mut self, protocol: CommunicationProtocol) {
-        self.orchestration.communication_protocol = protocol;
-    }
-
-    /// Get scalability level
-    pub fn get_scalability_level(&self) -> &ScalabilityLevel {
-        &self.orchestration.scalability_level
-    }
-
-    /// Set scalability level
-    pub fn set_scalability_level(&mut self, level: ScalabilityLevel) {
-        self.orchestration.scalability_level = level;
-    }
-
-    /// Get fault tolerance
-    pub fn get_fault_tolerance(&self) -> &FaultTolerance {
-        &self.orchestration.fault_tolerance
-    }
-
-    /// Set fault tolerance
-    pub fn set_fault_tolerance(&mut self, tolerance: FaultTolerance) {
-        self.orchestration.fault_tolerance = tolerance;
-    }
-
-    /// Get consensus algorithm
-    pub fn get_consensus_algorithm(&self) -> &ConsensusAlgorithm {
-        &self.consensus.consensus_algorithm
-    }
-
-    /// Set consensus algorithm
-    pub fn set_consensus_algorithm(&mut self, algorithm: ConsensusAlgorithm) {
-        self.consensus.consensus_algorithm = algorithm;
-    }
-
-    /// Get consensus threshold
-    pub fn get_consensus_threshold(&self) -> f32 {
-        self.consensus.consensus_threshold
-    }
-
-    /// Set consensus threshold
-    pub fn set_consensus_threshold(&mut self, threshold: f32) {
-        self.consensus.consensus_threshold = threshold;
-    }
-
-    /// Get voting mechanism
-    pub fn get_voting_mechanism(&self) -> &VotingMechanism {
-        &self.consensus.voting_mechanism
-    }
-
-    /// Set voting mechanism
-    pub fn set_voting_mechanism(&mut self, mechanism: VotingMechanism) {
-        self.consensus.voting_mechanism = mechanism;
-    }
-
-    /// Get consensus timeout
-    pub fn get_consensus_timeout(&self) -> u64 {
-        self.consensus.consensus_timeout_ms
-    }
-
-    /// Set consensus timeout
-    pub fn set_consensus_timeout(&mut self, timeout_ms: u64) {
-        self.consensus.consensus_timeout_ms = timeout_ms;
-    }
-
-    /// Is consensus optimization enabled
-    pub fn is_consensus_optimization_enabled(&self) -> bool {
-        self.consensus.enable_consensus_optimization
-    }
-
-    /// Set consensus optimization
-    pub fn set_consensus_optimization(&mut self, enabled: bool) {
-        self.consensus.enable_consensus_optimization = enabled;
-    }
-
-    /// Get conflict resolution strategy
-    pub fn get_conflict_resolution_strategy(&self) -> &ConflictResolutionStrategy {
-        &self.conflict_resolution.resolution_strategy
-    }
-
-    /// Set conflict resolution strategy
-    pub fn set_conflict_resolution_strategy(&mut self, strategy: ConflictResolutionStrategy) {
-        self.conflict_resolution.resolution_strategy = strategy;
-    }
-
-    /// Get conflict detection sensitivity
-    pub fn get_conflict_detection_sensitivity(&self) -> f32 {
-        self.conflict_resolution.conflict_detection_sensitivity
-    }
-
-    /// Set conflict detection sensitivity
-    pub fn set_conflict_detection_sensitivity(&mut self, sensitivity: f32) {
-        self.conflict_resolution.conflict_detection_sensitivity = sensitivity;
-    }
-
-    /// Get resolution timeout
-    pub fn get_resolution_timeout(&self) -> u64 {
-        self.conflict_resolution.resolution_timeout_ms
-    }
-
-    /// Set resolution timeout
-    pub fn set_resolution_timeout(&mut self, timeout_ms: u64) {
-        self.conflict_resolution.resolution_timeout_ms = timeout_ms;
-    }
-
-    /// Get escalation threshold
-    pub fn get_escalation_threshold(&self) -> f32 {
-        self.conflict_resolution.escalation_threshold
-    }
-
-    /// Set escalation threshold
-    pub fn set_escalation_threshold(&mut self, threshold: f32) {
-        self.conflict_resolution.escalation_threshold = threshold;
-    }
-
-    /// Is automated resolution enabled
-    pub fn is_automated_resolution_enabled(&self) -> bool {
-        self.conflict_resolution.enable_automated_resolution
-    }
-
-    /// Set automated resolution
-    pub fn set_automated_resolution(&mut self, enabled: bool) {
-        self.conflict_resolution.enable_automated_resolution = enabled;
-    }
+    define_accessors!(orchestration, "Get orchestration mode", "Set orchestration mode", orchestration_mode, OrchestrationMode, ref get_orchestration_mode, set_orchestration_mode);
+    define_accessors!(orchestration, "Get agent coordination strategy", "Set agent coordination strategy", agent_coordination_strategy, AgentCoordinationStrategy, ref get_agent_coordination_strategy, set_agent_coordination_strategy);
+    define_accessors!(orchestration, "Get task distribution method", "Set task distribution method", task_distribution_method, TaskDistributionMethod, ref get_task_distribution_method, set_task_distribution_method);
+    define_accessors!(orchestration, "Get communication protocol", "Set communication protocol", communication_protocol, CommunicationProtocol, ref get_communication_protocol, set_communication_protocol);
+    define_accessors!(orchestration, "Get scalability level", "Set scalability level", scalability_level, ScalabilityLevel, ref get_scalability_level, set_scalability_level);
+    define_accessors!(orchestration, "Get fault tolerance", "Set fault tolerance", fault_tolerance, FaultTolerance, ref get_fault_tolerance, set_fault_tolerance);
+    define_accessors!(consensus, "Get consensus algorithm", "Set consensus algorithm", consensus_algorithm, ConsensusAlgorithm, ref get_consensus_algorithm, set_consensus_algorithm);
+    define_accessors!(consensus, "Get consensus threshold", "Set consensus threshold", consensus_threshold, f32, copy get_consensus_threshold, set_consensus_threshold);
+    define_accessors!(consensus, "Get voting mechanism", "Set voting mechanism", voting_mechanism, VotingMechanism, ref get_voting_mechanism, set_voting_mechanism);
+    define_accessors!(consensus, "Get consensus timeout", "Set consensus timeout", consensus_timeout_ms, u64, copy get_consensus_timeout, set_consensus_timeout);
+    define_accessors!(consensus, "Is consensus optimization enabled", "Set consensus optimization", enable_consensus_optimization, is is_consensus_optimization_enabled, set_consensus_optimization);
+    define_accessors!(conflict_resolution, "Get conflict resolution strategy", "Set conflict resolution strategy", resolution_strategy, ConflictResolutionStrategy, ref get_conflict_resolution_strategy, set_conflict_resolution_strategy);
+    define_accessors!(conflict_resolution, "Get conflict detection sensitivity", "Set conflict detection sensitivity", conflict_detection_sensitivity, f32, copy get_conflict_detection_sensitivity, set_conflict_detection_sensitivity);
+    define_accessors!(conflict_resolution, "Get resolution timeout", "Set resolution timeout", resolution_timeout_ms, u64, copy get_resolution_timeout, set_resolution_timeout);
+    define_accessors!(conflict_resolution, "Get escalation threshold", "Set escalation threshold", escalation_threshold, f32, copy get_escalation_threshold, set_escalation_threshold);
+    define_accessors!(conflict_resolution, "Is automated resolution enabled", "Set automated resolution", enable_automated_resolution, is is_automated_resolution_enabled, set_automated_resolution);
+    define_accessors!(resource_allocation, "Get allocation strategy", "Set allocation strategy", allocation_strategy, AllocationStrategy, ref get_allocation_strategy, set_allocation_strategy);
+    define_accessors!(resource_allocation, "Get optimization algorithm", "Set optimization algorithm", optimization_algorithm, OptimizationAlgorithm, ref get_optimization_algorithm, set_optimization_algorithm);
+    define_accessors!(resource_allocation, "Get fairness metric", "Set fairness metric", fairness_metric, FairnessMetric, ref get_fairness_metric, set_fairness_metric);
+    define_accessors!(resource_allocation, "Is dynamic allocation enabled", "Set dynamic allocation", enable_dynamic_allocation, is is_dynamic_allocation_enabled, set_dynamic_allocation);
+    define_accessors!(resource_allocation, "Get resource constraints", "Set resource constraints", resource_constraints, Vec<ResourceConstraint>, ref get_resource_constraints, set_resource_constraints);
 
     /// Get resolution methods
     pub fn get_resolution_methods(&self) -> Vec<String> {
@@ -743,16 +640,6 @@ impl NexumConfig {
         self.conflict_resolution.resolution_methods.len() < original_len
     }
 
-    /// Get allocation strategy
-    pub fn get_allocation_strategy(&self) -> &AllocationStrategy {
-        &self.resource_allocation.allocation_strategy
-    }
-
-    /// Set allocation strategy
-    pub fn set_allocation_strategy(&mut self, strategy: AllocationStrategy) {
-        self.resource_allocation.allocation_strategy = strategy;
-    }
-
     /// Get resource types
     pub fn get_resource_types(&self) -> Vec<String> {
         self.resource_allocation.resource_types.iter().map(|r| format!("{:?}", r)).collect()
@@ -770,41 +657,6 @@ impl NexumConfig {
         let original_len = self.resource_allocation.resource_types.len();
         self.resource_allocation.resource_types.retain(|r| r != resource_type);
         self.resource_allocation.resource_types.len() < original_len
-    }
-
-    /// Get optimization algorithm
-    pub fn get_optimization_algorithm(&self) -> &OptimizationAlgorithm {
-        &self.resource_allocation.optimization_algorithm
-    }
-
-    /// Set optimization algorithm
-    pub fn set_optimization_algorithm(&mut self, algorithm: OptimizationAlgorithm) {
-        self.resource_allocation.optimization_algorithm = algorithm;
-    }
-
-    /// Get fairness metric
-    pub fn get_fairness_metric(&self) -> &FairnessMetric {
-        &self.resource_allocation.fairness_metric
-    }
-
-    /// Set fairness metric
-    pub fn set_fairness_metric(&mut self, metric: FairnessMetric) {
-        self.resource_allocation.fairness_metric = metric;
-    }
-
-    /// Is dynamic allocation enabled
-    pub fn is_dynamic_allocation_enabled(&self) -> bool {
-        self.resource_allocation.enable_dynamic_allocation
-    }
-
-    /// Set dynamic allocation
-    pub fn set_dynamic_allocation(&mut self, enabled: bool) {
-        self.resource_allocation.enable_dynamic_allocation = enabled;
-    }
-
-    /// Get resource constraints
-    pub fn get_resource_constraints(&self) -> &Vec<ResourceConstraint> {
-        &self.resource_allocation.resource_constraints
     }
 
     /// Add resource constraint

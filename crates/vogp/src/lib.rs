@@ -17,9 +17,7 @@
 //! - L_cons: Consistency learning antara sampel asli dan augmentasi
 //! - σ_eff: Variansi efektif = α·Var(f) + (1-α)·H(f)
 
-use std::collections::HashMap;
-use ndarray::{Array1, Array2, ArrayD, ArrayView1, ArrayViewD, IxDyn, s};
-use ndarray_rand::RandomExt;
+use ndarray::{Array1, Array2, ArrayD, IxDyn, s};
 use rand_distr::StandardNormal;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -312,7 +310,7 @@ impl BatchStatistics {
         }
     }
 
-    fn update(&mut self, predictions: &Array2<f32>, gradients: Option<&ArrayD<f32>>) {
+    fn update(&mut self, _predictions: &Array2<f32>, gradients: Option<&ArrayD<f32>>) {
         self.batch_count += 1;
         
         if let Some(grad) = gradients {
@@ -337,7 +335,7 @@ impl BatchStatistics {
 /// Utility functions untuk VOGP+
 pub mod vogp_utils {
     use super::*;
-    use ndarray_rand::RandomExt;
+    
 
     /// Generate random noise untuk stochastic gradient approximation
     /// ∥∇_x f(x)∥² ≈ E_{v∼N(0,I)} [v^T ∇_x f(x)]
@@ -381,7 +379,7 @@ pub mod vogp_utils {
                 data.slice(s![.., ..;-1]).to_owned()
             }
             AugmentationType::Crop { ratio } => {
-                let (batch_size, features) = data.dim();
+                let (_batch_size, features) = data.dim();
                 let crop_size = (features as f32 * ratio) as usize;
                 data.slice(s![.., 0..crop_size]).to_owned()
             }

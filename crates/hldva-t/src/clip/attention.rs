@@ -25,7 +25,7 @@ impl ClipAttention {
         
         for head in 0..self.config.num_heads {
             let head_start = head * self.config.head_dim;
-            let head_end = head_start + self.config.head_dim;
+            let _head_end = head_start + self.config.head_dim;
             
             for i in 0..seq_len {
                 let mut attention_sum = 0.0;
@@ -59,7 +59,7 @@ impl ClipAttention {
     /// Self-attention
     pub fn self_attention(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let input_data = input.data();
-        let seq_len = input_data.len() / self.config.embed_dim;
+        let _seq_len = input_data.len() / self.config.embed_dim;
         
         // Create Q, K, V from input (simplified)
         let query = self.project_to_query(input)?;

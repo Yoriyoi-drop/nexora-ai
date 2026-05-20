@@ -5,7 +5,6 @@
 
 use super::super::types::*;
 use super::super::error::*;
-use uuid::Uuid;
 
 /// Trait for algorithm generators
 pub trait AlgorithmGenerator: Send + Sync {

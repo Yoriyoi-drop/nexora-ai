@@ -300,7 +300,7 @@ impl SlidingWindowAttention {
     
     /// Final projection with BLAS optimization
     fn final_projection(&self, attention_output: &Array2<f32>) -> DLResult<Array2<f32>> {
-        let (seq_len, hidden_dim) = attention_output.dim();
+        let (seq_len, _hidden_dim) = attention_output.dim();
         let output_dim = self.output_weights.shape()[1];
         
         let mut pooled_output = PooledTensor2D::new(seq_len, output_dim)?;

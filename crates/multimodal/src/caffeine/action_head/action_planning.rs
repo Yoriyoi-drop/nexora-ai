@@ -103,7 +103,7 @@ impl ActionPlanningModule {
     }
     
     /// Extract constraints and goals from inputs
-    fn extract_constraints_and_goals(&self, context: &mut TaskContext, inputs: &MultiModalInputs) -> Result<()> {
+    fn extract_constraints_and_goals(&self, context: &mut TaskContext, _inputs: &MultiModalInputs) -> Result<()> {
         // Extract from instruction text
         if let Some(ref instruction) = context.instruction {
             // Look for constraints
@@ -188,7 +188,7 @@ impl ActionPlanningModule {
         
         // Extract click coordinates from tokens
         if let Some(spatial_token) = tokens.iter().find(|t| t.modality == ModalityType::Image) {
-            if let Some((x, y, w, h)) = spatial_token.spatial_coords {
+            if let Some((x, y, _w, _h)) = spatial_token.spatial_coords {
                 params.insert("x".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(x as f64).ok_or_else(|| crate::caffeine::error::CaffeineError::output_generation("Failed to convert x to number"))?));
                 params.insert("y".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(y as f64).ok_or_else(|| crate::caffeine::error::CaffeineError::output_generation("Failed to convert y to number"))?));
             }
@@ -205,7 +205,7 @@ impl ActionPlanningModule {
     }
     
     /// Create type parameters
-    fn create_type_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
+    fn create_type_parameters(&self, tokens: &[UnifiedToken], _context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
         let mut params = HashMap::with_capacity(1);
         
         // Extract text to type from tokens
@@ -222,7 +222,7 @@ impl ActionPlanningModule {
     }
     
     /// Create extract parameters
-    fn create_extract_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
+    fn create_extract_parameters(&self, _tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
         let mut params = HashMap::with_capacity(2);
         
         // Extract what to extract
@@ -239,7 +239,7 @@ impl ActionPlanningModule {
     }
     
     /// Create analyze parameters
-    fn create_analyze_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
+    fn create_analyze_parameters(&self, _tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
         let mut params = HashMap::with_capacity(2);
         
         // Add analysis type
@@ -254,7 +254,7 @@ impl ActionPlanningModule {
     }
     
     /// Create navigate parameters
-    fn create_navigate_parameters(&self, tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
+    fn create_navigate_parameters(&self, _tokens: &[UnifiedToken], context: &TaskContext) -> Result<HashMap<String, serde_json::Value>> {
         let mut params = HashMap::with_capacity(2);
         
         // Extract destination
@@ -433,7 +433,7 @@ impl ActionReasoner {
     }
     
     /// Reason about and select best actions
-    pub fn reason_and_select(&self, candidates: Vec<Action>, context: &TaskContext) -> Result<Vec<Action>> {
+    pub fn reason_and_select(&self, candidates: Vec<Action>, _context: &TaskContext) -> Result<Vec<Action>> {
         // Simple selection - filter by confidence and sort
         let mut filtered: Vec<_> = candidates.into_iter()
             .filter(|action| action.confidence > 0.5)

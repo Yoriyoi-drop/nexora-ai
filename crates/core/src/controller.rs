@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
-use crate::types::{ModelId, ContextInfo, ControllerConfig, InputType, IntentType, IntentResult, ControllerStats, InputData, ControllerState, RoutingDecision, SpecialistModel, LruContextCache, ControllerCore, ControllerMetrics};
+use crate::types::{ModelId, ContextInfo, ControllerConfig, InputType, IntentResult, ControllerStats, InputData, ControllerState, RoutingDecision, SpecialistModel, LruContextCache, ControllerCore, ControllerMetrics};
 use crate::input::InputReceiver;
 use crate::intent::IntentDetector;
 use crate::context::ContextAnalyzer;

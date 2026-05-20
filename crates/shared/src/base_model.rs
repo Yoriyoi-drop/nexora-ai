@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::{
-    model_identity::{ModelMeta, NxrModelId},
+    model_identity::ModelMeta,
     capability_spec::CapabilityVector,
 };
 

@@ -7,17 +7,18 @@ use tracing::{info, warn};
 use rand::seq::SliceRandom;
 
 use nexora_transformer::{CausalLM, TransformerConfig};
-use nexora_training::{Trainer, TrainerConfig, EvalMetrics};
+use nexora_training::{Trainer, TrainerConfig};
 
 use crate::shared::{
     NxrModel, NxrModelError, NxrModelResult,
     NxrInput, NxrOutput, InputData, OutputData,
     NxrStreamChunk, StreamChunkData, TokenOutput,
-    ValidationResult, ModelStatistics, ResourceUsage,
+    ModelStatistics, ResourceUsage,
     GenerationMetadata, PerformanceMetrics, FinishReason,
     ModelMeta, NxrModelId, ModelTier,
     CapabilityVector,
 };
+use crate::shared::base_model::ValidationResult;
 
 /// Byte-level tokenizer for MVP: maps bytes 0-255 to token IDs directly.
 pub struct MiniTokenizer {
@@ -159,7 +160,7 @@ impl CausalLmModel {
         val_data: Option<&[String]>,
     ) -> NxrModelResult<TrainingReport> {
         let seq_length = cfg.seq_length;
-        let batch_size = cfg.batch_size;
+        let _batch_size = cfg.batch_size;
         let max_steps = cfg.max_steps;
 
         let tokenizer = self.tokenizer.read().await;
@@ -203,6 +204,7 @@ impl CausalLmModel {
 
         let mut trainer = Trainer::with_model(causal_lm, trainer_cfg);
         trainer.prepare();
+        trainer.try_restore_optimizer();
 
         let start = Instant::now();
         use rand::SeedableRng;
@@ -226,11 +228,11 @@ impl CausalLmModel {
                         }
                         if let Some(ref base) = output_base {
                             if step % 1000 == 0 && step > 0 {
-                                let big_path = format!("{}.big-{}.safetensors", base, step);
-                                if let Err(e) = trainer.save(&big_path) {
-                                    warn!("Failed to save big checkpoint step {}: {}", step, e);
+                                let save_path = format!("{}.safetensors", base);
+                                if let Err(e) = trainer.save(&save_path) {
+                                    warn!("Failed to save checkpoint at step {}: {}", step, e);
                                 } else {
-                                    info!("  Big checkpoint saved: {}", big_path);
+                                    info!("  Checkpoint overwritten at step {}", step);
                                 }
                             }
                         }
@@ -416,7 +418,9 @@ impl NxrModel for CausalLmModel {
         let start = std::time::Instant::now();
 
         let model = self.model.read().await;
-        let model_ref = model.as_ref().unwrap();
+        let model_ref = model.as_ref().ok_or_else(|| {
+            NxrModelError::NotInitialized("Model was reset before generation".to_string())
+        })?;
 
         let (output_ids, _cache) = model_ref.generate(&input_ids, max_tokens, temperature, top_k);
 

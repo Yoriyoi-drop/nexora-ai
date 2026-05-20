@@ -4,10 +4,8 @@
 //! dengan adaptive importance coefficients dan residual preservation.
 
 use crate::{ERPConfig, ERPError, ResonanceGroup};
-use ndarray::{Array1, Array2, Array3};
-use ndarray_rand::RandomExt;
-use rand::{Rng, SeedableRng};
-use rand_distr::Standard;
+use ndarray::{Array1, Array2};
+use rand::Rng;
 use std::collections::HashMap;
 
 /// Superposition compression engine untuk resonance groups
@@ -122,7 +120,7 @@ impl SuperpositionCompressor {
         let group_weights = if group_neurons.is_empty() {
             Array2::zeros((0, weights.ncols()))
         } else {
-            let first_row = weights.row(group_neurons[0]).to_owned();
+            let _first_row = weights.row(group_neurons[0]).to_owned();
             let mut group_weights = Array2::zeros((group_neurons.len(), weights.ncols()));
             for (i, &neuron_idx) in group_neurons.iter().enumerate() {
                 group_weights.row_mut(i).assign(&weights.row(neuron_idx));
@@ -176,7 +174,7 @@ superposed.row_mut(0).assign(&(current + &weighted_row));
     }
 
     /// Compute residual preservation
-    fn compute_residual(&self, group_weights: &Array2<f32>, superposed_weights: &Array2<f32>, importance_coeffs: &Array1<f32>) -> ResidualRepresentation {
+    fn compute_residual(&self, group_weights: &Array2<f32>, superposed_weights: &Array2<f32>, _importance_coeffs: &Array1<f32>) -> ResidualRepresentation {
         match &self.compression_method {
             CompressionMethod::WeightedSuperposition => {
                 // Full residual preservation
@@ -201,7 +199,7 @@ superposed.row_mut(0).assign(&(current + &weighted_row));
     }
 
     /// Compute low-rank residual approximation
-    fn compute_low_rank_residual(&self, group_weights: &Array2<f32>, superposed_weights: &Array2<f32>, rank: usize) -> LowRankResidual {
+    fn compute_low_rank_residual(&self, group_weights: &Array2<f32>, _superposed_weights: &Array2<f32>, rank: usize) -> LowRankResidual {
         let (k, input_dim) = group_weights.dim();
         let actual_rank = std::cmp::min(rank, std::cmp::min(k, input_dim));
         
@@ -271,7 +269,7 @@ superposed.row_mut(0).assign(&(current + &weighted_row));
 
     /// Apply energy stability regularization
     fn apply_energy_stability(&self, compressed_weights: &mut Array2<f32>, original_weights: &Array2<f32>) -> Result<(), ERPError> {
-        let (output_dim, input_dim) = original_weights.dim();
+        let (_output_dim, _input_dim) = original_weights.dim();
         
         // Compute original energy
         let original_energy: f32 = original_weights.iter().map(|&x| x * x).sum();

@@ -26,7 +26,7 @@ impl VAEDecoder {
     }
     
     /// Reconstruct image from latent features
-    fn reconstruct_from_latent(&self, latent_data: &[f32], latent_shape: &[usize]) -> HLDVAResult<Vec<f32>> {
+    fn reconstruct_from_latent(&self, latent_data: &[f32], _latent_shape: &[usize]) -> HLDVAResult<Vec<f32>> {
         let expansion_factor = self.config.expansion_factor;
         let output_size = latent_data.len() * expansion_factor;
         

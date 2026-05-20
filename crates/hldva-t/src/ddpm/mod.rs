@@ -242,7 +242,7 @@ impl NoiseSchedule {
         } else {
             let alpha_bar_t = self.alpha_bars[t];
             let alpha_bar_t_prev = self.alpha_bars[t - 1];
-            let beta_t = 1.0 - self.alphas[t];
+            let _beta_t = 1.0 - self.alphas[t];
             
             ((1.0 - alpha_bar_t_prev).sqrt() * (1.0 - alpha_bar_t).sqrt()) / (1.0 - alpha_bar_t)
         }
@@ -288,8 +288,8 @@ impl DDPM_Sampler {
         let noise_data = predicted_noise.data();
         
         // Get schedule values
-        let beta_t = noise_schedule.get_beta(timestep);
-        let sqrt_one_minus_alpha_bar_t = noise_schedule.get_alpha_bar(timestep).1;
+        let _beta_t = noise_schedule.get_beta(timestep);
+        let _sqrt_one_minus_alpha_bar_t = noise_schedule.get_alpha_bar(timestep).1;
         let posterior_variance = noise_schedule.posterior_variance(timestep);
         let posterior_mean_coef1 = noise_schedule.posterior_mean_coef1(timestep);
         let posterior_mean_coef2 = noise_schedule.posterior_mean_coef2(timestep);

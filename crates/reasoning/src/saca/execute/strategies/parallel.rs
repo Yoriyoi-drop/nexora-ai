@@ -2,9 +2,8 @@
 //! 
 //! Implements parallel execution of candidates for improved performance.
 
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{types::*, error::*};
 use super::super::engine::ExecuteEngine;
-use std::sync::Arc;
 
 /// Parallel execution strategy
 pub struct ParallelExecutionStrategy;

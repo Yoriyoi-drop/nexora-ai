@@ -139,7 +139,7 @@ impl VideoEncoder {
         for (t, frame_feature) in frame_features.iter().enumerate() {
             for i in 0..seq_len {
                 for d in 0..embed_dim {
-                    let input_idx = i * embed_dim + d;
+                    let _input_idx = i * embed_dim + d;
                     let output_idx = t * seq_len * embed_dim + i * embed_dim + d;
                     
                     if let Some(&val) = frame_feature.get([i, d]) {
@@ -232,7 +232,7 @@ impl TemporalModeler {
         let seq_len = shape[1];
         let embed_dim = shape[2];
         
-        let head_dim = embed_dim / self.attention_heads;
+        let _head_dim = embed_dim / self.attention_heads;
         
         // Create output tensor
         let mut output = vec![0.0f32; batch_size * seq_len * embed_dim];

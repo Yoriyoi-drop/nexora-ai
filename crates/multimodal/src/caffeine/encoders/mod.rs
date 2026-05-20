@@ -20,7 +20,6 @@ pub use regional_alignment::*;
 
 use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
-use ndarray::ArrayD;
 
 /// Multi-modal encoder collection
 pub struct MultiModalEncoders {

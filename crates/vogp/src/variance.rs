@@ -3,7 +3,7 @@
 //! Implementasi variance dan uncertainty awareness untuk menghindari
 //! overconfident predictions dan meningkatkan generalisasi.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1};
 use serde::{Deserialize, Serialize};
 
 /// Variance Stabilization Component
@@ -175,7 +175,7 @@ impl VarianceStabilizer {
     }
 
     /// Compute adaptive alpha berdasarkan variance dan entropy patterns
-    fn compute_adaptive_alpha(&self, variance: f32, entropy: f32) -> f32 {
+    fn compute_adaptive_alpha(&self, _variance: f32, _entropy: f32) -> f32 {
         if self.variance_history.len() < 10 {
             return self.config.alpha_variance;
         }

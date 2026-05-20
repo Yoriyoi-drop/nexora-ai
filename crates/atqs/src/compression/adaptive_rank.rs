@@ -1,13 +1,10 @@
 //! Adaptive rank selection for tensor decomposition
 //! Implements layer sensitivity-based rank selection algorithms
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
+use ndarray::{Array, ArrayD};
 use std::collections::HashMap;
 use crate::types::LayerSensitivity;
 use crate::config::ATQSConfig;
-use rand::thread_rng;
 
 /// Adaptive rank selection configuration
 #[derive(Debug, Clone)]
@@ -35,7 +32,7 @@ pub struct RankAssignment {
 /// Analyze layer sensitivity for rank selection
 pub fn analyze_layer_sensitivity(
     model: &dyn crate::FoundationModel,
-    config: &AdaptiveRankConfig,
+    _config: &AdaptiveRankConfig,
 ) -> Result<Vec<LayerSensitivity>, crate::ATQSError> {
     let layers = model.get_layers();
     let mut sensitivities = Vec::new();
@@ -215,7 +212,7 @@ fn compute_gradient_norm(layer: &dyn crate::ModelLayer) -> Result<f32, crate::AT
     let mut gradient_norm = 0.0;
     let epsilon = 1e-6;
     
-    for (idx, &weight) in weights.indexed_iter() {
+    for (idx, &_weight) in weights.indexed_iter() {
         // Perturb weight slightly
         let mut perturbed_weights = weights.clone();
         perturbed_weights[idx] += epsilon;
@@ -253,7 +250,7 @@ fn compute_output_variance(layer: &dyn crate::ModelLayer) -> Result<f32, crate::
 
 /// Compute attention entropy for attention layers
 fn compute_attention_entropy_layer(
-    layer: &dyn crate::ModelLayer,
+    _layer: &dyn crate::ModelLayer,
     model: &dyn crate::FoundationModel,
 ) -> Result<f32, crate::ATQSError> {
     let attention_weights = model.get_attention_weights();
@@ -595,10 +592,10 @@ impl CompressionEngine {
     /// Compress tensor using adaptive rank selection
     fn compress_tensor(&self, tensor: &ndarray::ArrayD<f32>) -> crate::ATQSResult<ndarray::ArrayD<f32>> {
         // Apply adaptive rank compression
-        let rank = self.adaptive_rank_selector.select_rank(tensor);
+        let _rank = self.adaptive_rank_selector.select_rank(tensor);
         
         // Simplified tensor compression - in real implementation would use SVD/Tucker decomposition
-        let original_shape = tensor.shape().to_vec();
+        let _original_shape = tensor.shape().to_vec();
         let flattened: Vec<f32> = tensor.iter().cloned().collect();
         
         // Apply compression by reducing dimensionality

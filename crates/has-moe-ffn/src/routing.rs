@@ -127,7 +127,7 @@ impl Router {
     
     /// Apply softmax to a row of gating weights
     fn apply_softmax_row(&self, gating_weights: &mut ndarray::Array2<f32>, row_idx: usize) {
-        let mut row_vals: Vec<f32> = (0..self.config.num_experts)
+        let row_vals: Vec<f32> = (0..self.config.num_experts)
             .map(|j| gating_weights[[row_idx, j]])
             .collect();
         
@@ -159,7 +159,7 @@ impl Router {
     
     /// Forward pass through router
     pub fn forward(&self, input: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {
-        let (batch_size, hidden_size) = input.dim();
+        let (batch_size, _hidden_size) = input.dim();
         let mut gating_weights = ndarray::Array2::zeros((batch_size, self.config.num_experts));
         
         for i in 0..batch_size {
@@ -235,7 +235,7 @@ impl Router {
             
             // Sort tokens by routing confidence untuk fair capacity allocation
             for i in 0..batch_size {
-                let conf = all_routes[i].iter()
+                let _conf = all_routes[i].iter()
                     .map(|&e| routing_weights[i].iter()
                         .find(|(ex, _)| *ex == e)
                         .map(|(_, w)| *w)
@@ -366,7 +366,7 @@ impl Router {
         }).sum();
         
         // Nol loss jika routing sempurna (uniform)
-        let uniform_loss = 1.0 / num_experts as f32;
+        let _uniform_loss = 1.0 / num_experts as f32;
         importance_loss * self.config.importance_loss_coefficient
     }
     

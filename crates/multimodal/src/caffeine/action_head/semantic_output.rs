@@ -4,7 +4,6 @@
 
 use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
-use ndarray::ArrayD;
 
 /// Semantic output generator
 pub struct SemanticOutputGenerator {
@@ -192,7 +191,7 @@ impl ImageOutputGenerator {
     }
     
     /// Generate image output
-    pub fn generate(&mut self, tokens: &[UnifiedToken], inputs: &MultiModalInputs) -> Result<ImageOutput> {
+    pub fn generate(&mut self, tokens: &[UnifiedToken], _inputs: &MultiModalInputs) -> Result<ImageOutput> {
         // Extract image tokens
         let image_tokens: Vec<_> = tokens.iter()
             .filter(|t| t.modality == ModalityType::Image)
@@ -247,7 +246,7 @@ impl AudioOutputGenerator {
     }
     
     /// Generate audio output
-    pub fn generate(&mut self, tokens: &[UnifiedToken], inputs: &MultiModalInputs) -> Result<AudioOutput> {
+    pub fn generate(&mut self, tokens: &[UnifiedToken], _inputs: &MultiModalInputs) -> Result<AudioOutput> {
         // Extract audio tokens
         let audio_tokens: Vec<_> = tokens.iter()
             .filter(|t| t.modality == ModalityType::Audio)
@@ -297,7 +296,7 @@ impl VideoOutputGenerator {
     }
     
     /// Generate video output
-    pub fn generate(&mut self, tokens: &[UnifiedToken], inputs: &MultiModalInputs) -> Result<VideoOutput> {
+    pub fn generate(&mut self, tokens: &[UnifiedToken], _inputs: &MultiModalInputs) -> Result<VideoOutput> {
         // Extract video tokens
         let video_tokens: Vec<_> = tokens.iter()
             .filter(|t| t.modality == ModalityType::Video)

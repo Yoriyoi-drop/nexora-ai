@@ -245,7 +245,7 @@ pub struct MultiLingualProcessor {
 impl MultiLingualProcessor {
     /// Create new multi-lingual processor
     pub fn new() -> Self {
-        let mut supported_languages = vec![
+        let supported_languages = vec![
             "en".to_string(), "id".to_string(), "zh".to_string(),
             "es".to_string(), "fr".to_string(), "de".to_string(),
             "ja".to_string(), "ko".to_string(), "ar".to_string(),

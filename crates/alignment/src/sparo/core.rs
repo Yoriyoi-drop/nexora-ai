@@ -3,7 +3,6 @@
 use anyhow::Result;
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Konfigurasi utama SPARO
@@ -143,7 +142,7 @@ impl PolicyModel {
         let output_bytes = output.as_bytes();
         let mut score = 0.0f32;
 
-        for (i, &ob) in output_bytes.iter().enumerate() {
+        for (i, &_ob) in output_bytes.iter().enumerate() {
             let i_feat = if input_bytes.is_empty() {
                 1.0
             } else {

@@ -39,7 +39,7 @@ impl Default for AgentManagerConfig {
         Self {
             max_concurrent_agents: 100,
             default_timeout_seconds: 30,
-            health_check_interval_seconds: 60,
+            health_check_interval_seconds: 3600,
             auto_restart_failed_agents: true,
             max_restart_attempts: 3,
         }
@@ -147,14 +147,20 @@ impl AgentManager {
         // Start background tasks
         let manager = self.clone();
         tokio::spawn(async move {
-            manager.run_command_loop().await;
+            let fut = std::panic::AssertUnwindSafe(manager.run_command_loop());
+            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                error!("AgentManager command loop panicked: {:?}", e);
+            }
         });
         
         // Start health check loop
         if self.config.health_check_interval_seconds > 0 {
             let manager = self.clone();
             tokio::spawn(async move {
-                manager.run_health_check_loop().await;
+                let fut = std::panic::AssertUnwindSafe(manager.run_health_check_loop());
+                if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
+                    error!("AgentManager health check loop panicked: {:?}", e);
+                }
             });
         }
         

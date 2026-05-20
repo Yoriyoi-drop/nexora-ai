@@ -18,7 +18,6 @@ pub use execution::*;
 use crate::caffeine::types::*;
 use crate::caffeine::config::BBoxFormat as ConfigBBoxFormat;
 use crate::caffeine::error::Result;
-use ndarray::ArrayD;
 
 /// Agentic Action Head
 pub struct AgenticActionHead {

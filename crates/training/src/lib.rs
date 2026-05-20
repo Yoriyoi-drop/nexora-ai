@@ -2,12 +2,15 @@ pub mod lora;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::collections::VecDeque;
 
-use tracing::warn;
+use tracing::{warn, info};
+use ndarray::ArrayD;
 use nexora_autograd::{Tensor, TensorOps, Adam, clear_tape};
 use nexora_autograd::ops::cross_entropy_loss;
+use nexora_autograd::compute_grad_norm;
 
-use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
+use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig, safetensors};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct EvalMetrics {
@@ -66,6 +69,10 @@ pub struct Trainer {
     pub patience_counter: usize,
     pub completed_epochs: usize,
     pub stop_flag: Arc<AtomicBool>,
+    pub last_grad_norm: Option<f32>,
+    pub loss_ema: Option<f32>,
+    pub step_times: VecDeque<std::time::Duration>,
+    pub token_counts: VecDeque<usize>,
 }
 
 impl Trainer {
@@ -89,6 +96,10 @@ impl Trainer {
             patience_counter: 0,
             completed_epochs: 0,
             stop_flag: Arc::new(AtomicBool::new(false)),
+            last_grad_norm: None,
+            loss_ema: None,
+            step_times: VecDeque::with_capacity(100),
+            token_counts: VecDeque::with_capacity(100),
         }
     }
 
@@ -106,6 +117,10 @@ impl Trainer {
             patience_counter: 0,
             completed_epochs: 0,
             stop_flag: Arc::new(AtomicBool::new(false)),
+            last_grad_norm: None,
+            loss_ema: None,
+            step_times: VecDeque::with_capacity(100),
+            token_counts: VecDeque::with_capacity(100),
         }
     }
 
@@ -168,6 +183,8 @@ impl Trainer {
             return None;
         }
 
+        let batch_start = std::time::Instant::now();
+
         let mut input_buf = vec![0.0f32; seq];
         for (i, &t) in tokens[..seq].iter().enumerate() {
             input_buf[i] = t as f32;
@@ -203,17 +220,42 @@ impl Trainer {
                 self.config.max_steps,
             );
             optimizer.lr = new_lr;
+
+            // compute gradient norm before optimizer.step() consumes gradients
+            self.last_grad_norm = Some(compute_grad_norm(&optimizer.parameters));
+
             optimizer.step();
             optimizer.zero_grad();
             self.step += 1;
             self.accumulation_counter = 0;
 
+            // track step timing and tokens for throughput computation
+            let elapsed = batch_start.elapsed();
+            self.step_times.push_back(elapsed);
+            self.token_counts.push_back(seq);
+            if self.step_times.len() > 100 {
+                self.step_times.pop_front();
+                self.token_counts.pop_front();
+            }
+
+            // EMA loss (smoothing factor 0.01)
+            self.loss_ema = Some(match self.loss_ema {
+                Some(ema) => 0.99 * ema + 0.01 * loss_val,
+                None => loss_val,
+            });
+
             if let Some(ref path) = self.config.save_path {
                 if self.step % self.config.save_every == 0 {
                     trainable.sync_to_inference(&mut self.model);
-                    let save_file = format!("{}.step-{}.safetensors", path, self.step);
+                    let save_file = format!("{}.safetensors", path);
                     if let Err(e) = trainable.save_checkpoint(&save_file) {
                         warn!("Failed to save checkpoint at step {}: {}", self.step, e);
+                    }
+                    if let Some(ref opt) = self.optimizer {
+                        let opt_file = format!("{}.opt.safetensors", path);
+                        if let Err(e) = save_optimizer_file(&opt_file, opt) {
+                            warn!("Failed to save optimizer at step {}: {}", self.step, e);
+                        }
                     }
                 }
             }
@@ -243,11 +285,40 @@ impl Trainer {
     pub fn save_checkpoint(&self) {
         if let Some(ref path) = self.config.save_path {
             if let Some(ref trainable) = self.trainable {
-                let save_file = format!("{}.final.safetensors", path);
+                let save_file = format!("{}.safetensors", path);
                 if let Err(e) = trainable.save_checkpoint(&save_file) {
-                    warn!("Failed to save final checkpoint: {}", e);
+                    warn!("Failed to save checkpoint: {}", e);
                 }
             }
+            if let Some(ref opt) = self.optimizer {
+                let opt_file = format!("{}.opt.safetensors", path);
+                if let Err(e) = save_optimizer_file(&opt_file, opt) {
+                    warn!("Failed to save final optimizer: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Restore optimizer state from `{save_path}.opt.safetensors` if it exists.
+    pub fn try_restore_optimizer(&mut self) {
+        let path = match self.config.save_path.as_ref() {
+            Some(p) => format!("{}.opt.safetensors", p),
+            None => return,
+        };
+        let opt = match self.optimizer.as_mut() {
+            Some(o) => o,
+            None => return,
+        };
+        if !std::path::Path::new(&path).exists() {
+            return;
+        }
+        match load_optimizer_file(&path) {
+            Ok(state) => {
+                opt.load_optimizer_state(&state);
+                self.step = opt.step;
+                info!("Restored optimizer from {} (step {})", path, opt.step);
+            }
+            Err(e) => warn!("Failed to load optimizer state from {}: {}", path, e),
         }
     }
 
@@ -355,4 +426,17 @@ impl Trainer {
             }
         }
     }
+}
+
+// --- Optimizer save/load helpers ---
+
+fn save_optimizer_file(path: &str, opt: &Adam) -> anyhow::Result<()> {
+    let tensors = opt.collect_optimizer_tensors();
+    safetensors::save_safetensors(path, &tensors)
+        .map_err(|e| anyhow::anyhow!("Optimizer save failed: {}", e))
+}
+
+fn load_optimizer_file(path: &str) -> anyhow::Result<std::collections::HashMap<String, ArrayD<f32>>> {
+    safetensors::load_safetensors(path)
+        .map_err(|e| anyhow::anyhow!("Optimizer load failed: {}", e))
 }

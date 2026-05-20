@@ -102,7 +102,7 @@ impl HLDVAPipeline {
     }
     
     /// Initialize latent noise
-    fn initialize_latent(&self, input: &HLDVAInput) -> HLDVAResult<LatentSpace> {
+    fn initialize_latent(&self, _input: &HLDVAInput) -> HLDVAResult<LatentSpace> {
         let base_resolution = Resolution::new(64, 64); // Base resolution 64x64
         let latent_resolution = Resolution::new(
             base_resolution.width / 8,  // VAE compression factor
@@ -301,7 +301,7 @@ impl HLDVAPipeline {
 impl Trainable for HLDVAPipeline {
     type TrainingConfig = HLDVAConfig;
     
-    fn train(&mut self, config: Self::TrainingConfig) -> HLDVAResult<()> {
+    fn train(&mut self, _config: Self::TrainingConfig) -> HLDVAResult<()> {
         // Implementasi training dengan 4 tahap curriculum learning
         // Ini akan diimplementasi di training module
         println!("Starting HLDVA-T training with 4-stage curriculum learning");

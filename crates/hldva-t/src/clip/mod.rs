@@ -375,7 +375,7 @@ impl ConditioningProjection {
 
 // Re-export dependencies
 use super::dit::{
-    Linear, LayerNorm, PositionEmbedding, MultiHeadAttention, FeedForward, GELU
+    Linear, LayerNorm, PositionEmbedding, MultiHeadAttention, FeedForward
 };
 
 /// Text Transformer Layer

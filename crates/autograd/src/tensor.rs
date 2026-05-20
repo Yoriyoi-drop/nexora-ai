@@ -9,6 +9,10 @@ use super::mixed_precision::DType;
 
 static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+pub fn next_tensor_id() -> usize {
+    TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
 #[derive(Clone)]
 pub struct Tensor(Arc<Mutex<TensorInner>>);
 
@@ -47,6 +51,20 @@ impl Tensor {
             dtype: DType::F32,
             grad: None,
             requires_grad: false,
+            grad_fn_idx: None,
+        })))
+    }
+
+    /// Create tensor from GPU tensor (no grad tracking)
+    #[cfg(feature = "gpu")]
+    pub fn from_gpu(gpu_tensor: crate::gpu::GpuTensor, id: usize, requires_grad: bool) -> Self {
+        Self(Arc::new(Mutex::new(TensorInner {
+            id,
+            storage: Storage::Gpu(gpu_tensor),
+            device: Device::Gpu(0),
+            dtype: DType::F32,
+            grad: None,
+            requires_grad,
             grad_fn_idx: None,
         })))
     }
@@ -205,6 +223,33 @@ impl Tensor {
             id,
             storage: Storage::Cpu(data),
             device: Device::Cpu,
+            dtype: DType::F32,
+            grad: None,
+            requires_grad: true,
+            grad_fn_idx: Some(grad_fn_idx),
+        })))
+    }
+
+    /// Create GPU tensor with GPU-native backward (Phase 4).
+    /// Forward data stays on GPU. Backward runs on GPU via gpu_backward closure.
+    /// Falls back to CPU backward if GPU backward fails.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn from_gpu_with_grad_fn(
+        gpu_tensor: crate::gpu::GpuTensor,
+        inputs: Vec<Tensor>,
+        saved: Vec<ArrayD<f32>>,
+        saved_gpu: Vec<crate::gpu::GpuTensor>,
+        backward: Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>>,
+        gpu_backward: Option<crate::tape::GpuBackwardFn>,
+    ) -> Self {
+        let grad_fn_idx = crate::tape::register_gpu_grad_fn(
+            inputs, saved, saved_gpu, backward, gpu_backward,
+        );
+        let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::new(Mutex::new(TensorInner {
+            id,
+            storage: Storage::Gpu(gpu_tensor),
+            device: Device::Gpu(0),
             dtype: DType::F32,
             grad: None,
             requires_grad: true,

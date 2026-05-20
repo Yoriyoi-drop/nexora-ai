@@ -2,8 +2,7 @@
 //
 // Traits specific to tensor operations and manipulations
 
-use nexora_atqs::{Tensor, TensorError, TensorResult};
-use std::fmt;
+use nexora_atqs::{Tensor, TensorResult};
 
 /// Trait for basic tensor operations
 pub trait TensorOps {

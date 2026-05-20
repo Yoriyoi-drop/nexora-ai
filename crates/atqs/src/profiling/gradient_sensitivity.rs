@@ -1,5 +1,4 @@
-use ndarray::{Array1, Array2, ArrayD, s};
-use std::collections::HashMap;
+use ndarray::{Array1, Array2, s};
 
 /// AWQ-style gradient-norm sensitivity estimator
 /// Mengganti cosine similarity heuristic dengan mathematical sensitivity score
@@ -175,7 +174,7 @@ pub fn compute_per_channel_scale(
     let mut scales = Vec::with_capacity(output_channels);
 
     for c in 0..output_channels {
-        let mut channel_acts: Vec<f32> = activations
+        let channel_acts: Vec<f32> = activations
             .iter()
             .filter_map(|a| a.get(c).copied())
             .collect();
@@ -285,7 +284,7 @@ fn compute_channel_activation_magnitudes(
     magnitudes
 }
 
-fn compute_awq_scale_factor(activation_magnitudes: &[f32], channel: usize) -> f32 {
+fn compute_awq_scale_factor(activation_magnitudes: &[f32], _channel: usize) -> f32 {
     let max_val = activation_magnitudes
         .iter()
         .cloned()

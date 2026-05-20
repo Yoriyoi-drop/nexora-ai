@@ -5,12 +5,8 @@
 //! dan context window yang besar.
 
 use anyhow::Result;
-use ndarray::{Array1, Array2, Array3, Array4, ArrayD, s};
-use ndarray_rand::RandomExt;
-use rand::{distributions::Standard, Rng};
+use ndarray::{Array1, Array2, Array3, s};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Konfigurasi ORACLE Backbone
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -582,7 +578,7 @@ impl LayerNorm {
     }
     
     pub fn forward(&self, x: &Array3<f32>) -> Result<Array3<f32>> {
-        let (batch_size, seq_len, d_model) = x.dim();
+        let (batch_size, seq_len, _d_model) = x.dim();
         let mut output = Array3::zeros(x.dim());
         
         for b in 0..batch_size {

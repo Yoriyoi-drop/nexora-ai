@@ -1,7 +1,6 @@
 //! Error types for SACA framework
 
 use thiserror::Error;
-use nexora_common::error::NexoraError;
 
 /// SACA-specific errors
 #[derive(Error, Debug)]

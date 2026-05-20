@@ -346,7 +346,7 @@ impl TokenLoop {
                 token_selection.log_prob,
                 step,
             ));
-            let gen = tokens.last().unwrap();
+            let gen = tokens.last().expect("token just pushed, must exist");
             
             decoding_context.add_token(gen.clone());
             *token_frequencies.entry(gen.token_id).or_insert(0) += 1;
@@ -390,26 +390,30 @@ impl TokenLoop {
     pub async fn cancel_loop(&self, loop_id: Uuid) -> Result<bool> {
         debug!("Cancelling loop: {}", loop_id);
         
-        let mut active_loops = self.active_loops.write().await;
+        // Extract stream_id before acquiring locks to avoid lock inversion
+        // (run_loop locks: streaming_engine -> active_loops)
+        let stream_id = {
+            let active_loops = self.active_loops.read().await;
+            active_loops.get(&loop_id).and_then(|info| info.stream_id)
+        };
         
-        if let Some(info) = active_loops.get(&loop_id) {
-            // Cancel stream if exists
-            if let Some(stream_id) = info.stream_id {
-                if let Some(streaming_engine) = &self.streaming_engine {
-                    streaming_engine.write().await.cancel_stream(stream_id).await?;
-                }
+        // Cancel stream without holding active_loops lock
+        if let Some(sid) = stream_id {
+            if let Some(streaming_engine) = &self.streaming_engine {
+                streaming_engine.write().await.cancel_stream(sid).await?;
             }
-            
-            // Remove from active loops
-            active_loops.remove(&loop_id);
-            
-            // Update statistics
-            {
-                let mut stats = self.stats.write().await;
-                stats.active_loops = active_loops.len();
-                stats.cancelled_loops += 1;
-            }
-            
+        }
+        
+        // Remove from active loops and update stats
+        let mut active_loops = self.active_loops.write().await;
+        let existed = active_loops.remove(&loop_id).is_some();
+        if existed {
+            let mut stats = self.stats.write().await;
+            stats.active_loops = active_loops.len();
+            stats.cancelled_loops += 1;
+        }
+        
+        if existed {
             debug!("Loop {} cancelled successfully", loop_id);
             Ok(true)
         } else {

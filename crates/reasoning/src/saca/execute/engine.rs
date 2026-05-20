@@ -11,11 +11,9 @@ use crate::saca::{types::*, config::*, error::*};
 pub use crate::saca::types::PerformanceMetrics;
 use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use std::process::Command;
 use std::time::Duration;
-use uuid::Uuid;
 
 /// Execute-Fail-Fix Loop engine
 pub struct ExecuteEngine {
@@ -176,8 +174,8 @@ impl ExecuteEngine {
     /// Setup execution environment
     async fn setup_execution_environment(
         &self,
-        candidate: &SamplingCandidate,
-        context: &RepositoryContext,
+        _candidate: &SamplingCandidate,
+        _context: &RepositoryContext,
     ) -> SACAResult<ExecutionEnvironment> {
         Ok(ExecutionEnvironment {
             timeout: Duration::from_secs(self.config.timeout_seconds),

@@ -5,9 +5,8 @@
 //! lintas file dalam satu repositori kode.
 
 use anyhow::Result;
-use ndarray::{Array1, Array2, Array3, s};
+use ndarray::{Array2, Array3, s};
 use serde::{Deserialize, Serialize};
-use std::f32::consts::PI;
 
 /// Konfigurasi Extended RoPE
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +65,7 @@ impl ExtendedRope {
     
     /// Apply RoPE to query and key tensors
     pub fn apply_rotary_emb(&self, q: &Array3<f32>, k: &Array3<f32>, positions: &[usize]) -> Result<(Array3<f32>, Array3<f32>)> {
-        let (batch_size, seq_len, head_dim) = (q.dim().0, q.dim().1, q.dim().2);
+        let (_batch_size, _seq_len, _head_dim) = (q.dim().0, q.dim().1, q.dim().2);
         
         // Get frequency embeddings for positions
         let (cos_emb, sin_emb) = self.get_position_embeddings(positions)?;
@@ -366,7 +365,7 @@ impl CrossFilePositionTracker {
     
     /// Check if two positions are in the same file
     pub fn same_file(&self, pos1: usize, pos2: usize) -> bool {
-        for (file_id, positions) in &self.file_positions {
+        for (_file_id, positions) in &self.file_positions {
             if positions.contains(&pos1) && positions.contains(&pos2) {
                 return true;
             }

@@ -5,8 +5,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use crate::base_model::NxrModelResult;
-use super::agent_types::{AgentStatus, AgentCapability, TaskPriority, AgentMetrics, AgentResult, AgentError};
+use super::agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult, AgentError};
 
 /// Base trait that all NXR agents must implement
 #[async_trait]

@@ -7,9 +7,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use rand::seq::SliceRandom;
 
-use super::core::{PolicyModel, ReasoningTrace, JudgeFeedback, FeedbackType};
+use super::core::{PolicyModel, ReasoningTrace};
 
 /// Konfigurasi SPIN
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +100,7 @@ impl SpinGenerator {
     }
     
     /// Generate reasoning steps
-    fn generate_reasoning_steps(&self, model: &PolicyModel, prompt: &str) -> Result<Vec<super::core::ReasoningStep>> {
+    fn generate_reasoning_steps(&self, _model: &PolicyModel, prompt: &str) -> Result<Vec<super::core::ReasoningStep>> {
         let step_count = (prompt.len() / 50).max(1).min(self.config.max_steps);
         let mut steps = Vec::with_capacity(step_count);
         

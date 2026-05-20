@@ -139,8 +139,9 @@ impl ExecutionGraph {
 
         // Group nodes by topological depth for parallel execution
         let mut node_depths: HashMap<String, usize> = HashMap::new();
-        for node_id in &order {
-            let node = self.nodes.get(node_id.as_str()).unwrap();
+        for node_id in order.iter() {
+            let node = self.nodes.get(node_id.as_str())
+                .expect("topological order node must exist in node map");
             let depth = node.depends_on.iter()
                 .filter_map(|dep| node_depths.get(dep.as_str()))
                 .max()
@@ -165,7 +166,9 @@ impl ExecutionGraph {
                 continue;
             }
 
-            let sample_ref = sample.take().unwrap();
+            let sample_ref = sample.take().unwrap_or_else(|| {
+                panic!("Sample unexpectedly None at depth {} (execution logic error)", depth)
+            });
             let sample_arc = std::sync::Arc::new(sample_ref);
             let mut filter_results: Vec<(String, FilterResult)> = Vec::with_capacity(level_nodes.len());
 
@@ -195,7 +198,8 @@ impl ExecutionGraph {
                 filter_results.push((node_id.clone(), filter_result));
             }
 
-            sample = Some(std::sync::Arc::try_unwrap(sample_arc).unwrap());
+            sample = Some(std::sync::Arc::try_unwrap(sample_arc)
+                .unwrap_or_else(|arc| (*arc).clone()));
 
             for (node_id, filter_result) in &filter_results {
                 debug!("Filter '{}': passed={}", node_id, filter_result.passed);
@@ -220,7 +224,8 @@ impl ExecutionGraph {
                 results.push(filter_result.clone());
 
                 if !passed {
-                    let sample = sample.take().unwrap();
+                    let sample = sample.take()
+                        .expect("sample must exist after iteration (set at end of depth loop)");
                     let node = &self.nodes[node_id.as_str()];
                     let action = node.filter.action();
                     match action {
@@ -253,7 +258,10 @@ impl ExecutionGraph {
             metrics.total_latency_ms += elapsed.as_millis() as u64;
         }
 
-        ExecutionResult::Accepted { sample: sample.take().unwrap(), results }
+        ExecutionResult::Accepted {
+            sample: sample.take().expect("sample must be Some at end of execution"),
+            results,
+        }
     }
 
     pub async fn execute_parallel(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {

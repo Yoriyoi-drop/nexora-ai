@@ -9,7 +9,7 @@ use nexora_multimodal::caffeine::Caffeine;
 use nexora_has_moe_ffn::routing::Router;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// SACA integration manager
 pub struct SACAIntegration {
@@ -197,7 +197,7 @@ impl SACAIntegration {
         let tensor_input = self.solution_to_tensor(&solution.base_solution)?;
         
         // Apply expert routing
-        let mut router_clone = match Arc::try_unwrap(Arc::clone(router)) {
+        let router_clone = match Arc::try_unwrap(Arc::clone(router)) {
             Ok(router) => router,
             Err(_) => {
                 // If Arc can't be unwrapped (multiple references), we need a different approach
@@ -205,7 +205,7 @@ impl SACAIntegration {
                 Router::new(768, 8, 2)
             }
         };
-        let routing_decisions = router_clone.route_single(&tensor_input)
+        let _routing_decisions = router_clone.route_single(&tensor_input)
             .map_err(|e| SACAError::RerankError(format!("Routing failed: {}", e)))?;
         
         // Apply routing to optimize solution

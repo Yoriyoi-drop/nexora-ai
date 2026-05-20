@@ -1,9 +1,7 @@
 //! Layer analysis for ATQS-Compress profiling
 //! Analyzes layer properties, types, and characteristics
 
-use ndarray::{Array, ArrayD, ArrayView, IxDyn};
-use ndarray_rand::RandomExt;
-use rand_distr::Standard;
+use ndarray::{Array, ArrayD, ArrayView};
 use std::collections::HashMap;
 
 /// Layer analysis configuration
@@ -100,7 +98,7 @@ pub fn analyze_model_layers(
 pub fn analyze_single_layer(
     layer: &dyn crate::ModelLayer,
     layer_idx: usize,
-    model: &dyn crate::FoundationModel,
+    _model: &dyn crate::FoundationModel,
     config: &LayerAnalysisConfig,
 ) -> Result<LayerAnalysis, crate::ATQSError> {
     let layer_type = layer.get_layer_info();
@@ -313,7 +311,7 @@ fn compute_computational_cost(
         }
         "Embedding" => {
             // Embedding lookup
-            let vocab_size = shape[0];
+            let _vocab_size = shape[0];
             let embed_dim = shape[1];
             
             let forward_flops = embed_dim; // Just lookup
@@ -668,7 +666,7 @@ fn approximate_layer_gradient(
     let mut gradients = Vec::new();
     let epsilon = 1e-6;
     
-    for (i, &weight) in flat_weights.iter().enumerate() {
+    for (i, &_weight) in flat_weights.iter().enumerate() {
         // Perturb weight slightly
         let mut perturbed_weights = flat_weights.clone();
         perturbed_weights[i] += epsilon;

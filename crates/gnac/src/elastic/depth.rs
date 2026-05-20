@@ -27,7 +27,7 @@ impl DepthController {
     }
 
     /// Tambah depth (untuk input kompleks)
-    pub fn increase_depth(graph: &mut NeuralGraph) {
+    pub fn increase_depth(_graph: &mut NeuralGraph) {
         tracing::info!("Increasing graph depth for complex input");
         // Dalam implementasi nyata, clone & insert layer tambahan
     }

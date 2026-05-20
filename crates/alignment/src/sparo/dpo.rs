@@ -4,9 +4,7 @@
 //! menjadi klasifikasi biner langsung.
 
 use anyhow::Result;
-use ndarray::Array1;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::core::{PolicyModel, ReasoningTrace, JudgeFeedback, FeedbackType};
@@ -214,13 +212,13 @@ pub mod utils {
     
     /// Convert feedback ke preference pairs
     pub fn feedback_to_pairs(
-        traces: &[ReasoningTrace],
+        _traces: &[ReasoningTrace],
         feedback: &[JudgeFeedback],
     ) -> Result<Vec<PreferencePair>> {
         let mut pairs = Vec::new();
         
         for fb in feedback {
-            if let FeedbackType::Pairwise { preferred, rejected, confidence } = &fb.feedback_type {
+            if let FeedbackType::Pairwise { preferred: _, rejected: _, confidence: _ } = &fb.feedback_type {
                 // Implementation similar to DpoTrainer::extract_preference_pairs
                 // This is a simplified version
                 let pair = PreferencePair {

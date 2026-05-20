@@ -183,7 +183,7 @@ macro_rules! define_foundation_model {
             }
 
             fn get_or_init_model(&self) -> std::sync::MutexGuard<Option<CausalLM>> {
-                let mut guard = self.model.lock().unwrap();
+                let mut guard = self.model.lock().unwrap_or_else(|e| e.into_inner());
                 if guard.is_none() {
                     *guard = Some(CausalLM::new(self.model_config.clone()));
                 }
@@ -216,7 +216,7 @@ macro_rules! define_foundation_model {
             pub fn reload(&mut self, path: &str) -> Result<(), FoundationError> {
                 let config = transformer_config_for(NxrModelId::$id);
                 let loaded = CausalLM::from_checkpoint(config, path)?;
-                *self.model.lock().unwrap() = Some(loaded);
+                *self.model.lock().unwrap_or_else(|e| e.into_inner()) = Some(loaded);
                 Ok(())
             }
 
@@ -248,7 +248,7 @@ macro_rules! define_foundation_model {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct(stringify!($name))
                     .field("tokenizer", &self.tokenizer.is_some())
-                    .field("model_initialized", &self.model.lock().unwrap().is_some())
+                    .field("model_initialized", &self.model.lock().unwrap_or_else(|e| e.into_inner()).is_some())
                     .finish()
             }
         }
@@ -306,7 +306,7 @@ macro_rules! define_foundation_model {
 
             async fn state(&self) -> Result<Self::State, NxrModelError> {
                 Ok(serde_json::json!({
-                    "status": if self.model.lock().unwrap().is_some() { "ready" } else { "uninitialized" },
+                    "status": if self.model.lock().unwrap_or_else(|e| e.into_inner()).is_some() { "ready" } else { "uninitialized" },
                     "model": stringify!($id),
                     "inferences": self.inference_count.load(Ordering::Relaxed),
                 }))
@@ -336,7 +336,9 @@ macro_rules! define_foundation_model {
             #[instrument(skip_all, fields(model_id = %self.identity().model_id))]
             async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
                 let guard = self.get_or_init_model();
-                let model = guard.as_ref().unwrap();
+                let model = guard.as_ref().ok_or_else(|| {
+                    NxrModelError::NotInitialized("Model failed to initialize".to_string())
+                })?;
 
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),
@@ -399,7 +401,9 @@ macro_rules! define_foundation_model {
                 callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
             ) -> Result<(), NxrModelError> {
                 let guard = self.get_or_init_model();
-                let model = guard.as_ref().unwrap();
+                let model = guard.as_ref().ok_or_else(|| {
+                    NxrModelError::NotInitialized("Model failed to initialize".to_string())
+                })?;
 
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),

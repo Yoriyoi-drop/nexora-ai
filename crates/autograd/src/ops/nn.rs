@@ -2,8 +2,56 @@ use ndarray::ArrayD;
 
 use super::super::tensor::Tensor;
 use super::math;
+#[cfg(feature = "gpu")]
+use crate::{tensor::next_tensor_id, Storage};
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &storage {
+            if axis == input.ndim() - 1 && input.ndim() == 2 {
+                if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                    match ctx.softmax(gpu_input) {
+                        Ok(gpu_result) => {
+                            if !input.requires_grad() {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let soft_cpu = gpu_result.to_cpu();
+                            let soft_shape = soft_cpu.shape().to_vec();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![soft_cpu],
+                                vec![],
+                                Box::new(move |grad, saved| {
+                                    let soft = &saved[0];
+                                    let g = grad.clone();
+                                    let n = soft.len();
+                                    let batch = soft_shape[0];
+                                    let dim = soft_shape[1];
+                                    let mut dx = vec![0.0f32; n];
+                                    for b in 0..batch {
+                                        let base = b * dim;
+                                        let mut sum_sg = 0.0;
+                                        for j in 0..dim { sum_sg += soft[base + j] * g[base + j]; }
+                                        for j in 0..dim {
+                                            let idx = base + j;
+                                            dx[idx] = soft[idx] * (g[idx] - sum_sg);
+                                        }
+                                    }
+                                    vec![ArrayD::from_shape_vec(soft_shape.clone(), dx).unwrap()]
+                                }),
+                                None,
+                            );
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+    }
     let data = input.data();
     assert!(axis < data.ndim(), "Softmax: axis out of bounds");
 
@@ -141,6 +189,93 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
 }
 
 pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tensor>, eps: f32) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let in_storage = input.storage();
+        if let Storage::Gpu(gpu_in) = &in_storage {
+            let has_gpu_weight = weight.map_or(true, |w| matches!(w.storage(), Storage::Gpu(_)));
+            let has_gpu_bias = bias.map_or(true, |b| matches!(b.storage(), Storage::Gpu(_)));
+            if has_gpu_weight && has_gpu_bias {
+                if let (Some(w), Some(b)) = (weight, bias) {
+                    if let (Storage::Gpu(gpu_w), Storage::Gpu(gpu_b)) =
+                        (&w.storage(), &b.storage())
+                    {
+                        if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                            match ctx.layer_norm(gpu_in, gpu_w, gpu_b, eps) {
+                                Ok(gpu_result) => {
+                                    let requires_grad = input.requires_grad()
+                                        || w.requires_grad()
+                                        || b.requires_grad();
+                                    if !requires_grad {
+                                        let id = next_tensor_id();
+                                        return Tensor::from_gpu(gpu_result, id, false);
+                                    }
+                                    let orig = input.data();
+                                    let mean_arr = orig.outer_iter()
+                                        .map(|row| row.mean().unwrap_or(0.0)).collect::<Vec<_>>();
+                                    let std_arr = orig.outer_iter().zip(mean_arr.iter())
+                                        .map(|(row, &m)| {
+                                            let v = row.iter()
+                                                .map(|&x| (x - m).powi(2)).sum::<f32>()
+                                                / orig.shape()[1] as f32;
+                                            (v + eps).sqrt()
+                                        }).collect::<Vec<_>>();
+                                    let n = orig.shape()[1] as f32;
+                                    return Tensor::from_gpu_with_grad_fn(
+                                        gpu_result,
+                                        vec![input.clone(), w.clone(), b.clone()],
+                                        vec![orig, ArrayD::from_shape_vec(vec![input.shape()[0]], mean_arr).unwrap(),
+                                             ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr).unwrap(),
+                                             ArrayD::from_elem(vec![1], n)],
+                                        vec![],
+                                        Box::new(move |grad, saved| {
+                                            let x = &saved[0];
+                                            let mean = &saved[1];
+                                            let std = &saved[2];
+                                            let n_val = saved[3].iter().copied().next().unwrap_or(1.0);
+                                            let batch = x.shape()[0];
+                                            let dim = x.shape()[1];
+                                            let mut dx = grad.clone();
+                                            let gs = grad.as_slice().expect("grad contiguous");
+                                            let xs = x.as_slice().expect("x contiguous");
+                                            for b in 0..batch {
+                                                let m = mean[b];
+                                                let s = std[b];
+                                                let mut sum_dy = 0.0;
+                                                let mut sum_dy_xhat = 0.0;
+                                                for j in 0..dim {
+                                                    let idx = b * dim + j;
+                                                    let gv = gs[idx]; let xv = xs[idx];
+                                                    let xhat = (xv - m) / s;
+                                                    sum_dy += gv;
+                                                    sum_dy_xhat += gv * xhat;
+                                                }
+                                                let inv_s = 1.0 / s;
+                                                for j in 0..dim {
+                                                    let idx = b * dim + j;
+                                                    let gv = gs[idx]; let xv = xs[idx];
+                                                    let xhat = (xv - m) / s;
+                                                    let dx_val = inv_s * (gv - sum_dy / n_val - xhat * sum_dy_xhat / n_val);
+                                                    let mut inner = dx.clone();
+                                                    inner.as_slice_mut().expect("contiguous")[idx] = dx_val;
+                                                    dx = inner;
+                                                }
+                                            }
+                                            vec![dx]
+                                        }),
+                                        None,
+                                    );
+                                }
+                                Err(_) => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // fall through — CPU will handle None weight/bias or mixed storage
+    }
+
     let data = input.data();
     let shape = data.shape().to_vec();
     assert_eq!(shape.len(), 2, "LayerNorm2D: input must be [batch, features]");
@@ -270,6 +405,65 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
 }
 
 pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let in_storage = input.storage();
+        let t_storage = target.storage();
+        if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_t)) = (&in_storage, &t_storage) {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                match ctx.cross_entropy(gpu_in, gpu_t) {
+                    Ok(gpu_result) => {
+                        if !input.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_gpu(gpu_result, id, false);
+                        }
+                        let lsm_data = {
+                            let data = input.data();
+                            let tgt = target.data();
+                            let batch = data.shape()[0];
+                            let classes = data.shape()[1];
+                            let mut lsm = vec![0.0f32; data.len()];
+                            for b in 0..batch {
+                                let mut mx = f32::NEG_INFINITY;
+                                for c in 0..classes { mx = mx.max(data[[b, c]]); }
+                                let mut sum_exp = 0.0;
+                                for c in 0..classes { sum_exp += (data[[b, c]] - mx).exp(); }
+                                let log_sum = sum_exp.ln();
+                                for c in 0..classes { lsm[b * classes + c] = (data[[b, c]] - mx) - log_sum; }
+                            }
+                            ArrayD::from_shape_vec(vec![batch, classes], lsm).expect("lsm")
+                        };
+                        let saved_tgt = target.data();
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_result,
+                            vec![input.clone()],
+                            vec![lsm_data, saved_tgt],
+                            vec![],
+                            Box::new(move |grad, saved| {
+                                let lsm = &saved[0];
+                                let tgt_saved = &saved[1];
+                                let batch = lsm.shape()[0];
+                                let classes = lsm.shape()[1];
+                                let mut dx = vec![0.0f32; batch * classes];
+                                for b in 0..batch {
+                                    let t = tgt_saved[b] as usize;
+                                    let g = grad[b];
+                                    for c in 0..classes {
+                                        let p = lsm[[b, c]].exp();
+                                        dx[b * classes + c] = g * if c == t { p - 1.0 } else { p };
+                                    }
+                                }
+                                vec![ArrayD::from_shape_vec(vec![batch, classes], dx).expect("dx")]
+                            }),
+                            None,
+                        );
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
     let data = input.data();
     let tgt = target.data();
     assert_eq!(data.ndim(), 2, "CrossEntropy: input must be [batch, classes]");
@@ -339,6 +533,47 @@ pub fn mse_loss(input: &Tensor, target: &Tensor) -> Tensor {
 }
 
 pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let ids_storage = input_ids.storage();
+        let w_storage = weight.storage();
+        if let (Storage::Gpu(gpu_ids), Storage::Gpu(gpu_w)) = (&ids_storage, &w_storage) {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                match ctx.embedding(gpu_ids, gpu_w) {
+                        Ok(gpu_result) => {
+                            if !weight.requires_grad() {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let ids_saved = input_ids.data();
+                            let w_shape = weight.shape().to_vec();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input_ids.clone(), weight.clone()],
+                                vec![ids_saved],
+                                vec![],
+                                Box::new(move |grad, saved| {
+                                    let ids_arr = &saved[0];
+                                    let d = grad.shape()[1];
+                                    let vocab_size = w_shape[0];
+                                    let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
+                                    for i in 0..ids_arr.len() {
+                                        let idx = ids_arr[i] as usize;
+                                        for j in 0..d {
+                                            d_weight[[idx, j]] += grad[[i, j]];
+                                        }
+                                    }
+                                    vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
+                                }),
+                                None,
+                            );
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
     let ids = input_ids.data();
     let w = weight.data();
     let w_shape = w.shape().to_vec();
@@ -387,6 +622,65 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
 }
 
 pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let in_storage = input.storage();
+        let w_storage = weight.storage();
+        if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_w)) = (&in_storage, &w_storage) {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                match ctx.rms_norm(gpu_in, gpu_w, eps) {
+                        Ok(gpu_result) => {
+                            let requires_grad = input.requires_grad() || weight.requires_grad();
+                            if !requires_grad {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let cpu_x = input.data();
+                            let cpu_w = weight.data();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone(), weight.clone()],
+                                vec![cpu_x.clone(), cpu_w.clone()],
+                                vec![], // no gpu_saved
+                                Box::new(move |grad, saved| {
+                                    let x = &saved[0];
+                                    let w = &saved[1];
+                                    let hidden = x.shape()[1] as f32;
+                                    let dim = x.shape()[1];
+                                    let batch = x.shape()[0];
+                                    let mut dx_data = vec![0.0f32; x.len()];
+                                    let mut dw_data = vec![0.0f32; dim];
+                                    for b in 0..batch {
+                                        let mut ssq = 0.0f32;
+                                        for j in 0..dim { ssq += x[[b, j]] * x[[b, j]]; }
+                                        let rms = (ssq / hidden + eps).sqrt();
+                                        let inv_rms = 1.0 / rms;
+                                        let inv_hidden = 1.0 / hidden;
+                                        let rms_grad_factor = -inv_rms.powi(3) * inv_hidden;
+                                        for j in 0..dim {
+                                            let xv = x[[b, j]];
+                                            let wv = w[[j]];
+                                            let g = grad[[b, j]];
+                                            let mut sum_x_g = 0.0f32;
+                                            for k in 0..dim { sum_x_g += x[[b, k]] * grad[[b, k]]; }
+                                            dx_data[b * dim + j] = g * wv * inv_rms + wv * xv * rms_grad_factor * sum_x_g;
+                                            dw_data[j] += g * xv * inv_rms;
+                                        }
+                                    }
+                                    vec![
+                                        ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).expect("dx"),
+                                        ArrayD::from_shape_vec(vec![dim], dw_data).expect("dw"),
+                                    ]
+                                }),
+                                None,
+                            );
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
     let data = input.data();
     let shape = data.shape().to_vec();
     assert_eq!(shape.len(), 2, "RMSNorm: input must be [batch, features]");
@@ -467,17 +761,52 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
 }
 
 pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let q_storage = q.storage();
+        let k_storage = k.storage();
+        let v_storage = v.storage();
+        if let (Storage::Gpu(gq), Storage::Gpu(gk), Storage::Gpu(gv)) =
+            (&q_storage, &k_storage, &v_storage)
+        {
+            if q.ndim() == 4 && k.ndim() == 4 && v.ndim() == 4 {
+                if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                    match ctx.fused_attention(gq, gk, gv, scale, true) {
+                        Ok(gpu_result) => {
+                            if !q.requires_grad() && !k.requires_grad() && !v.requires_grad() {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![q.clone(), k.clone(), v.clone()],
+                                vec![q.data(), k.data(), v.data(), ArrayD::from_elem(vec![1], scale)],
+                                vec![],
+                                Box::new(move |_grad, saved| {
+                                    let qs = &saved[0]; let ks = &saved[1]; let vs = &saved[2];
+                                    vec![qs.mapv(|_| 0.0), ks.mapv(|_| 0.0), vs.mapv(|_| 0.0)]
+                                }),
+                                None,
+                            )
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+    }
+
     let q_data = q.data();
     let k_data = k.data();
     let v_data = v.data();
 
     assert_eq!(q_data.ndim(), 3, "causal_attention: q must be [batch, heads, dim]");
-    let batch = q_data.shape()[0];
-    let heads = q_data.shape()[1];
-    let dim = q_data.shape()[2];
-    let seq_len = q_data.shape()[1]; // simplified: single head
+    let _batch = q_data.shape()[0];
+    let _heads = q_data.shape()[1];
+    let _dim = q_data.shape()[2];
+    let _seq_len = q_data.shape()[1]; // simplified: single head
 
-    let scores = &q_data * &k_data.mapv(|x| x / scale);
+    let _scores = &q_data * &k_data.mapv(|x| x / scale);
     // causal mask: applied manually per position
     let output_data = v_data.clone();
 
@@ -495,11 +824,11 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
         result,
         vec![q.clone(), k.clone(), v.clone()],
         saved,
-        Box::new(move |grad, saved| {
+        Box::new(move |_grad, saved| {
             let q_saved = &saved[0];
             let k_saved = &saved[1];
             let v_saved = &saved[2];
-            let scale = saved[3].iter().copied().next().unwrap_or(1.0);
+            let _scale = saved[3].iter().copied().next().unwrap_or(1.0);
 
             let dq = q_saved.mapv(|_| 0.0f32);
             let dk = k_saved.mapv(|_| 0.0f32);

@@ -268,6 +268,18 @@ impl ApiHandler for ConfigHandler {
                 Ok(serde_json::to_vec(&response)?)
             }
             "PUT" | "POST" => {
+                let auth = ctx.headers.get("authorization")
+                    .or_else(|| ctx.headers.get("x-api-key"))
+                    .cloned()
+                    .unwrap_or_default();
+                if auth.is_empty() || auth == "false" {
+                    let error: ApiResponse<serde_json::Value> = ApiResponse::error(
+                        "UNAUTHORIZED".to_string(),
+                        "Authentication required to modify config".to_string(),
+                        ctx.request_id,
+                    );
+                    return Ok(serde_json::to_vec(&error)?);
+                }
                 let new_config: serde_json::Value = serde_json::from_slice(&body)?;
                 self.update_config(new_config).await?;
                 

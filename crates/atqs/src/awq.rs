@@ -188,7 +188,7 @@ impl AWQEngine {
     pub fn dequantize(&self, q: &AWQQuantizedTensor) -> Array2<f32> {
         let rows = q.original_shape[0];
         let cols = q.original_shape[1];
-        let max_quant = (1 << q.bits) as f32;
+        let _max_quant = (1 << q.bits) as f32;
         let mask = (1 << q.bits) - 1;
         let entries_per_byte = 8 / q.bits as usize;
 

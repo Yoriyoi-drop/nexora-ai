@@ -115,7 +115,7 @@ impl HLDAEvaluator {
     
     /// Calculate CLIP score
     fn calculate_clip_score(&self, images: &[Tensor], prompts: &[String]) -> HLDVAResult<f32> {
-        let clip_metric = self.metrics.get("clip_score").ok_or_else(|| crate::HLDVAError::InvalidInput("CLIP Score metric not found".to_string()))?;
+        let _clip_metric = self.metrics.get("clip_score").ok_or_else(|| crate::HLDVAError::InvalidInput("CLIP Score metric not found".to_string()))?;
         
         let mut clip_scores = Vec::new();
         
@@ -158,7 +158,7 @@ impl HLDAEvaluator {
         generated: &[Tensor],
         reference: Option<&[Tensor]>,
     ) -> HLDVAResult<f32> {
-        let lpips_metric = self.metrics.get("lpips").ok_or_else(|| crate::HLDVAError::InvalidInput("LPIPS metric not found".to_string()))?;
+        let _lpips_metric = self.metrics.get("lpips").ok_or_else(|| crate::HLDVAError::InvalidInput("LPIPS metric not found".to_string()))?;
         
         if let Some(ref_imgs) = reference {
             let mut lpips_scores = Vec::new();
@@ -257,7 +257,7 @@ impl HLDAEvaluator {
         Ok(Tensor::new(predictions, vec![images.len() * 1000])) // 1000 ImageNet classes
     }
     
-    fn get_single_inception_prediction(&self, image: &Tensor) -> HLDVAResult<Vec<f32>> {
+    fn get_single_inception_prediction(&self, _image: &Tensor) -> HLDVAResult<Vec<f32>> {
         // Simplified prediction - random softmax
         let mut prediction = vec![0.0; 1000];
         let mut sum = 0.0;
@@ -624,7 +624,7 @@ impl InceptionNetwork {
         let width = image_shape[1];
         let channels = image_shape.get(2).unwrap_or(&1);
         
-        let channel_idx = position % channels;
+        let _channel_idx = position % channels;
         let spatial_idx = position / channels;
         let y = spatial_idx / width;
         let x = spatial_idx % width;
@@ -850,7 +850,7 @@ impl ClipModel {
                 for py in y..(y + self.image_encoder.patch_size).min(height) {
                     for px in x..(x + self.image_encoder.patch_size).min(width) {
                         for c in 0..*channels {
-                            let idx = ((py * width + px) * *channels + c);
+                            let idx = (py * width + px) * *channels + c;
                             if idx < image_data.len() {
                                 patch_sum += image_data[idx];
                                 patch_count += 1;
@@ -879,7 +879,7 @@ impl ClipModel {
         // Transformer layers
         for i in 0..self.embedding_dim {
             let token_idx = i % tokens.len();
-            let layer_idx = i / tokens.len();
+            let _layer_idx = i / tokens.len();
             
             // Token embedding
             let token_embedding = self.get_token_embedding(tokens[token_idx]);
@@ -939,7 +939,7 @@ impl ClipModel {
     }
     
     /// Layer normalization
-    fn layer_normalize(&self, input: f32, layer_idx: usize) -> f32 {
+    fn layer_normalize(&self, input: f32, _layer_idx: usize) -> f32 {
         let mean = input; // Simplified
         let variance = 0.1; // Simplified
         (input - mean) / (variance + 1e-6_f32).sqrt()
