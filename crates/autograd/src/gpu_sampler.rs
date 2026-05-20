@@ -279,63 +279,51 @@ const TOP_K_MASK_WGSL: &str = r"
 @group(0) @binding(0) var<storage, read_write> probs: array<f32>;
 @group(0) @binding(1) var<uniform> cfg: vec2<u32>;
 
+var<workgroup> scratch: array<f32, 256>;
+
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) id: vec3<u32>,
         @builtin(local_invocation_id) lid: vec3<u32>,
         @builtin(workgroup_id) wg: vec3<u32>) {
     let vocab = cfg.x;
     let k = cfg.y;
+    if k >= vocab { return; }
     let row = wg.x;
     let base = row * vocab;
 
-    var shared: array<f32, 256>;
-
-    // Find k-th largest: iterate find-max → zero-out k times
+    // Find k-th largest value without modifying probs
+    var prev_max: f32 = 3.402823e+38;
     var threshold: f32 = -3.402823e+38;
     for (var iter: u32 = 0u; iter < k; iter = iter + 1u) {
-        // tree-reduce max
         var mx: f32 = -3.402823e+38;
         var i = lid.x;
         while i < vocab {
             let v = probs[base + i];
-            if v > mx { mx = v; }
+            if v > mx && v < prev_max - 1e-6 { mx = v; }
             i += 256u;
         }
-        shared[lid.x] = mx;
+        scratch[lid.x] = mx;
         workgroupBarrier();
 
         var stride = 128u;
         while stride > 0u {
             if lid.x < stride {
-                if shared[lid.x] < shared[lid.x + stride] {
-                    shared[lid.x] = shared[lid.x + stride];
+                if scratch[lid.x] < scratch[lid.x + stride] {
+                    scratch[lid.x] = scratch[lid.x + stride];
                 }
             }
             workgroupBarrier();
             stride = stride / 2u;
         }
-        let row_max = shared[0u];
+        threshold = scratch[0u];
         workgroupBarrier();
-
-        if iter == 0u {
-            threshold = row_max;
-        }
-
-        // zero out the current max
-        i = lid.x;
-        while i < vocab {
-            if probs[base + i] >= row_max - 1e-6 {
-                probs[base + i] = 0.0;
-            }
-            i += 256u;
-        }
-        workgroupBarrier();
+        prev_max = threshold;
     }
 
-    // zero out everything below threshold
+    // Zero out everything below the k-th largest
     var i = lid.x;
     while i < vocab {
-        if probs[base + i] > 0.0 && probs[base + i] < threshold - 1e-6 {
+        if probs[base + i] < threshold - 1e-6 {
             probs[base + i] = 0.0;
         }
         i += 256u;
@@ -371,7 +359,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>) {
 
     // Per-row PRNG
     var rng_state = seed_lo ^ (row * 0x9E3779B9u);
-    let _ = xorshift64(&rng_state);
+    var warmup = xorshift64(&rng_state);
     let r = random_f32(&rng_state);
 
     // Compute total probability mass (re-normalize after top-k zeroing)
@@ -383,10 +371,10 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>) {
     // Walk CDF until cumulative > r * total
     var cumulative: f32 = 0.0;
     var chosen: u32 = vocab - 1u;
-    let target = r * total;
+    let threshold = r * total;
     for (var i: u32 = 0u; i < vocab; i = i + 1u) {
         cumulative += probs[base + i];
-        if cumulative >= target {
+        if cumulative >= threshold {
             chosen = i;
             break;
         }

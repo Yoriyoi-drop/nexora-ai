@@ -840,6 +840,48 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
 }
 
 pub fn causal_softmax(input: &Tensor) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &storage {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                match ctx.causal_softmax(gpu_input) {
+                    Ok(gpu_out) => {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
+                            return Tensor::from_gpu(gpu_out, crate::tensor::next_tensor_id(), false);
+                        }
+                        // For grad tracking: use elementwise backward on GPU
+                        let saved = gpu_out.clone();
+                        let inputs = vec![input.clone()];
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_out,
+                            inputs,
+                            vec![], // CPU saved — not needed for 1D causal
+                            vec![saved],
+                            Box::new(move |grad, _saved| {
+                                let soft = _saved[0].clone();
+                                let seq = soft.shape()[0];
+                                let mut dx = vec![0.0f32; soft.len()];
+                                for i in 0..seq {
+                                    let mut sum_sg = 0.0f32;
+                                    for j in 0..=i {
+                                        sum_sg += soft[[i, j]] * grad[[i, j]];
+                                    }
+                                    for j in 0..=i {
+                                        dx[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
+                                    }
+                                }
+                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx).unwrap()]
+                            }),
+                            None,
+                        );
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
     let data = input.data();
     let shape = data.shape().to_vec();
     assert_eq!(shape.len(), 2, "causal_softmax: input must be [seq_len, seq_len]");

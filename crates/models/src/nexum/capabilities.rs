@@ -401,7 +401,7 @@ impl _NexumCapabilities {
 
     /// Get detailed capability breakdown
     pub fn detailed_breakdown(&self) -> DetailedCapabilityBreakdown {
-        let mut breakdown = DetailedCapabilityBreakdown::new();
+        let mut breakdown = DetailedCapabilityBreakdown::default();
 
         for (domain, capability) in &self.vector.capabilities {
             let capability_detail = CapabilityDetail {
@@ -421,7 +421,7 @@ impl _NexumCapabilities {
 
     /// Compare with another capability set
     pub fn compare_with(&self, other: &_NexumCapabilities) -> CapabilityComparison {
-        let mut comparison = CapabilityComparison::new();
+        let mut comparison = CapabilityComparison::default();
 
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
@@ -516,7 +516,7 @@ impl _NexumCapabilities {
 
     /// Get multi-agent coordination capabilities
     pub fn get_multi_agent_coordination_capabilities(&self) -> MultiAgentCoordinationCapabilities {
-        let mut capabilities = MultiAgentCoordinationCapabilities::new();
+        let mut capabilities = MultiAgentCoordinationCapabilities::default();
 
         if let Some(orchestration_capability) = self.vector.get_capability(&CapabilityDomain::Orchestration) {
             capabilities.coordination_accuracy = self.performance_metrics.orchestration_accuracy;
@@ -529,7 +529,7 @@ impl _NexumCapabilities {
 
     /// Get consensus building capabilities
     pub fn get_consensus_building_capabilities(&self) -> ConsensusBuildingCapabilities {
-        let mut capabilities = ConsensusBuildingCapabilities::new();
+        let mut capabilities = ConsensusBuildingCapabilities::default();
 
         if let Some(consensus_capability) = self.vector.get_capability(&CapabilityDomain::Consensus) {
             capabilities.consensus_accuracy = self.performance_metrics.consensus_building_speed;
@@ -542,7 +542,7 @@ impl _NexumCapabilities {
 
     /// Get resource management capabilities
     pub fn get_resource_management_capabilities(&self) -> ResourceManagementCapabilities {
-        let mut capabilities = ResourceManagementCapabilities::new();
+        let mut capabilities = ResourceManagementCapabilities::default();
 
         if let Some(resource_capability) = self.vector.get_capability(&CapabilityDomain::ResourceManagement) {
             capabilities.management_accuracy = self.performance_metrics.resource_optimization_efficiency;
@@ -555,7 +555,7 @@ impl _NexumCapabilities {
 
     /// Get alignment enforcement capabilities
     pub fn get_alignment_enforcement_capabilities(&self) -> AlignmentEnforcementCapabilities {
-        let mut capabilities = AlignmentEnforcementCapabilities::new();
+        let mut capabilities = AlignmentEnforcementCapabilities::default();
 
         if let Some(alignment_capability) = self.vector.get_capability(&CapabilityDomain::Alignment) {
             capabilities.enforcement_accuracy = self.performance_metrics.alignment_enforcement_strength;
@@ -568,7 +568,7 @@ impl _NexumCapabilities {
 
     /// Get orchestration capabilities breakdown
     pub fn get_orchestration_capabilities_breakdown(&self) -> OrchestrationCapabilitiesBreakdown {
-        let mut breakdown = OrchestrationCapabilitiesBreakdown::new();
+        let mut breakdown = OrchestrationCapabilitiesBreakdown::default();
 
         if let Some(orchestration_capability) = self.vector.get_capability(&CapabilityDomain::Orchestration) {
             breakdown.orchestration_quality = self.performance_metrics.orchestration_accuracy;
@@ -581,7 +581,7 @@ impl _NexumCapabilities {
 
     /// Get scalability assessment
     pub fn get_scalability_assessment(&self) -> ScalabilityAssessment {
-        let mut assessment = ScalabilityAssessment::new();
+        let mut assessment = ScalabilityAssessment::default();
 
         assessment.agent_capacity = self.calculate_agent_capacity();
         assessment.task_throughput = self.calculate_task_throughput();
@@ -623,7 +623,7 @@ impl _NexumCapabilities {
 
     /// Get fault tolerance capabilities
     pub fn get_fault_tolerance_capabilities(&self) -> FaultToleranceCapabilities {
-        let mut capabilities = FaultToleranceCapabilities::new();
+        let mut capabilities = FaultToleranceCapabilities::default();
 
         capabilities.fault_detection_accuracy = 0.92;
         capabilities.recovery_time_ms = 5000;
@@ -635,7 +635,7 @@ impl _NexumCapabilities {
 
     /// Get performance benchmarking
     pub fn get_performance_benchmarking(&self) -> PerformanceBenchmarking {
-        let mut benchmarking = PerformanceBenchmarking::new();
+        let mut benchmarking = PerformanceBenchmarking::default();
 
         benchmarking.orchestration_benchmark = self.performance_metrics.orchestration_accuracy;
         benchmarking.consensus_benchmark = self.performance_metrics.consensus_building_speed;
@@ -647,7 +647,7 @@ impl _NexumCapabilities {
 
     /// Get capability maturity assessment
     pub fn get_capability_maturity_assessment(&self) -> CapabilityMaturityAssessment {
-        let mut assessment = CapabilityMaturityAssessment::new();
+        let mut assessment = CapabilityMaturityAssessment::default();
 
         assessment.overall_maturity = self.calculate_maturity_level();
         assessment.orchestration_maturity = self.calculate_domain_maturity(&CapabilityDomain::Orchestration);
@@ -820,18 +820,12 @@ pub struct CapabilityCounts {
 }
 
 /// Detailed capability breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DetailedCapabilityBreakdown {
     pub capabilities: HashMap<CapabilityDomain, CapabilityDetail>,
 }
 
 impl DetailedCapabilityBreakdown {
-    pub fn new() -> Self {
-        Self {
-            capabilities: HashMap::new(),
-        }
-    }
-
     /// Get capability by domain
     pub fn get_capability(&self, domain: &CapabilityDomain) -> Option<&CapabilityDetail> {
         self.capabilities.get(domain)
@@ -846,7 +840,7 @@ impl DetailedCapabilityBreakdown {
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
-        let mut stats = CapabilityStatistics::new();
+        let mut stats = CapabilityStatistics::default();
         
         for capability in self.capabilities.values() {
             match capability.level {
@@ -879,7 +873,7 @@ pub struct CapabilityDetail {
 }
 
 /// Capability statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityStatistics {
     pub total_capabilities: usize,
     pub transcendent_count: usize,
@@ -891,36 +885,14 @@ pub struct CapabilityStatistics {
     pub average_score: f32,
 }
 
-impl CapabilityStatistics {
-    pub fn new() -> Self {
-        Self {
-            total_capabilities: 0,
-            transcendent_count: 0,
-            master_count: 0,
-            expert_count: 0,
-            advanced_count: 0,
-            intermediate_count: 0,
-            basic_count: 0,
-            average_score: 0.0,
-        }
-    }
-}
-
 /// Capability comparison
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityComparison {
     pub domain_comparisons: HashMap<CapabilityDomain, DomainComparison>,
     pub overall_difference: f32,
 }
 
 impl CapabilityComparison {
-    pub fn new() -> Self {
-        Self {
-            domain_comparisons: HashMap::new(),
-            overall_difference: 0.0,
-        }
-    }
-
     /// Get improvement opportunities
     pub fn get_improvement_opportunities(&self) -> Vec<ImprovementOpportunity> {
         let mut opportunities = Vec::new();
@@ -1019,97 +991,47 @@ pub struct OrchestrationIntelligenceMetrics {
 }
 
 /// Multi-agent coordination capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MultiAgentCoordinationCapabilities {
     pub coordination_accuracy: f32,
     pub coordination_methods: Vec<String>,
     pub coordination_speed: f32,
 }
 
-impl MultiAgentCoordinationCapabilities {
-    pub fn new() -> Self {
-        Self {
-            coordination_accuracy: 0.0,
-            coordination_methods: Vec::new(),
-            coordination_speed: 0.0,
-        }
-    }
-}
-
 /// Consensus building capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConsensusBuildingCapabilities {
     pub consensus_accuracy: f32,
     pub consensus_methods: Vec<String>,
     pub consensus_speed: f32,
 }
 
-impl ConsensusBuildingCapabilities {
-    pub fn new() -> Self {
-        Self {
-            consensus_accuracy: 0.0,
-            consensus_methods: Vec::new(),
-            consensus_speed: 0.0,
-        }
-    }
-}
-
 /// Resource management capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResourceManagementCapabilities {
     pub management_accuracy: f32,
     pub management_methods: Vec<String>,
     pub optimization_score: f32,
 }
 
-impl ResourceManagementCapabilities {
-    pub fn new() -> Self {
-        Self {
-            management_accuracy: 0.0,
-            management_methods: Vec::new(),
-            optimization_score: 0.0,
-        }
-    }
-}
-
 /// Alignment enforcement capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AlignmentEnforcementCapabilities {
     pub enforcement_accuracy: f32,
     pub enforcement_methods: Vec<String>,
     pub compliance_rate: f32,
 }
 
-impl AlignmentEnforcementCapabilities {
-    pub fn new() -> Self {
-        Self {
-            enforcement_accuracy: 0.0,
-            enforcement_methods: Vec::new(),
-            compliance_rate: 0.0,
-        }
-    }
-}
-
 /// Orchestration capabilities breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OrchestrationCapabilitiesBreakdown {
     pub orchestration_quality: f32,
     pub orchestration_methods: Vec<String>,
     pub coordination_efficiency: f32,
 }
 
-impl OrchestrationCapabilitiesBreakdown {
-    pub fn new() -> Self {
-        Self {
-            orchestration_quality: 0.0,
-            orchestration_methods: Vec::new(),
-            coordination_efficiency: 0.0,
-        }
-    }
-}
-
 /// Scalability assessment
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ScalabilityAssessment {
     pub agent_capacity: f32,
     pub task_throughput: f32,
@@ -1117,19 +1039,8 @@ pub struct ScalabilityAssessment {
     pub coordination_overhead: f32,
 }
 
-impl ScalabilityAssessment {
-    pub fn new() -> Self {
-        Self {
-            agent_capacity: 0.0,
-            task_throughput: 0.0,
-            resource_efficiency: 0.0,
-            coordination_overhead: 0.0,
-        }
-    }
-}
-
 /// Fault tolerance capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FaultToleranceCapabilities {
     pub fault_detection_accuracy: f32,
     pub recovery_time_ms: u64,
@@ -1137,19 +1048,8 @@ pub struct FaultToleranceCapabilities {
     pub failover_success_rate: f32,
 }
 
-impl FaultToleranceCapabilities {
-    pub fn new() -> Self {
-        Self {
-            fault_detection_accuracy: 0.0,
-            recovery_time_ms: 0,
-            redundancy_level: 0,
-            failover_success_rate: 0.0,
-        }
-    }
-}
-
 /// Performance benchmarking
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PerformanceBenchmarking {
     pub orchestration_benchmark: f32,
     pub consensus_benchmark: f32,
@@ -1157,19 +1057,8 @@ pub struct PerformanceBenchmarking {
     pub resource_benchmark: f32,
 }
 
-impl PerformanceBenchmarking {
-    pub fn new() -> Self {
-        Self {
-            orchestration_benchmark: 0.0,
-            consensus_benchmark: 0.0,
-            coordination_benchmark: 0.0,
-            resource_benchmark: 0.0,
-        }
-    }
-}
-
 /// Capability maturity assessment
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityMaturityAssessment {
     pub overall_maturity: MaturityLevel,
     pub orchestration_maturity: MaturityLevel,
@@ -1178,22 +1067,11 @@ pub struct CapabilityMaturityAssessment {
     pub resource_maturity: MaturityLevel,
 }
 
-impl CapabilityMaturityAssessment {
-    pub fn new() -> Self {
-        Self {
-            overall_maturity: MaturityLevel::Initial,
-            orchestration_maturity: MaturityLevel::Initial,
-            consensus_maturity: MaturityLevel::Initial,
-            coordination_maturity: MaturityLevel::Initial,
-            resource_maturity: MaturityLevel::Initial,
-        }
-    }
-}
-
 /// Maturity level
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum MaturityLevel {
     /// Incomplete maturity
+    #[default]
     Incomplete,
     /// Initial maturity
     Initial,

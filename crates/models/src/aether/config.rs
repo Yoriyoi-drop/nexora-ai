@@ -6,6 +6,40 @@ use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
 
+/// Macro to generate simple getter/setter pairs for nested config fields.
+macro_rules! define_accessors {
+    ($sub:ident, $get_doc:expr, $set_doc:expr, $field:ident, $ty:ty, copy $getter:ident, $setter:ident) => {
+        #[doc = $get_doc]
+        pub fn $getter(&self) -> $ty {
+            self.$sub.$field
+        }
+        #[doc = $set_doc]
+        pub fn $setter(&mut self, val: $ty) {
+            self.$sub.$field = val;
+        }
+    };
+    ($sub:ident, $get_doc:expr, $set_doc:expr, $field:ident, $ty:ty, ref $getter:ident, $setter:ident) => {
+        #[doc = $get_doc]
+        pub fn $getter(&self) -> &$ty {
+            &self.$sub.$field
+        }
+        #[doc = $set_doc]
+        pub fn $setter(&mut self, val: $ty) {
+            self.$sub.$field = val;
+        }
+    };
+    ($sub:ident, $is_doc:expr, $set_doc:expr, $field:ident, is $getter:ident, $setter:ident) => {
+        #[doc = $is_doc]
+        pub fn $getter(&self) -> bool {
+            self.$sub.$field
+        }
+        #[doc = $set_doc]
+        pub fn $setter(&mut self, val: bool) {
+            self.$sub.$field = val;
+        }
+    };
+}
+
 /// NXR-ÆTHER Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AetherConfig {
@@ -575,45 +609,10 @@ impl AetherConfig {
         self.empathy.support_generation.enable_support
     }
 
-    /// Get empathy depth
-    pub fn get_empathy_depth(&self) -> u8 {
-        self.emotional.empathy_depth
-    }
-
-    /// Set empathy depth
-    pub fn set_empathy_depth(&mut self, depth: u8) {
-        self.emotional.empathy_depth = depth;
-    }
-
-    /// Get emotional sensitivity
-    pub fn get_emotional_sensitivity(&self) -> f32 {
-        self.emotional.emotional_sensitivity
-    }
-
-    /// Set emotional sensitivity
-    pub fn set_emotional_sensitivity(&mut self, sensitivity: f32) {
-        self.emotional.emotional_sensitivity = sensitivity;
-    }
-
-    /// Get empathy weight
-    pub fn get_empathy_weight(&self) -> f32 {
-        self.empathy.empathy_weight
-    }
-
-    /// Set empathy weight
-    pub fn set_empathy_weight(&mut self, weight: f32) {
-        self.empathy.empathy_weight = weight;
-    }
-
-    /// Get cultural sensitivity
-    pub fn get_cultural_sensitivity(&self) -> f32 {
-        self.psychological.cultural_sensitivity
-    }
-
-    /// Set cultural sensitivity
-    pub fn set_cultural_sensitivity(&mut self, sensitivity: f32) {
-        self.psychological.cultural_sensitivity = sensitivity;
-    }
+    define_accessors!(emotional, "Get empathy depth", "Set empathy depth", empathy_depth, u8, copy get_empathy_depth, set_empathy_depth);
+    define_accessors!(emotional, "Get emotional sensitivity", "Set emotional sensitivity", emotional_sensitivity, f32, copy get_emotional_sensitivity, set_emotional_sensitivity);
+    define_accessors!(empathy, "Get empathy weight", "Set empathy weight", empathy_weight, f32, copy get_empathy_weight, set_empathy_weight);
+    define_accessors!(psychological, "Get cultural sensitivity", "Set cultural sensitivity", cultural_sensitivity, f32, copy get_cultural_sensitivity, set_cultural_sensitivity);
 
     /// Add supported culture
     pub fn add_supported_culture(&mut self, culture: CulturalContext) {
@@ -661,115 +660,17 @@ impl AetherConfig {
         self.psychological.assessment_methods.len() < original_len
     }
 
-    /// Get privacy level
-    pub fn get_privacy_level(&self) -> &PrivacyLevel {
-        &self.psychological.privacy_level
-    }
-
-    /// Set privacy level
-    pub fn set_privacy_level(&mut self, level: PrivacyLevel) {
-        self.psychological.privacy_level = level;
-    }
-
-    /// Get emotional granularity
-    pub fn get_emotional_granularity(&self) -> &EmotionalGranularity {
-        &self.emotional.emotional_granularity
-    }
-
-    /// Set emotional granularity
-    pub fn set_emotional_granularity(&mut self, granularity: EmotionalGranularity) {
-        self.emotional.emotional_granularity = granularity;
-    }
-
-    /// Get context awareness level
-    pub fn get_context_awareness_level(&self) -> &ContextAwarenessLevel {
-        &self.emotional.context_awareness
-    }
-
-    /// Set context awareness level
-    pub fn set_context_awareness_level(&mut self, level: ContextAwarenessLevel) {
-        self.emotional.context_awareness = level;
-    }
-
-    /// Get emotional model type
-    pub fn get_emotional_model_type(&self) -> &EmotionalModelType {
-        &self.emotional.emotional_model
-    }
-
-    /// Set emotional model type
-    pub fn set_emotional_model_type(&mut self, model_type: EmotionalModelType) {
-        self.emotional.emotional_model = model_type;
-    }
-
-    /// Get psychological framework
-    pub fn get_psychological_framework(&self) -> &PsychologicalFramework {
-        &self.psychological.psychological_framework
-    }
-
-    /// Set psychological framework
-    pub fn set_psychological_framework(&mut self, framework: PsychologicalFramework) {
-        self.psychological.psychological_framework = framework;
-    }
-
-    /// Get empathy response style
-    pub fn get_empathy_response_style(&self) -> &EmpathyResponseStyle {
-        &self.empathy.response_style
-    }
-
-    /// Set empathy response style
-    pub fn set_empathy_response_style(&mut self, style: EmpathyResponseStyle) {
-        self.empathy.response_style = style;
-    }
-
-    /// Get compassion level
-    pub fn get_compassion_level(&self) -> &CompassionLevel {
-        &self.empathy.compassion_level
-    }
-
-    /// Set compassion level
-    pub fn set_compassion_level(&mut self, level: CompassionLevel) {
-        self.empathy.compassion_level = level;
-    }
-
-    /// Get cultural adaptation mode
-    pub fn get_cultural_adaptation_mode(&self) -> &CulturalAdaptationMode {
-        &self.cultural.adaptation_mode
-    }
-
-    /// Set cultural adaptation mode
-    pub fn set_cultural_adaptation_mode(&mut self, mode: CulturalAdaptationMode) {
-        self.cultural.adaptation_mode = mode;
-    }
-
-    /// Get cultural sensitivity level
-    pub fn get_cultural_sensitivity_level(&self) -> &CulturalSensitivityLevel {
-        &self.cultural.sensitivity_level
-    }
-
-    /// Set cultural sensitivity level
-    pub fn set_cultural_sensitivity_level(&mut self, level: CulturalSensitivityLevel) {
-        self.cultural.sensitivity_level = level;
-    }
-
-    /// Check if cross-cultural awareness is enabled
-    pub fn is_cross_cultural_awareness_enabled(&self) -> bool {
-        self.cultural.cross_cultural_awareness
-    }
-
-    /// Set cross-cultural awareness
-    pub fn set_cross_cultural_awareness(&mut self, enabled: bool) {
-        self.cultural.cross_cultural_awareness = enabled;
-    }
-
-    /// Get cultural learning mode
-    pub fn get_cultural_learning_mode(&self) -> &CulturalLearningMode {
-        &self.cultural.learning_mode
-    }
-
-    /// Set cultural learning mode
-    pub fn set_cultural_learning_mode(&mut self, mode: CulturalLearningMode) {
-        self.cultural.learning_mode = mode;
-    }
+    define_accessors!(psychological, "Get privacy level", "Set privacy level", privacy_level, PrivacyLevel, ref get_privacy_level, set_privacy_level);
+    define_accessors!(emotional, "Get emotional granularity", "Set emotional granularity", emotional_granularity, EmotionalGranularity, ref get_emotional_granularity, set_emotional_granularity);
+    define_accessors!(emotional, "Get context awareness level", "Set context awareness level", context_awareness, ContextAwarenessLevel, ref get_context_awareness_level, set_context_awareness_level);
+    define_accessors!(emotional, "Get emotional model type", "Set emotional model type", emotional_model, EmotionalModelType, ref get_emotional_model_type, set_emotional_model_type);
+    define_accessors!(psychological, "Get psychological framework", "Set psychological framework", psychological_framework, PsychologicalFramework, ref get_psychological_framework, set_psychological_framework);
+    define_accessors!(empathy, "Get empathy response style", "Set empathy response style", response_style, EmpathyResponseStyle, ref get_empathy_response_style, set_empathy_response_style);
+    define_accessors!(empathy, "Get compassion level", "Set compassion level", compassion_level, CompassionLevel, ref get_compassion_level, set_compassion_level);
+    define_accessors!(cultural, "Get cultural adaptation mode", "Set cultural adaptation mode", adaptation_mode, CulturalAdaptationMode, ref get_cultural_adaptation_mode, set_cultural_adaptation_mode);
+    define_accessors!(cultural, "Get cultural sensitivity level", "Set cultural sensitivity level", sensitivity_level, CulturalSensitivityLevel, ref get_cultural_sensitivity_level, set_cultural_sensitivity_level);
+    define_accessors!(cultural, "Is cross-cultural awareness enabled", "Set cross-cultural awareness", cross_cultural_awareness, is is_cross_cultural_awareness_enabled, set_cross_cultural_awareness);
+    define_accessors!(cultural, "Get cultural learning mode", "Set cultural learning mode", learning_mode, CulturalLearningMode, ref get_cultural_learning_mode, set_cultural_learning_mode);
 
     /// Get support customization
     pub fn get_support_customization(&self) -> &SupportCustomization {
@@ -790,6 +691,7 @@ impl AetherConfig {
     pub fn set_support_validation(&mut self, validation: SupportValidation) {
         self.empathy.support_generation.validation = validation;
     }
+
 
     /// Create configuration for specific culture
     pub fn create_culture_specific_config(&self, culture_name: &str) -> Option<AetherConfig> {

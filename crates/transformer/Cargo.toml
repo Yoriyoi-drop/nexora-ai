@@ -11,3 +11,6 @@ serde_json.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 nexora-autograd = { path = "../autograd" }
+
+[features]
+gpu = ["nexora-autograd/gpu"]

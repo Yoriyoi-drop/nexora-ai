@@ -1,7 +1,5 @@
 use crate::gpu::{GpuContext, GpuTensor, GpuError};
 
-// ─── GpuAdam ───────────────────────────────────────────────────────────────────
-
 pub struct GpuAdam {
     pub m: Vec<GpuTensor>,
     pub v: Vec<GpuTensor>,
@@ -11,7 +9,7 @@ pub struct GpuAdam {
     pub beta2: f32,
     pub eps: f32,
     pub weight_decay: f32,
-    // Cached uniform buffers for hyperparams
+    pub max_grad_norm: Option<f32>,
     config_bufs: Vec<wgpu::Buffer>,
     pipeline: Option<wgpu::ComputePipeline>,
 }
@@ -53,6 +51,7 @@ impl GpuAdam {
             beta2: 0.999,
             eps: 1e-8,
             weight_decay: 0.0,
+            max_grad_norm: None,
             config_bufs,
             pipeline: None,
         })
@@ -79,9 +78,47 @@ impl GpuAdam {
         self.pipeline = Some(pipeline);
     }
 
-    /// Run one Adam step on all parameters.
-    /// `params`: GPU tensors for weight data (will be mutated in-place).
-    /// `grads`: GPU tensors for gradients (one per param, same shapes).
+    /// Zero out gradients on GPU (fill parameter buffers with 0).
+    pub fn zero_grad(
+        &self,
+        ctx: &GpuContext,
+        grads: &[&GpuTensor],
+    ) -> Result<(), GpuError> {
+        for g in grads {
+            ctx.fill_zero(g)?;
+        }
+        Ok(())
+    }
+
+    /// Clip gradients on GPU using L2 norm.
+    /// If total_norm > max_grad_norm, scale all gradients by max_norm/total_norm.
+    pub fn clip_gradients(
+        &self,
+        ctx: &GpuContext,
+        grads: &[&GpuTensor],
+        max_norm: f32,
+    ) -> Result<(), GpuError> {
+        if grads.is_empty() {
+            return Ok(());
+        }
+        // Compute sum of squared L2 norms
+        let mut total_sq = 0.0f32;
+        for g in grads {
+            let norm_t = ctx.l2_norm(g)?;
+            let norm_cpu = norm_t.to_cpu();
+            let sum_sq = norm_cpu.iter().copied().next().unwrap_or(0.0);
+            total_sq += sum_sq;
+        }
+        let total_norm = total_sq.sqrt();
+        if total_norm > max_norm && total_norm > 0.0 {
+            let scale = max_norm / total_norm;
+            for g in grads {
+                ctx.scale_inplace(g, scale)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn step(
         &mut self,
         ctx: &GpuContext,
@@ -92,6 +129,11 @@ impl GpuAdam {
         let pipeline = self.pipeline.as_ref().unwrap();
         self.step += 1;
 
+        // Gradient clipping on GPU
+        if let Some(max_norm) = self.max_grad_norm {
+            self.clip_gradients(ctx, grads, max_norm)?;
+        }
+
         let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
         let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
 
@@ -101,7 +143,6 @@ impl GpuAdam {
                 continue;
             }
 
-            // Write config: [lr, beta1, beta2, eps, weight_decay, bias_corr1, bias_corr2, step]
             let cfg: [f32; 8] = [
                 self.lr,
                 self.beta1,
@@ -166,33 +207,13 @@ impl GpuAdam {
         Ok(())
     }
 
-    /// Zero out optimizer state (m, v) on GPU.
     pub fn zero_state(&mut self, ctx: &GpuContext) -> Result<(), GpuError> {
         for mv in self.m.iter().chain(self.v.iter()) {
-            let numel = mv.numel();
-            if numel == 0 {
-                continue;
-            }
-            let zeros = GpuTensor::zeros(&mv.shape())?;
-            let mut encoder = ctx.device.create_command_encoder(
-                &wgpu::CommandEncoderDescriptor {
-                    label: Some("adam_zero_state"),
-                },
-            );
-            encoder.copy_buffer_to_buffer(
-                &zeros.buffer(),
-                0,
-                mv.buffer(),
-                0,
-                (numel * 4) as u64,
-            );
-            ctx.queue.submit(Some(encoder.finish()));
+            ctx.fill_zero(mv)?;
         }
         Ok(())
     }
 }
-
-// ─── WGSL Shader ───────────────────────────────────────────────────────────────
 
 const ADAM_WGSL: &str = r"
 struct Config {
@@ -221,20 +242,16 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let g = grad[i];
     let p = param[i];
 
-    // Update biased first/second moment estimates
     let m_new = cfg.beta1 * m[i] + (1.0 - cfg.beta1) * g;
     let v_new = cfg.beta2 * v[i] + (1.0 - cfg.beta2) * g * g;
 
-    // Bias correction
     let m_hat = m_new / cfg.bias_corr1;
     let v_hat = v_new / cfg.bias_corr2;
 
-    // AdamW decoupled weight decay + update
     let update = cfg.lr * m_hat / (sqrt(v_hat) + cfg.eps);
     let decay = cfg.lr * cfg.weight_decay * p;
     param[i] = p - update - decay;
 
-    // Store updated moments
     m[i] = m_new;
     v[i] = v_new;
 }

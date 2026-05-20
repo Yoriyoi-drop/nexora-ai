@@ -17,6 +17,7 @@ pub struct GpuPageTable {
     pub head_dim: usize,
     pub max_pages: usize,
     free_count: u32,
+    pub cpu_free: Vec<u32>,
 }
 
 impl GpuPageTable {
@@ -43,6 +44,8 @@ impl GpuPageTable {
                 .map_err(|_| GpuError::Buffer("shape error".into()))?,
         )?;
 
+        let cpu_free: Vec<u32> = (0..max_pages).map(|i| i as u32).rev().collect();
+
         Ok(Self {
             data,
             page_table,
@@ -52,12 +55,50 @@ impl GpuPageTable {
             head_dim,
             max_pages,
             free_count: max_pages as u32,
+            cpu_free,
         })
     }
 
+
+
     /// Number of free pages remaining.
     pub fn available_pages(&self) -> usize {
-        self.free_count as usize
+        self.cpu_free.len()
+    }
+
+    /// Allocate a page. Returns the page index, or None if OOM.
+    pub fn alloc(&mut self) -> Option<u32> {
+        self.cpu_free.pop()
+    }
+
+    /// Free a page index, returning it to the pool.
+    pub fn free(&mut self, page_idx: u32) {
+        if (page_idx as usize) < self.max_pages && !self.cpu_free.contains(&page_idx) {
+            self.cpu_free.push(page_idx);
+        }
+    }
+
+    /// Sync CPU free list to GPU free_list tensor (e.g. after alloc/free batch).
+    pub fn sync_free_list_to_gpu(&self, ctx: &GpuContext) -> Result<(), GpuError> {
+        let mut data = vec![0.0f32; self.max_pages];
+        for (i, &idx) in self.cpu_free.iter().enumerate() {
+            data[i] = idx as f32;
+        }
+        let arr = ndarray::ArrayD::from_shape_vec(vec![self.max_pages], data)
+            .map_err(|_| GpuError::Buffer("shape error".into()))?;
+        let temp = GpuTensor::from_cpu(&arr)?;
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sync_free_list") });
+        encoder.copy_buffer_to_buffer(
+            temp.buffer(),
+            0,
+            self.free_list.buffer(),
+            0,
+            (self.max_pages * 4) as u64,
+        );
+        ctx.queue.submit(Some(encoder.finish()));
+        Ok(())
     }
 }
 

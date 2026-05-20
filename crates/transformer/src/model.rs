@@ -13,6 +13,25 @@ fn softmax(logits: &Array1<f32>) -> Array1<f32> {
     Array1::from_shape_fn(logits.len(), |i| if sum > 0.0 { exps[i] / sum } else { 1.0 / logits.len() as f32 })
 }
 
+#[cfg(feature = "gpu")]
+fn sample_token_gpu(logits: &Array1<f32>, temperature: f32, top_k: usize, seed: u64) -> u32 {
+    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    if let Ok(ctx) = GpuContext::global() {
+        let shape = vec![1, logits.len()];
+        let cpu = ndarray::ArrayD::from_shape_vec(shape.clone(), logits.to_vec()).unwrap();
+        let gpu = GpuTensor::from_cpu(&cpu).unwrap();
+        match ctx.gpu_sample(&gpu, temperature, top_k as u32, seed) {
+            Ok(result) => {
+                let raw = result.to_cpu_raw_bytes();
+                u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]])
+            }
+            Err(_) => sample_token(logits, temperature, top_k),
+        }
+    } else {
+        sample_token(logits, temperature, top_k)
+    }
+}
+
 pub fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32 {
     if temperature <= 0.0 {
         let mut best = 0;
@@ -306,6 +325,17 @@ impl CausalLM {
         temperature: f32,
         top_k: usize,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, false)
+    }
+
+    pub fn generate_with_gpu(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+        use_gpu: bool,
+    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
         let mut cache = self.reset_cache();
 
         for &token_id in prompt_ids {
@@ -317,7 +347,14 @@ impl CausalLM {
 
         for _ in 0..max_tokens {
             let logits = self.forward(&[last_id], &mut cache);
-            let next_id = sample_token(&logits, temperature, top_k);
+            let next_id = if use_gpu {
+                #[cfg(feature = "gpu")]
+                { sample_token_gpu(&logits, temperature, top_k, 12345) }
+                #[cfg(not(feature = "gpu"))]
+                { sample_token(&logits, temperature, top_k) }
+            } else {
+                sample_token(&logits, temperature, top_k)
+            };
             output.push(next_id);
             if next_id == 0 {
                 break;

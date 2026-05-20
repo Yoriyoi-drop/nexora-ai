@@ -59,6 +59,7 @@ pub struct CausalLmModel {
     transformer_config: Arc<RwLock<TransformerConfig>>,
     initialized: Arc<RwLock<bool>>,
     statistics: Arc<RwLock<ModelStatistics>>,
+    use_gpu: Arc<RwLock<bool>>,
 }
 
 impl CausalLmModel {
@@ -93,6 +94,7 @@ impl CausalLmModel {
             transformer_config: Arc::new(RwLock::new(transformer_config)),
             initialized: Arc::new(RwLock::new(false)),
             statistics: Arc::new(RwLock::new(ModelStatistics::default())),
+            use_gpu: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -138,7 +140,15 @@ impl CausalLmModel {
         Ok(())
     }
 
+    pub async fn set_use_gpu(&self, enabled: bool) {
+        *self.use_gpu.write().await = enabled;
+    }
+
     pub async fn generate_text(&self, prompt: &str, max_tokens: usize, temperature: f32) -> NxrModelResult<String> {
+        self.generate_text_with_gpu(prompt, max_tokens, temperature, false).await
+    }
+
+    pub async fn generate_text_with_gpu(&self, prompt: &str, max_tokens: usize, temperature: f32, use_gpu: bool) -> NxrModelResult<String> {
         let model = self.model.read().await;
         let model_ref = model.as_ref().ok_or_else(|| {
             NxrModelError::NotInitialized("Model not loaded".to_string())
@@ -148,7 +158,7 @@ impl CausalLmModel {
             NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
         })?;
         let input_ids = tok_ref.encode(prompt);
-        let (output_ids, _) = model_ref.generate(&input_ids, max_tokens, temperature, 50);
+        let (output_ids, _) = model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, 50, use_gpu);
         let text = tok_ref.decode(&output_ids);
         Ok(text)
     }
@@ -422,7 +432,8 @@ impl NxrModel for CausalLmModel {
             NxrModelError::NotInitialized("Model was reset before generation".to_string())
         })?;
 
-        let (output_ids, _cache) = model_ref.generate(&input_ids, max_tokens, temperature, top_k);
+        let use_gpu = *self.use_gpu.read().await;
+        let (output_ids, _cache) = model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
 
         let elapsed = start.elapsed().as_millis() as u64;
         let generated_text = tok_ref.decode(&output_ids);

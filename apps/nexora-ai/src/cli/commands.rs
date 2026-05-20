@@ -174,6 +174,10 @@ pub enum Commands {
         /// Train all models in parallel
         #[arg(short = 'P', long)]
         parallel: bool,
+
+        /// Enable GPU acceleration
+        #[arg(short = 'g', long)]
+        gpu: bool,
     },
 
     /// Collect dataset from web sources and save as .arrow

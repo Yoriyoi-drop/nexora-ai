@@ -9,6 +9,11 @@ use ndarray::ArrayD;
 use nexora_autograd::{Tensor, TensorOps, Adam, clear_tape};
 use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::compute_grad_norm;
+use nexora_autograd::Device;
+
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu::{GpuContext, GpuTensor};
+use nexora_autograd::gpu_adam::GpuAdam;
 
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig, safetensors};
 
@@ -34,6 +39,7 @@ pub struct TrainerConfig {
     pub warmup_steps: usize,
     pub val_every_steps: usize,
     pub early_stop_patience: usize,
+    pub use_gpu: bool,
 }
 
 impl Default for TrainerConfig {
@@ -52,6 +58,7 @@ impl Default for TrainerConfig {
             warmup_steps: 0,
             val_every_steps: 100,
             early_stop_patience: 3,
+            use_gpu: false,
         }
     }
 }
@@ -61,6 +68,8 @@ pub struct Trainer {
     pub model: CausalLM,
     pub trainable: Option<TrainableCausalLM>,
     pub optimizer: Option<Adam>,
+    #[cfg(feature = "gpu")]
+    pub gpu_optimizer: Option<GpuAdam>,
     pub step: usize,
     pub total_loss: f64,
     pub total_tokens: usize,
@@ -88,6 +97,8 @@ impl Trainer {
             model,
             trainable: None,
             optimizer: None,
+            #[cfg(feature = "gpu")]
+            gpu_optimizer: None,
             step: 0,
             total_loss: 0.0,
             total_tokens: 0,
@@ -109,6 +120,8 @@ impl Trainer {
             model,
             trainable: None,
             optimizer: None,
+            #[cfg(feature = "gpu")]
+            gpu_optimizer: None,
             step: 0,
             total_loss: 0.0,
             total_tokens: 0,
@@ -143,6 +156,38 @@ impl Trainer {
     pub fn prepare(&mut self) {
         let trainable = TrainableCausalLM::from_inference(&self.model);
         let params = trainable.parameters();
+
+        #[cfg(feature = "gpu")]
+        if self.config.use_gpu {
+            match GpuContext::global() {
+                Ok(ctx) => {
+                    // Move all parameter weights to GPU
+                    for p in &params {
+                        let gpu_t = GpuTensor::from_cpu(&p.data()).unwrap();
+                        p.set_storage(nexora_autograd::Storage::Gpu(gpu_t));
+                        p.set_device(Device::Gpu(0));
+                    }
+                    // Create GpuAdam optimizer
+                    let owned_gpu_params: Vec<GpuTensor> = params.iter()
+                        .map(|p| match p.storage() {
+                            nexora_autograd::Storage::Gpu(g) => g,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    let gpu_params: Vec<&GpuTensor> = owned_gpu_params.iter().collect();
+                    let mut gpu_opt = GpuAdam::new(ctx, &gpu_params, self.config.learning_rate).unwrap();
+                    gpu_opt.weight_decay = self.config.weight_decay;
+                    gpu_opt.max_grad_norm = self.config.max_grad_norm;
+                    self.trainable = Some(trainable);
+                    self.gpu_optimizer = Some(gpu_opt);
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!("GPU init failed ({}), falling back to CPU", e);
+                }
+            }
+        }
+
         let mut optimizer = Adam::new(params, self.config.learning_rate);
         if self.config.weight_decay > 0.0 {
             optimizer.set_weight_decay(self.config.weight_decay);
@@ -173,15 +218,31 @@ impl Trainer {
             Some(t) => t,
             None => { warn!("train_step called without prepare()"); return None; }
         };
-        let optimizer = match self.optimizer.as_mut() {
-            Some(o) => o,
-            None => { warn!("train_step called without prepare()"); return None; }
-        };
 
         let seq = tokens.len().min(self.config.seq_length);
         if seq == 0 {
             return None;
         }
+
+        // ─── GPU training path ──────────────────────────────────────────────
+        #[cfg(feature = "gpu")]
+        if self.gpu_optimizer.is_some() {
+            let gpu_opt = self.gpu_optimizer.as_mut().unwrap();
+            return train_batch_gpu(
+                &mut self.model, trainable, gpu_opt, tokens, targets, seq,
+                &mut self.total_loss, &mut self.total_tokens,
+                &mut self.accumulation_counter, &mut self.step,
+                &mut self.step_times, &mut self.token_counts,
+                &mut self.loss_ema, &mut self.last_grad_norm,
+                &self.config, &self.stop_flag,
+            );
+        }
+
+        // ─── CPU training path ──────────────────────────────────────────────
+        let optimizer = match self.optimizer.as_mut() {
+            Some(o) => o,
+            None => { warn!("train_step called without prepare()"); return None; }
+        };
 
         let batch_start = std::time::Instant::now();
 
@@ -207,7 +268,6 @@ impl Trainer {
             optimizer.zero_grad();
             return None;
         }
-        // Accumulate total loss as sum over tokens (loss_val = per-token average * seq length)
         self.total_loss += loss_val as f64 * seq as f64;
         self.total_tokens += seq;
         self.accumulation_counter += 1;
@@ -221,7 +281,6 @@ impl Trainer {
             );
             optimizer.lr = new_lr;
 
-            // compute gradient norm before optimizer.step() consumes gradients
             self.last_grad_norm = Some(compute_grad_norm(&optimizer.parameters));
 
             optimizer.step();
@@ -229,7 +288,6 @@ impl Trainer {
             self.step += 1;
             self.accumulation_counter = 0;
 
-            // track step timing and tokens for throughput computation
             let elapsed = batch_start.elapsed();
             self.step_times.push_back(elapsed);
             self.token_counts.push_back(seq);
@@ -238,7 +296,6 @@ impl Trainer {
                 self.token_counts.pop_front();
             }
 
-            // EMA loss (smoothing factor 0.01)
             self.loss_ema = Some(match self.loss_ema {
                 Some(ema) => 0.99 * ema + 0.01 * loss_val,
                 None => loss_val,
@@ -267,6 +324,8 @@ impl Trainer {
 
         Some(loss_val)
     }
+
+
 
     pub fn prepare_batch(&mut self, tokens: &[u32]) -> (Vec<u32>, Vec<u32>) {
         let seq = tokens.len().min(self.config.seq_length + 1);
@@ -426,6 +485,126 @@ impl Trainer {
             }
         }
     }
+}
+
+// --- GPU training batch (standalone, avoids borrow conflicts) ---
+
+#[cfg(feature = "gpu")]
+#[allow(clippy::too_many_arguments)]
+fn train_batch_gpu(
+    model: &mut CausalLM,
+    trainable: &nexora_transformer::TrainableCausalLM,
+    gpu_opt: &mut GpuAdam,
+    tokens: &[u32],
+    targets: &[u32],
+    seq: usize,
+    total_loss: &mut f64,
+    total_tokens: &mut usize,
+    accumulation_counter: &mut usize,
+    step: &mut usize,
+    step_times: &mut VecDeque<std::time::Duration>,
+    token_counts: &mut VecDeque<usize>,
+    loss_ema: &mut Option<f32>,
+    last_grad_norm: &mut Option<f32>,
+    config: &TrainerConfig,
+    stop_flag: &Arc<AtomicBool>,
+) -> Option<f32> {
+    use std::sync::atomic::Ordering;
+    let batch_start = std::time::Instant::now();
+    let ctx = match GpuContext::global() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("GpuContext lost: {}", e);
+            return None;
+        }
+    };
+
+    let input_buf: Vec<f32> = tokens[..seq].iter().map(|&t| t as f32).collect();
+    let target_buf: Vec<f32> = targets[..seq].iter().map(|&t| t as f32).collect();
+    let input_arr = ndarray::ArrayD::from_shape_vec(vec![seq], input_buf).unwrap();
+    let target_arr = ndarray::ArrayD::from_shape_vec(vec![seq], target_buf).unwrap();
+    let input_t = Tensor::from_gpu(
+        GpuTensor::from_cpu(&input_arr).unwrap(),
+        nexora_autograd::tensor::next_tensor_id(), false,
+    );
+    let target_t = Tensor::from_gpu(
+        GpuTensor::from_cpu(&target_arr).unwrap(),
+        nexora_autograd::tensor::next_tensor_id(), false,
+    );
+
+    let logits = trainable.forward(&input_t);
+    let loss = cross_entropy_loss(&logits, &target_t).mean();
+    loss.backward();
+
+    let loss_val = loss.data()[0];
+    if !loss_val.is_finite() {
+        warn!("NaN/Inf loss detected ({}) — skipping GPU step", loss_val);
+        let owned_params: Vec<GpuTensor> = trainable.parameters().iter()
+            .map(|p| match p.storage() { nexora_autograd::Storage::Gpu(g) => g, _ => unreachable!() })
+            .collect();
+        let params: Vec<&GpuTensor> = owned_params.iter().collect();
+        let _ = gpu_opt.zero_grad(&ctx, &params);
+        return None;
+    }
+
+    *total_loss += loss_val as f64 * seq as f64;
+    *total_tokens += seq;
+    *accumulation_counter += 1;
+
+    if *accumulation_counter >= config.batch_size {
+        let owned_params: Vec<GpuTensor> = trainable.parameters().iter()
+            .map(|p| match p.storage() { nexora_autograd::Storage::Gpu(g) => g, _ => unreachable!() })
+            .collect();
+        let params: Vec<&GpuTensor> = owned_params.iter().collect();
+        let grad_tensors: Vec<GpuTensor> = trainable.parameters().iter()
+            .map(|p| {
+                let grad_arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
+                GpuTensor::from_cpu(&grad_arr).unwrap()
+            })
+            .collect();
+        let grad_refs: Vec<&GpuTensor> = grad_tensors.iter().collect();
+
+        gpu_opt.lr = Trainer::lr_at_step(
+            *step + 1, config.learning_rate,
+            config.warmup_steps, config.max_steps,
+        );
+
+        let _ = gpu_opt.step(&ctx, &params, &grad_refs);
+        let _ = gpu_opt.zero_grad(&ctx, &params);
+        for p in trainable.parameters().iter() {
+            p.zero_grad();
+        }
+        *last_grad_norm = Some(compute_grad_norm(&trainable.parameters()));
+        *step += 1;
+        *accumulation_counter = 0;
+
+        let elapsed = batch_start.elapsed();
+        step_times.push_back(elapsed);
+        token_counts.push_back(seq);
+        if step_times.len() > 100 {
+            step_times.pop_front();
+            token_counts.pop_front();
+        }
+
+        *loss_ema = Some(match *loss_ema {
+            Some(ema) => 0.99 * ema + 0.01 * loss_val,
+            None => loss_val,
+        });
+
+        if *step % config.save_every == 0 {
+            if let Some(ref path) = config.save_path {
+                trainable.sync_to_inference(model);
+                let save_file = format!("{}.safetensors", path);
+                if let Err(e) = trainable.save_checkpoint(&save_file) {
+                    warn!("Failed to save checkpoint: {}", e);
+                }
+            }
+        }
+
+        if stop_flag.load(Ordering::SeqCst) { return None; }
+    }
+
+    Some(loss_val)
 }
 
 // --- Optimizer save/load helpers ---

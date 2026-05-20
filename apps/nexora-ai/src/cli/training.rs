@@ -570,6 +570,7 @@ impl crate::cli::commands::Cli {
             warmup_steps: (max_steps / 20).max(1),
             val_every_steps: (max_steps / epochs.max(1)).max(1),
             early_stop_patience: 3,
+            use_gpu: gpu,
         };
 
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -842,6 +843,7 @@ impl crate::cli::commands::Cli {
             warmup_steps: (max_steps / 20).max(1),
             val_every_steps: (max_steps / epochs.max(1)).max(1),
             early_stop_patience: 3,
+            use_gpu: gpu,
         };
 
         let output_safetensors = output.with_extension("safetensors");

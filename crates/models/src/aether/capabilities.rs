@@ -390,7 +390,7 @@ impl _AetherCapabilities {
 
     /// Get detailed capability breakdown
     pub fn detailed_breakdown(&self) -> DetailedCapabilityBreakdown {
-        let mut breakdown = DetailedCapabilityBreakdown::new();
+        let mut breakdown = DetailedCapabilityBreakdown::default();
 
         for (domain, capability) in &self.vector.capabilities {
             let capability_detail = CapabilityDetail {
@@ -410,7 +410,7 @@ impl _AetherCapabilities {
 
     /// Compare with another capability set
     pub fn compare_with(&self, other: &_AetherCapabilities) -> CapabilityComparison {
-        let mut comparison = CapabilityComparison::new();
+        let mut comparison = CapabilityComparison::default();
 
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
@@ -504,7 +504,7 @@ impl _AetherCapabilities {
 
     /// Get support capabilities breakdown
     pub fn get_support_capabilities(&self) -> SupportCapabilitiesBreakdown {
-        let mut breakdown = SupportCapabilitiesBreakdown::new();
+        let mut breakdown = SupportCapabilitiesBreakdown::default();
 
         if let Some(support_capability) = self.vector.get_capability(&CapabilityDomain::Support) {
             breakdown.support_types = support_capability.sub_capabilities.clone();
@@ -517,7 +517,7 @@ impl _AetherCapabilities {
 
     /// Get cultural adaptation capabilities
     pub fn get_cultural_adaptation_capabilities(&self) -> CulturalAdaptationCapabilities {
-        let mut capabilities = CulturalAdaptationCapabilities::new();
+        let mut capabilities = CulturalAdaptationCapabilities::default();
 
         if let Some(cultural_capability) = self.vector.get_capability(&CapabilityDomain::Cultural) {
             capabilities.adaptation_accuracy = self.performance_metrics.cultural_adaptation_accuracy;
@@ -530,7 +530,7 @@ impl _AetherCapabilities {
 
     /// Get psychological analysis capabilities
     pub fn get_psychological_analysis_capabilities(&self) -> PsychologicalAnalysisCapabilities {
-        let mut capabilities = PsychologicalAnalysisCapabilities::new();
+        let mut capabilities = PsychologicalAnalysisCapabilities::default();
 
         if let Some(psychological_capability) = self.vector.get_capability(&CapabilityDomain::Psychological) {
             capabilities.analysis_accuracy = self.performance_metrics.psychological_analysis_accuracy;
@@ -665,17 +665,12 @@ pub struct CapabilityCounts {
 }
 
 /// Detailed capability breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DetailedCapabilityBreakdown {
     pub capabilities: HashMap<CapabilityDomain, CapabilityDetail>,
 }
 
 impl DetailedCapabilityBreakdown {
-    pub fn new() -> Self {
-        Self {
-            capabilities: HashMap::new(),
-        }
-    }
 
     /// Get capability by domain
     pub fn get_capability(&self, domain: &CapabilityDomain) -> Option<&CapabilityDetail> {
@@ -691,7 +686,7 @@ impl DetailedCapabilityBreakdown {
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
-        let mut stats = CapabilityStatistics::new();
+        let mut stats = CapabilityStatistics::default();
         
         for capability in self.capabilities.values() {
             match capability.level {
@@ -724,7 +719,7 @@ pub struct CapabilityDetail {
 }
 
 /// Capability statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityStatistics {
     pub total_capabilities: usize,
     pub transcendent_count: usize,
@@ -736,35 +731,14 @@ pub struct CapabilityStatistics {
     pub average_score: f32,
 }
 
-impl CapabilityStatistics {
-    pub fn new() -> Self {
-        Self {
-            total_capabilities: 0,
-            transcendent_count: 0,
-            master_count: 0,
-            expert_count: 0,
-            advanced_count: 0,
-            intermediate_count: 0,
-            basic_count: 0,
-            average_score: 0.0,
-        }
-    }
-}
-
 /// Capability comparison
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityComparison {
     pub domain_comparisons: HashMap<CapabilityDomain, DomainComparison>,
     pub overall_difference: f32,
 }
 
 impl CapabilityComparison {
-    pub fn new() -> Self {
-        Self {
-            domain_comparisons: HashMap::new(),
-            overall_difference: 0.0,
-        }
-    }
 
     /// Get improvement opportunities
     pub fn get_improvement_opportunities(&self) -> Vec<ImprovementOpportunity> {
@@ -863,64 +837,27 @@ pub struct _EmotionalIntelligenceMetrics {
 }
 
 /// Support capabilities breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SupportCapabilitiesBreakdown {
     pub support_types: Vec<String>,
     pub support_quality: f32,
     pub support_resources: ResourceRequirements,
 }
 
-impl SupportCapabilitiesBreakdown {
-    pub fn new() -> Self {
-        Self {
-            support_types: Vec::new(),
-            support_quality: 0.0,
-            support_resources: ResourceRequirements {
-                min_memory_gb: 0.0,
-                min_compute_units: 0,
-                requires_gpu: false,
-                min_gpu_memory_gb: None,
-                requires_network: false,
-                max_latency_ms: None,
-            },
-        }
-    }
-}
-
 /// Cultural adaptation capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CulturalAdaptationCapabilities {
     pub adaptation_accuracy: f32,
     pub adaptation_methods: Vec<String>,
     pub cultural_coverage: f32,
 }
 
-impl CulturalAdaptationCapabilities {
-    pub fn new() -> Self {
-        Self {
-            adaptation_accuracy: 0.0,
-            adaptation_methods: Vec::new(),
-            cultural_coverage: 0.0,
-        }
-    }
-}
-
 /// Psychological analysis capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PsychologicalAnalysisCapabilities {
     pub analysis_accuracy: f32,
     pub analysis_methods: Vec<String>,
     pub analysis_depth: f32,
-}
-
-impl PsychologicalAnalysisCapabilities {
-    pub fn new() -> Self {
-        Self {
-            analysis_accuracy: 0.0,
-            analysis_methods: Vec::new(),
-            analysis_depth: 0.0,
-        }
-    }
 }
 
 impl Default for _AetherCapabilities {

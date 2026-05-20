@@ -152,8 +152,8 @@ impl Cli {
                     Commands::Process { input, format, output } => {
                         self.run_process(&nexora, input, format, output).await
                     }
-                    Commands::TrainFoundation { data, model_id, steps, batch_size, learning_rate, seq_length, output, val_data, parallel } => {
-                        self.run_train_foundation(&nexora, data, model_id, *steps, *batch_size, *learning_rate, *seq_length, output, val_data, *parallel).await
+                    Commands::TrainFoundation { data, model_id, steps, batch_size, learning_rate, seq_length, output, val_data, parallel, gpu } => {
+                        self.run_train_foundation(&nexora, data, model_id, *steps, *batch_size, *learning_rate, *seq_length, output, val_data, *parallel, *gpu).await
                             .map_err(|e| NexoraError::processing(format!("TrainFoundation command failed: {}", e)))
                     }
                     Commands::CollectData { sources, max_samples, max_shard_size_mb, output } => {
@@ -352,6 +352,7 @@ impl Cli {
         output: &Option<PathBuf>,
         val_data: &Option<PathBuf>,
         parallel: bool,
+        gpu: bool,
     ) -> NexoraResult<()> {
         info!("=== FOUNDATION TRAINING ===");
         info!("Data: {:?}, Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", data, model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
@@ -406,10 +407,25 @@ impl Cli {
             warmup_steps: (steps / 20).max(1),
             val_every_steps: (steps / 5).max(1),
             early_stop_patience: 3,
+            use_gpu: gpu,
         };
 
+        // Initialize GPU if enabled
+        if gpu {
+            #[cfg(feature = "gpu")]
+            {
+                use nexora_deeplearning::autograd::gpu::GpuContext;
+                match GpuContext::init() {
+                    Ok(ctx) => info!("GPU initialized: {:?}", ctx.adapter_info()),
+                    Err(e) => warn!("GPU init failed, falling back to CPU: {}", e),
+                }
+            }
+            #[cfg(not(feature = "gpu"))]
+            warn!("GPU feature not compiled; use --features gpu");
+        }
+
         let registry = nexora_foundation::shared::model_registry::global_registry();
-        let val_ref: Vec<String> = val_lines;
+        let val_ref = val_lines;
         let tc_seq = trainer_cfg.clone();
 
         let out_path = output.clone();
@@ -426,6 +442,7 @@ impl Cli {
                         .map_err(|e| format!("Model {:?} not found: {}", mid, e))?;
                     let model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
                         .map_err(|_| "Failed to downcast".to_string())?;
+                    if gpu { model.set_use_gpu(true).await; }
                     let val_opt: Option<&[String]> = if vr.is_empty() { None } else { Some(&vr) };
                     let report = model.train_on_data(&lines, tc, val_opt).await
                         .map_err(|e| format!("Training failed: {}", e))?;
@@ -454,8 +471,11 @@ impl Cli {
                     .map_err(|e| NexoraError::model(format!("Model {:?} not found: {}", mid, e)))?;
                 let model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
                     .map_err(|_| NexoraError::model("Failed to downcast".to_string()))?;
+                let val_opt: Option<&[String]> = if val_lines.is_empty() { None } else { Some(&val_lines) };
 
-                let val_opt: Option<&[String]> = if val_ref.is_empty() { None } else { Some(&val_ref) };
+                // Enable GPU on model if requested
+                if gpu { model.set_use_gpu(true).await; }
+
                 let report = model.train_on_data(&lines, tc_seq.clone(), val_opt).await
                     .map_err(|e| NexoraError::model(format!("Training {:?} failed: {}", mid, e)))?;
 
@@ -467,7 +487,7 @@ impl Cli {
                 info!("  {:?} | Steps: {} | Loss: {:.4} | Tokens: {} | {:.1}s",
                     mid, report.steps, report.final_loss, report.total_tokens, report.duration_secs);
 
-                let sample = model.generate_text("The", 20, 0.8).await
+                let sample = model.generate_text_with_gpu("The", 20, 0.8, gpu).await
                     .map_err(|e| NexoraError::model(format!("Generation failed: {}", e)))?;
                 info!("  {:?} sample: {:?}", mid, sample);
             }

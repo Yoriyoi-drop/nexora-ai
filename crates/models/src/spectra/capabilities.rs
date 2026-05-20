@@ -371,7 +371,7 @@ impl _SpectraCapabilities {
 
     /// Get detailed capability breakdown
     pub fn detailed_breakdown(&self) -> DetailedCapabilityBreakdown {
-        let mut breakdown = DetailedCapabilityBreakdown::new();
+        let mut breakdown = DetailedCapabilityBreakdown::default();
 
         for (domain, capability) in &self.vector.capabilities {
             let capability_detail = CapabilityDetail {
@@ -391,7 +391,7 @@ impl _SpectraCapabilities {
 
     /// Compare with another capability set
     pub fn compare_with(&self, other: &_SpectraCapabilities) -> CapabilityComparison {
-        let mut comparison = CapabilityComparison::new();
+        let mut comparison = CapabilityComparison::default();
 
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
@@ -485,7 +485,7 @@ impl _SpectraCapabilities {
 
     /// Get multimedia capabilities breakdown
     pub fn get_multimedia_capabilities(&self) -> MultimediaCapabilitiesBreakdown {
-        let mut breakdown = MultimediaCapabilitiesBreakdown::new();
+        let mut breakdown = MultimediaCapabilitiesBreakdown::default();
 
         if let Some(multimedia_capability) = self.vector.get_capability(&CapabilityDomain::Multimedia) {
             breakdown.supported_modalities = multimedia_capability.sub_capabilities.clone();
@@ -498,7 +498,7 @@ impl _SpectraCapabilities {
 
     /// Get style adaptation capabilities
     pub fn get_style_adaptation_capabilities(&self) -> StyleAdaptationCapabilities {
-        let mut capabilities = StyleAdaptationCapabilities::new();
+        let mut capabilities = StyleAdaptationCapabilities::default();
 
         if let Some(style_capability) = self.vector.get_capability(&CapabilityDomain::Style) {
             capabilities.adaptation_accuracy = self.performance_metrics.style_adaptation_accuracy;
@@ -511,7 +511,7 @@ impl _SpectraCapabilities {
 
     /// Get innovation capabilities breakdown
     pub fn get_innovation_capabilities(&self) -> InnovationCapabilitiesBreakdown {
-        let mut breakdown = InnovationCapabilitiesBreakdown::new();
+        let mut breakdown = InnovationCapabilitiesBreakdown::default();
 
         if let Some(innovation_capability) = self.vector.get_capability(&CapabilityDomain::Innovation) {
             breakdown.innovation_quality = self.performance_metrics.innovation_generation_quality;
@@ -524,7 +524,7 @@ impl _SpectraCapabilities {
 
     /// Get creative generation capabilities
     pub fn get_creative_generation_capabilities(&self) -> CreativeGenerationCapabilities {
-        let mut capabilities = CreativeGenerationCapabilities::new();
+        let mut capabilities = CreativeGenerationCapabilities::default();
 
         if let Some(creative_capability) = self.vector.get_capability(&CapabilityDomain::Creative) {
             capabilities.generation_accuracy = self.performance_metrics.creative_generation_accuracy;
@@ -659,17 +659,12 @@ pub struct CapabilityCounts {
 }
 
 /// Detailed capability breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DetailedCapabilityBreakdown {
     pub capabilities: HashMap<CapabilityDomain, CapabilityDetail>,
 }
 
 impl DetailedCapabilityBreakdown {
-    pub fn new() -> Self {
-        Self {
-            capabilities: HashMap::new(),
-        }
-    }
 
     /// Get capability by domain
     pub fn get_capability(&self, domain: &CapabilityDomain) -> Option<&CapabilityDetail> {
@@ -685,7 +680,7 @@ impl DetailedCapabilityBreakdown {
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
-        let mut stats = CapabilityStatistics::new();
+        let mut stats = CapabilityStatistics::default();
         
         for capability in self.capabilities.values() {
             match capability.level {
@@ -718,7 +713,7 @@ pub struct CapabilityDetail {
 }
 
 /// Capability statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityStatistics {
     pub total_capabilities: usize,
     pub transcendent_count: usize,
@@ -730,36 +725,14 @@ pub struct CapabilityStatistics {
     pub average_score: f32,
 }
 
-impl CapabilityStatistics {
-    pub fn new() -> Self {
-        Self {
-            total_capabilities: 0,
-            transcendent_count: 0,
-            master_count: 0,
-            expert_count: 0,
-            advanced_count: 0,
-            intermediate_count: 0,
-            basic_count: 0,
-            average_score: 0.0,
-        }
-    }
-}
-
 /// Capability comparison
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CapabilityComparison {
     pub domain_comparisons: HashMap<CapabilityDomain, DomainComparison>,
     pub overall_difference: f32,
 }
 
 impl CapabilityComparison {
-    pub fn new() -> Self {
-        Self {
-            domain_comparisons: HashMap::new(),
-            overall_difference: 0.0,
-        }
-    }
-
     /// Get improvement opportunities
     pub fn get_improvement_opportunities(&self) -> Vec<ImprovementOpportunity> {
         let mut opportunities = Vec::new();
@@ -857,75 +830,35 @@ pub struct _CreativeIntelligenceMetrics {
 }
 
 /// Multimedia capabilities breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MultimediaCapabilitiesBreakdown {
     pub supported_modalities: Vec<String>,
     pub synthesis_quality: f32,
     pub fusion_accuracy: f32,
 }
 
-impl MultimediaCapabilitiesBreakdown {
-    pub fn new() -> Self {
-        Self {
-            supported_modalities: Vec::new(),
-            synthesis_quality: 0.0,
-            fusion_accuracy: 0.0,
-        }
-    }
-}
-
 /// Style adaptation capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StyleAdaptationCapabilities {
     pub adaptation_accuracy: f32,
     pub adaptation_methods: Vec<String>,
     pub adaptation_speed: f32,
 }
 
-impl StyleAdaptationCapabilities {
-    pub fn new() -> Self {
-        Self {
-            adaptation_accuracy: 0.0,
-            adaptation_methods: Vec::new(),
-            adaptation_speed: 0.0,
-        }
-    }
-}
-
 /// Innovation capabilities breakdown
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InnovationCapabilitiesBreakdown {
     pub innovation_quality: f32,
     pub innovation_methods: Vec<String>,
     pub novelty_score: f32,
 }
 
-impl InnovationCapabilitiesBreakdown {
-    pub fn new() -> Self {
-        Self {
-            innovation_quality: 0.0,
-            innovation_methods: Vec::new(),
-            novelty_score: 0.0,
-        }
-    }
-}
-
 /// Creative generation capabilities
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CreativeGenerationCapabilities {
     pub generation_accuracy: f32,
     pub generation_methods: Vec<String>,
     pub creativity_score: f32,
-}
-
-impl CreativeGenerationCapabilities {
-    pub fn new() -> Self {
-        Self {
-            generation_accuracy: 0.0,
-            generation_methods: Vec::new(),
-            creativity_score: 0.0,
-        }
-    }
 }
 
 impl Default for _SpectraCapabilities {

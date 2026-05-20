@@ -274,9 +274,32 @@ impl Tensor {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).grad = None;
     }
 
+    /// Zero grads on GPU when tensor storage is on GPU.
+    #[cfg(feature = "gpu")]
+    pub fn zero_grad_gpu(&self) -> Result<(), crate::gpu::GpuError> {
+        use crate::gpu::GpuContext;
+        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.grad = None;
+        if let Storage::Gpu(gpu_t) = &inner.storage {
+            let ctx = GpuContext::global()?;
+            ctx.fill_zero(gpu_t)?;
+        }
+        Ok(())
+    }
+
     pub fn set_data(&self, new_data: ArrayD<f32>) {
         let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
         inner.storage = Storage::Cpu(new_data);
+    }
+
+    pub fn set_storage(&self, storage: Storage) {
+        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.storage = storage;
+    }
+
+    pub fn set_device(&self, device: Device) {
+        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.device = device;
     }
 
     pub fn set_grad(&self, grad: ArrayD<f32>) {
