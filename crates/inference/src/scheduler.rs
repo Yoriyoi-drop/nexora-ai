@@ -77,13 +77,16 @@ impl RequestScheduler {
         let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;
 
-        requests.insert(request_id, ScheduledRequest {
-            _request_id: request_id,
-            response_tx,
-            status: RequestStatus::Queued,
-            _submitted_at: chrono::Utc::now(),
-            batch_key: None,
-        });
+        requests.insert(
+            request_id,
+            ScheduledRequest {
+                _request_id: request_id,
+                response_tx,
+                status: RequestStatus::Queued,
+                _submitted_at: chrono::Utc::now(),
+                batch_key: None,
+            },
+        );
         queue.push_back(request_id);
         Ok(())
     }
@@ -99,13 +102,16 @@ impl RequestScheduler {
         let mut queue = self.queue.write().await;
 
         let key = BatchKey::from_request(request);
-        requests.insert(request.request_id, ScheduledRequest {
-            _request_id: request.request_id,
-            response_tx,
-            status: RequestStatus::Queued,
-            _submitted_at: chrono::Utc::now(),
-            batch_key: Some(key.clone()),
-        });
+        requests.insert(
+            request.request_id,
+            ScheduledRequest {
+                _request_id: request.request_id,
+                response_tx,
+                status: RequestStatus::Queued,
+                _submitted_at: chrono::Utc::now(),
+                batch_key: Some(key.clone()),
+            },
+        );
         queue.push_back(request.request_id);
         Ok(key)
     }
@@ -129,7 +135,8 @@ impl RequestScheduler {
             *active += 1;
         }
         for breq in &batch.requests {
-            self.update_status(breq.request_id, RequestStatus::Processing).await;
+            self.update_status(breq.request_id, RequestStatus::Processing)
+                .await;
         }
         Some(batch)
     }
@@ -144,7 +151,10 @@ impl RequestScheduler {
     pub async fn cancel_request(&self, request_id: Uuid) -> Result<bool, anyhow::Error> {
         let mut requests = self.requests.write().await;
         if let Some(req) = requests.get_mut(&request_id) {
-            if matches!(req.status, RequestStatus::Queued | RequestStatus::Processing) {
+            if matches!(
+                req.status,
+                RequestStatus::Queued | RequestStatus::Processing
+            ) {
                 req.status = RequestStatus::Cancelled;
                 return Ok(true);
             }
@@ -152,7 +162,10 @@ impl RequestScheduler {
         Ok(false)
     }
 
-    pub async fn get_request_status(&self, request_id: Uuid) -> Result<Option<RequestStatus>, anyhow::Error> {
+    pub async fn get_request_status(
+        &self,
+        request_id: Uuid,
+    ) -> Result<Option<RequestStatus>, anyhow::Error> {
         let requests = self.requests.read().await;
         Ok(requests.get(&request_id).map(|r| r.status.clone()))
     }
@@ -212,16 +225,24 @@ impl RequestScheduler {
         }
     }
 
-    pub async fn send_response(&self, request_id: Uuid, response: crate::InferenceResponse) -> Result<(), anyhow::Error> {
+    pub async fn send_response(
+        &self,
+        request_id: Uuid,
+        response: crate::InferenceResponse,
+    ) -> Result<(), anyhow::Error> {
         let requests = self.requests.read().await;
         if let Some(req) = requests.get(&request_id) {
-            req.response_tx.send(response).await.map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
+            req.response_tx
+                .send(response)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
         }
         Ok(())
     }
 
     pub async fn complete_request(&self, request_id: Uuid) -> Result<(), anyhow::Error> {
-        self.update_status(request_id, RequestStatus::Completed).await;
+        self.update_status(request_id, RequestStatus::Completed)
+            .await;
         let mut active = self.active_count.write().await;
         if *active > 0 {
             *active -= 1;
@@ -232,7 +253,8 @@ impl RequestScheduler {
     /// Mark all requests in a batch as completed and release the concurrent slot.
     pub async fn complete_batch(&self, batch: &Batch) -> Result<(), anyhow::Error> {
         for breq in &batch.requests {
-            self.update_status(breq.request_id, RequestStatus::Completed).await;
+            self.update_status(breq.request_id, RequestStatus::Completed)
+                .await;
         }
         let mut active = self.active_count.write().await;
         if *active > 0 {

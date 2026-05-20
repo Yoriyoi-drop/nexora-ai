@@ -1,14 +1,14 @@
 //! Temporal Orchestrator Agent
-//! 
+//!
 //! Time-based orchestration and temporal coordination
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Temporal Orchestrator Agent - Time-based orchestration and temporal coordination
 #[derive(Debug, Clone)]
@@ -142,9 +142,15 @@ impl BaseAgent for TemporalOrchestratorAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let orchestration_plan = self.create_orchestration_plan(&input).await?;
-        let temporal_schedule = self.generate_temporal_schedule(&input, &orchestration_plan).await?;
-        let coordination_events = self.define_coordination_events(&input, &orchestration_plan).await?;
-        let orchestration_quality = self.assess_orchestration_quality(&input, &orchestration_plan).await?;
+        let temporal_schedule = self
+            .generate_temporal_schedule(&input, &orchestration_plan)
+            .await?;
+        let coordination_events = self
+            .define_coordination_events(&input, &orchestration_plan)
+            .await?;
+        let orchestration_quality = self
+            .assess_orchestration_quality(&input, &orchestration_plan)
+            .await?;
 
         Ok(TemporalOrchestratorTaskOutput {
             orchestration_plan,
@@ -163,21 +169,25 @@ impl BaseAgent for TemporalOrchestratorAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "temporal_orchestration".to_string(),
-                description: "Time-based orchestration and temporal coordination".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["workflow_definition".to_string(), "temporal_constraints".to_string()],
-                output_types: vec!["orchestration_plan".to_string(), "temporal_schedule".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.91,
-                    avg_latency: 2600.0,
-                    resource_usage: 0.73,
-                    reliability: 0.93,
-                },
+        vec![AgentCapability {
+            name: "temporal_orchestration".to_string(),
+            description: "Time-based orchestration and temporal coordination".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "workflow_definition".to_string(),
+                "temporal_constraints".to_string(),
+            ],
+            output_types: vec![
+                "orchestration_plan".to_string(),
+                "temporal_schedule".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.91,
+                avg_latency: 2600.0,
+                resource_usage: 0.73,
+                reliability: 0.93,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -213,7 +223,10 @@ impl TemporalOrchestratorAgent {
         }
     }
 
-    async fn create_orchestration_plan(&self, input: &TemporalOrchestratorTaskInput) -> AgentResult<Vec<String>> {
+    async fn create_orchestration_plan(
+        &self,
+        input: &TemporalOrchestratorTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             format!("Step 1: Initialize workflow: {}", input.workflow_definition),
             "Step 2: Set up temporal constraints and coordination".to_string(),
@@ -222,46 +235,66 @@ impl TemporalOrchestratorAgent {
         ])
     }
 
-    async fn generate_temporal_schedule(&self, input: &TemporalOrchestratorTaskInput, plan: &[String]) -> AgentResult<HashMap<String, chrono::DateTime<chrono::Utc>>> {
+    async fn generate_temporal_schedule(
+        &self,
+        input: &TemporalOrchestratorTaskInput,
+        plan: &[String],
+    ) -> AgentResult<HashMap<String, chrono::DateTime<chrono::Utc>>> {
         let mut schedule = HashMap::new();
         let base_time = chrono::Utc::now();
-        
+
         for (i, step) in plan.iter().enumerate() {
             let scheduled_time = base_time + chrono::Duration::minutes(i as i64 * 5);
             schedule.insert(step.clone(), scheduled_time);
         }
-        
+
         // Add temporal constraints
         for constraint in &input.temporal_constraints {
             let constraint_time = base_time + chrono::Duration::minutes(30);
             schedule.insert(format!("Constraint: {}", constraint), constraint_time);
         }
-        
+
         Ok(schedule)
     }
 
-    async fn define_coordination_events(&self, input: &TemporalOrchestratorTaskInput, plan: &[String]) -> AgentResult<Vec<String>> {
+    async fn define_coordination_events(
+        &self,
+        input: &TemporalOrchestratorTaskInput,
+        plan: &[String],
+    ) -> AgentResult<Vec<String>> {
         let mut events = Vec::new();
-        
+
         events.push(format!("Workflow started: {}", input.workflow_definition));
-        
+
         for (i, step) in plan.iter().enumerate() {
             events.push(format!("Event {}: {} started", i + 1, step));
             events.push(format!("Event {}: {} completed", i + 1, step));
         }
-        
+
         for requirement in &input.coordination_requirements {
             events.push(format!("Coordination requirement: {}", requirement));
         }
-        
+
         Ok(events)
     }
 
-    async fn assess_orchestration_quality(&self, input: &TemporalOrchestratorTaskInput, plan: &[String]) -> AgentResult<f32> {
+    async fn assess_orchestration_quality(
+        &self,
+        input: &TemporalOrchestratorTaskInput,
+        plan: &[String],
+    ) -> AgentResult<f32> {
         let plan_completeness = if plan.len() >= 4 { 0.9 } else { 0.7 };
-        let constraint_coverage = if input.temporal_constraints.len() > 0 { 0.85 } else { 0.6 };
-        let coordination_adequacy = if input.coordination_requirements.len() > 0 { 0.8 } else { 0.7 };
-        
+        let constraint_coverage = if input.temporal_constraints.len() > 0 {
+            0.85
+        } else {
+            0.6
+        };
+        let coordination_adequacy = if input.coordination_requirements.len() > 0 {
+            0.8
+        } else {
+            0.7
+        };
+
         Ok((plan_completeness + constraint_coverage + coordination_adequacy) / 3.0)
     }
 }
@@ -288,7 +321,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.orchestration_plan.is_empty());
         assert!(!output.temporal_schedule.is_empty());

@@ -1,13 +1,13 @@
 //! TLS server functionality
 
+use anyhow::Result;
+use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use anyhow::Result;
-use tokio::net::TcpListener;
-use axum::Router;
-use tracing::{info, error};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
 use tower::Service;
+use tracing::{error, info};
 
 use crate::config::server::ServerConfig;
 
@@ -25,20 +25,20 @@ pub async fn start_tls_server(
                 vec![load_rustls_pem_file(cert_path)?],
                 load_rustls_private_key(key_path)?,
             )?;
-        
+
         let tls_acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls_config));
-        
+
         let addr: SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
         info!("Starting TLS server on {}", addr);
-        
+
         loop {
             match listener.accept().await {
                 Ok((stream, remote_addr)) => {
                     info!("New TLS connection from: {}", remote_addr);
-                    
+
                     let tls_acceptor = tls_acceptor.clone();
                     let app = app.clone();
-                    
+
                     tokio::spawn(async move {
                         match tls_acceptor.accept(stream).await {
                             Ok(tls_stream) => {
@@ -59,7 +59,9 @@ pub async fn start_tls_server(
             }
         }
     } else {
-        Err(anyhow::anyhow!("TLS enabled but certificate or key path not provided"))
+        Err(anyhow::anyhow!(
+            "TLS enabled but certificate or key path not provided"
+        ))
     }
 }
 
@@ -76,12 +78,16 @@ async fn handle_tls_stream(
 
     // Parse request line: "METHOD URI HTTP/1.1\r\n"
     let mut request_line = String::new();
-    reader.read_line(&mut request_line).await
+    reader
+        .read_line(&mut request_line)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read request line: {}", e))?;
     let request_line = request_line.trim_end_matches("\r\n");
     let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
     if parts.len() != 3 {
-        writer.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 11\r\n\r\nBad Request\r\n").await?;
+        writer
+            .write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 11\r\n\r\nBad Request\r\n")
+            .await?;
         return Ok(());
     }
 
@@ -120,7 +126,7 @@ async fn handle_tls_stream(
     } else {
         axum::body::Bytes::new()
     };
-    
+
     let req = axum::http::Request::builder()
         .method(method)
         .uri(uri)
@@ -128,7 +134,9 @@ async fn handle_tls_stream(
 
     // Route through the axum Router
     let mut app = app;
-    let res = Service::call(&mut app, req).await.unwrap_or_else(|e| match e {});
+    let res = Service::call(&mut app, req)
+        .await
+        .unwrap_or_else(|e| match e {});
     let (parts, res_body) = res.into_parts();
     let status = parts.status;
     let body = axum::body::to_bytes(res_body, 10_000_000)
@@ -163,20 +171,25 @@ pub fn load_rustls_pem_file(cert_path: &str) -> Result<rustls::Certificate> {
         .into_iter()
         .map(|cert| rustls::Certificate(cert.to_owned().to_vec()))
         .collect();
-    
+
     if certs.is_empty() {
-        return Err(anyhow::anyhow!("No certificates found in file: {}", cert_path));
+        return Err(anyhow::anyhow!(
+            "No certificates found in file: {}",
+            cert_path
+        ));
     }
-    
-    certs.into_iter().next()
-            .ok_or_else(|| anyhow::anyhow!("Failed to extract certificate from parsed certificates"))
+
+    certs
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Failed to extract certificate from parsed certificates"))
 }
 
 /// Load Rustls private key for TLS
 pub fn load_rustls_private_key(key_path: &str) -> Result<rustls::PrivateKey> {
     let key_file = std::fs::File::open(key_path)?;
     let mut reader = std::io::BufReader::new(key_file);
-    
+
     // Try to load as PKCS8 first
     let keys = rustls_pemfile::pkcs8_private_keys(&mut reader)
         .into_iter()
@@ -184,17 +197,20 @@ pub fn load_rustls_private_key(key_path: &str) -> Result<rustls::PrivateKey> {
     if let Some(key) = keys.into_iter().next() {
         return Ok(rustls::PrivateKey(key.secret_pkcs8_der().to_vec()));
     }
-    
+
     // Reset reader and try as RSA key
     let key_file = std::fs::File::open(key_path)?;
     let mut reader = std::io::BufReader::new(key_file);
-    
+
     let keys = rustls_pemfile::rsa_private_keys(&mut reader)
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
     if let Some(key) = keys.into_iter().next() {
         return Ok(rustls::PrivateKey(key.secret_pkcs1_der().to_vec()));
     }
-    
-    Err(anyhow::anyhow!("No valid private key found in file: {}", key_path))
+
+    Err(anyhow::anyhow!(
+        "No valid private key found in file: {}",
+        key_path
+    ))
 }

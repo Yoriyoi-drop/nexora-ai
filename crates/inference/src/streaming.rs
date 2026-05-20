@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
-use uuid::Uuid;
 use tracing::debug;
+use uuid::Uuid;
 
 use crate::GeneratedToken;
 
@@ -150,9 +150,9 @@ impl StreamingEngine {
             created_at: chrono::DateTime::from(
                 std::time::SystemTime::now()
                     - std::time::SystemTime::UNIX_EPOCH
-                          .elapsed()
-                          .unwrap_or_default()
-                          .saturating_sub(s.created_at.elapsed()),
+                        .elapsed()
+                        .unwrap_or_default()
+                        .saturating_sub(s.created_at.elapsed()),
             ),
         })
     }

@@ -1,12 +1,15 @@
+use axum::{
+    extract::{Request, State},
+    response::Json,
+    routing::get,
+    Router,
+};
+use nexora_api::{ApiConfig, ApiStatistics};
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use axum::{
-    Router, routing::get, extract::{State, Request}, response::Json,
-};
-use serde_json::Value;
-use tower_http::cors::{CorsLayer, Any};
-use nexora_api::{ApiConfig, ApiStatistics};
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 struct TestAppState {
@@ -76,9 +79,7 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
     let url = format!("http://{}", addr);
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .await
-            .unwrap();
+        axum::serve(listener, router).await.unwrap();
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -90,11 +91,7 @@ async fn test_health_endpoint() {
     let (url, _handle) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
-    let resp = client
-        .get(format!("{}/health", url))
-        .send()
-        .await
-        .unwrap();
+    let resp = client.get(format!("{}/health", url)).send().await.unwrap();
 
     assert_eq!(resp.status(), reqwest::StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
@@ -107,11 +104,7 @@ async fn test_metrics_endpoint() {
     let (url, _handle) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
-    let resp = client
-        .get(format!("{}/metrics", url))
-        .send()
-        .await
-        .unwrap();
+    let resp = client.get(format!("{}/metrics", url)).send().await.unwrap();
 
     assert_eq!(resp.status(), reqwest::StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
@@ -189,11 +182,14 @@ async fn test_concurrent_requests() {
     let client = reqwest::Client::new();
     use futures::future::join_all;
 
-    let requests: Vec<_> = (0..10).map(|i| {
-        client.get(format!("{}/health", url))
-            .header("x-request-id", format!("test-{}", i))
-            .send()
-    }).collect();
+    let requests: Vec<_> = (0..10)
+        .map(|i| {
+            client
+                .get(format!("{}/health", url))
+                .header("x-request-id", format!("test-{}", i))
+                .send()
+        })
+        .collect();
 
     let results = join_all(requests).await;
     for result in results {

@@ -1,10 +1,10 @@
 //! NXR-NEXUM Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-NEXUM
 
+use nexora_shared::model_config::NxrModelConfig;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
-use nexora_shared::model_config::NxrModelConfig;
 
 /// Macro to generate simple getter/setter pairs for nested config fields.
 macro_rules! define_accessors {
@@ -82,7 +82,10 @@ pub enum OrchestrationMode {
     /// Hierarchical orchestration
     Hierarchical,
     /// Hybrid orchestration
-    Hybrid { centralized_weight: f32, distributed_weight: f32 },
+    Hybrid {
+        centralized_weight: f32,
+        distributed_weight: f32,
+    },
     /// Adaptive orchestration
     Adaptive,
     /// Swarm orchestration
@@ -424,7 +427,10 @@ impl Default for OrchestrationConfig {
             orchestration_mode: OrchestrationMode::Adaptive,
             agent_coordination_strategy: AgentCoordinationStrategy::ConsensusBased,
             task_distribution_method: TaskDistributionMethod::Optimal,
-            communication_protocol: CommunicationProtocol::Hybrid { sync_weight: 0.3, async_weight: 0.7 },
+            communication_protocol: CommunicationProtocol::Hybrid {
+                sync_weight: 0.3,
+                async_weight: 0.7,
+            },
             scalability_level: ScalabilityLevel::Dynamic,
             fault_tolerance: FaultTolerance {
                 enabled: true,
@@ -514,7 +520,11 @@ impl NexumConfig {
         self.base.validate()?;
 
         // Validate orchestration configuration
-        if let OrchestrationMode::Hybrid { centralized_weight, distributed_weight } = &self.orchestration.orchestration_mode {
+        if let OrchestrationMode::Hybrid {
+            centralized_weight,
+            distributed_weight,
+        } = &self.orchestration.orchestration_mode
+        {
             if *centralized_weight < 0.0 || *centralized_weight > 1.0 {
                 return Err("centralized_weight must be between 0.0 and 1.0".to_string());
             }
@@ -564,19 +574,27 @@ impl NexumConfig {
         match component {
             "orchestration" => Some(serde_json::to_value(&self.orchestration).unwrap_or_default()),
             "consensus" => Some(serde_json::to_value(&self.consensus).unwrap_or_default()),
-            "conflict_resolution" => Some(serde_json::to_value(&self.conflict_resolution).unwrap_or_default()),
-            "resource_allocation" => Some(serde_json::to_value(&self.resource_allocation).unwrap_or_default()),
+            "conflict_resolution" => {
+                Some(serde_json::to_value(&self.conflict_resolution).unwrap_or_default())
+            }
+            "resource_allocation" => {
+                Some(serde_json::to_value(&self.resource_allocation).unwrap_or_default())
+            }
             _ => None,
         }
     }
 
     /// Update component configuration
-    pub fn update_component_config<T>(&mut self, component: String, config: T) -> Result<(), serde_json::Error>
+    pub fn update_component_config<T>(
+        &mut self,
+        component: String,
+        config: T,
+    ) -> Result<(), serde_json::Error>
     where
         T: Serialize,
     {
         let json_value = serde_json::to_value(config)?;
-        
+
         match component.as_str() {
             "orchestration" => {
                 self.orchestration = serde_json::from_value(json_value)?;
@@ -591,7 +609,10 @@ impl NexumConfig {
                 self.resource_allocation = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(SerdeError::custom(format!("unknown component: {}", component)));
+                return Err(SerdeError::custom(format!(
+                    "unknown component: {}",
+                    component
+                )));
             }
         }
 
@@ -599,36 +620,148 @@ impl NexumConfig {
     }
 
     /// Get orchestration mode
-    define_accessors!(orchestration, "Get orchestration mode", "Set orchestration mode", orchestration_mode, OrchestrationMode, ref get_orchestration_mode, set_orchestration_mode);
-    define_accessors!(orchestration, "Get agent coordination strategy", "Set agent coordination strategy", agent_coordination_strategy, AgentCoordinationStrategy, ref get_agent_coordination_strategy, set_agent_coordination_strategy);
-    define_accessors!(orchestration, "Get task distribution method", "Set task distribution method", task_distribution_method, TaskDistributionMethod, ref get_task_distribution_method, set_task_distribution_method);
-    define_accessors!(orchestration, "Get communication protocol", "Set communication protocol", communication_protocol, CommunicationProtocol, ref get_communication_protocol, set_communication_protocol);
-    define_accessors!(orchestration, "Get scalability level", "Set scalability level", scalability_level, ScalabilityLevel, ref get_scalability_level, set_scalability_level);
-    define_accessors!(orchestration, "Get fault tolerance", "Set fault tolerance", fault_tolerance, FaultTolerance, ref get_fault_tolerance, set_fault_tolerance);
-    define_accessors!(consensus, "Get consensus algorithm", "Set consensus algorithm", consensus_algorithm, ConsensusAlgorithm, ref get_consensus_algorithm, set_consensus_algorithm);
+    define_accessors!(
+        orchestration,
+        "Get orchestration mode",
+        "Set orchestration mode",
+        orchestration_mode,
+        OrchestrationMode,
+        ref get_orchestration_mode,
+        set_orchestration_mode
+    );
+    define_accessors!(
+        orchestration,
+        "Get agent coordination strategy",
+        "Set agent coordination strategy",
+        agent_coordination_strategy,
+        AgentCoordinationStrategy,
+        ref get_agent_coordination_strategy,
+        set_agent_coordination_strategy
+    );
+    define_accessors!(
+        orchestration,
+        "Get task distribution method",
+        "Set task distribution method",
+        task_distribution_method,
+        TaskDistributionMethod,
+        ref get_task_distribution_method,
+        set_task_distribution_method
+    );
+    define_accessors!(
+        orchestration,
+        "Get communication protocol",
+        "Set communication protocol",
+        communication_protocol,
+        CommunicationProtocol,
+        ref get_communication_protocol,
+        set_communication_protocol
+    );
+    define_accessors!(
+        orchestration,
+        "Get scalability level",
+        "Set scalability level",
+        scalability_level,
+        ScalabilityLevel,
+        ref get_scalability_level,
+        set_scalability_level
+    );
+    define_accessors!(
+        orchestration,
+        "Get fault tolerance",
+        "Set fault tolerance",
+        fault_tolerance,
+        FaultTolerance,
+        ref get_fault_tolerance,
+        set_fault_tolerance
+    );
+    define_accessors!(
+        consensus,
+        "Get consensus algorithm",
+        "Set consensus algorithm",
+        consensus_algorithm,
+        ConsensusAlgorithm,
+        ref get_consensus_algorithm,
+        set_consensus_algorithm
+    );
     define_accessors!(consensus, "Get consensus threshold", "Set consensus threshold", consensus_threshold, f32, copy get_consensus_threshold, set_consensus_threshold);
-    define_accessors!(consensus, "Get voting mechanism", "Set voting mechanism", voting_mechanism, VotingMechanism, ref get_voting_mechanism, set_voting_mechanism);
+    define_accessors!(
+        consensus,
+        "Get voting mechanism",
+        "Set voting mechanism",
+        voting_mechanism,
+        VotingMechanism,
+        ref get_voting_mechanism,
+        set_voting_mechanism
+    );
     define_accessors!(consensus, "Get consensus timeout", "Set consensus timeout", consensus_timeout_ms, u64, copy get_consensus_timeout, set_consensus_timeout);
     define_accessors!(consensus, "Is consensus optimization enabled", "Set consensus optimization", enable_consensus_optimization, is is_consensus_optimization_enabled, set_consensus_optimization);
-    define_accessors!(conflict_resolution, "Get conflict resolution strategy", "Set conflict resolution strategy", resolution_strategy, ConflictResolutionStrategy, ref get_conflict_resolution_strategy, set_conflict_resolution_strategy);
+    define_accessors!(
+        conflict_resolution,
+        "Get conflict resolution strategy",
+        "Set conflict resolution strategy",
+        resolution_strategy,
+        ConflictResolutionStrategy,
+        ref get_conflict_resolution_strategy,
+        set_conflict_resolution_strategy
+    );
     define_accessors!(conflict_resolution, "Get conflict detection sensitivity", "Set conflict detection sensitivity", conflict_detection_sensitivity, f32, copy get_conflict_detection_sensitivity, set_conflict_detection_sensitivity);
     define_accessors!(conflict_resolution, "Get resolution timeout", "Set resolution timeout", resolution_timeout_ms, u64, copy get_resolution_timeout, set_resolution_timeout);
     define_accessors!(conflict_resolution, "Get escalation threshold", "Set escalation threshold", escalation_threshold, f32, copy get_escalation_threshold, set_escalation_threshold);
     define_accessors!(conflict_resolution, "Is automated resolution enabled", "Set automated resolution", enable_automated_resolution, is is_automated_resolution_enabled, set_automated_resolution);
-    define_accessors!(resource_allocation, "Get allocation strategy", "Set allocation strategy", allocation_strategy, AllocationStrategy, ref get_allocation_strategy, set_allocation_strategy);
-    define_accessors!(resource_allocation, "Get optimization algorithm", "Set optimization algorithm", optimization_algorithm, OptimizationAlgorithm, ref get_optimization_algorithm, set_optimization_algorithm);
-    define_accessors!(resource_allocation, "Get fairness metric", "Set fairness metric", fairness_metric, FairnessMetric, ref get_fairness_metric, set_fairness_metric);
+    define_accessors!(
+        resource_allocation,
+        "Get allocation strategy",
+        "Set allocation strategy",
+        allocation_strategy,
+        AllocationStrategy,
+        ref get_allocation_strategy,
+        set_allocation_strategy
+    );
+    define_accessors!(
+        resource_allocation,
+        "Get optimization algorithm",
+        "Set optimization algorithm",
+        optimization_algorithm,
+        OptimizationAlgorithm,
+        ref get_optimization_algorithm,
+        set_optimization_algorithm
+    );
+    define_accessors!(
+        resource_allocation,
+        "Get fairness metric",
+        "Set fairness metric",
+        fairness_metric,
+        FairnessMetric,
+        ref get_fairness_metric,
+        set_fairness_metric
+    );
     define_accessors!(resource_allocation, "Is dynamic allocation enabled", "Set dynamic allocation", enable_dynamic_allocation, is is_dynamic_allocation_enabled, set_dynamic_allocation);
-    define_accessors!(resource_allocation, "Get resource constraints", "Set resource constraints", resource_constraints, Vec<ResourceConstraint>, ref get_resource_constraints, set_resource_constraints);
+    define_accessors!(
+        resource_allocation,
+        "Get resource constraints",
+        "Set resource constraints",
+        resource_constraints,
+        Vec<ResourceConstraint>,
+        ref get_resource_constraints,
+        set_resource_constraints
+    );
 
     /// Get resolution methods
     pub fn get_resolution_methods(&self) -> Vec<String> {
-        self.conflict_resolution.resolution_methods.iter().map(|m| format!("{:?}", m)).collect()
+        self.conflict_resolution
+            .resolution_methods
+            .iter()
+            .map(|m| format!("{:?}", m))
+            .collect()
     }
 
     /// Add resolution method
     pub fn add_resolution_method(&mut self, method: ResolutionMethod) {
-        if !self.conflict_resolution.resolution_methods.contains(&method) {
+        if !self
+            .conflict_resolution
+            .resolution_methods
+            .contains(&method)
+        {
             self.conflict_resolution.resolution_methods.push(method);
         }
     }
@@ -636,18 +769,28 @@ impl NexumConfig {
     /// Remove resolution method
     pub fn remove_resolution_method(&mut self, method: &ResolutionMethod) -> bool {
         let original_len = self.conflict_resolution.resolution_methods.len();
-        self.conflict_resolution.resolution_methods.retain(|m| m != method);
+        self.conflict_resolution
+            .resolution_methods
+            .retain(|m| m != method);
         self.conflict_resolution.resolution_methods.len() < original_len
     }
 
     /// Get resource types
     pub fn get_resource_types(&self) -> Vec<String> {
-        self.resource_allocation.resource_types.iter().map(|r| format!("{:?}", r)).collect()
+        self.resource_allocation
+            .resource_types
+            .iter()
+            .map(|r| format!("{:?}", r))
+            .collect()
     }
 
     /// Add resource type
     pub fn add_resource_type(&mut self, resource_type: ResourceType) {
-        if !self.resource_allocation.resource_types.contains(&resource_type) {
+        if !self
+            .resource_allocation
+            .resource_types
+            .contains(&resource_type)
+        {
             self.resource_allocation.resource_types.push(resource_type);
         }
     }
@@ -655,19 +798,25 @@ impl NexumConfig {
     /// Remove resource type
     pub fn remove_resource_type(&mut self, resource_type: &ResourceType) -> bool {
         let original_len = self.resource_allocation.resource_types.len();
-        self.resource_allocation.resource_types.retain(|r| r != resource_type);
+        self.resource_allocation
+            .resource_types
+            .retain(|r| r != resource_type);
         self.resource_allocation.resource_types.len() < original_len
     }
 
     /// Add resource constraint
     pub fn add_resource_constraint(&mut self, constraint: ResourceConstraint) {
-        self.resource_allocation.resource_constraints.push(constraint);
+        self.resource_allocation
+            .resource_constraints
+            .push(constraint);
     }
 
     /// Remove resource constraint
     pub fn remove_resource_constraint(&mut self, constraint_name: &str) -> bool {
         let original_len = self.resource_allocation.resource_constraints.len();
-        self.resource_allocation.resource_constraints.retain(|c| c.name != constraint_name);
+        self.resource_allocation
+            .resource_constraints
+            .retain(|c| c.name != constraint_name);
         self.resource_allocation.resource_constraints.len() < original_len
     }
 
@@ -677,7 +826,10 @@ impl NexumConfig {
             orchestration_mode: format!("{:?}", self.orchestration.orchestration_mode),
             coordination_strategy: format!("{:?}", self.orchestration.agent_coordination_strategy),
             consensus_algorithm: format!("{:?}", self.consensus.consensus_algorithm),
-            conflict_resolution_strategy: format!("{:?}", self.conflict_resolution.resolution_strategy),
+            conflict_resolution_strategy: format!(
+                "{:?}",
+                self.conflict_resolution.resolution_strategy
+            ),
             allocation_strategy: format!("{:?}", self.resource_allocation.allocation_strategy),
             scalability_level: format!("{:?}", self.orchestration.scalability_level),
             fault_tolerance_enabled: self.orchestration.fault_tolerance.enabled,
@@ -690,7 +842,7 @@ impl NexumConfig {
     /// Calculate orchestration efficiency score
     pub fn calculate_orchestration_efficiency_score(&self) -> f32 {
         let mut score: f32 = 0.0;
-        
+
         // Orchestration mode contribution
         match self.orchestration.orchestration_mode {
             OrchestrationMode::Adaptive => score += 0.2,
@@ -701,7 +853,7 @@ impl NexumConfig {
             OrchestrationMode::Swarm => score += 0.16,
             OrchestrationMode::Synchronous => score += 0.17,
         }
-        
+
         // Coordination strategy contribution
         match self.orchestration.agent_coordination_strategy {
             AgentCoordinationStrategy::ConsensusBased => score += 0.15,
@@ -711,7 +863,7 @@ impl NexumConfig {
             AgentCoordinationStrategy::Hierarchical => score += 0.08,
             AgentCoordinationStrategy::Direct => score += 0.06,
         }
-        
+
         // Task distribution method contribution
         match self.orchestration.task_distribution_method {
             TaskDistributionMethod::Optimal => score += 0.15,
@@ -721,7 +873,7 @@ impl NexumConfig {
             TaskDistributionMethod::PriorityBased => score += 0.07,
             TaskDistributionMethod::RoundRobin => score += 0.05,
         }
-        
+
         // Communication protocol contribution
         match self.orchestration.communication_protocol {
             CommunicationProtocol::Hybrid { .. } => score += 0.12,
@@ -731,7 +883,7 @@ impl NexumConfig {
             CommunicationProtocol::PubSub => score += 0.07,
             CommunicationProtocol::Synchronous => score += 0.05,
         }
-        
+
         // Scalability level contribution
         match self.orchestration.scalability_level {
             ScalabilityLevel::Dynamic => score += 0.1,
@@ -740,43 +892,49 @@ impl NexumConfig {
             ScalabilityLevel::Medium => score += 0.07,
             ScalabilityLevel::Small => score += 0.06,
         }
-        
+
         // Fault tolerance contribution
         if self.orchestration.fault_tolerance.enabled {
             score += 0.08;
         }
-        
+
         // Consensus optimization contribution
         if self.consensus.enable_consensus_optimization {
             score += 0.05;
         }
-        
+
         // Automated resolution contribution
         if self.conflict_resolution.enable_automated_resolution {
             score += 0.05;
         }
-        
+
         // Dynamic allocation contribution
         if self.resource_allocation.enable_dynamic_allocation {
             score += 0.05;
         }
-        
+
         score.min(1.0f32)
     }
 
     /// Get recommended configuration for agent count
-    pub fn get_recommended_configuration_for_agent_count(&self, agent_count: usize) -> RecommendedConfiguration {
+    pub fn get_recommended_configuration_for_agent_count(
+        &self,
+        agent_count: usize,
+    ) -> RecommendedConfiguration {
         let mut config = RecommendedConfiguration::new();
-        
+
         // Orchestration mode recommendation
         config.orchestration_mode = match agent_count {
             1..=5 => OrchestrationMode::Centralized,
             6..=20 => OrchestrationMode::Hierarchical,
             21..=100 => OrchestrationMode::Distributed,
-            101..=500 => OrchestrationMode::Hybrid { centralized_weight: 0.3, distributed_weight: 0.7 },
+            101..=500 => OrchestrationMode::Hybrid {
+                centralized_weight: 0.3,
+                distributed_weight: 0.7,
+            },
             _ => OrchestrationMode::Swarm,
         };
-        
+
         // Coordination strategy recommendation
         config.coordination_strategy = match agent_count {
             1..=10 => AgentCoordinationStrategy::Direct,
@@ -784,14 +942,17 @@ impl NexumConfig {
             51..=200 => AgentCoordinationStrategy::PeerToPeer,
             _ => AgentCoordinationStrategy::EventDriven,
         };
-        
+
         // Communication protocol recommendation
         config.communication_protocol = match agent_count {
             1..=20 => CommunicationProtocol::Synchronous,
-            21..=100 => CommunicationProtocol::Hybrid { sync_weight: 0.4, async_weight: 0.6 },
+            21..=100 => CommunicationProtocol::Hybrid {
+                sync_weight: 0.4,
+                async_weight: 0.6,
+            },
             _ => CommunicationProtocol::Asynchronous,
         };
-        
+
         // Scalability level recommendation
         config.scalability_level = match agent_count {
             1..=10 => ScalabilityLevel::Small,
@@ -799,9 +960,9 @@ impl NexumConfig {
             101..=1000 => ScalabilityLevel::Large,
             _ => ScalabilityLevel::VeryLarge,
         };
-        
+
         config.agent_count = agent_count;
-        
+
         config
     }
 
@@ -810,42 +971,55 @@ impl NexumConfig {
         // Check scalability level
         match (&self.orchestration.scalability_level, agent_count) {
             (ScalabilityLevel::Small, count) if count > 10 => {
-                return Err("Small scalability level not suitable for more than 10 agents".to_string());
+                return Err(
+                    "Small scalability level not suitable for more than 10 agents".to_string(),
+                );
             }
             (ScalabilityLevel::Medium, count) if count > 100 => {
-                return Err("Medium scalability level not suitable for more than 100 agents".to_string());
+                return Err(
+                    "Medium scalability level not suitable for more than 100 agents".to_string(),
+                );
             }
             (ScalabilityLevel::Large, count) if count > 1000 => {
-                return Err("Large scalability level not suitable for more than 1000 agents".to_string());
+                return Err(
+                    "Large scalability level not suitable for more than 1000 agents".to_string(),
+                );
             }
             _ => {}
         }
-        
+
         // Check orchestration mode
         match (&self.orchestration.orchestration_mode, agent_count) {
             (OrchestrationMode::Centralized, count) if count > 50 => {
-                return Err("Centralized orchestration not recommended for more than 50 agents".to_string());
+                return Err(
+                    "Centralized orchestration not recommended for more than 50 agents".to_string(),
+                );
             }
             (OrchestrationMode::Synchronous, _) if agent_count > 20 => {
-                return Err("Synchronous communication not recommended for more than 20 agents".to_string());
+                return Err(
+                    "Synchronous communication not recommended for more than 20 agents".to_string(),
+                );
             }
             _ => {}
         }
-        
+
         Ok(())
     }
 
     /// Get resource requirements for agent count
-    pub fn get_resource_requirements_for_agent_count(&self, agent_count: usize) -> super::architecture::ResourceRequirements {
+    pub fn get_resource_requirements_for_agent_count(
+        &self,
+        agent_count: usize,
+    ) -> super::architecture::ResourceRequirements {
         let base_memory = 16.0; // Base memory in GB
         let base_compute = 32; // Base compute units
-        
+
         let memory_per_agent = 0.5; // Additional memory per agent
         let compute_per_agent = 2; // Additional compute per agent
-        
+
         let total_memory = base_memory + (agent_count as f64 * memory_per_agent);
         let total_compute = base_compute + (agent_count * compute_per_agent);
-        
+
         super::architecture::ResourceRequirements {
             cpu_requirement: total_compute as f32,
             memory_requirement: total_memory as f32,
@@ -858,24 +1032,35 @@ impl NexumConfig {
     /// Optimize configuration for workload
     pub fn optimize_for_workload(&self, workload: &WorkloadCharacteristics) -> NexumConfig {
         let mut optimized_config = self.clone();
-        
+
         // Optimize orchestration mode based on workload
-        optimized_config.orchestration.orchestration_mode = match (workload.agent_count, &workload.task_complexity, &workload.communication_frequency) {
-            (count, complexity, frequency) if count < 20 && *complexity == TaskComplexity::Low && *frequency == CommunicationFrequency::Low => {
+        optimized_config.orchestration.orchestration_mode = match (
+            workload.agent_count,
+            &workload.task_complexity,
+            &workload.communication_frequency,
+        ) {
+            (count, complexity, frequency)
+                if count < 20
+                    && *complexity == TaskComplexity::Low
+                    && *frequency == CommunicationFrequency::Low =>
+            {
                 OrchestrationMode::Centralized
             }
-            (count, complexity, frequency) if count < 100 && *complexity == TaskComplexity::Medium => {
+            (count, complexity, frequency)
+                if count < 100 && *complexity == TaskComplexity::Medium =>
+            {
                 OrchestrationMode::Hierarchical
             }
-            (count, complexity, frequency) if *complexity == TaskComplexity::High || *frequency == CommunicationFrequency::High => {
+            (count, complexity, frequency)
+                if *complexity == TaskComplexity::High
+                    || *frequency == CommunicationFrequency::High =>
+            {
                 OrchestrationMode::Distributed
             }
-            (count, _, _) if count > 500 => {
-                OrchestrationMode::Swarm
-            }
+            (count, _, _) if count > 500 => OrchestrationMode::Swarm,
             _ => OrchestrationMode::Adaptive,
         };
-        
+
         // Optimize consensus threshold based on workload
         optimized_config.consensus.consensus_threshold = match workload.consensus_requirement {
             ConsensusRequirement::Strict => 0.8,
@@ -883,14 +1068,16 @@ impl NexumConfig {
             ConsensusRequirement::Lenient => 0.5,
             ConsensusRequirement::Flexible => 0.4,
         };
-        
+
         // Optimize conflict resolution based on workload
-        optimized_config.conflict_resolution.conflict_detection_sensitivity = match workload.conflict_likelihood {
+        optimized_config
+            .conflict_resolution
+            .conflict_detection_sensitivity = match workload.conflict_likelihood {
             ConflictLikelihood::Low => 0.5,
             ConflictLikelihood::Medium => 0.7,
             ConflictLikelihood::High => 0.9,
         };
-        
+
         optimized_config
     }
 }
@@ -925,7 +1112,10 @@ impl RecommendedConfiguration {
         Self {
             orchestration_mode: OrchestrationMode::Adaptive,
             coordination_strategy: AgentCoordinationStrategy::ConsensusBased,
-            communication_protocol: CommunicationProtocol::Hybrid { sync_weight: 0.3, async_weight: 0.7 },
+            communication_protocol: CommunicationProtocol::Hybrid {
+                sync_weight: 0.3,
+                async_weight: 0.7,
+            },
             scalability_level: ScalabilityLevel::Dynamic,
             agent_count: 0,
         }

@@ -1,14 +1,14 @@
 //! Empathy Prime Agent
-//! 
+//!
 //! Core empathy synthesis agent for NXR-ÆTHER
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Empathy Prime Agent - Core empathy synthesis
 #[derive(Debug, Clone)]
@@ -384,22 +384,27 @@ impl BaseAgent for EmpathyPrimeAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Process emotional content
         let emotional_understanding = self.process_emotional_content(&input).await?;
-        
+
         // Apply cultural adaptation
-        let cultural_adaptation = self.apply_cultural_adaptation(&input, &emotional_understanding).await?;
-        
+        let cultural_adaptation = self
+            .apply_cultural_adaptation(&input, &emotional_understanding)
+            .await?;
+
         // Synthesize empathetic response
-        let response = self.synthesize_empathetic_response(&input, &emotional_understanding, &cultural_adaptation).await?;
-        
+        let response = self
+            .synthesize_empathetic_response(&input, &emotional_understanding, &cultural_adaptation)
+            .await?;
+
         // Calculate empathy score
-        let empathy_score = self.calculate_empathy_score(&input, &emotional_understanding, &cultural_adaptation);
-        
+        let empathy_score =
+            self.calculate_empathy_score(&input, &emotional_understanding, &cultural_adaptation);
+
         // Build output
         let output = EmpathyTaskOutput {
             response,
@@ -408,9 +413,9 @@ impl BaseAgent for EmpathyPrimeAgent {
             cultural_adaptation,
             metadata: HashMap::new(),
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -423,21 +428,19 @@ impl BaseAgent for EmpathyPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "empathy_synthesis".to_string(),
-                description: "Core empathy synthesis and emotional understanding".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["empathy_task".to_string()],
-                output_types: vec!["empathetic_response".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.92,
-                    avg_latency: 400.0,
-                    resource_usage: 0.5,
-                    reliability: 0.95,
-                },
+        vec![AgentCapability {
+            name: "empathy_synthesis".to_string(),
+            description: "Core empathy synthesis and emotional understanding".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["empathy_task".to_string()],
+            output_types: vec!["empathetic_response".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.92,
+                avg_latency: 400.0,
+                resource_usage: 0.5,
+                reliability: 0.95,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -479,27 +482,33 @@ impl EmpathyPrimeAgent {
     fn validate_input(&self, input: &EmpathyTaskInput) -> AgentResult<()> {
         if input.user_input.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "User input cannot be empty".to_string()
+                "User input cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Process emotional content
-    async fn process_emotional_content(&self, input: &EmpathyTaskInput) -> AgentResult<EmotionalUnderstanding> {
+    async fn process_emotional_content(
+        &self,
+        input: &EmpathyTaskInput,
+    ) -> AgentResult<EmotionalUnderstanding> {
         // Detect emotions from user input
         let detected_emotions = self.detect_emotions(&input.user_input);
-        
+
         // Calculate emotional intensity
-        let emotional_intensity = self.calculate_emotional_intensity(&input.user_input, &detected_emotions);
-        
+        let emotional_intensity =
+            self.calculate_emotional_intensity(&input.user_input, &detected_emotions);
+
         // Determine emotional context
-        let emotional_context = self.determine_emotional_context(&input.user_input, &detected_emotions);
-        
+        let emotional_context =
+            self.determine_emotional_context(&input.user_input, &detected_emotions);
+
         // Calculate confidence score
-        let confidence_score = self.calculate_confidence_score(&detected_emotions, &input.emotional_cues);
-        
+        let confidence_score =
+            self.calculate_confidence_score(&detected_emotions, &input.emotional_cues);
+
         Ok(EmotionalUnderstanding {
             detected_emotions,
             emotional_intensity,
@@ -509,19 +518,26 @@ impl EmpathyPrimeAgent {
     }
 
     /// Apply cultural adaptation
-    async fn apply_cultural_adaptation(&self, input: &EmpathyTaskInput, 
-                                     emotional_understanding: &EmotionalUnderstanding) -> AgentResult<CulturalAdaptation> {
-        let cultural_context = input.cultural_background.clone().unwrap_or_else(|| "western".to_string());
-        
-        let adaptation_level = self.config.cultural_awareness * self.empathy_synthesis.parameters.cultural_adaptation;
+    async fn apply_cultural_adaptation(
+        &self,
+        input: &EmpathyTaskInput,
+        emotional_understanding: &EmotionalUnderstanding,
+    ) -> AgentResult<CulturalAdaptation> {
+        let cultural_context = input
+            .cultural_background
+            .clone()
+            .unwrap_or_else(|| "western".to_string());
+
+        let adaptation_level =
+            self.config.cultural_awareness * self.empathy_synthesis.parameters.cultural_adaptation;
         let cultural_sensitivity = self.config.cultural_awareness;
-        
+
         let adaptation_details = vec![
             format!("Applied {} cultural context", cultural_context),
             "Adjusted emotional expression".to_string(),
             "Modified response style".to_string(),
         ];
-        
+
         Ok(CulturalAdaptation {
             cultural_context,
             adaptation_level,
@@ -531,62 +547,73 @@ impl EmpathyPrimeAgent {
     }
 
     /// Synthesize empathetic response
-    async fn synthesize_empathetic_response(&self, input: &EmpathyTaskInput,
-                                           emotional_understanding: &EmotionalUnderstanding,
-                                           cultural_adaptation: &CulturalAdaptation) -> AgentResult<String> {
+    async fn synthesize_empathetic_response(
+        &self,
+        input: &EmpathyTaskInput,
+        emotional_understanding: &EmotionalUnderstanding,
+        cultural_adaptation: &CulturalAdaptation,
+    ) -> AgentResult<String> {
         let warmth = self.empathy_synthesis.parameters.response_warmth;
         let validation = self.empathy_synthesis.parameters.validation_strength;
         let support = self.empathy_synthesis.parameters.support_level;
-        
+
         // Generate empathetic response based on detected emotions and requirements
         let response = match input.empathy_requirements.response_type {
             ResponseType::Understanding => {
-                format!("I understand that you're feeling {}. Your emotions are valid and important.", 
-                       emotional_understanding.emotional_context)
-            },
+                format!(
+                    "I understand that you're feeling {}. Your emotions are valid and important.",
+                    emotional_understanding.emotional_context
+                )
+            }
             ResponseType::Validation => {
                 format!("It's completely understandable to feel {} in this situation. Your feelings are valid.", 
                        emotional_understanding.emotional_context)
-            },
+            }
             ResponseType::Support => {
                 format!("I'm here for you as you navigate through these feelings of {}. You're not alone in this.", 
                        emotional_understanding.emotional_context)
-            },
+            }
             ResponseType::Guidance => {
                 format!("I can see you're experiencing {}. Let's explore some ways to work through these emotions together.", 
                        emotional_understanding.emotional_context)
-            },
+            }
             ResponseType::Reflective => {
                 format!("It sounds like you're feeling {} about this. Can you tell me more about what's been on your mind?", 
                        emotional_understanding.emotional_context)
-            },
+            }
         };
-        
+
         // Apply cultural adaptation
         let culturally_adapted_response = if cultural_adaptation.adaptation_level > 0.5 {
-            format!("{} [Culturally adapted for {} context]", response, cultural_adaptation.cultural_context)
+            format!(
+                "{} [Culturally adapted for {} context]",
+                response, cultural_adaptation.cultural_context
+            )
         } else {
             response
         };
-        
+
         Ok(culturally_adapted_response)
     }
 
     /// Calculate empathy score
-    fn calculate_empathy_score(&self, input: &EmpathyTaskInput, 
-                              emotional_understanding: &EmotionalUnderstanding,
-                              cultural_adaptation: &CulturalAdaptation) -> f32 {
+    fn calculate_empathy_score(
+        &self,
+        input: &EmpathyTaskInput,
+        emotional_understanding: &EmotionalUnderstanding,
+        cultural_adaptation: &CulturalAdaptation,
+    ) -> f32 {
         let emotional_score = emotional_understanding.confidence_score;
         let cultural_score = cultural_adaptation.adaptation_level;
         let sensitivity_score = self.config.emotional_sensitivity;
-        
+
         (emotional_score + cultural_score + sensitivity_score) / 3.0
     }
 
     /// Detect emotions from text
     fn detect_emotions(&self, text: &str) -> Vec<Emotion> {
         let mut emotions = Vec::new();
-        
+
         // Simplified emotion detection
         if text.to_lowercase().contains("sad") || text.to_lowercase().contains("unhappy") {
             emotions.push(Emotion {
@@ -596,7 +623,7 @@ impl EmpathyPrimeAgent {
                 arousal: 0.3,
             });
         }
-        
+
         if text.to_lowercase().contains("happy") || text.to_lowercase().contains("joy") {
             emotions.push(Emotion {
                 name: "joy".to_string(),
@@ -605,7 +632,7 @@ impl EmpathyPrimeAgent {
                 arousal: 0.7,
             });
         }
-        
+
         if text.to_lowercase().contains("angry") || text.to_lowercase().contains("frustrated") {
             emotions.push(Emotion {
                 name: "anger".to_string(),
@@ -614,7 +641,7 @@ impl EmpathyPrimeAgent {
                 arousal: 0.8,
             });
         }
-        
+
         if emotions.is_empty() {
             emotions.push(Emotion {
                 name: "neutral".to_string(),
@@ -623,7 +650,7 @@ impl EmpathyPrimeAgent {
                 arousal: 0.2,
             });
         }
-        
+
         emotions
     }
 
@@ -632,13 +659,14 @@ impl EmpathyPrimeAgent {
         if emotions.is_empty() {
             return 0.0;
         }
-        
-        let base_intensity = emotions.iter().map(|e| e.intensity).sum::<f32>() / emotions.len() as f32;
-        
+
+        let base_intensity =
+            emotions.iter().map(|e| e.intensity).sum::<f32>() / emotions.len() as f32;
+
         // Adjust based on text characteristics
         let text_factor = if text.len() > 100 { 1.2 } else { 1.0 };
         let exclamation_factor = text.matches('!').count() as f32 * 0.1;
-        
+
         (base_intensity * text_factor + exclamation_factor).min(1.0)
     }
 
@@ -647,11 +675,12 @@ impl EmpathyPrimeAgent {
         if emotions.is_empty() {
             return "neutral emotional state".to_string();
         }
-        
-        let primary_emotion = emotions.iter()
+
+        let primary_emotion = emotions
+            .iter()
             .max_by(|a, b| a.intensity.total_cmp(&b.intensity))
             .expect("emotions is non-empty");
-        
+
         match primary_emotion.name.as_str() {
             "sadness" => "feeling down and experiencing sadness".to_string(),
             "joy" => "feeling happy and joyful".to_string(),
@@ -666,10 +695,11 @@ impl EmpathyPrimeAgent {
         if emotions.is_empty() {
             return 0.0;
         }
-        
-        let emotion_confidence = emotions.iter().map(|e| e.intensity).sum::<f32>() / emotions.len() as f32;
+
+        let emotion_confidence =
+            emotions.iter().map(|e| e.intensity).sum::<f32>() / emotions.len() as f32;
         let cue_confidence = if emotional_cues.is_empty() { 0.5 } else { 0.8 };
-        
+
         (emotion_confidence + cue_confidence) / 2.0
     }
 }
@@ -703,7 +733,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.response.is_empty());
         assert!(output.empathy_score > 0.0);
@@ -714,10 +744,10 @@ mod tests {
     #[test]
     fn test_emotion_detection() {
         let agent = EmpathyPrimeAgent::default();
-        
+
         let emotions = agent.detect_emotions("I'm feeling very happy and joyful today!");
         assert!(!emotions.is_empty());
-        
+
         let joy_emotion = emotions.iter().find(|e| e.name == "joy");
         assert!(joy_emotion.is_some());
         assert!(joy_emotion.unwrap().intensity > 0.0);
@@ -730,7 +760,10 @@ mod tests {
             ..Default::default()
         };
         let agent = EmpathyPrimeAgent::new(config);
-        
-        assert!(matches!(agent.config.empathy_depth, EmpathyDepth::Transcendent));
+
+        assert!(matches!(
+            agent.config.empathy_depth,
+            EmpathyDepth::Transcendent
+        ));
     }
 }

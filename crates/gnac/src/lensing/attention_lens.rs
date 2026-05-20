@@ -1,5 +1,5 @@
 use crate::canvas::NeuralGraph;
-use crate::lensing::{NeuralLens, LensType, LensObservation, ObservationSeverity};
+use crate::lensing::{LensObservation, LensType, NeuralLens, ObservationSeverity};
 use crate::NodeType;
 
 /// Attention Flow Lens — menyorot distribusi attention
@@ -11,13 +11,26 @@ impl NeuralLens for AttentionFlowLens {
     }
 
     fn observe(&self, graph: &NeuralGraph) -> LensObservation {
-        let attention_nodes: Vec<_> = graph.nodes.values()
-            .filter(|n| matches!(n.node_type, NodeType::SelfAttention | NodeType::MultiHeadAttention | NodeType::CrossAttention))
+        let attention_nodes: Vec<_> = graph
+            .nodes
+            .values()
+            .filter(|n| {
+                matches!(
+                    n.node_type,
+                    NodeType::SelfAttention
+                        | NodeType::MultiHeadAttention
+                        | NodeType::CrossAttention
+                )
+            })
             .map(|n| n.id)
             .collect();
 
-        let highlighted_edges: Vec<_> = graph.edges.values()
-            .filter(|e| attention_nodes.contains(&e.target_node) || attention_nodes.contains(&e.source_node))
+        let highlighted_edges: Vec<_> = graph
+            .edges
+            .values()
+            .filter(|e| {
+                attention_nodes.contains(&e.target_node) || attention_nodes.contains(&e.source_node)
+            })
             .map(|e| e.id)
             .collect();
 

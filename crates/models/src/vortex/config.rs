@@ -1,10 +1,10 @@
 //! NXR-VORTEX Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-VORTEX
 
+use nexora_shared::{deeplearning_integration::DeepLearningConfig, model_config::NxrModelConfig};
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
 
 /// NXR-VORTEX Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,10 @@ pub enum LanguageDetectionMode {
     /// Manual specification
     Manual { language: String },
     /// Multi-language support
-    MultiLanguage { primary: String, fallback: Vec<String> },
+    MultiLanguage {
+        primary: String,
+        fallback: Vec<String>,
+    },
 }
 
 /// Complexity Calculation Method
@@ -97,7 +100,10 @@ pub enum _DebuggingStrategy {
     /// Dynamic analysis only
     DynamicOnly,
     /// Hybrid debugging
-    Hybrid { static_weight: f32, dynamic_weight: f32 },
+    Hybrid {
+        static_weight: f32,
+        dynamic_weight: f32,
+    },
     /// Adaptive debugging
     Adaptive,
 }
@@ -151,7 +157,10 @@ pub enum PatternDatabase {
     /// Custom patterns
     Custom { pattern_files: Vec<String> },
     /// Hybrid database
-    Hybrid { built_in_weight: f32, custom_weight: f32 },
+    Hybrid {
+        built_in_weight: f32,
+        custom_weight: f32,
+    },
 }
 
 /// Validation Mode
@@ -361,10 +370,7 @@ impl Default for SecurityConfig {
                 cve_weight: 0.8,
                 custom_weight: 0.2,
             },
-            compliance_standards: vec![
-                ComplianceStandard::OWASP,
-                ComplianceStandard::NIST,
-            ],
+            compliance_standards: vec![ComplianceStandard::OWASP, ComplianceStandard::NIST],
         }
     }
 }
@@ -420,12 +426,16 @@ impl _VortexConfig {
     }
 
     /// Update component configuration
-    pub fn update_component_config<T>(&mut self, component: String, config: T) -> Result<(), serde_json::Error>
+    pub fn update_component_config<T>(
+        &mut self,
+        component: String,
+        config: T,
+    ) -> Result<(), serde_json::Error>
     where
         T: Serialize,
     {
         let json_value = serde_json::to_value(config)?;
-        
+
         match component.as_str() {
             "code_analysis" => {
                 self.code_analysis = serde_json::from_value(json_value)?;
@@ -443,7 +453,10 @@ impl _VortexConfig {
                 self.security = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(SerdeError::custom(format!("unknown component: {}", component)));
+                return Err(SerdeError::custom(format!(
+                    "unknown component: {}",
+                    component
+                )));
             }
         }
 
@@ -452,12 +465,20 @@ impl _VortexConfig {
 
     /// Get optimization strategies as strings
     pub fn get_optimization_strategies(&self) -> Vec<String> {
-        self.optimization.strategies.iter().map(|s| format!("{:?}", s)).collect()
+        self.optimization
+            .strategies
+            .iter()
+            .map(|s| format!("{:?}", s))
+            .collect()
     }
 
     /// Get compliance standards as strings
     pub fn get_compliance_standards(&self) -> Vec<String> {
-        self.security.compliance_standards.iter().map(|s| format!("{:?}", s)).collect()
+        self.security
+            .compliance_standards
+            .iter()
+            .map(|s| format!("{:?}", s))
+            .collect()
     }
 
     /// Check if symbolic execution is enabled

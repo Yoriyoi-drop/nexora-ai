@@ -1,11 +1,11 @@
 //! NXR-ÆTHER Architecture
-//! 
+//!
 //! Implementation of the Emotional Intelligence Neural Architecture
 
+use super::config::AetherConfig;
+use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 use uuid::Uuid;
-use nexora_shared::base_model::NxrModelResult;
-use super::config::AetherConfig;
 
 /// NXR-ÆTHER Architecture Implementation
 pub struct AetherArchitecture {
@@ -148,7 +148,9 @@ pub enum PsychologicalFramework {
     /// Positive psychology
     PositivePsychology,
     /// Integrative approach
-    Integrative { frameworks: Vec<PsychologicalFramework> },
+    Integrative {
+        frameworks: Vec<PsychologicalFramework>,
+    },
 }
 
 /// Assessment Method
@@ -206,7 +208,11 @@ pub enum PsychologicalModelType {
     /// Statistical model
     Statistical,
     /// Hybrid model
-    Hybrid { neural_weight: f32, rule_weight: f32, stat_weight: f32 },
+    Hybrid {
+        neural_weight: f32,
+        rule_weight: f32,
+        stat_weight: f32,
+    },
 }
 
 /// Psychological Domain
@@ -873,194 +879,243 @@ impl AetherArchitecture {
     /// Create new architecture with configuration
     pub fn new(config: &AetherConfig) -> Self {
         let mut emotion_networks = HashMap::new();
-        
+
         // Initialize emotion recognition networks
-        emotion_networks.insert("basic_emotions".to_string(), EmotionNetwork {
-            id: "basic_emotions".to_string(),
-            network_type: EmotionNetworkType::Basic,
-            input_modalities: vec![InputModality::Text, InputModality::Audio],
-            granularity: EmotionalGranularity::Coarse,
-            parameters: NetworkParameters {
-                hidden_size: 512,
-                num_layers: 8,
-                attention_heads: 8,
-                dropout_rate: 0.1,
-                learning_rate: 0.001,
-                batch_size: 32,
+        emotion_networks.insert(
+            "basic_emotions".to_string(),
+            EmotionNetwork {
+                id: "basic_emotions".to_string(),
+                network_type: EmotionNetworkType::Basic,
+                input_modalities: vec![InputModality::Text, InputModality::Audio],
+                granularity: EmotionalGranularity::Coarse,
+                parameters: NetworkParameters {
+                    hidden_size: 512,
+                    num_layers: 8,
+                    attention_heads: 8,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.001,
+                    batch_size: 32,
+                },
+                performance_metrics: NetworkPerformanceMetrics {
+                    accuracy: 0.92,
+                    precision: 0.90,
+                    recall: 0.88,
+                    f1_score: 0.89,
+                    inference_time_ms: 150.0,
+                    memory_usage_mb: 256.0,
+                },
             },
-            performance_metrics: NetworkPerformanceMetrics {
-                accuracy: 0.92,
-                precision: 0.90,
-                recall: 0.88,
-                f1_score: 0.89,
-                inference_time_ms: 150.0,
-                memory_usage_mb: 256.0,
+        );
+
+        emotion_networks.insert(
+            "complex_emotions".to_string(),
+            EmotionNetwork {
+                id: "complex_emotions".to_string(),
+                network_type: EmotionNetworkType::Complex,
+                input_modalities: vec![
+                    InputModality::Text,
+                    InputModality::Audio,
+                    InputModality::Visual,
+                ],
+                granularity: EmotionalGranularity::Fine,
+                parameters: NetworkParameters {
+                    hidden_size: 1024,
+                    num_layers: 16,
+                    attention_heads: 16,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.001,
+                    batch_size: 16,
+                },
+                performance_metrics: NetworkPerformanceMetrics {
+                    accuracy: 0.87,
+                    precision: 0.85,
+                    recall: 0.83,
+                    f1_score: 0.84,
+                    inference_time_ms: 300.0,
+                    memory_usage_mb: 512.0,
+                },
             },
-        });
-        
-        emotion_networks.insert("complex_emotions".to_string(), EmotionNetwork {
-            id: "complex_emotions".to_string(),
-            network_type: EmotionNetworkType::Complex,
-            input_modalities: vec![InputModality::Text, InputModality::Audio, InputModality::Visual],
-            granularity: EmotionalGranularity::Fine,
-            parameters: NetworkParameters {
-                hidden_size: 1024,
-                num_layers: 16,
-                attention_heads: 16,
-                dropout_rate: 0.1,
-                learning_rate: 0.001,
-                batch_size: 16,
+        );
+
+        emotion_networks.insert(
+            "social_emotions".to_string(),
+            EmotionNetwork {
+                id: "social_emotions".to_string(),
+                network_type: EmotionNetworkType::Social,
+                input_modalities: vec![
+                    InputModality::Text,
+                    InputModality::Audio,
+                    InputModality::Visual,
+                    InputModality::Behavioral,
+                ],
+                granularity: EmotionalGranularity::Fine,
+                parameters: NetworkParameters {
+                    hidden_size: 1536,
+                    num_layers: 20,
+                    attention_heads: 24,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0008,
+                    batch_size: 8,
+                },
+                performance_metrics: NetworkPerformanceMetrics {
+                    accuracy: 0.84,
+                    precision: 0.82,
+                    recall: 0.80,
+                    f1_score: 0.81,
+                    inference_time_ms: 450.0,
+                    memory_usage_mb: 768.0,
+                },
             },
-            performance_metrics: NetworkPerformanceMetrics {
-                accuracy: 0.87,
-                precision: 0.85,
-                recall: 0.83,
-                f1_score: 0.84,
-                inference_time_ms: 300.0,
-                memory_usage_mb: 512.0,
-            },
-        });
-        
-        emotion_networks.insert("social_emotions".to_string(), EmotionNetwork {
-            id: "social_emotions".to_string(),
-            network_type: EmotionNetworkType::Social,
-            input_modalities: vec![InputModality::Text, InputModality::Audio, InputModality::Visual, InputModality::Behavioral],
-            granularity: EmotionalGranularity::Fine,
-            parameters: NetworkParameters {
-                hidden_size: 1536,
-                num_layers: 20,
-                attention_heads: 24,
-                dropout_rate: 0.1,
-                learning_rate: 0.0008,
-                batch_size: 8,
-            },
-            performance_metrics: NetworkPerformanceMetrics {
-                accuracy: 0.84,
-                precision: 0.82,
-                recall: 0.80,
-                f1_score: 0.81,
-                inference_time_ms: 450.0,
-                memory_usage_mb: 768.0,
-            },
-        });
+        );
 
         let mut psychological_models = HashMap::new();
-        
-        psychological_models.insert("cognitive_analysis".to_string(), PsychologicalModel {
-            id: "cognitive_analysis".to_string(),
-            model_type: PsychologicalModelType::NeuralNetwork,
-            target_domain: PsychologicalDomain::Cognitive,
-            parameters: ModelParameters {
-                model_size: 1000000000, // 1B parameters
-                num_parameters: 1000000000,
-                training_data_size: 10000000, // 10M samples
-                validation_accuracy: 0.91,
+
+        psychological_models.insert(
+            "cognitive_analysis".to_string(),
+            PsychologicalModel {
+                id: "cognitive_analysis".to_string(),
+                model_type: PsychologicalModelType::NeuralNetwork,
+                target_domain: PsychologicalDomain::Cognitive,
+                parameters: ModelParameters {
+                    model_size: 1000000000, // 1B parameters
+                    num_parameters: 1000000000,
+                    training_data_size: 10000000, // 10M samples
+                    validation_accuracy: 0.91,
+                },
+                validation_status: ValidationStatus::Validated,
             },
-            validation_status: ValidationStatus::Validated,
-        });
-        
-        psychological_models.insert("emotional_analysis".to_string(), PsychologicalModel {
-            id: "emotional_analysis".to_string(),
-            model_type: PsychologicalModelType::Hybrid { neural_weight: 0.7, rule_weight: 0.2, stat_weight: 0.1 },
-            target_domain: PsychologicalDomain::Emotional,
-            parameters: ModelParameters {
-                model_size: 800000000, // 800M parameters
-                num_parameters: 800000000,
-                training_data_size: 8000000, // 8M samples
-                validation_accuracy: 0.94,
+        );
+
+        psychological_models.insert(
+            "emotional_analysis".to_string(),
+            PsychologicalModel {
+                id: "emotional_analysis".to_string(),
+                model_type: PsychologicalModelType::Hybrid {
+                    neural_weight: 0.7,
+                    rule_weight: 0.2,
+                    stat_weight: 0.1,
+                },
+                target_domain: PsychologicalDomain::Emotional,
+                parameters: ModelParameters {
+                    model_size: 800000000, // 800M parameters
+                    num_parameters: 800000000,
+                    training_data_size: 8000000, // 8M samples
+                    validation_accuracy: 0.94,
+                },
+                validation_status: ValidationStatus::Validated,
             },
-            validation_status: ValidationStatus::Validated,
-        });
+        );
 
         let mut empathy_models = HashMap::new();
-        
-        empathy_models.insert("cognitive_empathy".to_string(), EmpathyModel {
-            id: "cognitive_empathy".to_string(),
-            model_type: EmpathyModelType::Transformer,
-            target_empathy_type: EmpathyType::Cognitive,
-            parameters: ModelParameters {
-                model_size: 600000000, // 600M parameters
-                num_parameters: 600000000,
-                training_data_size: 6000000, // 6M samples
-                validation_accuracy: 0.93,
+
+        empathy_models.insert(
+            "cognitive_empathy".to_string(),
+            EmpathyModel {
+                id: "cognitive_empathy".to_string(),
+                model_type: EmpathyModelType::Transformer,
+                target_empathy_type: EmpathyType::Cognitive,
+                parameters: ModelParameters {
+                    model_size: 600000000, // 600M parameters
+                    num_parameters: 600000000,
+                    training_data_size: 6000000, // 6M samples
+                    validation_accuracy: 0.93,
+                },
+                performance_metrics: EmpathyPerformanceMetrics {
+                    empathy_accuracy: 0.93,
+                    response_appropriateness: 0.91,
+                    support_effectiveness: 0.89,
+                    user_satisfaction: 0.92,
+                },
             },
-            performance_metrics: EmpathyPerformanceMetrics {
-                empathy_accuracy: 0.93,
-                response_appropriateness: 0.91,
-                support_effectiveness: 0.89,
-                user_satisfaction: 0.92,
+        );
+
+        empathy_models.insert(
+            "emotional_empathy".to_string(),
+            EmpathyModel {
+                id: "emotional_empathy".to_string(),
+                model_type: EmpathyModelType::Hybrid,
+                target_empathy_type: EmpathyType::Emotional,
+                parameters: ModelParameters {
+                    model_size: 700000000, // 700M parameters
+                    num_parameters: 700000000,
+                    training_data_size: 7000000, // 7M samples
+                    validation_accuracy: 0.95,
+                },
+                performance_metrics: EmpathyPerformanceMetrics {
+                    empathy_accuracy: 0.95,
+                    response_appropriateness: 0.93,
+                    support_effectiveness: 0.91,
+                    user_satisfaction: 0.94,
+                },
             },
-        });
-        
-        empathy_models.insert("emotional_empathy".to_string(), EmpathyModel {
-            id: "emotional_empathy".to_string(),
-            model_type: EmpathyModelType::Hybrid,
-            target_empathy_type: EmpathyType::Emotional,
-            parameters: ModelParameters {
-                model_size: 700000000, // 700M parameters
-                num_parameters: 700000000,
-                training_data_size: 7000000, // 7M samples
-                validation_accuracy: 0.95,
-            },
-            performance_metrics: EmpathyPerformanceMetrics {
-                empathy_accuracy: 0.95,
-                response_appropriateness: 0.93,
-                support_effectiveness: 0.91,
-                user_satisfaction: 0.94,
-            },
-        });
+        );
 
         let mut cultural_models = HashMap::new();
-        
+
         for culture in &config.cultural.supported_cultures {
-            cultural_models.insert(format!("cultural_{}", culture.name), CulturalModel {
-                id: format!("cultural_{}", culture.name),
-                target_culture: culture.name.clone(),
-                model_type: CulturalModelType::Hybrid,
-                parameters: ModelParameters {
-                    model_size: 400000000, // 400M parameters
-                    num_parameters: 400000000,
-                    training_data_size: 4000000, // 4M samples
-                    validation_accuracy: 0.89,
+            cultural_models.insert(
+                format!("cultural_{}", culture.name),
+                CulturalModel {
+                    id: format!("cultural_{}", culture.name),
+                    target_culture: culture.name.clone(),
+                    model_type: CulturalModelType::Hybrid,
+                    parameters: ModelParameters {
+                        model_size: 400000000, // 400M parameters
+                        num_parameters: 400000000,
+                        training_data_size: 4000000, // 4M samples
+                        validation_accuracy: 0.89,
+                    },
+                    adaptation_accuracy: 0.87,
                 },
-                adaptation_accuracy: 0.87,
-            });
+            );
         }
 
         let mut context_models = HashMap::new();
-        
-        context_models.insert("temporal_context".to_string(), ContextModel {
-            id: "temporal_context".to_string(),
-            target_context_type: ContextType::Temporal,
-            model_type: ContextModelType::Neural,
-            parameters: ModelParameters {
-                model_size: 300000000, // 300M parameters
-                num_parameters: 300000000,
-                training_data_size: 3000000, // 3M samples
-                validation_accuracy: 0.88,
+
+        context_models.insert(
+            "temporal_context".to_string(),
+            ContextModel {
+                id: "temporal_context".to_string(),
+                target_context_type: ContextType::Temporal,
+                model_type: ContextModelType::Neural,
+                parameters: ModelParameters {
+                    model_size: 300000000, // 300M parameters
+                    num_parameters: 300000000,
+                    training_data_size: 3000000, // 3M samples
+                    validation_accuracy: 0.88,
+                },
+                processing_accuracy: 0.86,
             },
-            processing_accuracy: 0.86,
-        });
-        
-        context_models.insert("social_context".to_string(), ContextModel {
-            id: "social_context".to_string(),
-            target_context_type: ContextType::Social,
-            model_type: ContextModelType::Hybrid,
-            parameters: ModelParameters {
-                model_size: 350000000, // 350M parameters
-                num_parameters: 350000000,
-                training_data_size: 3500000, // 3.5M samples
-                validation_accuracy: 0.90,
+        );
+
+        context_models.insert(
+            "social_context".to_string(),
+            ContextModel {
+                id: "social_context".to_string(),
+                target_context_type: ContextType::Social,
+                model_type: ContextModelType::Hybrid,
+                parameters: ModelParameters {
+                    model_size: 350000000, // 350M parameters
+                    num_parameters: 350000000,
+                    training_data_size: 3500000, // 3.5M samples
+                    validation_accuracy: 0.90,
+                },
+                processing_accuracy: 0.88,
             },
-            processing_accuracy: 0.88,
-        });
+        );
 
         Self {
             _config: config.clone(),
             emotion_networks,
             psychological_engine: PsychologicalAnalysisEngine {
                 framework: config.psychological.psychological_framework.clone().into(),
-                assessment_methods: config.psychological.assessment_methods.clone().into_iter().map(Into::into).collect(),
+                assessment_methods: config
+                    .psychological
+                    .assessment_methods
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 privacy_level: config.psychological.privacy_level.clone().into(),
                 models: psychological_models,
                 analysis_cache: AnalysisCache {
@@ -1070,7 +1125,13 @@ impl AetherArchitecture {
                 },
             },
             empathy_system: EmpathySynthesisSystem {
-                empathy_types: config.empathy.empathy_types.clone().into_iter().map(Into::into).collect(),
+                empathy_types: config
+                    .empathy
+                    .empathy_types
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 response_style: config.empathy.response_style.clone().into(),
                 compassion_level: config.empathy.compassion_level.clone().into(),
                 support_generation: config.empathy.support_generation.clone().into(),
@@ -1078,7 +1139,13 @@ impl AetherArchitecture {
             },
             cultural_adaptation: CulturalAdaptationModule {
                 adaptation_mode: config.cultural.adaptation_mode.clone().into(),
-                supported_cultures: config.cultural.supported_cultures.clone().into_iter().map(Into::into).collect(),
+                supported_cultures: config
+                    .cultural
+                    .supported_cultures
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 sensitivity_level: config.cultural.sensitivity_level.clone().into(),
                 cross_cultural_awareness: config.cultural.cross_cultural_awareness,
                 learning_mode: config.cultural.learning_mode.clone().into(),
@@ -1166,80 +1233,105 @@ impl AetherArchitecture {
     }
 
     /// Analyze emotional content
-    pub async fn analyze_emotional_content(&self, content: &str) -> NxrModelResult<EmotionalAnalysisResult> {
+    pub async fn analyze_emotional_content(
+        &self,
+        content: &str,
+    ) -> NxrModelResult<EmotionalAnalysisResult> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result = EmotionalAnalysisResult::new();
-        
+
         // Process through emotion networks
         for (network_id, network) in &self.emotion_networks {
             let network_result = self.process_emotion_network(network, content).await?;
-            result.network_results.insert(network_id.clone(), network_result);
+            result
+                .network_results
+                .insert(network_id.clone(), network_result);
         }
-        
+
         // Aggregate results
         result.primary_emotion = self.aggregate_primary_emotion(&result.network_results);
         result.emotional_intensity = self.calculate_emotional_intensity(&result.network_results);
         result.valence = self.calculate_valence(&result.network_results);
         result.arousal = self.calculate_arousal(&result.network_results);
-        
+
         // Context and cultural adaptation handled by specialized subsystems
-        
+
         result.execution_time_ms = start_time.elapsed().as_millis() as u64;
         result.confidence = self.calculate_emotional_confidence(&result);
-        
+
         Ok(result)
     }
 
     /// Process emotion network
-    async fn process_emotion_network(&self, network: &EmotionNetwork, content: &str) -> NxrModelResult<EmotionNetworkResult> {
+    async fn process_emotion_network(
+        &self,
+        network: &EmotionNetwork,
+        content: &str,
+    ) -> NxrModelResult<EmotionNetworkResult> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result = EmotionNetworkResult::new();
-        
+
         // Process emotion vectors
         let detected_emotions = self.detect_emotions(content, &network.granularity);
         result.detected_emotions = detected_emotions;
-        
+
         // Calculate confidence
         result.confidence = network.performance_metrics.accuracy;
-        
+
         result.processing_time_ms = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(result)
     }
 
     /// Detect emotions based on granularity
-    fn detect_emotions(&self, content: &str, granularity: &EmotionalGranularity) -> Vec<DetectedEmotion> {
+    fn detect_emotions(
+        &self,
+        content: &str,
+        granularity: &EmotionalGranularity,
+    ) -> Vec<DetectedEmotion> {
         let lower_content = content.to_lowercase();
         let words: Vec<&str> = lower_content.split_whitespace().collect();
         let mut emotions = Vec::new();
-        
+
         match granularity {
             EmotionalGranularity::Coarse => {
                 // Basic emotions only
-                if words.iter().any(|w| w.contains("happy") || w.contains("joy")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("happy") || w.contains("joy"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "happiness".to_string(),
                         confidence: 0.9,
                         intensity: 0.8,
                     });
                 }
-                if words.iter().any(|w| w.contains("sad") || w.contains("unhappy")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("sad") || w.contains("unhappy"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "sadness".to_string(),
                         confidence: 0.85,
                         intensity: 0.7,
                     });
                 }
-                if words.iter().any(|w| w.contains("angry") || w.contains("mad")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("angry") || w.contains("mad"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "anger".to_string(),
                         confidence: 0.88,
                         intensity: 0.75,
                     });
                 }
-                if words.iter().any(|w| w.contains("fear") || w.contains("scared")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("fear") || w.contains("scared"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "fear".to_string(),
                         confidence: 0.82,
@@ -1250,22 +1342,31 @@ impl AetherArchitecture {
             EmotionalGranularity::Medium => {
                 // Basic + complex emotions
                 emotions.extend(self.detect_emotions(content, &EmotionalGranularity::Coarse));
-                
-                if words.iter().any(|w| w.contains("jealous") || w.contains("envious")) {
+
+                if words
+                    .iter()
+                    .any(|w| w.contains("jealous") || w.contains("envious"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "jealousy".to_string(),
                         confidence: 0.75,
                         intensity: 0.6,
                     });
                 }
-                if words.iter().any(|w| w.contains("proud") || w.contains("accomplished")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("proud") || w.contains("accomplished"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "pride".to_string(),
                         confidence: 0.8,
                         intensity: 0.7,
                     });
                 }
-                if words.iter().any(|w| w.contains("ashamed") || w.contains("embarrassed")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("ashamed") || w.contains("embarrassed"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "shame".to_string(),
                         confidence: 0.73,
@@ -1276,22 +1377,31 @@ impl AetherArchitecture {
             EmotionalGranularity::Fine => {
                 // Full emotional spectrum
                 emotions.extend(self.detect_emotions(content, &EmotionalGranularity::Medium));
-                
-                if words.iter().any(|w| w.contains("grateful") || w.contains("thankful")) {
+
+                if words
+                    .iter()
+                    .any(|w| w.contains("grateful") || w.contains("thankful"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "gratitude".to_string(),
                         confidence: 0.85,
                         intensity: 0.6,
                     });
                 }
-                if words.iter().any(|w| w.contains("hopeful") || w.contains("optimistic")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("hopeful") || w.contains("optimistic"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "hope".to_string(),
                         confidence: 0.82,
                         intensity: 0.65,
                     });
                 }
-                if words.iter().any(|w| w.contains("anxious") || w.contains("worried")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("anxious") || w.contains("worried"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "anxiety".to_string(),
                         confidence: 0.8,
@@ -1302,16 +1412,22 @@ impl AetherArchitecture {
             EmotionalGranularity::UltraFine => {
                 // Ultra-fine emotional granularity
                 emotions.extend(self.detect_emotions(content, &EmotionalGranularity::Fine));
-                
+
                 // Add subtle emotional variations
-                if words.iter().any(|w| w.contains("content") || w.contains("satisfied")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("content") || w.contains("satisfied"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "contentment".to_string(),
                         confidence: 0.78,
                         intensity: 0.5,
                     });
                 }
-                if words.iter().any(|w| w.contains("excited") || w.contains("enthusiastic")) {
+                if words
+                    .iter()
+                    .any(|w| w.contains("excited") || w.contains("enthusiastic"))
+                {
                     emotions.push(DetectedEmotion {
                         emotion: "excitement".to_string(),
                         confidence: 0.83,
@@ -1320,21 +1436,24 @@ impl AetherArchitecture {
                 }
             }
         }
-        
+
         emotions
     }
 
     /// Aggregate primary emotion
-    fn aggregate_primary_emotion(&self, network_results: &HashMap<String, EmotionNetworkResult>) -> String {
+    fn aggregate_primary_emotion(
+        &self,
+        network_results: &HashMap<String, EmotionNetworkResult>,
+    ) -> String {
         let mut emotion_counts: HashMap<String, f32> = HashMap::new();
-        
+
         for result in network_results.values() {
             for emotion in &result.detected_emotions {
                 let count = emotion_counts.entry(emotion.emotion.clone()).or_insert(0.0);
                 *count += emotion.confidence * emotion.intensity;
             }
         }
-        
+
         emotion_counts
             .into_iter()
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -1343,17 +1462,20 @@ impl AetherArchitecture {
     }
 
     /// Calculate emotional intensity
-    fn calculate_emotional_intensity(&self, network_results: &HashMap<String, EmotionNetworkResult>) -> f32 {
+    fn calculate_emotional_intensity(
+        &self,
+        network_results: &HashMap<String, EmotionNetworkResult>,
+    ) -> f32 {
         let mut total_intensity = 0.0;
         let mut total_count = 0.0;
-        
+
         for result in network_results.values() {
             for emotion in &result.detected_emotions {
                 total_intensity += emotion.intensity * emotion.confidence;
                 total_count += emotion.confidence;
             }
         }
-        
+
         if total_count > 0.0 {
             total_intensity / total_count
         } else {
@@ -1365,12 +1487,12 @@ impl AetherArchitecture {
     fn calculate_valence(&self, network_results: &HashMap<String, EmotionNetworkResult>) -> f32 {
         let mut positive_score = 0.0;
         let mut negative_score = 0.0;
-        
+
         for result in network_results.values() {
             for emotion in &result.detected_emotions {
                 let valence = self.get_emotion_valence(&emotion.emotion);
                 let weighted_valence = valence * emotion.confidence * emotion.intensity;
-                
+
                 if valence > 0.0 {
                     positive_score += weighted_valence;
                 } else {
@@ -1378,7 +1500,7 @@ impl AetherArchitecture {
                 }
             }
         }
-        
+
         let total_score = positive_score + negative_score;
         if total_score > 0.0 {
             (positive_score - negative_score) / total_score
@@ -1390,7 +1512,9 @@ impl AetherArchitecture {
     /// Get emotion valence
     fn get_emotion_valence(&self, emotion: &str) -> f32 {
         match emotion {
-            "happiness" | "joy" | "pride" | "gratitude" | "hope" | "contentment" | "excitement" => 0.8,
+            "happiness" | "joy" | "pride" | "gratitude" | "hope" | "contentment" | "excitement" => {
+                0.8
+            }
             "sadness" | "shame" | "fear" | "anxiety" | "jealousy" => -0.7,
             "anger" => -0.6,
             "neutral" => 0.0,
@@ -1402,7 +1526,7 @@ impl AetherArchitecture {
     fn calculate_arousal(&self, network_results: &HashMap<String, EmotionNetworkResult>) -> f32 {
         let mut total_arousal = 0.0;
         let mut total_count = 0.0;
-        
+
         for result in network_results.values() {
             for emotion in &result.detected_emotions {
                 let arousal = self.get_emotion_arousal(&emotion.emotion);
@@ -1410,7 +1534,7 @@ impl AetherArchitecture {
                 total_count += emotion.confidence * emotion.intensity;
             }
         }
-        
+
         if total_count > 0.0 {
             total_arousal / total_count
         } else {
@@ -1435,21 +1559,22 @@ impl AetherArchitecture {
         if result.network_results.is_empty() {
             return 0.0;
         }
-        
-        let total_confidence: f32 = result.network_results
-            .values()
-            .map(|r| r.confidence)
-            .sum();
-        
+
+        let total_confidence: f32 = result.network_results.values().map(|r| r.confidence).sum();
+
         total_confidence / result.network_results.len() as f32
     }
 
     /// Generate empathetic response
-    pub async fn generate_empathetic_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<EmpatheticResponse> {
+    pub async fn generate_empathetic_response(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<EmpatheticResponse> {
         let start_time = std::time::Instant::now();
-        
+
         let mut response = EmpatheticResponse::new();
-        
+
         // Build basic psychological profile from emotional analysis
         let psychological_profile = PsychologicalProfile {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1467,67 +1592,100 @@ impl AetherArchitecture {
             developmental_stage: None,
         };
         response.psychological_profile = Some(psychological_profile.clone());
-        
+
         // Generate empathy responses
         for empathy_type in &self.empathy_system.empathy_types {
-            if let Some(model) = self.empathy_system.models.get(&format!("{}_empathy", format!("{:?}", empathy_type).to_lowercase())) {
-                let empathy_response = self.generate_empathy_response_type(model, empathy_type, content, emotional_result).await?;
-                response.empathy_responses.insert(empathy_type.clone(), empathy_response);
+            if let Some(model) = self.empathy_system.models.get(&format!(
+                "{}_empathy",
+                format!("{:?}", empathy_type).to_lowercase()
+            )) {
+                let empathy_response = self
+                    .generate_empathy_response_type(model, empathy_type, content, emotional_result)
+                    .await?;
+                response
+                    .empathy_responses
+                    .insert(empathy_type.clone(), empathy_response);
             }
         }
-        
+
         // Synthesize final response
-        response.final_response = self.synthesize_empathetic_response(&response.empathy_responses).await?;
-        
+        response.final_response = self
+            .synthesize_empathetic_response(&response.empathy_responses)
+            .await?;
+
         // Generate support recommendations
         if self.empathy_system.support_generation.enable_support {
-            response.support_recommendations = self.generate_support_recommendations(content, emotional_result, &psychological_profile).await?;
+            response.support_recommendations = self
+                .generate_support_recommendations(content, emotional_result, &psychological_profile)
+                .await?;
         }
-        
+
         response.execution_time_ms = start_time.elapsed().as_millis() as u64;
         response.response_quality = self.calculate_response_quality(&response);
-        
+
         Ok(response)
     }
 
     /// Generate empathy response for specific type
-    async fn generate_empathy_response_type(&self, model: &EmpathyModel, empathy_type: &EmpathyType, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<EmpathyResponseDetail> {
+    async fn generate_empathy_response_type(
+        &self,
+        model: &EmpathyModel,
+        empathy_type: &EmpathyType,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<EmpathyResponseDetail> {
         let start_time = std::time::Instant::now();
-        
+
         let mut detail = EmpathyResponseDetail::new();
-        
+
         // Generate response based on empathy type
         match empathy_type {
             EmpathyType::Cognitive => {
-                detail.response_content = self.generate_cognitive_empathy_response(content, emotional_result).await?;
+                detail.response_content = self
+                    .generate_cognitive_empathy_response(content, emotional_result)
+                    .await?;
                 detail.empathy_score = model.performance_metrics.empathy_accuracy;
             }
             EmpathyType::Emotional => {
-                detail.response_content = self.generate_emotional_empathy_response(content, emotional_result).await?;
+                detail.response_content = self
+                    .generate_emotional_empathy_response(content, emotional_result)
+                    .await?;
                 detail.empathy_score = model.performance_metrics.empathy_accuracy;
             }
             EmpathyType::Compassionate => {
-                detail.response_content = self.generate_compassionate_empathy_response(content, emotional_result).await?;
+                detail.response_content = self
+                    .generate_compassionate_empathy_response(content, emotional_result)
+                    .await?;
                 detail.empathy_score = model.performance_metrics.empathy_accuracy;
             }
             EmpathyType::Somatic => {
-                detail.response_content = self.generate_somatic_empathy_response(content, emotional_result).await?;
-                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.9; // Slightly lower for less common type
+                detail.response_content = self
+                    .generate_somatic_empathy_response(content, emotional_result)
+                    .await?;
+                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.9;
+                // Slightly lower for less common type
             }
             EmpathyType::Spiritual => {
-                detail.response_content = self.generate_spiritual_empathy_response(content, emotional_result).await?;
-                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.85; // Lower for spiritual empathy
+                detail.response_content = self
+                    .generate_spiritual_empathy_response(content, emotional_result)
+                    .await?;
+                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.85;
+                // Lower for spiritual empathy
             }
         }
-        
+
         detail.generation_time_ms = start_time.elapsed().as_millis() as u64;
         detail.confidence = model.performance_metrics.response_appropriateness;
-        
+
         Ok(detail)
     }
 
     /// Generate cognitive empathy response
-    async fn generate_cognitive_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
+    async fn generate_cognitive_empathy_response(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<String> {
         let response = format!(
             "I understand your perspective. Based on what you've shared, I can see that you're experiencing {}. This makes sense given the context. Your thoughts and feelings are valid, and it's understandable why you would feel this way.",
             emotional_result.primary_emotion
@@ -1536,7 +1694,11 @@ impl AetherArchitecture {
     }
 
     /// Generate emotional empathy response
-    async fn generate_emotional_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
+    async fn generate_emotional_empathy_response(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<String> {
         let response = format!(
             "I can feel the emotion in your words. The {} you're experiencing comes through clearly, and I want you to know that your feelings are completely valid. It's okay to feel this way, and you're not alone in experiencing emotions like this.",
             emotional_result.primary_emotion
@@ -1545,7 +1707,11 @@ impl AetherArchitecture {
     }
 
     /// Generate compassionate empathy response
-    async fn generate_compassionate_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
+    async fn generate_compassionate_empathy_response(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<String> {
         let response = format!(
             "I hear you, and I'm here to support you. What you're going through sounds challenging, especially with the {} you're experiencing, and I want you to know that you deserve care and compassion. I'm here to help you through this, whatever you need.",
             emotional_result.primary_emotion
@@ -1554,7 +1720,11 @@ impl AetherArchitecture {
     }
 
     /// Generate somatic empathy response
-    async fn generate_somatic_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
+    async fn generate_somatic_empathy_response(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<String> {
         let response = format!(
             "I can sense the physical tension and emotional weight in what you're sharing. Your body and mind are connected in this experience, and it's important to acknowledge how this {} affects you physically as well as emotionally.",
             emotional_result.primary_emotion
@@ -1563,7 +1733,11 @@ impl AetherArchitecture {
     }
 
     /// Generate spiritual empathy response
-    async fn generate_spiritual_empathy_response(&self, content: &str, emotional_result: &EmotionalAnalysisResult) -> NxrModelResult<String> {
+    async fn generate_spiritual_empathy_response(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+    ) -> NxrModelResult<String> {
         let response = format!(
             "I recognize the deeper meaning and existential significance in the {} you're experiencing. This moment holds spiritual weight, and I honor the journey you're on. Your experience has meaning beyond the surface level.",
             emotional_result.primary_emotion
@@ -1572,31 +1746,39 @@ impl AetherArchitecture {
     }
 
     /// Synthesize empathetic response
-    async fn synthesize_empathetic_response(&self, empathy_responses: &HashMap<EmpathyType, EmpathyResponseDetail>) -> NxrModelResult<String> {
+    async fn synthesize_empathetic_response(
+        &self,
+        empathy_responses: &HashMap<EmpathyType, EmpathyResponseDetail>,
+    ) -> NxrModelResult<String> {
         let mut synthesized = String::new();
-        
+
         // Combine responses from different empathy types
         if let Some(cognitive) = empathy_responses.get(&EmpathyType::Cognitive) {
             synthesized.push_str(&cognitive.response_content);
             synthesized.push_str(" ");
         }
-        
+
         if let Some(emotional) = empathy_responses.get(&EmpathyType::Emotional) {
             synthesized.push_str(&emotional.response_content);
             synthesized.push_str(" ");
         }
-        
+
         if let Some(compassionate) = empathy_responses.get(&EmpathyType::Compassionate) {
             synthesized.push_str(&compassionate.response_content);
         }
-        
+
         Ok(synthesized)
     }
 
     /// Generate support recommendations
-    async fn generate_support_recommendations(&self, content: &str, emotional_result: &EmotionalAnalysisResult, profile: &PsychologicalProfile) -> NxrModelResult<Vec<SupportRecommendation>> {
+    async fn generate_support_recommendations(
+        &self,
+        content: &str,
+        emotional_result: &EmotionalAnalysisResult,
+        profile: &PsychologicalProfile,
+    ) -> NxrModelResult<Vec<SupportRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         // Generate recommendations based on emotional state
         if emotional_result.valence < -0.5 {
             recommendations.push(SupportRecommendation {
@@ -1611,14 +1793,15 @@ impl AetherArchitecture {
                 ],
             });
         }
-        
+
         // Generate recommendations based on psychological profile
         if let Some(anxiety_level) = profile.personality_traits.get("anxiety") {
             if *anxiety_level > 0.7 {
                 recommendations.push(SupportRecommendation {
                     recommendation_type: SupportType::CopingStrategies,
                     title: "Anxiety Management".to_string(),
-                    description: "Consider these strategies to help manage anxiety symptoms.".to_string(),
+                    description: "Consider these strategies to help manage anxiety symptoms."
+                        .to_string(),
                     priority: RecommendationPriority::Medium,
                     resources: vec![
                         "Deep breathing exercises".to_string(),
@@ -1628,7 +1811,7 @@ impl AetherArchitecture {
                 });
             }
         }
-        
+
         Ok(recommendations)
     }
 
@@ -1637,17 +1820,19 @@ impl AetherArchitecture {
         if response.empathy_responses.is_empty() {
             return 0.0;
         }
-        
-        let total_quality: f32 = response.empathy_responses
+
+        let total_quality: f32 = response
+            .empathy_responses
             .values()
             .map(|r| r.empathy_score * r.confidence)
             .sum();
-        
-        let total_weight: f32 = response.empathy_responses
+
+        let total_weight: f32 = response
+            .empathy_responses
             .values()
             .map(|r| r.confidence)
             .sum();
-        
+
         if total_weight > 0.0 {
             total_quality / total_weight
         } else {
@@ -1656,7 +1841,11 @@ impl AetherArchitecture {
     }
 
     /// Adapt to cultural context
-    pub async fn adapt_to_cultural_context(&self, response: &mut EmpatheticResponse, cultural_context: &CulturalContext) -> NxrModelResult<()> {
+    pub async fn adapt_to_cultural_context(
+        &self,
+        response: &mut EmpatheticResponse,
+        cultural_context: &CulturalContext,
+    ) -> NxrModelResult<()> {
         // Adjust response style based on cultural communication preferences
         match cultural_context.communication_style {
             CommunicationStyle::Direct => {
@@ -1665,7 +1854,8 @@ impl AetherArchitecture {
             }
             CommunicationStyle::Indirect => {
                 // Make response more indirect
-                response.final_response = self.make_response_more_indirect(&response.final_response);
+                response.final_response =
+                    self.make_response_more_indirect(&response.final_response);
             }
             CommunicationStyle::Formal => {
                 // Make response more formal
@@ -1673,14 +1863,15 @@ impl AetherArchitecture {
             }
             CommunicationStyle::Informal => {
                 // Make response more informal
-                response.final_response = self.make_response_more_informal(&response.final_response);
+                response.final_response =
+                    self.make_response_more_informal(&response.final_response);
             }
             _ => {}
         }
-        
+
         // Adjust emotional intensity based on cultural norms
         // (handled by cultural adaptation subsystem)
-        
+
         Ok(())
     }
 
@@ -1723,9 +1914,13 @@ impl AetherArchitecture {
     }
 
     /// Adjust emotional intensity based on cultural norms
-    fn _adjust_emotional_intensity(&self, response: &str, cultural_context: &CulturalContext) -> String {
+    fn _adjust_emotional_intensity(
+        &self,
+        response: &str,
+        cultural_context: &CulturalContext,
+    ) -> String {
         let intensity_factor = cultural_context.emotional_norms.preferred_intensity;
-        
+
         if intensity_factor < 0.5 {
             // Reduce emotional intensity
             response
@@ -1969,9 +2164,11 @@ impl From<super::config::PsychologicalFramework> for PsychologicalFramework {
             super::config::PsychologicalFramework::Psychodynamic => Self::Psychodynamic,
             super::config::PsychologicalFramework::Humanistic => Self::Humanistic,
             super::config::PsychologicalFramework::PositivePsychology => Self::PositivePsychology,
-            super::config::PsychologicalFramework::Integrative { frameworks } => Self::Integrative {
-                frameworks: frameworks.into_iter().map(Into::into).collect(),
-            },
+            super::config::PsychologicalFramework::Integrative { frameworks } => {
+                Self::Integrative {
+                    frameworks: frameworks.into_iter().map(Into::into).collect(),
+                }
+            }
         }
     }
 }

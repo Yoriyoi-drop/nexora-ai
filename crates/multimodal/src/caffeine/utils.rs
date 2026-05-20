@@ -1,7 +1,7 @@
 //! Utility functions for CAFFEINE (Comprehensive Adaptive Framework for Enhanced Neural Intelligence)
 
-use std::collections::HashMap;
 use ndarray::ArrayD;
+use std::collections::HashMap;
 
 /// Utility functions for multimodal processing
 pub struct MultimodalUtils;
@@ -11,7 +11,7 @@ impl MultimodalUtils {
     pub fn normalize_tensor(tensor: &mut ArrayD<f32>) {
         let min_val = tensor.iter().cloned().fold(f32::INFINITY, f32::min);
         let max_val = tensor.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        
+
         if max_val > min_val {
             tensor.mapv_inplace(|x| (x - min_val) / (max_val - min_val));
         }
@@ -47,13 +47,13 @@ impl ConfigUtils {
     /// Validate model configuration
     pub fn validate_config(config: &HashMap<String, String>) -> Result<(), String> {
         let required_fields = vec!["model_type", "input_shape", "output_shape"];
-        
+
         for field in required_fields {
             if !config.contains_key(field) {
                 return Err(format!("Missing required field: {}", field));
             }
         }
-        
+
         Ok(())
     }
 
@@ -61,7 +61,11 @@ impl ConfigUtils {
     pub fn parse_dimensions(dim_str: &str) -> Result<Vec<usize>, String> {
         dim_str
             .split(',')
-            .map(|s| s.trim().parse::<usize>().map_err(|e| format!("Invalid dimension: {}", e)))
+            .map(|s| {
+                s.trim()
+                    .parse::<usize>()
+                    .map_err(|e| format!("Invalid dimension: {}", e))
+            })
             .collect()
     }
 }

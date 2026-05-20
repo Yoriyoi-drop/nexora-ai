@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::warn;
@@ -100,7 +100,9 @@ impl KVCache {
                         return None;
                     }
                     entry.access_count.fetch_add(1, Ordering::Relaxed);
-                    entry.last_access.store(timestamp_nanos(), Ordering::Relaxed);
+                    entry
+                        .last_access
+                        .store(timestamp_nanos(), Ordering::Relaxed);
                     self.stats_hits.fetch_add(1, Ordering::Relaxed);
                     // Arc clone is O(1) — avoids full Vec copy on every cache hit
                     return Some(entry.value.as_ref().clone());
@@ -124,7 +126,9 @@ impl KVCache {
         let hash = self.hash_key(&key);
         let mut entries = self.entries.write().await;
 
-        let prev = self.total_memory_used.fetch_add(entry_size, Ordering::Relaxed);
+        let prev = self
+            .total_memory_used
+            .fetch_add(entry_size, Ordering::Relaxed);
 
         while entries.len() >= self.max_entries || (prev + entry_size) > self.max_memory_bytes {
             let lru_key = entries
@@ -134,7 +138,8 @@ impl KVCache {
             match lru_key {
                 Some(k) => {
                     if let Some(removed) = entries.remove(&k) {
-                        let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+                        let freed =
+                            removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                         self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
                     }
                     self.stats_evictions.fetch_add(1, Ordering::Relaxed);
@@ -161,9 +166,9 @@ impl KVCache {
     pub async fn contains(&self, key: &[u8]) -> bool {
         let hash = self.hash_key(key);
         let entries = self.entries.read().await;
-        entries
-            .get(&hash)
-            .map_or(false, |e| e.key == key && e.created_at.elapsed() <= self.ttl)
+        entries.get(&hash).map_or(false, |e| {
+            e.key == key && e.created_at.elapsed() <= self.ttl
+        })
     }
 
     pub async fn clear(&self) {
@@ -208,7 +213,7 @@ impl KVCache {
             Err(e) => {
                 warn!("KV cache stats read error: {:?}", e);
                 (0, 0)
-            },
+            }
         };
         CacheStats {
             cache_size,
@@ -282,9 +287,7 @@ mod tests {
     #[tokio::test]
     async fn test_oversized_entry_rejected() {
         let cache = KVCache::new().with_max_entry_bytes(10);
-        cache
-            .insert(b"big".to_vec(), vec![0.0; 100])
-            .await;
+        cache.insert(b"big".to_vec(), vec![0.0; 100]).await;
         let stats = cache.get_stats();
         assert_eq!(stats.cache_size, 0);
     }
@@ -321,8 +324,11 @@ mod tests {
         for i in 0..100 {
             let c = cache.clone();
             handles.push(tokio::spawn(async move {
-                c.insert(("k".to_string() + &i.to_string()).into_bytes(), vec![i as f32])
-                    .await;
+                c.insert(
+                    ("k".to_string() + &i.to_string()).into_bytes(),
+                    vec![i as f32],
+                )
+                .await;
             }));
         }
         for h in handles {

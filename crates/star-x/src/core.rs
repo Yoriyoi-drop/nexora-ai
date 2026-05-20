@@ -8,10 +8,10 @@ use std::collections::HashMap;
 pub trait TemporalProcessor {
     /// Process input dengan temporal context
     fn process_temporal(&self, input: &ArrayD<f32>, temporal_pos: usize) -> DLResult<ArrayD<f32>>;
-    
+
     /// Update internal temporal state
     fn update_temporal_state(&mut self, new_state: ArrayD<f32>) -> DLResult<()>;
-    
+
     /// Get current temporal state
     fn get_temporal_state(&self) -> &ArrayD<f32>;
 }
@@ -19,16 +19,17 @@ pub trait TemporalProcessor {
 /// Trait untuk sparse attention mechanisms
 pub trait SparseAttention {
     /// Compute sparse attention scores
-    fn compute_sparse_attention(&mut self, 
-        query: &ArrayD<f32>, 
-        key: &ArrayD<f32>, 
+    fn compute_sparse_attention(
+        &mut self,
+        query: &ArrayD<f32>,
+        key: &ArrayD<f32>,
         value: &ArrayD<f32>,
-        temporal_encoding: &ArrayD<f32>
+        temporal_encoding: &ArrayD<f32>,
     ) -> DLResult<(ArrayD<f32>, ArrayD<f32>)>; // (output, sparse_mask)
-    
+
     /// Get current sparsity ratio
     fn get_sparsity_ratio(&self) -> f32;
-    
+
     /// Set sparsity level
     fn set_sparsity_level(&mut self, ratio: f32) -> DLResult<()>;
 }
@@ -36,38 +37,42 @@ pub trait SparseAttention {
 /// Trait untuk hierarchical gating
 pub trait HierarchicalGating {
     /// Process melalui multi-level gates
-    fn process_hierarchical(&self, 
+    fn process_hierarchical(
+        &self,
         input: &ArrayD<f32>,
         hidden_state: &ArrayD<f32>,
         chunk_context: &ArrayD<f32>,
-        episodic_memory: &ArrayD<f32>
+        episodic_memory: &ArrayD<f32>,
     ) -> DLResult<(ArrayD<f32>, ArrayD<f32>, ArrayD<f32>)>; // (micro, meso, macro)
-    
+
     /// Fusion dari hierarchical outputs
-    fn fuse_hierarchical(&self, 
+    fn fuse_hierarchical(
+        &self,
         micro: &ArrayD<f32>,
-        meso: &ArrayD<f32>, 
+        meso: &ArrayD<f32>,
         macro_out: &ArrayD<f32>,
-        weights: (f32, f32, f32)
+        weights: (f32, f32, f32),
     ) -> DLResult<ArrayD<f32>>;
 }
 
 /// Trait untuk selective state updates
 pub trait SelectiveUpdate {
     /// Compute relevance scores untuk selective update
-    fn compute_relevance(&self, 
+    fn compute_relevance(
+        &self,
         tgh_output: &ArrayD<f32>,
-        sca_output: &ArrayD<f32>
+        sca_output: &ArrayD<f32>,
     ) -> DLResult<ArrayD<f32>>;
-    
+
     /// Apply selective state update
-    fn selective_update(&self,
+    fn selective_update(
+        &self,
         previous_state: &ArrayD<f32>,
         candidate_state: &ArrayD<f32>,
         relevance: &ArrayD<f32>,
-        threshold: f32
+        threshold: f32,
     ) -> DLResult<ArrayD<f32>>;
-    
+
     /// Get update frequency statistics
     fn get_update_frequency(&self) -> f32;
 }
@@ -75,19 +80,20 @@ pub trait SelectiveUpdate {
 /// Trait untuk episodic memory management
 pub trait EpisodicMemory {
     /// Write ke episodic memory dengan priority
-    fn write_memory(&mut self, 
+    fn write_memory(
+        &mut self,
         state: &ArrayD<f32>,
         gradient: &ArrayD<f32>,
         relevance: f32,
-        threshold: f32
+        threshold: f32,
     ) -> DLResult<bool>; // Returns true if written
-    
+
     /// Read dari episodic memory
     fn read_memory(&self, query: &ArrayD<f32>) -> DLResult<ArrayD<f32>>;
-    
+
     /// Get memory utilization
     fn get_memory_utilization(&self) -> f32;
-    
+
     /// Cleanup old/low-priority memories
     fn cleanup_memory(&mut self) -> DLResult<usize>; // Returns number of cleaned entries
 }
@@ -95,14 +101,15 @@ pub trait EpisodicMemory {
 /// Trait untuk adaptive compute allocation
 pub trait AdaptiveCompute {
     /// Determine compute level untuk input tertentu
-    fn determine_compute_level(&self, 
+    fn determine_compute_level(
+        &self,
         input: &ArrayD<f32>,
-        hidden_state: &ArrayD<f32>
+        hidden_state: &ArrayD<f32>,
     ) -> DLResult<usize>;
-    
+
     /// Get compute statistics
     fn get_compute_stats(&self) -> (f32, f32, f32); // (efficiency, utilization, cost)
-    
+
     /// Set compute thresholds
     fn set_compute_thresholds(&mut self, thresholds: Vec<f32>) -> DLResult<()>;
 }
@@ -110,18 +117,20 @@ pub trait AdaptiveCompute {
 /// Trait untuk gradient resonance stabilization
 pub trait GradientResonance {
     /// Compute resonance factor
-    fn compute_resonance(&self, 
+    fn compute_resonance(
+        &self,
         current_state: &ArrayD<f32>,
-        previous_state: &ArrayD<f32>
+        previous_state: &ArrayD<f32>,
     ) -> DLResult<f32>;
-    
+
     /// Apply resonance stabilization
-    fn apply_resonance(&self,
+    fn apply_resonance(
+        &self,
         candidate_state: &ArrayD<f32>,
         previous_state: &ArrayD<f32>,
-        resonance_factor: f32
+        resonance_factor: f32,
     ) -> DLResult<ArrayD<f32>>;
-    
+
     /// Check resonance stability
     fn check_stability(&self, resonance_history: &[f32]) -> bool;
 }
@@ -142,45 +151,45 @@ impl StarXParameters {
             gradients: HashMap::new(),
         }
     }
-    
+
     pub fn register_parameter(&mut self, name: String, shape: Vec<usize>) -> DLResult<()> {
         let weight = ArrayD::zeros(shape.clone());
         let bias = ArrayD::zeros(shape.clone());
         let gradient = ArrayD::zeros(shape.clone());
-        
+
         self.weights.insert(name.clone(), weight);
         self.biases.insert(name.clone(), bias);
         self.gradients.insert(name, gradient);
-        
+
         Ok(())
     }
-    
+
     pub fn get_parameter(&self, name: &str) -> Option<&ArrayD<f32>> {
         self.weights.get(name)
     }
-    
+
     pub fn get_parameter_mut(&mut self, name: &str) -> Option<&mut ArrayD<f32>> {
         self.weights.get_mut(name)
     }
-    
+
     pub fn get_gradient(&self, name: &str) -> Option<&ArrayD<f32>> {
         self.gradients.get(name)
     }
-    
+
     pub fn get_gradient_mut(&mut self, name: &str) -> Option<&mut ArrayD<f32>> {
         self.gradients.get_mut(name)
     }
-    
+
     pub fn zero_gradients(&mut self) {
         for gradient in self.gradients.values_mut() {
             gradient.fill(0.0);
         }
     }
-    
+
     pub fn parameter_count(&self) -> usize {
         self.weights.values().map(|w| w.len()).sum()
     }
-    
+
     pub fn gradient_norm(&self) -> f32 {
         let mut sum_sq = 0.0;
         for gradient in self.gradients.values() {
@@ -202,37 +211,41 @@ impl Default for StarXParameters {
 pub mod core_utils {
     use super::*;
     use ndarray::Array1;
-    
+
     /// Harmonic temporal encoding function
-    pub fn harmonic_encoding(position: usize, frequencies: usize, embedding_dim: usize) -> ArrayD<f32> {
+    pub fn harmonic_encoding(
+        position: usize,
+        frequencies: usize,
+        embedding_dim: usize,
+    ) -> ArrayD<f32> {
         let mut encoding = Array1::zeros(embedding_dim);
-        
+
         for i in 0..frequencies.min(embedding_dim / 2) {
             let freq = 2.0 * std::f32::consts::PI * (i as f32 + 1.0);
             let pos = position as f32;
-            
+
             encoding[2 * i] = (freq * pos).sin();
             if 2 * i + 1 < embedding_dim {
                 encoding[2 * i + 1] = (freq * pos).cos();
             }
         }
-        
+
         encoding.into_dyn()
     }
-    
+
     /// Top-K sparse selection
     pub fn top_k_sparse(scores: &ArrayD<f32>, k: usize) -> ArrayD<f32> {
         let mut mask = ArrayD::zeros(scores.shape());
         let flat_scores = scores.as_slice().expect("tensor should be contiguous");
-        
+
         let mut indexed_scores: Vec<(usize, f32)> = flat_scores
             .iter()
             .enumerate()
             .map(|(i, &v)| (i, v))
             .collect();
-        
+
         indexed_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         for (i, _) in indexed_scores.iter().take(k) {
             let mut indices = vec![0; scores.ndim()];
             let mut remaining = *i;
@@ -240,15 +253,15 @@ pub mod core_utils {
                 indices[dim] = remaining % size;
                 remaining /= size;
             }
-            
+
             if let Some(val) = mask.get_mut(indices.as_slice()) {
                 *val = 1.0;
             }
         }
-        
+
         mask
     }
-    
+
     /// Compute entropy untuk regularization
     pub fn compute_entropy(probabilities: &[f32]) -> f32 {
         let mut entropy = 0.0;
@@ -259,7 +272,7 @@ pub mod core_utils {
         }
         entropy
     }
-    
+
     /// Normalize tensor
     pub fn normalize(tensor: &mut ArrayD<f32>) -> f32 {
         let mut norm = 0.0;
@@ -267,13 +280,13 @@ pub mod core_utils {
             norm += val * val;
         }
         norm = norm.sqrt();
-        
+
         if norm > 1e-8 {
             for val in tensor.iter_mut() {
                 *val /= norm;
             }
         }
-        
+
         norm
     }
 }
@@ -366,7 +379,7 @@ impl StarXState {
             resonance_factor: config.resonance_factor,
         }
     }
-    
+
     pub fn reset(&mut self) {
         self.temporal_position = 0;
         self.compute_level = 0;

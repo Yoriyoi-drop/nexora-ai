@@ -1,37 +1,40 @@
 //! NXR-NEXUM Model Implementation
-//! 
+//!
 //! NXR-05 PRO - Neural EXecutive Unified Multi-agent - Multi-agent orchestration and alignment coordination specialist
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use nexora_alignment::{SparoNexumConfig, SparoNexumIntegration};
 use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
     capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
-    gnac_integration::{GnacIntegrationConfig, GnacModel},
-    safety_gate::global_safety,
     foundation_components::FoundationComponents,
+    gnac_integration::{GnacIntegrationConfig, GnacModel},
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
+    safety_gate::global_safety,
 };
-use nexora_alignment::{SparoNexumIntegration, SparoNexumConfig};
 
 // Include all Nexum modules
-mod identity;
-mod config;
-mod architecture;
 pub mod agents;
+mod architecture;
 mod capabilities;
+mod config;
+mod identity;
 
 // Re-export all components
-pub use identity::*;
-pub use config::*;
-pub use architecture::*;
 pub use agents::*;
+pub use architecture::*;
 pub use capabilities::*;
+pub use config::*;
+pub use identity::*;
 
 pub struct NxrNexumModel {
     base: nexora_shared::base_model::BaseNxrModel<NexumConfig, NexumMetrics, NexumState>,
@@ -101,7 +104,7 @@ impl NexumCapabilities {
         let vector = CapabilityVector::new(NxrModelId::Nexum)
             .with_capability(nexora_shared::capability_spec::CapabilitySpec::new(
                 nexora_shared::capability_spec::CapabilityDomain::Orchestration,
-                nexora_shared::capability_spec::CapabilityLevel::Transcendent
+                nexora_shared::capability_spec::CapabilityLevel::Transcendent,
             ))
             .calculate_score();
         Self { vector }
@@ -207,7 +210,10 @@ impl NxrNexumModel {
         // SPARO alignment enforcement
         let alignment_summary = {
             let sparo_nexum = SparoNexumIntegration::new();
-            match sparo_nexum.enhanced_alignment(task, "multi_agent_orchestration").await {
+            match sparo_nexum
+                .enhanced_alignment(task, "multi_agent_orchestration")
+                .await
+            {
                 Ok(r) => r.summary(),
                 Err(e) => {
                     tracing::warn!("SPARO alignment warning: {}", e);
@@ -217,20 +223,30 @@ impl NxrNexumModel {
         };
 
         // Process task with deep learning
-        let dl_result = self.dl_process(task).await
+        let dl_result = self
+            .dl_process(task)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         let orchestration_plan = self.create_orchestration_plan(task)?;
         let coordination_result = self.coordinate_agents(&orchestration_plan)?;
         let consensus_result = self.build_consensus(&coordination_result)?;
 
         let safety = global_safety();
-        safety.audit.record(
-            NxrModelId::Nexum,
-            "multi_agent_orchestration",
-            "nexum_orchestrator",
-            &format!("Plan: {}, Agents: {}, Consensus: {:.2}", orchestration_plan.strategy, coordination_result.active_agents, consensus_result.agreement_level),
-        ).await;
+        safety
+            .audit
+            .record(
+                NxrModelId::Nexum,
+                "multi_agent_orchestration",
+                "nexum_orchestrator",
+                &format!(
+                    "Plan: {}, Agents: {}, Consensus: {:.2}",
+                    orchestration_plan.strategy,
+                    coordination_result.active_agents,
+                    consensus_result.agreement_level
+                ),
+            )
+            .await;
 
         Ok(format!(
             "Agent Orchestration:\nPlan: {}\nCoordination: {}\nConsensus: {:.2}\nSPARO: {}\nDL Processing: {} (tokens: {})",
@@ -269,7 +285,9 @@ impl NxrNexumModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -279,19 +297,27 @@ impl NxrNexumModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -300,7 +326,10 @@ impl NxrNexumModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -345,11 +374,19 @@ impl NxrModel for NxrNexumModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
         self.base.mark_initialized().await;
         self.config = config;
         Ok(())
@@ -357,24 +394,34 @@ impl NxrModel for NxrNexumModel {
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = NexumState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = NexumMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-NEXUM model not initialized".to_string()
+                "NXR-NEXUM model not initialized".to_string(),
             ));
         }
 
@@ -382,12 +429,14 @@ impl NxrModel for NxrNexumModel {
         safety.pre_inference_check(NxrModelId::Nexum, None).await?;
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-NEXUM only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-NEXUM only supports text input".to_string(),
+                ))
+            }
         };
 
         let result = self.orchestrate_agents(&input_text).await?;
@@ -397,9 +446,21 @@ impl NxrModel for NxrNexumModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -432,7 +493,7 @@ impl NxrModel for NxrNexumModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-NEXUM model not initialized".to_string()
+                "NXR-NEXUM model not initialized".to_string(),
             ));
         }
 
@@ -458,8 +519,13 @@ impl NxrModel for NxrNexumModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -473,15 +539,22 @@ impl NxrModel for NxrNexumModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 40.0,
             cpu_percent: 70.0,

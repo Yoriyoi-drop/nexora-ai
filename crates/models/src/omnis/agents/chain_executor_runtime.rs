@@ -8,7 +8,11 @@ impl ChainExecutorRuntimeAgent {
         Self
     }
 
-    pub async fn execute_chain(&self, decomposition: &str, meta_reasoning: &str) -> NxrModelResult<String> {
+    pub async fn execute_chain(
+        &self,
+        decomposition: &str,
+        meta_reasoning: &str,
+    ) -> NxrModelResult<String> {
         Ok(format!(
             "[CHAIN-EXECUTOR] Executed long chain reasoning:\n  \
              - Linked {} decomposition steps with meta-reasoning\n  \

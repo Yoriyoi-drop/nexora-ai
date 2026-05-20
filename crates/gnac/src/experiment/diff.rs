@@ -21,21 +21,40 @@ impl GraphDiff {
         let before_nodes: HashSet<_> = before.nodes.keys().collect();
         let after_nodes: HashSet<_> = after.nodes.keys().collect();
 
-        let added: Vec<_> = after_nodes.difference(&before_nodes)
-            .map(|id| after.get_node(id).map(|n| n.name.clone()).unwrap_or_default())
+        let added: Vec<_> = after_nodes
+            .difference(&before_nodes)
+            .map(|id| {
+                after
+                    .get_node(id)
+                    .map(|n| n.name.clone())
+                    .unwrap_or_default()
+            })
             .collect();
 
-        let removed: Vec<_> = before_nodes.difference(&after_nodes)
-            .map(|id| before.get_node(id).map(|n| n.name.clone()).unwrap_or_default())
+        let removed: Vec<_> = before_nodes
+            .difference(&after_nodes)
+            .map(|id| {
+                before
+                    .get_node(id)
+                    .map(|n| n.name.clone())
+                    .unwrap_or_default()
+            })
             .collect();
 
-        let modified: Vec<_> = before_nodes.intersection(&after_nodes)
+        let modified: Vec<_> = before_nodes
+            .intersection(&after_nodes)
             .filter(|id| {
                 let before_node = before.get_node(id);
                 let after_node = after.get_node(id);
-                before_node.map(|b| b.metadata.params_count) != after_node.map(|a| a.metadata.params_count)
+                before_node.map(|b| b.metadata.params_count)
+                    != after_node.map(|a| a.metadata.params_count)
             })
-            .map(|id| after.get_node(id).map(|n| n.name.clone()).unwrap_or_default())
+            .map(|id| {
+                after
+                    .get_node(id)
+                    .map(|n| n.name.clone())
+                    .unwrap_or_default()
+            })
             .collect();
 
         let param_change = after.total_params() as i64 - before.total_params() as i64;
@@ -43,7 +62,11 @@ impl GraphDiff {
 
         let summary = format!(
             "Diff: +{} nodes, -{} nodes, {} modified, params: {:+}, FLOPs: {:+}",
-            added.len(), removed.len(), modified.len(), param_change, flop_change
+            added.len(),
+            removed.len(),
+            modified.len(),
+            param_change,
+            flop_change
         );
 
         GraphDiff {

@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use nexora_inference::batching::{BatchCollector, BatchKey};
 use nexora_inference::kv_cache::KVCache;
-use nexora_inference::scheduler::RequestScheduler;
 use nexora_inference::sampler::{Sampler, SamplingConfig, SamplingMethod};
+use nexora_inference::scheduler::RequestScheduler;
 use nexora_inference::streaming::StreamingEngine;
 use nexora_inference::{GeneratedToken, InferenceRequest, InferenceResponse};
 
@@ -19,7 +19,9 @@ async fn test_kv_cache_sampler_pipeline() {
     cache.initialize().await.unwrap();
 
     let logits: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-    cache.insert(b"test_logits_1".to_vec(), logits.clone()).await;
+    cache
+        .insert(b"test_logits_1".to_vec(), logits.clone())
+        .await;
 
     let cached = cache.get(b"test_logits_1").await;
     assert!(cached.is_some());
@@ -83,14 +85,23 @@ async fn test_scheduler_batching_grouping() {
     let (tx2, _rx2) = mpsc::channel(16);
     let (tx3, _rx3) = mpsc::channel(16);
 
-    scheduler.submit_request(req1.request_id, tx1).await.unwrap();
+    scheduler
+        .submit_request(req1.request_id, tx1)
+        .await
+        .unwrap();
     let req2 = InferenceRequest::new("world".to_string())
         .with_model("model-a".to_string())
         .with_temperature(0.7)
         .with_top_k(40)
         .with_top_p(0.9);
-    scheduler.submit_request(req2.request_id, tx2).await.unwrap();
-    scheduler.submit_request(req3.request_id, tx3).await.unwrap();
+    scheduler
+        .submit_request(req2.request_id, tx2)
+        .await
+        .unwrap();
+    scheduler
+        .submit_request(req3.request_id, tx3)
+        .await
+        .unwrap();
 
     // Add to batch collector
     for r in &[&req1, &req2, &req3] {
@@ -196,8 +207,7 @@ async fn test_streaming_multiple_streams() {
 async fn test_batch_collector_timed_flush() {
     let mut collector = BatchCollector::new(10, 50);
 
-    let req = InferenceRequest::new("timeout-test".to_string())
-        .with_model("model-x".to_string());
+    let req = InferenceRequest::new("timeout-test".to_string()).with_model("model-x".to_string());
     let (tx, _rx) = mpsc::channel(16);
     collector.add_request(req, tx);
 
@@ -214,8 +224,7 @@ async fn test_batch_collector_max_size_flush() {
     let mut collector = BatchCollector::new(3, 5000);
 
     for i in 0..3 {
-        let req = InferenceRequest::new(format!("req-{}", i))
-            .with_model("batch-model".to_string());
+        let req = InferenceRequest::new(format!("req-{}", i)).with_model("batch-model".to_string());
         let (tx, _rx) = mpsc::channel(16);
         collector.add_request(req, tx);
     }
@@ -297,9 +306,7 @@ async fn test_cache_ttl_eviction_lifecycle() {
     let cache = KVCache::new().with_ttl(Duration::from_millis(50));
     cache.initialize().await.unwrap();
 
-    cache
-        .insert(b"ephemeral".to_vec(), vec![42.0])
-        .await;
+    cache.insert(b"ephemeral".to_vec(), vec![42.0]).await;
     assert!(cache.get(b"ephemeral").await.is_some());
 
     tokio::time::sleep(Duration::from_millis(60)).await;

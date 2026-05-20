@@ -1,5 +1,5 @@
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Compression {
@@ -72,7 +72,6 @@ impl Compression {
     fn compress_lz4(_data: &[u8]) -> Result<Vec<u8>, CompressionError> {
         Err(CompressionError::Unsupported("lz4".into()))
     }
-
 }
 
 impl fmt::Display for Compression {

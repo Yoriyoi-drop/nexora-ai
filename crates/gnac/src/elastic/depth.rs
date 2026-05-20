@@ -11,10 +11,11 @@ impl DepthController {
         let output_id = graph.get_output_nodes().first().map(|n| n.id);
 
         // Hapus node non-IO jika melebihi target depth
-        let to_remove: Vec<_> = order.iter()
+        let to_remove: Vec<_> = order
+            .iter()
             .filter(|id| {
-                let is_io = input_id.map_or(false, |i| i == **id) ||
-                           output_id.map_or(false, |o| o == **id);
+                let is_io =
+                    input_id.map_or(false, |i| i == **id) || output_id.map_or(false, |o| o == **id);
                 !is_io
             })
             .skip(target_depth)

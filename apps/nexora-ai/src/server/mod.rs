@@ -10,10 +10,10 @@ pub mod router;
 pub mod tls;
 
 pub use crate::config::server::ServerConfig;
-pub use tls::{load_rustls_pem_file, load_rustls_private_key};
 pub use handlers::*;
 pub use router::create_router;
 pub use tls::start_tls_server;
+pub use tls::{load_rustls_pem_file, load_rustls_private_key};
 
 pub struct NexoraServer {
     config: ServerConfig,
@@ -47,7 +47,8 @@ async fn shutdown_signal() {
     let terminate = async {
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("install signal handler")
-            .recv().await;
+            .recv()
+            .await;
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();

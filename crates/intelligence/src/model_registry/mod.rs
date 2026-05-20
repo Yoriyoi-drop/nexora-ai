@@ -1,14 +1,14 @@
 //! Model Registry
-//! 
+//!
 //! Centralized model registration and discovery system
 
 pub mod specialists;
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::Result;
-use serde::{Serialize, Deserialize};
 use tracing::{debug, info, warn};
 
 /// Model metadata for registration
@@ -29,10 +29,10 @@ pub struct ModelMetadata {
 /// Model framework types
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ModelFramework {
-    ATQS,      // Compression
-    CAFFEINE,  // Multimodal
-    SACA,       // Reasoning
-    SPARO,      // Alignment
+    ATQS,     // Compression
+    CAFFEINE, // Multimodal
+    SACA,     // Reasoning
+    SPARO,    // Alignment
     Custom(String),
 }
 
@@ -61,7 +61,7 @@ impl ModelRegistry {
             framework_index: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Register a new model
     pub async fn register_model(&self, metadata: ModelMetadata) -> Result<()> {
         // Acquire write lock directly to avoid TOCTOU race condition
@@ -72,29 +72,31 @@ impl ModelRegistry {
             }
             models.insert(metadata.id.clone(), metadata.clone());
         }
-        
+
         // Update framework index
         {
             let mut framework_index = self.framework_index.write().await;
-            let model_ids = framework_index.entry(metadata.framework.clone()).or_insert_with(Vec::new);
+            let model_ids = framework_index
+                .entry(metadata.framework.clone())
+                .or_insert_with(Vec::new);
             if !model_ids.contains(&metadata.id) {
                 model_ids.push(metadata.id.clone());
             }
         }
-        
+
         info!("Registered model: {} ({})", metadata.name, metadata.id);
         debug!("Model metadata: {:?}", metadata);
-        
+
         Ok(())
     }
-    
+
     /// Unregister a model
     pub async fn unregister_model(&self, model_id: &str) -> Result<bool> {
         let metadata = {
             let mut models = self.models.write().await;
             models.remove(model_id)
         };
-        
+
         if let Some(metadata) = metadata {
             // Update framework index
             {
@@ -106,7 +108,7 @@ impl ModelRegistry {
                     }
                 }
             }
-            
+
             info!("Unregistered model: {}", model_id);
             Ok(true)
         } else {
@@ -114,24 +116,24 @@ impl ModelRegistry {
             Ok(false)
         }
     }
-    
+
     /// Get model metadata by ID
     pub async fn get_model(&self, model_id: &str) -> Option<ModelMetadata> {
         let models = self.models.read().await;
         models.get(model_id).cloned()
     }
-    
+
     /// List all models
     pub async fn list_models(&self) -> Vec<ModelMetadata> {
         let models = self.models.read().await;
         models.values().cloned().collect()
     }
-    
+
     /// List models by framework
     pub async fn list_models_by_framework(&self, framework: &ModelFramework) -> Vec<ModelMetadata> {
         let models = self.models.read().await;
         let framework_index = self.framework_index.read().await;
-        
+
         if let Some(model_ids) = framework_index.get(framework) {
             model_ids
                 .iter()
@@ -141,7 +143,7 @@ impl ModelRegistry {
             Vec::new()
         }
     }
-    
+
     /// Search models by capability
     pub async fn search_by_capability(&self, capability: &str) -> Vec<ModelMetadata> {
         let models = self.models.read().await;
@@ -151,7 +153,7 @@ impl ModelRegistry {
             .cloned()
             .collect()
     }
-    
+
     /// Get models that can handle specific input format
     pub async fn get_models_for_format(&self, format: &str) -> Vec<ModelMetadata> {
         let models = self.models.read().await;
@@ -161,53 +163,50 @@ impl ModelRegistry {
             .cloned()
             .collect()
     }
-    
+
     /// Get registry statistics
     pub async fn get_statistics(&self) -> RegistryStatistics {
         let models = self.models.read().await;
         let framework_index = self.framework_index.read().await;
-        
+
         let mut framework_counts = HashMap::new();
         for (framework, model_ids) in framework_index.iter() {
             framework_counts.insert(framework.clone(), model_ids.len());
         }
-        
+
         RegistryStatistics {
             total_models: models.len(),
             framework_counts,
-            last_registration: models
-                .values()
-                .map(|m| m.registration_time)
-                .max(),
+            last_registration: models.values().map(|m| m.registration_time).max(),
         }
     }
-    
+
     /// Validate model metadata
     pub async fn validate_model(&self, metadata: &ModelMetadata) -> Result<()> {
         if metadata.id.is_empty() {
             return Err(anyhow::anyhow!("Model ID cannot be empty"));
         }
-        
+
         if metadata.name.is_empty() {
             return Err(anyhow::anyhow!("Model name cannot be empty"));
         }
-        
+
         if metadata.version.is_empty() {
             return Err(anyhow::anyhow!("Model version cannot be empty"));
         }
-        
+
         if metadata.max_input_length == 0 {
             return Err(anyhow::anyhow!("Max input length must be > 0"));
         }
-        
+
         if metadata.max_output_length == 0 {
             return Err(anyhow::anyhow!("Max output length must be > 0"));
         }
-        
+
         if metadata.resource_requirements.min_memory_mb == 0 {
             return Err(anyhow::anyhow!("Min memory must be > 0"));
         }
-        
+
         Ok(())
     }
 }

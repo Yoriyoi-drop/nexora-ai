@@ -39,12 +39,17 @@ impl Default for SamplingConfig {
 pub struct Sampler {
     config: SamplingConfig,
     rng: Option<rand::rngs::StdRng>,
+    use_gpu: bool,
 }
 
 impl Sampler {
     pub fn new(config: SamplingConfig) -> Self {
         let rng = config.seed.map(rand::rngs::StdRng::seed_from_u64);
-        Self { config, rng }
+        Self {
+            config,
+            rng,
+            use_gpu: false,
+        }
     }
 
     pub fn with_seed(config: SamplingConfig, seed: u64) -> Self {
@@ -53,7 +58,12 @@ impl Sampler {
         Self {
             rng: Some(rand::rngs::StdRng::seed_from_u64(seed)),
             config: cfg,
+            use_gpu: false,
         }
+    }
+
+    pub fn set_use_gpu(&mut self, use_gpu: bool) {
+        self.use_gpu = use_gpu;
     }
 
     pub fn reset_seed(&mut self, seed: u64) {
@@ -61,16 +71,59 @@ impl Sampler {
         self.config.seed = Some(seed);
     }
 
-    /// Sample a token index from logits.
+    #[cfg(feature = "gpu")]
+    fn sample_gpu_impl(&mut self, logits: &[f32]) -> Result<usize> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global()
+            .map_err(|e| InferenceError::DecodingError(format!("GpuContext::global: {}", e)))?;
+        let shape = vec![1, logits.len()];
+        let cpu = ndarray::ArrayD::from_shape_vec(shape, logits.to_vec())
+            .map_err(|e| InferenceError::DecodingError(format!("ndarray reshape: {}", e)))?;
+        let gpu = GpuTensor::from_cpu(&cpu)
+            .map_err(|e| InferenceError::DecodingError(format!("GpuTensor::from_cpu: {}", e)))?;
+        let top_k = if self.config.top_k > 0 {
+            self.config.top_k
+        } else {
+            0
+        };
+        let seed = self.config.seed.unwrap_or(42);
+        let out = ctx
+            .gpu_sample(&gpu, self.config.temperature, top_k as u32, seed)
+            .map_err(|e| InferenceError::DecodingError(format!("gpu_sample: {}", e)))?;
+        let raw = out.to_cpu_raw_bytes();
+        let token = u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]);
+        Ok(token as usize)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn sample_gpu(&mut self, logits: &[f32]) -> Result<usize> {
+        match self.sample_gpu_impl(logits) {
+            Ok(token) => Ok(token),
+            Err(e) => {
+                tracing::warn!(err = %e, "GPU sampling failed, falling back to CPU");
+                self.sample_cpu(logits)
+            }
+        }
+    }
+
+    /// Sample a token index from logits (CPU path).
     /// Pipeline: logits → temperature scaling → softmax → top-k filter → top-p filter → sample
     pub fn sample(&mut self, logits: &[f32]) -> Result<usize> {
-        tracing::trace!(len = logits.len(), method = ?self.config.method, "sampling from logits");
-
         if logits.is_empty() {
             return Err(InferenceError::DecodingError("Empty logits".to_string()));
         }
-
         self.validate_logits(logits)?;
+
+        #[cfg(feature = "gpu")]
+        if self.use_gpu {
+            return self.sample_gpu(logits);
+        }
+
+        self.sample_cpu(logits)
+    }
+
+    fn sample_cpu(&mut self, logits: &[f32]) -> Result<usize> {
+        tracing::trace!(len = logits.len(), method = ?self.config.method, "sampling from logits");
 
         let probs = match self.config.method {
             SamplingMethod::Greedy => return Ok(self.argmax(logits)),
@@ -259,10 +312,7 @@ pub fn apply_temperature(logits: &[f32], temperature: f32) -> Vec<f32> {
 }
 
 pub fn softmax(logits: &[f32]) -> Vec<f32> {
-    let max_val = logits
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max);
+    let max_val = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mut result = Vec::with_capacity(logits.len());
     let mut sum = 0.0;
     for &l in logits {
@@ -286,10 +336,7 @@ fn scaled_softmax(logits: &[f32], temperature: f32) -> Vec<f32> {
     if temperature <= 0.0 || (temperature - 1.0).abs() < f32::EPSILON {
         return softmax(logits);
     }
-    let max_val = logits
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max);
+    let max_val = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mut result = Vec::with_capacity(logits.len());
     let mut sum = 0.0;
     for &l in logits {
@@ -313,7 +360,9 @@ pub fn top_k_filter(probs: &[f32], k: usize) -> Vec<f32> {
         return probs.to_vec();
     }
     let mut indexed: Vec<(usize, f32)> = probs.iter().copied().enumerate().collect();
-    indexed.select_nth_unstable_by(k.saturating_sub(1), |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.select_nth_unstable_by(k.saturating_sub(1), |a, b| {
+        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let threshold = indexed[k.saturating_sub(1)].1;
     let mut filtered: Vec<f32> = probs
@@ -391,7 +440,6 @@ pub mod configs {
             ..Default::default()
         }
     }
-
 }
 
 #[cfg(test)]

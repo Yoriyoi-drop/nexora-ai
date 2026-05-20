@@ -1,5 +1,5 @@
-use crate::smart_tensor::SmartTensorMetadata;
 use crate::canvas::GradientStatus;
+use crate::smart_tensor::SmartTensorMetadata;
 
 /// Parameter visualisasi untuk SmartTensor
 #[derive(Debug, Clone)]
@@ -16,19 +16,19 @@ pub struct TensorVisualization {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CableColor {
-    Green,   // gradien stabil
-    Yellow,  // gradien mulai tidak stabil
-    Red,     // exploding/vanishing gradient
-    Blue,    // tensor frozen
-    Gray,    // tensor tidak aktif
+    Green,  // gradien stabil
+    Yellow, // gradien mulai tidak stabil
+    Red,    // exploding/vanishing gradient
+    Blue,   // tensor frozen
+    Gray,   // tensor tidak aktif
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AnimationPattern {
-    Solid,      // throughput rendah
-    Dashed,     // throughput sedang
-    Dotted,     // throughput tinggi
-    Pulsing,    // gradien tidak stabil
+    Solid,   // throughput rendah
+    Dashed,  // throughput sedang
+    Dotted,  // throughput tinggi
+    Pulsing, // gradien tidak stabil
 }
 
 impl TensorVisualization {
@@ -37,7 +37,11 @@ impl TensorVisualization {
 
         let cable_color = match meta.gradient {
             GradientStatus::Stable => {
-                if meta.is_frozen { CableColor::Blue } else { CableColor::Green }
+                if meta.is_frozen {
+                    CableColor::Blue
+                } else {
+                    CableColor::Green
+                }
             }
             GradientStatus::Exploding(_) => CableColor::Red,
             GradientStatus::Vanishing(_) => CableColor::Red,
@@ -45,7 +49,9 @@ impl TensorVisualization {
         };
 
         let animation_pattern = match meta.gradient {
-            GradientStatus::Exploding(_) | GradientStatus::Vanishing(_) => AnimationPattern::Pulsing,
+            GradientStatus::Exploding(_) | GradientStatus::Vanishing(_) => {
+                AnimationPattern::Pulsing
+            }
             GradientStatus::Saturated => AnimationPattern::Dashed,
             _ => {
                 if meta.bandwidth_estimate > 5000.0 {

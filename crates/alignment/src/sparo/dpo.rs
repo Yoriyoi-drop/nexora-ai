@@ -1,5 +1,5 @@
 //! Direct Preference Optimization (DPO) Implementation
-//! 
+//!
 //! DPO menghilangkan reward model terpisah dan mengubah pelatihan preferensi
 //! menjadi klasifikasi biner langsung.
 
@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::core::{PolicyModel, ReasoningTrace, JudgeFeedback, FeedbackType};
+use super::core::{FeedbackType, JudgeFeedback, PolicyModel, ReasoningTrace};
 
 /// Konfigurasi DPO
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,56 +52,56 @@ impl DpoLossCalculator {
     pub fn new(config: DpoConfig) -> Self {
         Self { config }
     }
-    
+
     /// Hitung DPO loss untuk satu preferensi pair
     pub fn calculate_loss(&self, pair: &PreferencePair) -> Result<f32> {
         let pi_lograt = pair.chosen_logprob - pair.rejected_logprob;
         let ref_lograt = pair.reference_chosen_logprob - pair.reference_rejected_logprob;
-        
+
         let ratio = pi_lograt - ref_lograt;
         let sigmoid_input = self.config.beta * ratio;
-        
+
         // DPO loss: L = -log(σ(β * ratio)) = softplus(-β * ratio)
         let loss = (1.0 + (-sigmoid_input).exp()).ln();
-        
+
         // Add regularization
         let regularization = self.config.regularization_strength * (pi_lograt * pi_lograt);
-        
+
         Ok(loss + regularization)
     }
-    
+
     /// Hitung gradient untuk DPO loss
     pub fn calculate_gradient(&self, pair: &PreferencePair) -> Result<(f32, f32)> {
         let pi_lograt = pair.chosen_logprob - pair.rejected_logprob;
         let ref_lograt = pair.reference_chosen_logprob - pair.reference_rejected_logprob;
-        
+
         let ratio = pi_lograt - ref_lograt;
         let sigmoid_input = self.config.beta * ratio;
         let sigmoid_input_clamped = sigmoid_input.clamp(-20.0, 20.0);
         let sigmoid = 1.0 / (1.0 + (-sigmoid_input_clamped).exp());
-        
+
         // Gradient of DPO loss: ∂L/∂ratio = -β * (1 - σ(β*ratio))
         // ratio = chosen_logprob - rejected_logprob, so derivatives w.r.t. each logprob differ by sign
         let grad_chosen = -self.config.beta * (1.0 - sigmoid);
         let grad_rejected = self.config.beta * (1.0 - sigmoid);
-        
+
         // Add regularization gradient
         let reg_grad = 2.0 * self.config.regularization_strength;
-        
+
         Ok((grad_chosen + reg_grad, grad_rejected + reg_grad))
     }
-    
+
     /// Batch loss calculation
     pub fn calculate_batch_loss(&self, pairs: &[PreferencePair]) -> Result<f32> {
         if pairs.is_empty() {
             return Ok(0.0);
         }
-        
+
         let total_loss: f32 = pairs
             .iter()
             .map(|pair| self.calculate_loss(pair).unwrap_or(0.0))
             .sum();
-            
+
         Ok(total_loss / pairs.len() as f32)
     }
 }
@@ -126,7 +126,7 @@ impl DpoTrainer {
     pub fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
     }
-    
+
     /// Extract preference pairs dari feedback
     pub fn extract_preference_pairs(
         &self,
@@ -134,46 +134,61 @@ impl DpoTrainer {
         feedback: &[JudgeFeedback],
     ) -> Result<Vec<PreferencePair>> {
         let mut pairs = Vec::new();
-        
+
         for fb in feedback {
-            if let FeedbackType::Pairwise { preferred, rejected, confidence: _ } = &fb.feedback_type {
+            if let FeedbackType::Pairwise {
+                preferred,
+                rejected,
+                confidence: _,
+            } = &fb.feedback_type
+            {
                 // Cari traces yang mengandung preferred dan rejected steps
-                if let (Some(pref_trace), Some(rej_trace)) = self.find_traces_for_steps(traces, preferred, rejected) {
+                if let (Some(pref_trace), Some(rej_trace)) =
+                    self.find_traces_for_steps(traces, preferred, rejected)
+                {
                     let pair = PreferencePair {
                         id: Uuid::new_v4(),
                         prompt: pref_trace.prompt.clone(),
                         chosen: self.extract_step_content(&pref_trace, preferred)?,
                         rejected: self.extract_step_content(&rej_trace, rejected)?,
-                        chosen_logprob: self.model.log_probability(&pref_trace.prompt, 
-                            &self.extract_step_content(&pref_trace, preferred)?)?,
-                        rejected_logprob: self.model.log_probability(&rej_trace.prompt,
-                            &self.extract_step_content(&rej_trace, rejected)?)?,
-                        reference_chosen_logprob: self.model.reference_log_probability(&pref_trace.prompt,
-                            &self.extract_step_content(&pref_trace, preferred)?)?,
-                        reference_rejected_logprob: self.model.reference_log_probability(&rej_trace.prompt,
-                            &self.extract_step_content(&rej_trace, rejected)?)?,
+                        chosen_logprob: self.model.log_probability(
+                            &pref_trace.prompt,
+                            &self.extract_step_content(&pref_trace, preferred)?,
+                        )?,
+                        rejected_logprob: self.model.log_probability(
+                            &rej_trace.prompt,
+                            &self.extract_step_content(&rej_trace, rejected)?,
+                        )?,
+                        reference_chosen_logprob: self.model.reference_log_probability(
+                            &pref_trace.prompt,
+                            &self.extract_step_content(&pref_trace, preferred)?,
+                        )?,
+                        reference_rejected_logprob: self.model.reference_log_probability(
+                            &rej_trace.prompt,
+                            &self.extract_step_content(&rej_trace, rejected)?,
+                        )?,
                     };
                     pairs.push(pair);
                 }
             }
         }
-        
+
         Ok(pairs)
     }
-    
+
     /// Training step untuk DPO
     pub fn training_step(&mut self, pairs: &[PreferencePair]) -> Result<f32> {
         let loss = self.loss_calculator.calculate_batch_loss(pairs)?;
-        
+
         // Update model parameters using real gradient descent
         for pair in pairs {
             let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
             self.update_model_parameters(grad_chosen, grad_rejected, pair)?;
         }
-        
+
         Ok(loss)
     }
-    
+
     // Helper methods
     fn find_traces_for_steps<'a>(
         &self,
@@ -181,44 +196,62 @@ impl DpoTrainer {
         preferred_id: &Uuid,
         rejected_id: &Uuid,
     ) -> (Option<&'a ReasoningTrace>, Option<&'a ReasoningTrace>) {
-        let pref_trace = traces.iter().find(|t| 
-            t.steps.iter().any(|s| s.id == *preferred_id));
-        let rej_trace = traces.iter().find(|t| 
-            t.steps.iter().any(|s| s.id == *rejected_id));
+        let pref_trace = traces
+            .iter()
+            .find(|t| t.steps.iter().any(|s| s.id == *preferred_id));
+        let rej_trace = traces
+            .iter()
+            .find(|t| t.steps.iter().any(|s| s.id == *rejected_id));
         (pref_trace, rej_trace)
     }
-    
+
     fn extract_step_content(&self, trace: &ReasoningTrace, step_id: &Uuid) -> Result<String> {
-        trace.steps
+        trace
+            .steps
             .iter()
             .find(|s| s.id == *step_id)
             .map(|s| s.content.clone())
             .ok_or_else(|| anyhow::anyhow!("Step not found in trace"))
     }
-    
-    fn update_model_parameters(&mut self, grad_chosen: f32, grad_rejected: f32, pair: &PreferencePair) -> Result<()> {
+
+    fn update_model_parameters(
+        &mut self,
+        grad_chosen: f32,
+        grad_rejected: f32,
+        pair: &PreferencePair,
+    ) -> Result<()> {
         // Real gradient descent: increase log-prob of chosen, decrease of rejected
         // d_loss/d_w = grad_chosen * d(log_prob_chosen)/dw + grad_rejected * d(log_prob_rejected)/dw
-        self.model.apply_gradient(&pair.prompt, &pair.chosen, grad_chosen, self.learning_rate)?;
-        self.model.apply_gradient(&pair.prompt, &pair.rejected, grad_rejected, self.learning_rate)?;
+        self.model
+            .apply_gradient(&pair.prompt, &pair.chosen, grad_chosen, self.learning_rate)?;
+        self.model.apply_gradient(
+            &pair.prompt,
+            &pair.rejected,
+            grad_rejected,
+            self.learning_rate,
+        )?;
         Ok(())
     }
 }
 
-
 /// Utility functions
 pub mod utils {
     use super::*;
-    
+
     /// Convert feedback ke preference pairs
     pub fn feedback_to_pairs(
         _traces: &[ReasoningTrace],
         feedback: &[JudgeFeedback],
     ) -> Result<Vec<PreferencePair>> {
         let mut pairs = Vec::new();
-        
+
         for fb in feedback {
-            if let FeedbackType::Pairwise { preferred: _, rejected: _, confidence: _ } = &fb.feedback_type {
+            if let FeedbackType::Pairwise {
+                preferred: _,
+                rejected: _,
+                confidence: _,
+            } = &fb.feedback_type
+            {
                 // Implementation similar to DpoTrainer::extract_preference_pairs
                 // This is a simplified version
                 let pair = PreferencePair {
@@ -234,10 +267,10 @@ pub mod utils {
                 pairs.push(pair);
             }
         }
-        
+
         Ok(pairs)
     }
-    
+
     /// Validate preference pairs
     pub fn validate_pairs(pairs: &[PreferencePair]) -> Result<()> {
         for pair in pairs {

@@ -1,38 +1,66 @@
 //! Lifecycle Manager
-//! 
+//!
 //! Mengelola startup, shutdown, dan restart agent.
 
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
-use tracing::{info, debug, warn};
-use chrono::{DateTime, Utc};
 
-use crate::{AgentError, Result, AgentStatus};
 use crate::agent_manager::AgentManagerConfig;
+use crate::{AgentError, AgentStatus, Result};
 
 /// Event lifecycle agent
 #[derive(Debug, Clone)]
 pub enum AgentLifecycleEvent {
     /// Agent mulai diinisialisasi
-    Initializing { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Initializing {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent siap
-    Ready { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Ready {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent mulai memproses
-    Processing { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Processing {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent selesai memproses
-    ProcessingComplete { agent_id: Uuid, timestamp: DateTime<Utc> },
+    ProcessingComplete {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent di-pause
-    Paused { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Paused {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent resume
-    Resumed { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Resumed {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent error
-    Error { agent_id: Uuid, error: String, timestamp: DateTime<Utc> },
+    Error {
+        agent_id: Uuid,
+        error: String,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent shutdown
-    Shutdown { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Shutdown {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     /// Agent restart
-    Restarted { agent_id: Uuid, timestamp: DateTime<Utc> },
+    Restarted {
+        agent_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 /// Status detail untuk lifecycle tracking
@@ -72,7 +100,7 @@ impl LifecycleManager {
     /// Create new lifecycle manager
     pub fn new(config: AgentManagerConfig) -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        
+
         Self {
             agent_status: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
@@ -81,18 +109,18 @@ impl LifecycleManager {
             config,
         }
     }
-    
+
     /// Emit lifecycle event
     fn emit_event(&self, event: AgentLifecycleEvent) {
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
     }
-    
+
     /// Start agent lifecycle
     pub async fn start_agent(&self, agent_id: Uuid) -> Result<()> {
         info!("Starting lifecycle for agent: {}", agent_id);
-        
+
         let now = Utc::now();
         let status = AgentLifecycleStatus {
             agent_id,
@@ -103,31 +131,34 @@ impl LifecycleManager {
             total_processing_time_ms: 0,
             last_error: None,
         };
-        
+
         // Update status
         {
             let mut agent_status = self.agent_status.write().await;
             agent_status.insert(agent_id, status);
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Initializing { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Initializing {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         // Transition to ready
         self.transition_to_ready(agent_id).await?;
-        
+
         Ok(())
     }
-    
+
     /// Stop agent lifecycle
     pub async fn stop_agent(&self, agent_id: Uuid) -> Result<()> {
         info!("Stopping lifecycle for agent: {}", agent_id);
-        
+
         let now = Utc::now();
-        
+
         // Update status to shutting down
         {
             let mut agent_status = self.agent_status.write().await;
@@ -136,13 +167,16 @@ impl LifecycleManager {
                 status.last_updated = now;
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Shutdown { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Shutdown {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         // Final status update
         {
             let mut agent_status = self.agent_status.write().await;
@@ -151,29 +185,29 @@ impl LifecycleManager {
                 status.last_updated = now;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Restart agent
     pub async fn restart_agent(&self, agent_id: Uuid) -> Result<()> {
         info!("Restarting agent: {}", agent_id);
-        
+
         let now = Utc::now();
-        
+
         // Check restart limit
         {
             let agent_status = self.agent_status.read().await;
             if let Some(status) = agent_status.get(&agent_id) {
                 if status.restart_count >= self.config.max_restart_attempts {
-                    return Err(AgentError::LifecycleError(
-                        format!("Agent {} exceeded maximum restart attempts ({})", 
-                                agent_id, self.config.max_restart_attempts)
-                    ));
+                    return Err(AgentError::LifecycleError(format!(
+                        "Agent {} exceeded maximum restart attempts ({})",
+                        agent_id, self.config.max_restart_attempts
+                    )));
                 }
             }
         }
-        
+
         // Update restart count
         {
             let mut agent_status = self.agent_status.write().await;
@@ -182,23 +216,26 @@ impl LifecycleManager {
                 status.last_error = None; // Clear error on restart
             }
         }
-        
+
         // Emit restart event
-        let event = AgentLifecycleEvent::Restarted { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Restarted {
+            agent_id,
+            timestamp: now,
+        };
         self.emit_event(event);
-        
+
         // Restart lifecycle
         self.start_agent(agent_id).await?;
-        
+
         Ok(())
     }
-    
+
     /// Pause agent
     pub async fn pause_agent(&self, agent_id: Uuid) -> Result<()> {
         info!("Pausing agent: {}", agent_id);
-        
+
         let now = Utc::now();
-        
+
         // Update status
         {
             let mut agent_status = self.agent_status.write().await;
@@ -207,22 +244,25 @@ impl LifecycleManager {
                 status.last_updated = now;
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Paused { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Paused {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         Ok(())
     }
-    
+
     /// Resume agent
     pub async fn resume_agent(&self, agent_id: Uuid) -> Result<()> {
         info!("Resuming agent: {}", agent_id);
-        
+
         let now = Utc::now();
-        
+
         // Update status to ready
         {
             let mut agent_status = self.agent_status.write().await;
@@ -231,20 +271,23 @@ impl LifecycleManager {
                 status.last_updated = now;
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Resumed { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Resumed {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         Ok(())
     }
-    
+
     /// Mark agent as processing
     pub async fn mark_processing(&self, agent_id: Uuid) -> Result<()> {
         let now = Utc::now();
-        
+
         // Update status
         {
             let mut agent_status = self.agent_status.write().await;
@@ -253,20 +296,27 @@ impl LifecycleManager {
                 status.last_updated = now;
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Processing { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Processing {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         Ok(())
     }
-    
+
     /// Mark agent processing complete
-    pub async fn mark_processing_complete(&self, agent_id: Uuid, processing_time_ms: u64) -> Result<()> {
+    pub async fn mark_processing_complete(
+        &self,
+        agent_id: Uuid,
+        processing_time_ms: u64,
+    ) -> Result<()> {
         let now = Utc::now();
-        
+
         // Update status
         {
             let mut agent_status = self.agent_status.write().await;
@@ -276,20 +326,23 @@ impl LifecycleManager {
                 status.total_processing_time_ms += processing_time_ms;
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::ProcessingComplete { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::ProcessingComplete {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         Ok(())
     }
-    
+
     /// Mark agent as error
     pub async fn mark_error(&self, agent_id: Uuid, error: String) -> Result<()> {
         let now = Utc::now();
-        
+
         // Update status
         {
             let mut agent_status = self.agent_status.write().await;
@@ -299,81 +352,88 @@ impl LifecycleManager {
                 status.last_error = Some(error.clone());
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Error { agent_id, error: error.clone(), timestamp: now };
+        let event = AgentLifecycleEvent::Error {
+            agent_id,
+            error: error.clone(),
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         Ok(())
     }
-    
+
     /// Get agent lifecycle status
     pub async fn get_agent_status(&self, agent_id: Uuid) -> Result<Option<AgentLifecycleStatus>> {
         let agent_status = self.agent_status.read().await;
         Ok(agent_status.get(&agent_id).cloned())
     }
-    
+
     /// Get all agent statuses
     pub async fn get_all_agent_statuses(&self) -> HashMap<Uuid, AgentLifecycleStatus> {
         let agent_status = self.agent_status.read().await;
         agent_status.clone()
     }
-    
+
     /// Get agents by status
     pub async fn get_agents_by_status(&self, target_status: AgentStatus) -> Vec<Uuid> {
         let agent_status = self.agent_status.read().await;
-        agent_status.iter()
+        agent_status
+            .iter()
             .filter(|(_, status)| status.status == target_status)
             .map(|(agent_id, _)| *agent_id)
             .collect()
     }
-    
+
     /// Get event subscriber
-    pub async fn get_event_subscriber(&self) -> Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>> {
+    pub async fn get_event_subscriber(
+        &self,
+    ) -> Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>> {
         // Implement proper subscription mechanism
         let (tx, rx) = mpsc::unbounded_channel();
-        
+
         // Add subscriber to the list
         let mut subscribers = self.event_subscribers.lock().await;
         subscribers.push(tx);
-        
+
         Some(rx)
     }
-    
+
     /// Cleanup old agent statuses
     pub async fn cleanup_old_statuses(&self, max_age_hours: u64) -> Result<usize> {
         let now = Utc::now();
         let mut removed_count = 0;
-        
+
         {
             let mut agent_status = self.agent_status.write().await;
             agent_status.retain(|agent_id, status| {
                 let age_hours = (now - status.last_updated).num_hours() as u64;
-                let should_keep = age_hours <= max_age_hours || 
-                                matches!(status.status, AgentStatus::Ready | AgentStatus::Processing);
-                
+                let should_keep = age_hours <= max_age_hours
+                    || matches!(status.status, AgentStatus::Ready | AgentStatus::Processing);
+
                 if !should_keep {
                     debug!("Cleaning up old status for agent: {}", agent_id);
                     removed_count += 1;
                 }
-                
+
                 should_keep
             });
         }
-        
+
         Ok(removed_count)
     }
-    
+
     /// Get lifecycle statistics
     pub async fn get_lifecycle_stats(&self) -> LifecycleStats {
         let agent_status = self.agent_status.read().await;
         let mut stats = LifecycleStats::default();
-        
+
         for status in agent_status.values() {
             stats.total_agents += 1;
-            
+
             match status.status {
                 AgentStatus::Ready => stats.ready_agents += 1,
                 AgentStatus::Processing => stats.processing_agents += 1,
@@ -383,18 +443,18 @@ impl LifecycleManager {
                 AgentStatus::ShuttingDown => stats.shutting_down_agents += 1,
                 AgentStatus::Initializing => stats.initializing_agents += 1,
             }
-            
+
             stats.total_processing_time_ms += status.total_processing_time_ms;
             stats.total_restarts += status.restart_count;
         }
-        
+
         stats
     }
-    
+
     /// Transition agent to ready state
     async fn transition_to_ready(&self, agent_id: Uuid) -> Result<()> {
         let now = Utc::now();
-        
+
         // Update status
         {
             let mut agent_status = self.agent_status.write().await;
@@ -403,13 +463,16 @@ impl LifecycleManager {
                 status.last_updated = now;
             }
         }
-        
+
         // Emit event
-        let event = AgentLifecycleEvent::Ready { agent_id, timestamp: now };
+        let event = AgentLifecycleEvent::Ready {
+            agent_id,
+            timestamp: now,
+        };
         if self.event_tx.send(event).is_err() {
             warn!("Lifecycle event receiver dropped");
         }
-        
+
         Ok(())
     }
 }

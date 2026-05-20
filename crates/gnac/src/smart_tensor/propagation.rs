@@ -1,6 +1,6 @@
-use crate::DLResult;
-use crate::smart_tensor::ShapePropEntry;
 use crate::canvas::GraphNode;
+use crate::smart_tensor::ShapePropEntry;
+use crate::DLResult;
 use crate::NodeType;
 use std::collections::HashMap;
 
@@ -18,7 +18,11 @@ impl ShapePropagator {
     }
 
     /// Propagasi shape dari input ke output untuk node tertentu
-    pub fn propagate(&mut self, node: &GraphNode, input_shapes: &[Vec<usize>]) -> DLResult<Vec<Vec<usize>>> {
+    pub fn propagate(
+        &mut self,
+        node: &GraphNode,
+        input_shapes: &[Vec<usize>],
+    ) -> DLResult<Vec<Vec<usize>>> {
         let cache_key = format!("{:?}:{:?}", node.node_type, input_shapes);
         if let Some(cached) = self.cache.get(&cache_key) {
             if cached.compatible {
@@ -49,7 +53,11 @@ impl ShapePropagator {
         result
     }
 
-    fn compute_output_shape(&self, node_type: &NodeType, inputs: &[Vec<usize>]) -> DLResult<Vec<Vec<usize>>> {
+    fn compute_output_shape(
+        &self,
+        node_type: &NodeType,
+        inputs: &[Vec<usize>],
+    ) -> DLResult<Vec<Vec<usize>>> {
         match node_type {
             NodeType::Linear => {
                 let input = &inputs[0];
@@ -72,14 +80,17 @@ impl ShapePropagator {
                 if input.len() != 3 {
                     return Err(crate::DeepLearningError::InvalidDimension { dim: input.len() });
                 }
-                Ok(vec![vec![input[0], input[1], input[2]], vec![input[0], 12, input[1], input[1]]])
+                Ok(vec![
+                    vec![input[0], input[1], input[2]],
+                    vec![input[0], 12, input[1], input[1]],
+                ])
             }
-            NodeType::LayerNorm | NodeType::RMSNorm => {
-                Ok(vec![inputs[0].clone()])
-            }
-            NodeType::ReLU | NodeType::GELU | NodeType::Sigmoid | NodeType::Tanh | NodeType::Dropout => {
-                Ok(vec![inputs[0].clone()])
-            }
+            NodeType::LayerNorm | NodeType::RMSNorm => Ok(vec![inputs[0].clone()]),
+            NodeType::ReLU
+            | NodeType::GELU
+            | NodeType::Sigmoid
+            | NodeType::Tanh
+            | NodeType::Dropout => Ok(vec![inputs[0].clone()]),
             NodeType::MaxPool | NodeType::AvgPool => {
                 let input = &inputs[0];
                 if input.len() == 4 {
@@ -113,7 +124,11 @@ impl ShapePropagator {
     }
 
     /// Validasi kompatibilitas antara dua tensor
-    pub fn validate_connection(&self, source_shape: &[usize], target_shape: &[usize]) -> DLResult<()> {
+    pub fn validate_connection(
+        &self,
+        source_shape: &[usize],
+        target_shape: &[usize],
+    ) -> DLResult<()> {
         if source_shape == target_shape {
             return Ok(());
         }
@@ -123,7 +138,11 @@ impl ShapePropagator {
                 .take(target_shape.len() - source_shape.len())
                 .chain(source_shape.iter().cloned())
                 .collect();
-            if padded.iter().zip(target_shape.iter()).all(|(a, b)| *a == *b || *a == 1 || *b == 1) {
+            if padded
+                .iter()
+                .zip(target_shape.iter())
+                .all(|(a, b)| *a == *b || *a == 1 || *b == 1)
+            {
                 return Ok(());
             }
         }

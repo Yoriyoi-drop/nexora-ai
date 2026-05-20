@@ -1,10 +1,10 @@
 //! Hybrid Algorithm Generator
-//! 
+//!
 //! Generates hybrid implementations that combine multiple strategies adaptively
 //! based on input characteristics.
 
 use super::{AlgorithmGenerator, AlgorithmType};
-use crate::saca::{types::*, error::*};
+use crate::saca::{error::*, types::*};
 use uuid::Uuid;
 
 /// Hybrid algorithm generator
@@ -219,9 +219,10 @@ impl AlgorithmGenerator for HybridAlgorithmGenerator {
             fn optimize_patterns(mut result: Vec<OutputType>) -> Vec<OutputType> {{ result }}\n\
             fn default_optimization(mut result: Vec<OutputType>) -> Vec<OutputType> {{ result }}\n\
             \n",
-            module.name, module.name.to_lowercase()
+            module.name,
+            module.name.to_lowercase()
         );
-        
+
         Ok(SamplingCandidate {
             id: Uuid::new_v4(),
             module_id: module.id.clone(),

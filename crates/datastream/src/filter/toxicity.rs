@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct ToxicityFilter {
@@ -15,10 +15,14 @@ impl Default for ToxicityFilter {
         Self {
             threshold: 0.80,
             blocklist: vec![
-                Regex::new(r"(?i)\b(nigg[ae]r|fag+ot|retard|cunt|whore|slut|bitch)\b").expect("valid regex pattern"),
-                Regex::new(r"(?i)\b(kill\s+(yourself|everyone|them)|rape|torture)\b").expect("valid regex pattern"),
-                Regex::new(r"(?i)\b(gore|cp\b|child\s*porn|bestiality)\b").expect("valid regex pattern"),
-                Regex::new(r"(?i)\b(hitler|nazi|white\s*supremac|kkk)\b").expect("valid regex pattern"),
+                Regex::new(r"(?i)\b(nigg[ae]r|fag+ot|retard|cunt|whore|slut|bitch)\b")
+                    .expect("valid regex pattern"),
+                Regex::new(r"(?i)\b(kill\s+(yourself|everyone|them)|rape|torture)\b")
+                    .expect("valid regex pattern"),
+                Regex::new(r"(?i)\b(gore|cp\b|child\s*porn|bestiality)\b")
+                    .expect("valid regex pattern"),
+                Regex::new(r"(?i)\b(hitler|nazi|white\s*supremac|kkk)\b")
+                    .expect("valid regex pattern"),
             ],
         }
     }
@@ -26,7 +30,10 @@ impl Default for ToxicityFilter {
 
 impl ToxicityFilter {
     pub fn new(threshold: f64) -> Self {
-        Self { threshold, ..Default::default() }
+        Self {
+            threshold,
+            ..Default::default()
+        }
     }
 
     fn score_toxicity(&self, text: &str) -> (f64, Option<String>) {

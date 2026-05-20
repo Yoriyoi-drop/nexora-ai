@@ -1,9 +1,9 @@
 //! ERP Utilities dan Helper Functions
-//! 
+//!
 //! Utility functions untuk ERP operations termasuk validation,
 //! benchmarking, dan performance monitoring.
 
-use crate::{ERPConfig, ERPError, CompressedLayer};
+use crate::{CompressedLayer, ERPConfig, ERPError};
 use ndarray::{Array1, Array2};
 use rand::Rng;
 use std::collections::HashMap;
@@ -30,35 +30,60 @@ impl ERPValidator {
     }
 
     /// Validate compressed model
-    pub fn validate_compressed_model(&self, original_weights: &[Array2<f32>], compressed_layers: &[CompressedLayer]) -> Result<ValidationReport, ERPError> {
+    pub fn validate_compressed_model(
+        &self,
+        original_weights: &[Array2<f32>],
+        compressed_layers: &[CompressedLayer],
+    ) -> Result<ValidationReport, ERPError> {
         let mut validation_report = ValidationReport::new();
 
         // Check dimension consistency
         self.validate_dimensions(original_weights, compressed_layers, &mut validation_report)?;
-        
+
         // Check numerical stability
         self.validate_numerical_stability(compressed_layers, &mut validation_report)?;
-        
+
         // Check reconstruction accuracy
-        self.validate_reconstruction_accuracy(original_weights, compressed_layers, &mut validation_report)?;
-        
+        self.validate_reconstruction_accuracy(
+            original_weights,
+            compressed_layers,
+            &mut validation_report,
+        )?;
+
         // Check memory efficiency
-        self.validate_memory_efficiency(original_weights, compressed_layers, &mut validation_report)?;
+        self.validate_memory_efficiency(
+            original_weights,
+            compressed_layers,
+            &mut validation_report,
+        )?;
 
         Ok(validation_report)
     }
 
     /// Validate dimension consistency
-    fn validate_dimensions(&self, original_weights: &[Array2<f32>], compressed_layers: &[CompressedLayer], report: &mut ValidationReport) -> Result<(), ERPError> {
+    fn validate_dimensions(
+        &self,
+        original_weights: &[Array2<f32>],
+        compressed_layers: &[CompressedLayer],
+        report: &mut ValidationReport,
+    ) -> Result<(), ERPError> {
         if original_weights.len() != compressed_layers.len() {
             report.add_error("Layer count mismatch between original and compressed models");
             return Err(ERPError::ConfigError("Layer count mismatch".to_string()));
         }
 
-        for (i, (original, compressed)) in original_weights.iter().zip(compressed_layers.iter()).enumerate() {
+        for (i, (original, compressed)) in original_weights
+            .iter()
+            .zip(compressed_layers.iter())
+            .enumerate()
+        {
             if original.dim() != compressed.compressed_weights.dim() {
-                report.add_error(&format!("Dimension mismatch in layer {}: original {:?} vs compressed {:?}", 
-                    i, original.dim(), compressed.compressed_weights.dim()));
+                report.add_error(&format!(
+                    "Dimension mismatch in layer {}: original {:?} vs compressed {:?}",
+                    i,
+                    original.dim(),
+                    compressed.compressed_weights.dim()
+                ));
             }
         }
 
@@ -66,19 +91,33 @@ impl ERPValidator {
     }
 
     /// Validate numerical stability
-    fn validate_numerical_stability(&self, layers: &[CompressedLayer], report: &mut ValidationReport) -> Result<(), ERPError> {
+    fn validate_numerical_stability(
+        &self,
+        layers: &[CompressedLayer],
+        report: &mut ValidationReport,
+    ) -> Result<(), ERPError> {
         for (i, layer) in layers.iter().enumerate() {
             // Check untuk NaN dan infinite values
             for (j, &value) in layer.compressed_weights.iter().enumerate() {
                 if !value.is_finite() {
-                    report.add_warning(&format!("Non-finite value in layer {} at position {}: {}", i, j, value));
+                    report.add_warning(&format!(
+                        "Non-finite value in layer {} at position {}: {}",
+                        i, j, value
+                    ));
                 }
             }
 
             // Check untuk exploding weights
-            let max_weight = layer.compressed_weights.iter().map(|&x| x.abs()).fold(0.0, f32::max);
+            let max_weight = layer
+                .compressed_weights
+                .iter()
+                .map(|&x| x.abs())
+                .fold(0.0, f32::max);
             if max_weight > 1000.0 {
-                report.add_warning(&format!("Large weights detected in layer {}: max = {}", i, max_weight));
+                report.add_warning(&format!(
+                    "Large weights detected in layer {}: max = {}",
+                    i, max_weight
+                ));
             }
         }
 
@@ -86,7 +125,12 @@ impl ERPValidator {
     }
 
     /// Validate reconstruction accuracy
-    fn validate_reconstruction_accuracy(&self, original_weights: &[Array2<f32>], compressed_layers: &[CompressedLayer], report: &mut ValidationReport) -> Result<(), ERPError> {
+    fn validate_reconstruction_accuracy(
+        &self,
+        original_weights: &[Array2<f32>],
+        compressed_layers: &[CompressedLayer],
+        report: &mut ValidationReport,
+    ) -> Result<(), ERPError> {
         let mut total_mse = 0.0;
         let mut total_params = 0;
 
@@ -97,27 +141,44 @@ impl ERPValidator {
         }
 
         let avg_mse = total_mse / total_params as f32;
-        
+
         if avg_mse > 0.1 {
             report.add_warning(&format!("High reconstruction error: MSE = {:.6}", avg_mse));
         } else {
-            report.add_info(&format!("Good reconstruction accuracy: MSE = {:.6}", avg_mse));
+            report.add_info(&format!(
+                "Good reconstruction accuracy: MSE = {:.6}",
+                avg_mse
+            ));
         }
 
         Ok(())
     }
 
     /// Validate memory efficiency
-    fn validate_memory_efficiency(&self, original_weights: &[Array2<f32>], compressed_layers: &[CompressedLayer], report: &mut ValidationReport) -> Result<(), ERPError> {
+    fn validate_memory_efficiency(
+        &self,
+        original_weights: &[Array2<f32>],
+        compressed_layers: &[CompressedLayer],
+        report: &mut ValidationReport,
+    ) -> Result<(), ERPError> {
         let original_memory: usize = original_weights.iter().map(|w| w.len()).sum();
-        let compressed_memory: usize = compressed_layers.iter().map(|l| l.compressed_weights.len()).sum();
-        
+        let compressed_memory: usize = compressed_layers
+            .iter()
+            .map(|l| l.compressed_weights.len())
+            .sum();
+
         let compression_ratio = 1.0 - (compressed_memory as f32 / original_memory as f32);
-        
+
         if compression_ratio < 0.2 {
-            report.add_warning(&format!("Low compression efficiency: {:.1}%", compression_ratio * 100.0));
+            report.add_warning(&format!(
+                "Low compression efficiency: {:.1}%",
+                compression_ratio * 100.0
+            ));
         } else {
-            report.add_info(&format!("Good compression efficiency: {:.1}%", compression_ratio * 100.0));
+            report.add_info(&format!(
+                "Good compression efficiency: {:.1}%",
+                compression_ratio * 100.0
+            ));
         }
 
         Ok(())
@@ -157,15 +218,18 @@ impl ERPMonitor {
 
     /// Record metric value
     pub fn record_metric(&mut self, name: &str, value: f32, unit: &str) {
-        let data = self.metrics.entry(name.to_string()).or_insert_with(|| MetricData {
-            values: Vec::new(),
-            timestamps: Vec::new(),
-            unit: unit.to_string(),
-        });
-        
+        let data = self
+            .metrics
+            .entry(name.to_string())
+            .or_insert_with(|| MetricData {
+                values: Vec::new(),
+                timestamps: Vec::new(),
+                unit: unit.to_string(),
+            });
+
         data.values.push(value);
         data.timestamps.push(Instant::now());
-        
+
         // Keep only last 1000 measurements
         if data.values.len() > 1000 {
             data.values.remove(0);
@@ -182,9 +246,10 @@ impl ERPMonitor {
             }
 
             let mean = values.iter().sum::<f32>() / values.len() as f32;
-            let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / values.len() as f32;
+            let variance =
+                values.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / values.len() as f32;
             let std_dev = variance.sqrt();
-            
+
             MetricStats {
                 count: values.len(),
                 mean,
@@ -266,7 +331,10 @@ impl ValidationReport {
             }
         }
 
-        println!("Validation Status: {}", if self.is_valid { "PASSED" } else { "FAILED" });
+        println!(
+            "Validation Status: {}",
+            if self.is_valid { "PASSED" } else { "FAILED" }
+        );
     }
 }
 
@@ -319,7 +387,8 @@ pub mod utils {
         }
 
         let eps = 1e-8;
-        p.iter().zip(q.iter())
+        p.iter()
+            .zip(q.iter())
             .map(|(&pi, &qi)| {
                 if pi > eps && qi > eps {
                     pi * ((pi / qi).ln())
@@ -343,7 +412,7 @@ pub mod utils {
         let max_val = arr.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let exp_vals: Vec<f32> = arr.iter().map(|x| (x - max_val).exp()).collect();
         let sum_exp: f32 = exp_vals.iter().sum();
-        
+
         if sum_exp > 0.0 {
             Array1::from_vec(exp_vals.iter().map(|x| x / sum_exp).collect())
         } else {
@@ -359,7 +428,7 @@ pub mod utils {
 
         let mut sorted_vals: Vec<f32> = arr.iter().copied().collect();
         sorted_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         if sorted_vals.is_empty() {
             return f32::NAN;
         }
@@ -372,12 +441,12 @@ pub mod utils {
     pub fn percentile_ranks(arr: &Array1<f32>) -> Array1<f32> {
         let n = arr.len();
         let mut ranks = Array1::zeros(n);
-        
+
         for (i, &value) in arr.iter().enumerate() {
             let rank = arr.iter().filter(|&&x| x <= value).count() as f32 / n as f32;
             ranks[i] = rank;
         }
-        
+
         ranks
     }
 
@@ -396,12 +465,12 @@ pub mod utils {
     pub fn low_rank_approximation(matrix: &Array2<f32>, rank: usize) -> Array2<f32> {
         let (m, n) = matrix.dim();
         let actual_rank = std::cmp::min(rank, std::cmp::min(m, n));
-        
+
         // Simplified low-rank approximation - dalam implementasi nyata gunakan SVD
         let mut rng = rand::thread_rng();
         let u = Array2::from_shape_fn((m, actual_rank), |_| rng.gen());
         let v = Array2::from_shape_fn((actual_rank, n), |_| rng.gen());
-        
+
         u.dot(&v)
     }
 }

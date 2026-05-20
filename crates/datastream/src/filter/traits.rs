@@ -1,5 +1,5 @@
+use crate::types::{DataSample, FilterAction, FilterResult};
 use async_trait::async_trait;
-use crate::types::{DataSample, FilterResult, FilterAction};
 use std::fmt::Debug;
 
 #[async_trait]

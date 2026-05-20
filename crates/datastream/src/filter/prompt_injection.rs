@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct PromptInjectionFilter {
@@ -34,7 +34,10 @@ impl Default for PromptInjectionFilter {
 
 impl PromptInjectionFilter {
     pub fn new(threshold: usize) -> Self {
-        Self { jailbreak_threshold: threshold, ..Default::default() }
+        Self {
+            jailbreak_threshold: threshold,
+            ..Default::default()
+        }
     }
 
     fn detect_injection(&self, text: &str) -> (f64, Option<String>) {
@@ -56,11 +59,17 @@ impl PromptInjectionFilter {
         }
 
         if matches.len() >= self.jailbreak_threshold {
-            let reason = format!("prompt_injection_detected: {} patterns matched", matches.len());
+            let reason = format!(
+                "prompt_injection_detected: {} patterns matched",
+                matches.len()
+            );
             (1.0, Some(reason))
         } else if !matches.is_empty() {
             let ratio = matches.len() as f64 / self.jailbreak_threshold as f64;
-            (ratio * 0.8, Some(format!("suspicious_patterns: {:?}", matches)))
+            (
+                ratio * 0.8,
+                Some(format!("suspicious_patterns: {:?}", matches)),
+            )
         } else {
             (0.0, None)
         }

@@ -1,11 +1,13 @@
 //! NXR-VORTEX Capabilities
-//! 
+//!
 //! Capability vector and specifications for NXR-VORTEX
 
 use std::collections::HashMap;
 
 use nexora_shared::{
-    capability_spec::{CapabilityVector, CapabilitySpec, CapabilityDomain, CapabilityLevel, ResourceRequirements},
+    capability_spec::{
+        CapabilityDomain, CapabilityLevel, CapabilitySpec, CapabilityVector, ResourceRequirements,
+    },
     model_identity::NxrModelId,
 };
 
@@ -49,7 +51,7 @@ impl _VortexCapabilities {
             avg_response_time_ms: 450.0,
             resource_utilization: 0.75,
         };
-        
+
         let resource_requirements = ResourceRequirements {
             min_memory_gb: 32.0,
             min_compute_units: 64,
@@ -85,190 +87,202 @@ impl _VortexCapabilities {
     fn create_capability_vector() -> CapabilityVector {
         CapabilityVector::new(NxrModelId::Vortex)
             // Code capabilities - Transcendent level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Code, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "code generation".to_string(),
-                    "code analysis".to_string(),
-                    "code optimization".to_string(),
-                    "code refactoring".to_string(),
-                    "debugging".to_string(),
-                    "architecture analysis".to_string(),
-                    "test generation".to_string(),
-                    "documentation generation".to_string(),
-                    "multi-language support".to_string(),
-                    "security analysis".to_string(),
-                    "performance optimization".to_string(),
-                ])
-                .with_metric("accuracy".to_string(), 0.972)
-                .with_metric("reasoning_depth".to_string(), 9.0)
-                .with_metric("context_window".to_string(), 2_000_000.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 32.0,
-                    min_compute_units: 64,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(24.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1000),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Code, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "code generation".to_string(),
+                        "code analysis".to_string(),
+                        "code optimization".to_string(),
+                        "code refactoring".to_string(),
+                        "debugging".to_string(),
+                        "architecture analysis".to_string(),
+                        "test generation".to_string(),
+                        "documentation generation".to_string(),
+                        "multi-language support".to_string(),
+                        "security analysis".to_string(),
+                        "performance optimization".to_string(),
+                    ])
+                    .with_metric("accuracy".to_string(), 0.972)
+                    .with_metric("reasoning_depth".to_string(), 9.0)
+                    .with_metric("context_window".to_string(), 2_000_000.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 32.0,
+                        min_compute_units: 64,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(24.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1000),
+                    }),
+            )
             // Logic capabilities - Transcendent level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "formal reasoning".to_string(),
-                    "proof generation".to_string(),
-                    "paradox resolution".to_string(),
-                    "logical decomposition".to_string(),
-                    "inference optimization".to_string(),
-                    "contradiction detection".to_string(),
-                    "algorithmic reasoning".to_string(),
-                    "computational complexity analysis".to_string(),
-                ])
-                .with_metric("proof_accuracy".to_string(), 0.995)
-                .with_metric("inference_speed".to_string(), 950.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 24.0,
-                    min_compute_units: 48,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(20.0),
-                    requires_network: false,
-                    max_latency_ms: Some(800),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "formal reasoning".to_string(),
+                        "proof generation".to_string(),
+                        "paradox resolution".to_string(),
+                        "logical decomposition".to_string(),
+                        "inference optimization".to_string(),
+                        "contradiction detection".to_string(),
+                        "algorithmic reasoning".to_string(),
+                        "computational complexity analysis".to_string(),
+                    ])
+                    .with_metric("proof_accuracy".to_string(), 0.995)
+                    .with_metric("inference_speed".to_string(), 950.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 24.0,
+                        min_compute_units: 48,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(20.0),
+                        requires_network: false,
+                        max_latency_ms: Some(800),
+                    }),
+            )
             // Mathematics capabilities - Master level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Mathematics, CapabilityLevel::Master)
-                .with_sub_capabilities(vec![
-                    "advanced calculus".to_string(),
-                    "abstract algebra".to_string(),
-                    "statistical analysis".to_string(),
-                    "numerical methods".to_string(),
-                    "optimization theory".to_string(),
-                    "probability theory".to_string(),
-                    "discrete mathematics".to_string(),
-                    "algorithm analysis".to_string(),
-                    "computational mathematics".to_string(),
-                ])
-                .with_metric("math_accuracy".to_string(), 0.98)
-                .with_metric("problem_complexity".to_string(), 9.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(16.0),
-                    requires_network: false,
-                    max_latency_ms: Some(600),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Mathematics, CapabilityLevel::Master)
+                    .with_sub_capabilities(vec![
+                        "advanced calculus".to_string(),
+                        "abstract algebra".to_string(),
+                        "statistical analysis".to_string(),
+                        "numerical methods".to_string(),
+                        "optimization theory".to_string(),
+                        "probability theory".to_string(),
+                        "discrete mathematics".to_string(),
+                        "algorithm analysis".to_string(),
+                        "computational mathematics".to_string(),
+                    ])
+                    .with_metric("math_accuracy".to_string(), 0.98)
+                    .with_metric("problem_complexity".to_string(), 9.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(16.0),
+                        requires_network: false,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             // Security capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Security, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "vulnerability analysis".to_string(),
-                    "threat assessment".to_string(),
-                    "security reasoning".to_string(),
-                    "risk evaluation".to_string(),
-                    "security protocol analysis".to_string(),
-                    "penetration testing".to_string(),
-                    "security audit".to_string(),
-                    "compliance checking".to_string(),
-                ])
-                .with_metric("security_accuracy".to_string(), 0.97)
-                .with_metric("threat_detection".to_string(), 0.94)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 20.0,
-                    min_compute_units: 40,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(18.0),
-                    requires_network: true,
-                    max_latency_ms: Some(700),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Security, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "vulnerability analysis".to_string(),
+                        "threat assessment".to_string(),
+                        "security reasoning".to_string(),
+                        "risk evaluation".to_string(),
+                        "security protocol analysis".to_string(),
+                        "penetration testing".to_string(),
+                        "security audit".to_string(),
+                        "compliance checking".to_string(),
+                    ])
+                    .with_metric("security_accuracy".to_string(), 0.97)
+                    .with_metric("threat_detection".to_string(), 0.94)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 20.0,
+                        min_compute_units: 40,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(18.0),
+                        requires_network: true,
+                        max_latency_ms: Some(700),
+                    }),
+            )
             // Strategy capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Strategy, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "strategic planning".to_string(),
-                    "game theory application".to_string(),
-                    "risk assessment".to_string(),
-                    "decision optimization".to_string(),
-                    "long-term planning".to_string(),
-                    "competitive analysis".to_string(),
-                    "resource optimization".to_string(),
-                ])
-                .with_metric("strategy_accuracy".to_string(), 0.89)
-                .with_metric("planning_horizon".to_string(), 180.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 24.0,
-                    min_compute_units: 48,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(20.0),
-                    requires_network: true,
-                    max_latency_ms: Some(900),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Strategy, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "strategic planning".to_string(),
+                        "game theory application".to_string(),
+                        "risk assessment".to_string(),
+                        "decision optimization".to_string(),
+                        "long-term planning".to_string(),
+                        "competitive analysis".to_string(),
+                        "resource optimization".to_string(),
+                    ])
+                    .with_metric("strategy_accuracy".to_string(), 0.89)
+                    .with_metric("planning_horizon".to_string(), 180.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 24.0,
+                        min_compute_units: 48,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(20.0),
+                        requires_network: true,
+                        max_latency_ms: Some(900),
+                    }),
+            )
             // Knowledge capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "knowledge synthesis".to_string(),
-                    "fact verification".to_string(),
-                    "source evaluation".to_string(),
-                    "knowledge integration".to_string(),
-                    "semantic understanding".to_string(),
-                    "concept mapping".to_string(),
-                    "domain expertise".to_string(),
-                ])
-                .with_metric("knowledge_accuracy".to_string(), 0.91)
-                .with_metric("fact_coverage".to_string(), 0.85)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 28.0,
-                    min_compute_units: 56,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(22.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1200),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "knowledge synthesis".to_string(),
+                        "fact verification".to_string(),
+                        "source evaluation".to_string(),
+                        "knowledge integration".to_string(),
+                        "semantic understanding".to_string(),
+                        "concept mapping".to_string(),
+                        "domain expertise".to_string(),
+                    ])
+                    .with_metric("knowledge_accuracy".to_string(), 0.91)
+                    .with_metric("fact_coverage".to_string(), 0.85)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 28.0,
+                        min_compute_units: 56,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(22.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1200),
+                    }),
+            )
             // Creative capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Creative, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "creative synthesis".to_string(),
-                    "novel concept generation".to_string(),
-                    "artistic understanding".to_string(),
-                    "creative problem solving".to_string(),
-                    "innovation facilitation".to_string(),
-                    "design thinking".to_string(),
-                ])
-                .with_metric("creativity_score".to_string(), 0.88)
-                .with_metric("novelty_score".to_string(), 0.86)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 20.0,
-                    min_compute_units: 40,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(18.0),
-                    requires_network: false,
-                    max_latency_ms: Some(800),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Creative, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "creative synthesis".to_string(),
+                        "novel concept generation".to_string(),
+                        "artistic understanding".to_string(),
+                        "creative problem solving".to_string(),
+                        "innovation facilitation".to_string(),
+                        "design thinking".to_string(),
+                    ])
+                    .with_metric("creativity_score".to_string(), 0.88)
+                    .with_metric("novelty_score".to_string(), 0.86)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 20.0,
+                        min_compute_units: 40,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(18.0),
+                        requires_network: false,
+                        max_latency_ms: Some(800),
+                    }),
+            )
             // Orchestration capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Orchestration, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "multi-agent coordination".to_string(),
-                    "task decomposition".to_string(),
-                    "resource optimization".to_string(),
-                    "workflow orchestration".to_string(),
-                    "agent communication".to_string(),
-                    "consensus building".to_string(),
-                ])
-                .with_metric("coordination_accuracy".to_string(), 0.92)
-                .with_metric("agent_efficiency".to_string(), 0.89)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 24.0,
-                    min_compute_units: 48,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(20.0),
-                    requires_network: true,
-                    max_latency_ms: Some(800),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Orchestration, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "multi-agent coordination".to_string(),
+                        "task decomposition".to_string(),
+                        "resource optimization".to_string(),
+                        "workflow orchestration".to_string(),
+                        "agent communication".to_string(),
+                        "consensus building".to_string(),
+                    ])
+                    .with_metric("coordination_accuracy".to_string(), 0.92)
+                    .with_metric("agent_efficiency".to_string(), 0.89)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 24.0,
+                        min_compute_units: 48,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(20.0),
+                        requires_network: true,
+                        max_latency_ms: Some(800),
+                    }),
+            )
             // Self-improvement capabilities - Intermediate level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::SelfImprovement, CapabilityLevel::Intermediate)
+            .with_capability(
+                CapabilitySpec::new(
+                    CapabilityDomain::SelfImprovement,
+                    CapabilityLevel::Intermediate,
+                )
                 .with_sub_capabilities(vec![
                     "self-reflection".to_string(),
                     "performance monitoring".to_string(),
@@ -285,30 +299,36 @@ impl _VortexCapabilities {
                     min_gpu_memory_gb: Some(16.0),
                     requires_network: false,
                     max_latency_ms: Some(1000),
-                }))
-            
+                }),
+            )
             // Edge computing capabilities - Basic level (not primary focus)
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Edge, CapabilityLevel::Basic)
-                .with_sub_capabilities(vec![
-                    "lightweight inference".to_string(),
-                    "resource optimization".to_string(),
-                    "edge deployment".to_string(),
-                ])
-                .with_metric("edge_efficiency".to_string(), 0.65)
-                .with_metric("resource_usage".to_string(), 0.7)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 4.0,
-                    min_compute_units: 8,
-                    requires_gpu: false,
-                    min_gpu_memory_gb: None,
-                    requires_network: false,
-                    max_latency_ms: Some(200),
-                }))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Edge, CapabilityLevel::Basic)
+                    .with_sub_capabilities(vec![
+                        "lightweight inference".to_string(),
+                        "resource optimization".to_string(),
+                        "edge deployment".to_string(),
+                    ])
+                    .with_metric("edge_efficiency".to_string(), 0.65)
+                    .with_metric("resource_usage".to_string(), 0.7)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 4.0,
+                        min_compute_units: 8,
+                        requires_gpu: false,
+                        min_gpu_memory_gb: None,
+                        requires_network: false,
+                        max_latency_ms: Some(200),
+                    }),
+            )
             .calculate_score()
     }
 
     /// Check if model supports specific capability
-    pub fn supports_capability(&self, domain: &CapabilityDomain, min_level: CapabilityLevel) -> bool {
+    pub fn supports_capability(
+        &self,
+        domain: &CapabilityDomain,
+        min_level: CapabilityLevel,
+    ) -> bool {
         self.vector.has_capability(domain, min_level)
     }
 
@@ -336,21 +356,26 @@ impl _VortexCapabilities {
     }
 
     /// Get resource requirements for domain
-    pub fn get_resource_requirements(&self, domain: &CapabilityDomain) -> Option<&ResourceRequirements> {
-        self.vector.get_capability(domain).map(|cap| &cap.resource_requirements)
+    pub fn get_resource_requirements(
+        &self,
+        domain: &CapabilityDomain,
+    ) -> Option<&ResourceRequirements> {
+        self.vector
+            .get_capability(domain)
+            .map(|cap| &cap.resource_requirements)
     }
 
     /// Validate capabilities
     pub fn validate(&self) -> Result<(), String> {
         // Check that core capabilities are at transcendent level
-        let core_domains = vec![
-            CapabilityDomain::Code,
-            CapabilityDomain::Logic,
-        ];
+        let core_domains = vec![CapabilityDomain::Code, CapabilityDomain::Logic];
 
         for domain in core_domains {
             if !self.supports_capability(&domain, CapabilityLevel::Transcendent) {
-                return Err(format!("Core capability {:?} not at transcendent level", domain));
+                return Err(format!(
+                    "Core capability {:?} not at transcendent level",
+                    domain
+                ));
             }
         }
 
@@ -375,7 +400,10 @@ impl _VortexCapabilities {
     pub fn update_capability(&mut self, domain: CapabilityDomain, performance_score: f32) {
         // This would update the capability based on actual performance
         // For now, just log the update
-        println!("Updating capability {:?} with score: {}", domain, performance_score);
+        println!(
+            "Updating capability {:?} with score: {}",
+            domain, performance_score
+        );
     }
 
     /// Get capability summary
@@ -428,8 +456,10 @@ impl _VortexCapabilities {
                 metrics: capability.metrics.clone(),
                 resource_requirements: capability.resource_requirements.clone(),
             };
-            
-            breakdown.capabilities.insert(domain.clone(), capability_detail);
+
+            breakdown
+                .capabilities
+                .insert(domain.clone(), capability_detail);
         }
 
         breakdown
@@ -442,7 +472,7 @@ impl _VortexCapabilities {
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
             let other_score = other.get_capability_score(domain);
-            
+
             comparison.domain_comparisons.insert(
                 domain.clone(),
                 DomainComparison {
@@ -452,13 +482,12 @@ impl _VortexCapabilities {
                     difference: self_score - other_score,
                     self_level: self.vector.get_capability(domain).map(|c| c.level.clone()),
                     other_level: other.vector.get_capability(domain).map(|c| c.level.clone()),
-                }
+                },
             );
         }
 
         comparison.overall_difference = self.overall_score() - other.overall_score();
         comparison
-
     }
 
     /// Update performance metrics
@@ -476,8 +505,16 @@ impl _VortexCapabilities {
                 suggestions.push(_OptimizationSuggestion {
                     domain: domain.clone(),
                     suggestion_type: SuggestionType::ImproveCapability,
-                    description: format!("Capability {:?} is underperforming with score {:.2}", domain, capability.score()),
-                    priority: if capability.score() < 0.6 { SuggestionPriority::High } else { SuggestionPriority::Medium },
+                    description: format!(
+                        "Capability {:?} is underperforming with score {:.2}",
+                        domain,
+                        capability.score()
+                    ),
+                    priority: if capability.score() < 0.6 {
+                        SuggestionPriority::High
+                    } else {
+                        SuggestionPriority::Medium
+                    },
                     estimated_improvement: 0.15,
                     resource_cost: ResourceCost::Medium,
                 });
@@ -500,17 +537,22 @@ impl _VortexCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _VortexCapabilities {
+    pub fn apply_improvement(
+        &self,
+        improvements: &HashMap<CapabilityDomain, f32>,
+    ) -> _VortexCapabilities {
         let mut new_capabilities = self.clone();
-        
+
         for (domain, improvement) in improvements {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
                 let new_score = (current_score + improvement).min(1.0);
-                
+
                 // Update capability metrics
-                capability.metrics.insert("improved_score".to_string(), new_score);
+                capability
+                    .metrics
+                    .insert("improved_score".to_string(), new_score);
             }
         }
 
@@ -564,8 +606,10 @@ impl CapabilitySummary {
             advanced: self.advanced_domains.len(),
             intermediate: self.intermediate_domains.len(),
             basic: self.basic_domains.len(),
-            total: self.expert_domains.len() + self.advanced_domains.len() + 
-                   self.intermediate_domains.len() + self.basic_domains.len(),
+            total: self.expert_domains.len()
+                + self.advanced_domains.len()
+                + self.intermediate_domains.len()
+                + self.basic_domains.len(),
         }
     }
 
@@ -573,7 +617,7 @@ impl CapabilitySummary {
     pub fn efficiency_rating(&self) -> f32 {
         let capability_score = self.overall_score;
         let resource_efficiency = 1.0 - (self.performance_metrics.resource_utilization - 0.5).abs();
-        
+
         (capability_score + resource_efficiency) / 2.0
     }
 
@@ -582,11 +626,12 @@ impl CapabilitySummary {
         if self.specializations.is_empty() {
             0.0
         } else {
-            let total_score: f32 = self.specializations
+            let total_score: f32 = self
+                .specializations
                 .iter()
                 .map(|domain| self.get_domain_score(domain))
                 .sum();
-            
+
             total_score / self.specializations.len() as f32
         }
     }
@@ -659,16 +704,23 @@ impl DetailedCapabilityBreakdown {
     }
 
     /// Get top capabilities
-    pub fn get_top_capabilities(&self, limit: usize) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
+    pub fn get_top_capabilities(
+        &self,
+        limit: usize,
+    ) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
         let mut capabilities: Vec<_> = self.capabilities.iter().collect();
-        capabilities.sort_by(|a, b| b.1.score.partial_cmp(&a.1.score).unwrap_or(std::cmp::Ordering::Equal));
+        capabilities.sort_by(|a, b| {
+            b.1.score
+                .partial_cmp(&a.1.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         capabilities.into_iter().take(limit).collect()
     }
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
         let mut stats = CapabilityStatistics::new();
-        
+
         for capability in self.capabilities.values() {
             match capability.level {
                 CapabilityLevel::Transcendent => stats.transcendent_count += 1,
@@ -682,7 +734,8 @@ impl DetailedCapabilityBreakdown {
         }
 
         stats.total_capabilities = self.capabilities.len();
-        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>() / self.capabilities.len() as f32;
+        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>()
+            / self.capabilities.len() as f32;
 
         stats
     }
@@ -751,13 +804,21 @@ impl CapabilityComparison {
                 opportunities.push(ImprovementOpportunity {
                     domain: domain.clone(),
                     gap: -comparison.difference,
-                    priority: if comparison.difference < -0.3 { OpportunityPriority::High } else { OpportunityPriority::Medium },
+                    priority: if comparison.difference < -0.3 {
+                        OpportunityPriority::High
+                    } else {
+                        OpportunityPriority::Medium
+                    },
                     potential_improvement: 0.2,
                 });
             }
         }
 
-        opportunities.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap_or(std::cmp::Ordering::Equal));
+        opportunities.sort_by(|a, b| {
+            b.gap
+                .partial_cmp(&a.gap)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         opportunities
     }
 }

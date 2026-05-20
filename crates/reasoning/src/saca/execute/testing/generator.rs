@@ -1,5 +1,5 @@
 //! Test Generator
-//! 
+//!
 //! Generates test cases for implementations based on code analysis.
 
 use crate::saca::error::*;
@@ -11,7 +11,7 @@ impl TestGenerator {
     /// Generate test cases for implementation
     pub async fn generate_test_cases(&self, implementation: &str) -> SACAResult<Vec<TestCase>> {
         let mut test_cases = Vec::new();
-        
+
         // Basic test cases based on common patterns
         if implementation.contains("sort") {
             test_cases.extend(self.generate_sorting_test_cases());
@@ -22,10 +22,10 @@ impl TestGenerator {
         } else {
             test_cases.extend(self.generate_generic_test_cases());
         }
-        
+
         Ok(test_cases)
     }
-    
+
     fn generate_sorting_test_cases(&self) -> Vec<TestCase> {
         vec![
             TestCase {
@@ -65,7 +65,7 @@ impl TestGenerator {
             },
         ]
     }
-    
+
     fn generate_search_test_cases(&self) -> Vec<TestCase> {
         vec![
             TestCase {
@@ -91,7 +91,7 @@ impl TestGenerator {
             },
         ]
     }
-    
+
     fn generate_collection_test_cases(&self) -> Vec<TestCase> {
         vec![
             TestCase {
@@ -117,7 +117,7 @@ impl TestGenerator {
             },
         ]
     }
-    
+
     fn generate_generic_test_cases(&self) -> Vec<TestCase> {
         vec![
             TestCase {

@@ -35,7 +35,9 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                     for b in 0..batch {
                                         let base = b * dim;
                                         let mut sum_sg = 0.0;
-                                        for j in 0..dim { sum_sg += soft[base + j] * g[base + j]; }
+                                        for j in 0..dim {
+                                            sum_sg += soft[base + j] * g[base + j];
+                                        }
                                         for j in 0..dim {
                                             let idx = base + j;
                                             dx[idx] = soft[idx] * (g[idx] - sum_sg);
@@ -78,12 +80,14 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                 sum_exp += (flat[group_base + d * inner] - max_val).exp();
             }
             for d in 0..dim {
-                result_data[group_base + d * inner] = (flat[group_base + d * inner] - max_val).exp() / sum_exp;
+                result_data[group_base + d * inner] =
+                    (flat[group_base + d * inner] - max_val).exp() / sum_exp;
             }
         }
     }
 
-    let result = ArrayD::from_shape_vec(soft_shape.clone(), result_data).expect("data length matches shape");
+    let result =
+        ArrayD::from_shape_vec(soft_shape.clone(), result_data).expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -127,7 +131,8 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                     }
                 }
             }
-            let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data).expect("data length matches shape");
+            let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data)
+                .expect("data length matches shape");
             vec![dx]
         }),
     )
@@ -167,9 +172,16 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
     let scale = 1.0 / (1.0 - rate);
     let mut rng = rand::thread_rng();
     let mask: Vec<f32> = (0..data.len())
-        .map(|_| if rand::Rng::gen::<f32>(&mut rng) >= rate { scale } else { 0.0 })
+        .map(|_| {
+            if rand::Rng::gen::<f32>(&mut rng) >= rate {
+                scale
+            } else {
+                0.0
+            }
+        })
         .collect();
-    let mask_arr = ArrayD::from_shape_vec(data.shape().to_vec(), mask).expect("data length matches shape");
+    let mask_arr =
+        ArrayD::from_shape_vec(data.shape().to_vec(), mask).expect("data length matches shape");
     let result = &data * &mask_arr;
 
     if !input.requires_grad() {
@@ -182,13 +194,16 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
         result,
         vec![input.clone()],
         vec![saved],
-        Box::new(|grad, saved| {
-            vec![grad * &saved[0]]
-        }),
+        Box::new(|grad, saved| vec![grad * &saved[0]]),
     )
 }
 
-pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tensor>, eps: f32) -> Tensor {
+pub fn layer_norm_2d(
+    input: &Tensor,
+    weight: Option<&Tensor>,
+    bias: Option<&Tensor>,
+    eps: f32,
+) -> Tensor {
     #[cfg(feature = "gpu")]
     {
         let in_storage = input.storage();
@@ -197,8 +212,7 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
             let has_gpu_bias = bias.map_or(true, |b| matches!(b.storage(), Storage::Gpu(_)));
             if has_gpu_weight && has_gpu_bias {
                 if let (Some(w), Some(b)) = (weight, bias) {
-                    if let (Storage::Gpu(gpu_w), Storage::Gpu(gpu_b)) =
-                        (&w.storage(), &b.storage())
+                    if let (Storage::Gpu(gpu_w), Storage::Gpu(gpu_b)) = (&w.storage(), &b.storage())
                     {
                         if let Ok(ctx) = crate::gpu::GpuContext::global() {
                             match ctx.layer_norm(gpu_in, gpu_w, gpu_b, eps) {
@@ -211,28 +225,42 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
                                         return Tensor::from_gpu(gpu_result, id, false);
                                     }
                                     let orig = input.data();
-                                    let mean_arr = orig.outer_iter()
-                                        .map(|row| row.mean().unwrap_or(0.0)).collect::<Vec<_>>();
-                                    let std_arr = orig.outer_iter().zip(mean_arr.iter())
+                                    let mean_arr = orig
+                                        .outer_iter()
+                                        .map(|row| row.mean().unwrap_or(0.0))
+                                        .collect::<Vec<_>>();
+                                    let std_arr = orig
+                                        .outer_iter()
+                                        .zip(mean_arr.iter())
                                         .map(|(row, &m)| {
-                                            let v = row.iter()
-                                                .map(|&x| (x - m).powi(2)).sum::<f32>()
-                                                / orig.shape()[1] as f32;
+                                            let v =
+                                                row.iter().map(|&x| (x - m).powi(2)).sum::<f32>()
+                                                    / orig.shape()[1] as f32;
                                             (v + eps).sqrt()
-                                        }).collect::<Vec<_>>();
+                                        })
+                                        .collect::<Vec<_>>();
                                     let n = orig.shape()[1] as f32;
                                     return Tensor::from_gpu_with_grad_fn(
                                         gpu_result,
                                         vec![input.clone(), w.clone(), b.clone()],
-                                        vec![orig, ArrayD::from_shape_vec(vec![input.shape()[0]], mean_arr).unwrap(),
-                                             ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr).unwrap(),
-                                             ArrayD::from_elem(vec![1], n)],
+                                        vec![
+                                            orig,
+                                            ArrayD::from_shape_vec(
+                                                vec![input.shape()[0]],
+                                                mean_arr,
+                                            )
+                                            .unwrap(),
+                                            ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr)
+                                                .unwrap(),
+                                            ArrayD::from_elem(vec![1], n),
+                                        ],
                                         vec![],
                                         Box::new(move |grad, saved| {
                                             let x = &saved[0];
                                             let mean = &saved[1];
                                             let std = &saved[2];
-                                            let n_val = saved[3].iter().copied().next().unwrap_or(1.0);
+                                            let n_val =
+                                                saved[3].iter().copied().next().unwrap_or(1.0);
                                             let batch = x.shape()[0];
                                             let dim = x.shape()[1];
                                             let mut dx = grad.clone();
@@ -245,7 +273,8 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
                                                 let mut sum_dy_xhat = 0.0;
                                                 for j in 0..dim {
                                                     let idx = b * dim + j;
-                                                    let gv = gs[idx]; let xv = xs[idx];
+                                                    let gv = gs[idx];
+                                                    let xv = xs[idx];
                                                     let xhat = (xv - m) / s;
                                                     sum_dy += gv;
                                                     sum_dy_xhat += gv * xhat;
@@ -253,11 +282,16 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
                                                 let inv_s = 1.0 / s;
                                                 for j in 0..dim {
                                                     let idx = b * dim + j;
-                                                    let gv = gs[idx]; let xv = xs[idx];
+                                                    let gv = gs[idx];
+                                                    let xv = xs[idx];
                                                     let xhat = (xv - m) / s;
-                                                    let dx_val = inv_s * (gv - sum_dy / n_val - xhat * sum_dy_xhat / n_val);
+                                                    let dx_val = inv_s
+                                                        * (gv
+                                                            - sum_dy / n_val
+                                                            - xhat * sum_dy_xhat / n_val);
                                                     let mut inner = dx.clone();
-                                                    inner.as_slice_mut().expect("contiguous")[idx] = dx_val;
+                                                    inner.as_slice_mut().expect("contiguous")
+                                                        [idx] = dx_val;
                                                     dx = inner;
                                                 }
                                             }
@@ -278,24 +312,38 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
 
     let data = input.data();
     let shape = data.shape().to_vec();
-    assert_eq!(shape.len(), 2, "LayerNorm2D: input must be [batch, features]");
+    assert_eq!(
+        shape.len(),
+        2,
+        "LayerNorm2D: input must be [batch, features]"
+    );
 
     let last_dim = shape[1];
     let n = last_dim as f32;
 
-    let mean: Vec<f32> = data.outer_iter().map(|row| row.mean().unwrap_or(0.0)).collect();
-    let var: Vec<f32> = data.outer_iter().zip(mean.iter())
+    let mean: Vec<f32> = data
+        .outer_iter()
+        .map(|row| row.mean().unwrap_or(0.0))
+        .collect();
+    let var: Vec<f32> = data
+        .outer_iter()
+        .zip(mean.iter())
         .map(|(row, &m)| row.iter().map(|&x| (x - m).powi(2)).sum::<f32>() / n)
         .collect();
     let std: Vec<f32> = var.iter().map(|v| (v + eps).sqrt()).collect();
 
     let mut result_data = vec![0.0f32; data.len()];
-    for (i, (row, (&m, &s))) in data.outer_iter().zip(mean.iter().zip(std.iter())).enumerate() {
+    for (i, (row, (&m, &s))) in data
+        .outer_iter()
+        .zip(mean.iter().zip(std.iter()))
+        .enumerate()
+    {
         for (j, &x) in row.iter().enumerate() {
             result_data[i * last_dim + j] = (x - m) / s;
         }
     }
-    let mut normalized = ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
+    let mut normalized =
+        ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
 
     if let Some(w) = weight {
         let w_data = w.data();
@@ -316,11 +364,17 @@ pub fn layer_norm_2d(input: &Tensor, weight: Option<&Tensor>, bias: Option<&Tens
     }
 
     let mut inputs = vec![input.clone()];
-    if let Some(w) = weight { inputs.push(w.clone()); }
-    if let Some(b) = bias { inputs.push(b.clone()); }
+    if let Some(w) = weight {
+        inputs.push(w.clone());
+    }
+    if let Some(b) = bias {
+        inputs.push(b.clone());
+    }
 
-    let mean_arr = ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).expect("data length matches shape");
-    let std_arr = ArrayD::from_shape_vec(vec![shape[0]], std.clone()).expect("data length matches shape");
+    let mean_arr =
+        ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).expect("data length matches shape");
+    let std_arr =
+        ArrayD::from_shape_vec(vec![shape[0]], std.clone()).expect("data length matches shape");
     let orig_data = data.clone();
 
     Tensor::with_grad_fn(
@@ -379,7 +433,8 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         let p = x.clamp(1e-7, 1.0 - 1e-7);
         loss_data[i] = -(t * p.ln() + (1.0 - t) * (1.0 - p).ln());
     }
-    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data).expect("data length matches shape");
+    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data)
+        .expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(loss);
@@ -399,7 +454,8 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                 let p = xv.clamp(1e-7, 1.0 - 1e-7);
                 dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
             }
-            vec![ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).expect("data length matches shape")]
+            vec![ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
+                .expect("data length matches shape")]
         }),
     )
 }
@@ -425,11 +481,17 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             let mut lsm = vec![0.0f32; data.len()];
                             for b in 0..batch {
                                 let mut mx = f32::NEG_INFINITY;
-                                for c in 0..classes { mx = mx.max(data[[b, c]]); }
+                                for c in 0..classes {
+                                    mx = mx.max(data[[b, c]]);
+                                }
                                 let mut sum_exp = 0.0;
-                                for c in 0..classes { sum_exp += (data[[b, c]] - mx).exp(); }
+                                for c in 0..classes {
+                                    sum_exp += (data[[b, c]] - mx).exp();
+                                }
                                 let log_sum = sum_exp.ln();
-                                for c in 0..classes { lsm[b * classes + c] = (data[[b, c]] - mx) - log_sum; }
+                                for c in 0..classes {
+                                    lsm[b * classes + c] = (data[[b, c]] - mx) - log_sum;
+                                }
                             }
                             ArrayD::from_shape_vec(vec![batch, classes], lsm).expect("lsm")
                         };
@@ -466,8 +528,16 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
 
     let data = input.data();
     let tgt = target.data();
-    assert_eq!(data.ndim(), 2, "CrossEntropy: input must be [batch, classes]");
-    assert_eq!(tgt.ndim(), 1, "CrossEntropy: target must be 1D (class indices)");
+    assert_eq!(
+        data.ndim(),
+        2,
+        "CrossEntropy: input must be [batch, classes]"
+    );
+    assert_eq!(
+        tgt.ndim(),
+        1,
+        "CrossEntropy: target must be 1D (class indices)"
+    );
     assert_eq!(data.shape()[0], tgt.len(), "CrossEntropy: batch mismatch");
 
     let batch = data.shape()[0];
@@ -499,7 +569,8 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
         return Tensor::new(loss);
     }
 
-    let saved_lsm = ArrayD::from_shape_vec(vec![batch, classes], lsm_data).expect("data length matches shape");
+    let saved_lsm =
+        ArrayD::from_shape_vec(vec![batch, classes], lsm_data).expect("data length matches shape");
     let saved_tgt = tgt.clone();
 
     Tensor::with_grad_fn(
@@ -521,7 +592,8 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                     dx_data[b * classes + c] = g * d;
                 }
             }
-            vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data).expect("data length matches shape")]
+            vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data)
+                .expect("data length matches shape")]
         }),
     )
 }
@@ -540,33 +612,33 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
         if let (Storage::Gpu(gpu_ids), Storage::Gpu(gpu_w)) = (&ids_storage, &w_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.embedding(gpu_ids, gpu_w) {
-                        Ok(gpu_result) => {
-                            if !weight.requires_grad() {
-                                let id = next_tensor_id();
-                                return Tensor::from_gpu(gpu_result, id, false);
-                            }
-                            let ids_saved = input_ids.data();
-                            let w_shape = weight.shape().to_vec();
-                            return Tensor::from_gpu_with_grad_fn(
-                                gpu_result,
-                                vec![input_ids.clone(), weight.clone()],
-                                vec![ids_saved],
-                                vec![],
-                                Box::new(move |grad, saved| {
-                                    let ids_arr = &saved[0];
-                                    let d = grad.shape()[1];
-                                    let vocab_size = w_shape[0];
-                                    let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
-                                    for i in 0..ids_arr.len() {
-                                        let idx = ids_arr[i] as usize;
-                                        for j in 0..d {
-                                            d_weight[[idx, j]] += grad[[i, j]];
-                                        }
+                    Ok(gpu_result) => {
+                        if !weight.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_gpu(gpu_result, id, false);
+                        }
+                        let ids_saved = input_ids.data();
+                        let w_shape = weight.shape().to_vec();
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_result,
+                            vec![input_ids.clone(), weight.clone()],
+                            vec![ids_saved],
+                            vec![],
+                            Box::new(move |grad, saved| {
+                                let ids_arr = &saved[0];
+                                let d = grad.shape()[1];
+                                let vocab_size = w_shape[0];
+                                let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
+                                for i in 0..ids_arr.len() {
+                                    let idx = ids_arr[i] as usize;
+                                    for j in 0..d {
+                                        d_weight[[idx, j]] += grad[[i, j]];
                                     }
-                                    vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
-                                }),
-                                None,
-                            );
+                                }
+                                vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
+                            }),
+                            None,
+                        );
                     }
                     Err(_) => {}
                 }
@@ -592,7 +664,8 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
             result_data.push(w[[idx, d]]);
         }
     }
-    let result = ArrayD::from_shape_vec(vec![seq_len, dim], result_data).expect("data length matches shape");
+    let result =
+        ArrayD::from_shape_vec(vec![seq_len, dim], result_data).expect("data length matches shape");
 
     if !weight.requires_grad() {
         return Tensor::new(result);
@@ -629,51 +702,57 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
         if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_w)) = (&in_storage, &w_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.rms_norm(gpu_in, gpu_w, eps) {
-                        Ok(gpu_result) => {
-                            let requires_grad = input.requires_grad() || weight.requires_grad();
-                            if !requires_grad {
-                                let id = next_tensor_id();
-                                return Tensor::from_gpu(gpu_result, id, false);
-                            }
-                            let cpu_x = input.data();
-                            let cpu_w = weight.data();
-                            return Tensor::from_gpu_with_grad_fn(
-                                gpu_result,
-                                vec![input.clone(), weight.clone()],
-                                vec![cpu_x.clone(), cpu_w.clone()],
-                                vec![], // no gpu_saved
-                                Box::new(move |grad, saved| {
-                                    let x = &saved[0];
-                                    let w = &saved[1];
-                                    let hidden = x.shape()[1] as f32;
-                                    let dim = x.shape()[1];
-                                    let batch = x.shape()[0];
-                                    let mut dx_data = vec![0.0f32; x.len()];
-                                    let mut dw_data = vec![0.0f32; dim];
-                                    for b in 0..batch {
-                                        let mut ssq = 0.0f32;
-                                        for j in 0..dim { ssq += x[[b, j]] * x[[b, j]]; }
-                                        let rms = (ssq / hidden + eps).sqrt();
-                                        let inv_rms = 1.0 / rms;
-                                        let inv_hidden = 1.0 / hidden;
-                                        let rms_grad_factor = -inv_rms.powi(3) * inv_hidden;
-                                        for j in 0..dim {
-                                            let xv = x[[b, j]];
-                                            let wv = w[[j]];
-                                            let g = grad[[b, j]];
-                                            let mut sum_x_g = 0.0f32;
-                                            for k in 0..dim { sum_x_g += x[[b, k]] * grad[[b, k]]; }
-                                            dx_data[b * dim + j] = g * wv * inv_rms + wv * xv * rms_grad_factor * sum_x_g;
-                                            dw_data[j] += g * xv * inv_rms;
-                                        }
+                    Ok(gpu_result) => {
+                        let requires_grad = input.requires_grad() || weight.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_gpu(gpu_result, id, false);
+                        }
+                        let cpu_x = input.data();
+                        let cpu_w = weight.data();
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_result,
+                            vec![input.clone(), weight.clone()],
+                            vec![cpu_x.clone(), cpu_w.clone()],
+                            vec![], // no gpu_saved
+                            Box::new(move |grad, saved| {
+                                let x = &saved[0];
+                                let w = &saved[1];
+                                let hidden = x.shape()[1] as f32;
+                                let dim = x.shape()[1];
+                                let batch = x.shape()[0];
+                                let mut dx_data = vec![0.0f32; x.len()];
+                                let mut dw_data = vec![0.0f32; dim];
+                                for b in 0..batch {
+                                    let mut ssq = 0.0f32;
+                                    for j in 0..dim {
+                                        ssq += x[[b, j]] * x[[b, j]];
                                     }
-                                    vec![
-                                        ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).expect("dx"),
-                                        ArrayD::from_shape_vec(vec![dim], dw_data).expect("dw"),
-                                    ]
-                                }),
-                                None,
-                            );
+                                    let rms = (ssq / hidden + eps).sqrt();
+                                    let inv_rms = 1.0 / rms;
+                                    let inv_hidden = 1.0 / hidden;
+                                    let rms_grad_factor = -inv_rms.powi(3) * inv_hidden;
+                                    for j in 0..dim {
+                                        let xv = x[[b, j]];
+                                        let wv = w[[j]];
+                                        let g = grad[[b, j]];
+                                        let mut sum_x_g = 0.0f32;
+                                        for k in 0..dim {
+                                            sum_x_g += x[[b, k]] * grad[[b, k]];
+                                        }
+                                        dx_data[b * dim + j] =
+                                            g * wv * inv_rms + wv * xv * rms_grad_factor * sum_x_g;
+                                        dw_data[j] += g * xv * inv_rms;
+                                    }
+                                }
+                                vec![
+                                    ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
+                                        .expect("dx"),
+                                    ArrayD::from_shape_vec(vec![dim], dw_data).expect("dw"),
+                                ]
+                            }),
+                            None,
+                        );
                     }
                     Err(_) => {}
                 }
@@ -700,7 +779,8 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             result_data[i * shape[1] + j] = data[[i, j]] / rms * w[[j]];
         }
     }
-    let result = ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
+    let result =
+        ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
 
     let requires_grad = input.requires_grad() || weight.requires_grad();
     if !requires_grad {
@@ -709,7 +789,12 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
 
     let orig_data = data.clone();
     let w_data = weight.data();
-    let saved = vec![orig_data, w_data, ArrayD::from_elem(vec![1], hidden), ArrayD::from_elem(vec![1], eps)];
+    let saved = vec![
+        orig_data,
+        w_data,
+        ArrayD::from_elem(vec![1], hidden),
+        ArrayD::from_elem(vec![1], eps),
+    ];
 
     let inputs = vec![input.clone(), weight.clone()];
 
@@ -753,7 +838,8 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             }
 
             vec![
-                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).expect("data length matches shape"),
+                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
+                    .expect("data length matches shape"),
                 ArrayD::from_shape_vec(vec![dim], dw_data).expect("data length matches shape"),
             ]
         }),
@@ -780,14 +866,21 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![q.clone(), k.clone(), v.clone()],
-                                vec![q.data(), k.data(), v.data(), ArrayD::from_elem(vec![1], scale)],
+                                vec![
+                                    q.data(),
+                                    k.data(),
+                                    v.data(),
+                                    ArrayD::from_elem(vec![1], scale),
+                                ],
                                 vec![],
                                 Box::new(move |_grad, saved| {
-                                    let qs = &saved[0]; let ks = &saved[1]; let vs = &saved[2];
+                                    let qs = &saved[0];
+                                    let ks = &saved[1];
+                                    let vs = &saved[2];
                                     vec![qs.mapv(|_| 0.0), ks.mapv(|_| 0.0), vs.mapv(|_| 0.0)]
                                 }),
                                 None,
-                            )
+                            );
                         }
                         Err(_) => {}
                     }
@@ -800,7 +893,11 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
     let k_data = k.data();
     let v_data = v.data();
 
-    assert_eq!(q_data.ndim(), 3, "causal_attention: q must be [batch, heads, dim]");
+    assert_eq!(
+        q_data.ndim(),
+        3,
+        "causal_attention: q must be [batch, heads, dim]"
+    );
     let _batch = q_data.shape()[0];
     let _heads = q_data.shape()[1];
     let _dim = q_data.shape()[2];
@@ -818,7 +915,12 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
         return Tensor::new(result);
     }
 
-    let saved = vec![q_data.clone(), k_data.clone(), v_data.clone(), ArrayD::from_elem(vec![1], scale)];
+    let saved = vec![
+        q_data.clone(),
+        k_data.clone(),
+        v_data.clone(),
+        ArrayD::from_elem(vec![1], scale),
+    ];
 
     Tensor::with_grad_fn(
         result,
@@ -849,7 +951,11 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                     Ok(gpu_out) => {
                         let requires_grad = input.requires_grad();
                         if !requires_grad {
-                            return Tensor::from_gpu(gpu_out, crate::tensor::next_tensor_id(), false);
+                            return Tensor::from_gpu(
+                                gpu_out,
+                                crate::tensor::next_tensor_id(),
+                                false,
+                            );
                         }
                         // For grad tracking: use elementwise backward on GPU
                         let saved = gpu_out.clone();
@@ -884,7 +990,11 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
     }
     let data = input.data();
     let shape = data.shape().to_vec();
-    assert_eq!(shape.len(), 2, "causal_softmax: input must be [seq_len, seq_len]");
+    assert_eq!(
+        shape.len(),
+        2,
+        "causal_softmax: input must be [seq_len, seq_len]"
+    );
     let seq_len = shape[0];
 
     let mut result_data = vec![0.0f32; data.len()];
@@ -904,7 +1014,8 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
             result_data[i * seq_len + j] = 0.0;
         }
     }
-    let result = ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
+    let result =
+        ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -929,7 +1040,8 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                     dx_data[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                 }
             }
-            vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data).expect("data length matches shape")]
+            vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data)
+                .expect("data length matches shape")]
         }),
     )
 }

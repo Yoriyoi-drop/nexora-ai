@@ -1,5 +1,5 @@
 //! Fixing Module
-//! 
+//!
 //! This module contains error analysis and fix generation functionality.
 
 pub mod analyzer;

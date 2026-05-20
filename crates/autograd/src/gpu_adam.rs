@@ -1,4 +1,4 @@
-use crate::gpu::{GpuContext, GpuTensor, GpuError};
+use crate::gpu::{GpuContext, GpuError, GpuTensor};
 
 pub struct GpuAdam {
     pub m: Vec<GpuTensor>,
@@ -15,11 +15,7 @@ pub struct GpuAdam {
 }
 
 impl GpuAdam {
-    pub fn new(
-        ctx: &GpuContext,
-        params: &[&GpuTensor],
-        lr: f32,
-    ) -> Result<Self, GpuError> {
+    pub fn new(ctx: &GpuContext, params: &[&GpuTensor], lr: f32) -> Result<Self, GpuError> {
         let m = params
             .iter()
             .map(|p| GpuTensor::zeros(&p.shape()))
@@ -61,29 +57,27 @@ impl GpuAdam {
         if self.pipeline.is_some() {
             return;
         }
-        let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("adam_shader"),
-            source: wgpu::ShaderSource::Wgsl(ADAM_WGSL.into()),
-        });
-        let pipeline = ctx.device.create_compute_pipeline(
-            &wgpu::ComputePipelineDescriptor {
+        let shader = ctx
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("adam_shader"),
+                source: wgpu::ShaderSource::Wgsl(ADAM_WGSL.into()),
+            });
+        let pipeline = ctx
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("adam_step"),
                 layout: None,
                 module: &shader,
                 entry_point: Some("main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 cache: None,
-            },
-        );
+            });
         self.pipeline = Some(pipeline);
     }
 
     /// Zero out gradients on GPU (fill parameter buffers with 0).
-    pub fn zero_grad(
-        &self,
-        ctx: &GpuContext,
-        grads: &[&GpuTensor],
-    ) -> Result<(), GpuError> {
+    pub fn zero_grad(&self, ctx: &GpuContext, grads: &[&GpuTensor]) -> Result<(), GpuError> {
         for g in grads {
             ctx.fill_zero(g)?;
         }
@@ -153,11 +147,8 @@ impl GpuAdam {
                 bias_corr2,
                 self.step as f32,
             ];
-            ctx.queue.write_buffer(
-                &self.config_bufs[i],
-                0,
-                bytemuck::cast_slice(&cfg),
-            );
+            ctx.queue
+                .write_buffer(&self.config_bufs[i], 0, bytemuck::cast_slice(&cfg));
 
             let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(&format!("adam_bg_{}", i)),
@@ -187,11 +178,11 @@ impl GpuAdam {
             });
 
             let wg = (numel as u32 + 255) / 256;
-            let mut encoder = ctx.device.create_command_encoder(
-                &wgpu::CommandEncoderDescriptor {
+            let mut encoder = ctx
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some(&format!("adam_encoder_{}", i)),
-                },
-            );
+                });
             {
                 let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(&format!("adam_step_{}", i)),

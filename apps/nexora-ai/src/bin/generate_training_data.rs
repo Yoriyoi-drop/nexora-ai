@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arrow::array::{StringArray, RecordBatch};
+use arrow::array::{RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::writer::FileWriter;
 
@@ -139,11 +139,10 @@ fn main() {
 
     std::fs::create_dir_all(&output_dir).expect("failed to create output dir");
 
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("text", DataType::Utf8, false),
-    ]));
+    let schema = Arc::new(Schema::new(vec![Field::new("text", DataType::Utf8, false)]));
 
-    let avg_sample_bytes = SAMPLE_TEXTS.iter().map(|t| t.len() as u64).sum::<u64>() / SAMPLE_TEXTS.len() as u64;
+    let avg_sample_bytes =
+        SAMPLE_TEXTS.iter().map(|t| t.len() as u64).sum::<u64>() / SAMPLE_TEXTS.len() as u64;
     let rows_per_shard = if small {
         1000
     } else {
@@ -156,8 +155,15 @@ fn main() {
         vec![("train", 1.0)]
     };
 
-    let total_shards: usize = splits.iter()
-        .map(|&(_, ratio)| if with_splits { (num_shards as f64 * ratio).ceil() as usize } else { num_shards })
+    let total_shards: usize = splits
+        .iter()
+        .map(|&(_, ratio)| {
+            if with_splits {
+                (num_shards as f64 * ratio).ceil() as usize
+            } else {
+                num_shards
+            }
+        })
         .sum();
     let mut shard_infos: Vec<serde_json::Value> = Vec::with_capacity(total_shards);
     let mut total_rows_all: u64 = 0;
@@ -178,7 +184,8 @@ fn main() {
         for shard_idx in 0..split_shards {
             let shard_path = split_dir.join(format!("shard-{:04}.arrow", shard_idx));
             let file = std::fs::File::create(&shard_path).expect("failed to create shard file");
-            let mut writer = FileWriter::try_new(file, &schema).expect("failed to create arrow writer");
+            let mut writer =
+                FileWriter::try_new(file, &schema).expect("failed to create arrow writer");
 
             let mut rows_written = 0;
             while rows_written < actual_rows_per_shard {
@@ -186,30 +193,44 @@ fn main() {
                 let mut texts = Vec::with_capacity(batch_size);
 
                 for i in 0..batch_size {
-                    let idx = (shard_idx * actual_rows_per_shard + rows_written + i) % SAMPLE_TEXTS.len();
+                    let idx =
+                        (shard_idx * actual_rows_per_shard + rows_written + i) % SAMPLE_TEXTS.len();
                     let base = SAMPLE_TEXTS[idx];
-                    let text = format!("{} [split={}, shard={:04}, row={}]", base, split_name, shard_idx, rows_written + i);
+                    let text = format!(
+                        "{} [split={}, shard={:04}, row={}]",
+                        base,
+                        split_name,
+                        shard_idx,
+                        rows_written + i
+                    );
                     texts.push(text);
                 }
 
                 let text_array = StringArray::from(texts);
-                let batch = RecordBatch::try_new(
-                    schema.clone(),
-                    vec![Arc::new(text_array)],
-                ).expect("failed to create record batch");
+                let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(text_array)])
+                    .expect("failed to create record batch");
 
                 writer.write(&batch).expect("failed to write batch");
                 rows_written += batch_size;
 
-                if rows_written % (ROWS_PER_BATCH * 10) == 0 || rows_written >= actual_rows_per_shard {
+                if rows_written % (ROWS_PER_BATCH * 10) == 0
+                    || rows_written >= actual_rows_per_shard
+                {
                     let pct = rows_written as f64 / actual_rows_per_shard as f64 * 100.0;
-                    eprintln!("  {} shard {:04}: {}/{} rows ({:.0}%)", split_name, shard_idx, rows_written, actual_rows_per_shard, pct);
+                    eprintln!(
+                        "  {} shard {:04}: {}/{} rows ({:.0}%)",
+                        split_name, shard_idx, rows_written, actual_rows_per_shard, pct
+                    );
                 }
             }
 
             writer.finish().expect("failed to finalize arrow file");
             let file_size = std::fs::metadata(&shard_path).map(|m| m.len()).unwrap_or(0);
-            eprintln!("  -> {} written ({:.2} MB)", shard_path.display(), file_size as f64 / 1024.0 / 1024.0);
+            eprintln!(
+                "  -> {} written ({:.2} MB)",
+                shard_path.display(),
+                file_size as f64 / 1024.0 / 1024.0
+            );
 
             total_rows_all += rows_written as u64;
 
@@ -248,9 +269,17 @@ fn main() {
     });
 
     let manifest_path = output_dir.join("manifest.json");
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).expect("serialize manifest"))
-        .expect("failed to write manifest.json");
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+    )
+    .expect("failed to write manifest.json");
     eprintln!("\n  -> {} written", manifest_path.display());
-    eprintln!("\nDone! Dataset directory: {} ({} samples, {} shards)", output_dir.display(), total_rows_all, shard_infos.len());
+    eprintln!(
+        "\nDone! Dataset directory: {} ({} samples, {} shards)",
+        output_dir.display(),
+        total_rows_all,
+        shard_infos.len()
+    );
     println!("{}", output_dir.display());
 }

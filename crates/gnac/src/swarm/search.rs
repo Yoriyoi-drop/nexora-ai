@@ -1,9 +1,9 @@
+use crate::canvas::{GraphNode, NeuralGraph};
+use crate::swarm::{objective, SwarmConfig};
 use crate::DLResult;
-use crate::canvas::{NeuralGraph, GraphNode};
-use crate::swarm::{SwarmConfig, objective};
 use crate::NodeType;
-use uuid::Uuid;
 use rand::Rng;
+use uuid::Uuid;
 
 /// Search space yang dibatasi oleh constraint visual
 #[derive(Debug, Clone)]
@@ -62,7 +62,8 @@ impl SwarmAgent {
     pub fn initialize(&mut self) {
         let mut rng = rand::thread_rng();
         for _ in 0..self.config.population_size {
-            let num_nodes = rng.gen_range(self.search_space.min_nodes..=self.search_space.max_nodes.min(20));
+            let num_nodes =
+                rng.gen_range(self.search_space.min_nodes..=self.search_space.max_nodes.min(20));
             let graph = self.random_graph(num_nodes, &mut rng);
             self.population.push(graph);
         }
@@ -76,7 +77,8 @@ impl SwarmAgent {
 
         for i in 0..num_nodes {
             let node_type = self.search_space.allowed_node_types
-                [rng.gen_range(0..self.search_space.allowed_node_types.len())].clone();
+                [rng.gen_range(0..self.search_space.allowed_node_types.len())]
+            .clone();
             let node = GraphNode::new(
                 node_type,
                 &format!("node_{}", i),
@@ -93,14 +95,18 @@ impl SwarmAgent {
     }
 
     /// Jalankan evolutionary search
-    pub fn evolve(&mut self, validation_accuracy: &dyn Fn(&NeuralGraph) -> f32) -> DLResult<NeuralGraph> {
+    pub fn evolve(
+        &mut self,
+        validation_accuracy: &dyn Fn(&NeuralGraph) -> f32,
+    ) -> DLResult<NeuralGraph> {
         if self.population.is_empty() {
             self.initialize();
         }
 
         for _iteration in 0..self.config.max_iterations {
             // Evaluasi fitness
-            self.fitness_scores = self.population
+            self.fitness_scores = self
+                .population
                 .iter()
                 .map(|g| {
                     let acc = validation_accuracy(g);
@@ -131,7 +137,8 @@ impl SwarmAgent {
         }
 
         // Return individu terbaik
-        let best_idx = self.fitness_scores
+        let best_idx = self
+            .fitness_scores
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
@@ -142,11 +149,19 @@ impl SwarmAgent {
     }
 
     fn selection(&self) -> Vec<NeuralGraph> {
-        let mut indexed: Vec<_> = self.population.iter().zip(self.fitness_scores.iter()).collect();
+        let mut indexed: Vec<_> = self
+            .population
+            .iter()
+            .zip(self.fitness_scores.iter())
+            .collect();
         indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
         let keep = (self.config.population_size as f32 * 0.3) as usize;
-        indexed.into_iter().take(keep).map(|(g, _)| (*g).clone()).collect()
+        indexed
+            .into_iter()
+            .take(keep)
+            .map(|(g, _)| (*g).clone())
+            .collect()
     }
 
     fn crossover(&self, rng: &mut impl Rng) -> Option<NeuralGraph> {
@@ -168,7 +183,8 @@ impl SwarmAgent {
     fn mutate(&self, graph: &mut NeuralGraph, rng: &mut impl Rng) {
         if let Some(node) = graph.nodes.values_mut().next() {
             let new_type = self.search_space.allowed_node_types
-                [rng.gen_range(0..self.search_space.allowed_node_types.len())].clone();
+                [rng.gen_range(0..self.search_space.allowed_node_types.len())]
+            .clone();
             node.node_type = new_type;
         }
     }

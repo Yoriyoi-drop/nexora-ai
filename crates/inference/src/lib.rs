@@ -1,48 +1,48 @@
 //! Nexora Inference Engine
-//! 
+//!
 //! Mesin inference utama untuk sistem Nexora AI.
 
 use std::sync::Arc;
 
 pub mod batching;
-pub mod engine;
-pub mod runtime;
-pub mod session;
-pub mod decoding;
 pub mod beam_search;
-pub mod speculative_decoding;
-pub mod sampler;
-pub mod stop_conditions;
-pub mod token_loop;
+pub mod blaa_integration;
+pub mod continuous_batching;
+pub mod decoding;
+pub mod engine;
+pub mod inference_trait;
+pub mod kv_cache;
 pub mod latency;
 pub mod metrics;
-pub mod scheduler;
-pub mod kv_cache;
-pub mod prefix_cache;
 pub mod paged_cache;
-pub mod streaming;
-pub mod blaa_integration;
-pub mod inference_trait;
+pub mod prefix_cache;
+pub mod runtime;
+pub mod sampler;
+pub mod scheduler;
 pub mod sequence_state;
-pub mod continuous_batching;
+pub mod session;
+pub mod speculative_decoding;
+pub mod stop_conditions;
+pub mod streaming;
+pub mod token_loop;
 
 // Re-export main types
-pub use engine::{InferenceEngine as InferenceEngineStruct, InferenceConfig};
+pub use beam_search::{BeamHypothesis, BeamSearchConfig};
+pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
+pub use continuous_batching::{ContinuousBatchingEngine, StepResult};
+pub use decoding::{DecodingConfig, DecodingStrategy};
+pub use engine::{InferenceConfig, InferenceEngine as InferenceEngineStruct};
 pub use inference_trait::InferenceEngine;
+pub use latency::{LatencyStats, LatencyTracker};
+pub use metrics::{InferenceMetrics, MetricsCollector};
+pub use paged_cache::{BlockTable, PagedCacheConfig, PagedCacheStats, PagedKVCache};
+pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
 pub use runtime::{InferenceRuntime, RuntimeState};
-pub use session::{InferenceSession, SessionConfig, SessionState};
-pub use decoding::{DecodingStrategy, DecodingConfig};
-pub use beam_search::{BeamSearchConfig, BeamHypothesis};
 pub use sampler::{Sampler, SamplingConfig, SamplingMethod};
+pub use sequence_state::{SeqState, Sequence};
+pub use session::{InferenceSession, SessionConfig, SessionState};
 pub use stop_conditions::{StopCondition, StopConditions};
 pub use token_loop::{TokenLoop, TokenLoopConfig};
-pub use latency::{LatencyTracker, LatencyStats};
-pub use metrics::{InferenceMetrics, MetricsCollector};
-pub use blaa_integration::{BlaaInferenceEngine, BlaaEmbeddingsEngine};
-pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
-pub use paged_cache::{PagedKVCache, PagedCacheConfig, PagedCacheStats, BlockTable};
-pub use sequence_state::{Sequence, SeqState};
-pub use continuous_batching::{ContinuousBatchingEngine, StepResult};
 
 /// Versi inference engine
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -52,37 +52,37 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum InferenceError {
     #[error("Engine not initialized: {0}")]
     EngineNotInitialized(String),
-    
+
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
-    
+
     #[error("Session not found: {0}")]
     SessionNotFound(String),
-    
+
     #[error("Model not loaded: {0}")]
     ModelNotLoaded(String),
-    
+
     #[error("Cache error: {0}")]
     CacheError(String),
-    
+
     #[error("Decoding error: {0}")]
     DecodingError(String),
-    
+
     #[error("Resource exhausted: {0}")]
     ResourceExhausted(String),
-    
+
     #[error("Timeout error: {0}")]
     TimeoutError(String),
-    
+
     #[error("Internal error: {0}")]
     InternalError(String),
-    
+
     #[error("Invalid state: {0}")]
     InvalidState(String),
-    
+
     #[error("Invalid config: {0}")]
     InvalidConfig(String),
-    
+
     #[error("Batch error: {0}")]
     BatchError(String),
 }
@@ -107,7 +107,10 @@ pub struct GeneratedToken {
     /// Token ID
     pub token_id: u32,
     /// Token text
-    #[serde(serialize_with = "serialize_arc_str", deserialize_with = "deserialize_arc_str")]
+    #[serde(
+        serialize_with = "serialize_arc_str",
+        deserialize_with = "deserialize_arc_str"
+    )]
     pub token_text: Arc<str>,
     /// Log probability
     pub log_prob: f32,
@@ -118,11 +121,16 @@ pub struct GeneratedToken {
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
-fn serialize_arc_str<S: serde::Serializer>(v: &Arc<str>, s: S) -> std::result::Result<S::Ok, S::Error> {
+fn serialize_arc_str<S: serde::Serializer>(
+    v: &Arc<str>,
+    s: S,
+) -> std::result::Result<S::Ok, S::Error> {
     s.serialize_str(v)
 }
 
-fn deserialize_arc_str<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Arc<str>, D::Error> {
+fn deserialize_arc_str<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Arc<str>, D::Error> {
     let s: String = serde::Deserialize::deserialize(d)?;
     Ok(Arc::<str>::from(s.as_ref()))
 }
@@ -240,7 +248,7 @@ impl GeneratedToken {
             metadata: std::collections::HashMap::new(),
         }
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: String, value: serde_json::Value) -> Self {
         self.metadata.insert(key, value);
@@ -256,55 +264,55 @@ impl InferenceRequest {
             ..Default::default()
         }
     }
-    
+
     /// Set model ID
     pub fn with_model(mut self, model_id: String) -> Self {
         self.model_id = model_id;
         self
     }
-    
+
     /// Set session ID
     pub fn with_session(mut self, session_id: uuid::Uuid) -> Self {
         self.session_id = Some(session_id);
         self
     }
-    
+
     /// Set max tokens
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
         self
     }
-    
+
     /// Set temperature
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
-    
+
     /// Set top-p
     pub fn with_top_p(mut self, top_p: f32) -> Self {
         self.top_p = top_p;
         self
     }
-    
+
     /// Set top-k
     pub fn with_top_k(mut self, top_k: u32) -> Self {
         self.top_k = top_k;
         self
     }
-    
+
     /// Enable streaming
     pub fn with_streaming(mut self, streaming: bool) -> Self {
         self.streaming = streaming;
         self
     }
-    
+
     /// Add stop sequence
     pub fn with_stop_sequence(mut self, stop_sequence: String) -> Self {
         self.stop_sequences.push(stop_sequence);
         self
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: String, value: serde_json::Value) -> Self {
         self.metadata.insert(key, value);
@@ -325,26 +333,26 @@ impl InferenceResponse {
             metadata: std::collections::HashMap::new(),
         }
     }
-    
+
     /// Add token
     pub fn add_token(&mut self, token: GeneratedToken) {
         self.text.push_str(&*(token.token_text));
         self.tokens.push(token);
         self.total_tokens += 1;
     }
-    
+
     /// Set finish reason
     pub fn with_finish_reason(mut self, finish_reason: FinishReason) -> Self {
         self.finish_reason = finish_reason;
         self
     }
-    
+
     /// Set inference time
     pub fn with_inference_time(mut self, inference_time_ms: u64) -> Self {
         self.inference_time_ms = inference_time_ms;
         self
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: String, value: serde_json::Value) -> Self {
         self.metadata.insert(key, value);

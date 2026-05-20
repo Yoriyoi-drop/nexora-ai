@@ -1,14 +1,14 @@
 //! Prime Creator Agent
-//! 
+//!
 //! Primary creation and system genesis leadership
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Prime Creator Agent - Primary creation and system genesis leadership
 #[derive(Debug, Clone)]
@@ -172,21 +172,25 @@ impl BaseAgent for PrimeCreatorAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "prime_creator".to_string(),
-                description: "Primary creation and system genesis leadership".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["vision_statement".to_string(), "creation_objectives".to_string()],
-                output_types: vec!["creation_strategy".to_string(), "leadership_plan".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.94,
-                    avg_latency: 4500.0,
-                    resource_usage: 0.85,
-                    reliability: 0.96,
-                },
+        vec![AgentCapability {
+            name: "prime_creator".to_string(),
+            description: "Primary creation and system genesis leadership".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "vision_statement".to_string(),
+                "creation_objectives".to_string(),
+            ],
+            output_types: vec![
+                "creation_strategy".to_string(),
+                "leadership_plan".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.94,
+                avg_latency: 4500.0,
+                resource_usage: 0.85,
+                reliability: 0.96,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -222,14 +226,23 @@ impl PrimeCreatorAgent {
         }
     }
 
-    async fn develop_creation_strategy(&self, input: &PrimeCreatorTaskInput) -> AgentResult<String> {
+    async fn develop_creation_strategy(
+        &self,
+        input: &PrimeCreatorTaskInput,
+    ) -> AgentResult<String> {
         Ok(format!("Creation strategy for vision '{}': Implement visionary creation with systematic approach, using design thinking and agile development within resource constraints", 
                  input.vision_statement))
     }
 
-    async fn create_leadership_plan(&self, input: &PrimeCreatorTaskInput) -> AgentResult<Vec<String>> {
+    async fn create_leadership_plan(
+        &self,
+        input: &PrimeCreatorTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Phase 1: Vision alignment and team empowerment for: {}", input.vision_statement),
+            format!(
+                "Phase 1: Vision alignment and team empowerment for: {}",
+                input.vision_statement
+            ),
             "Phase 2: Strategic planning and resource mobilization".to_string(),
             "Phase 3: Execution leadership and continuous improvement".to_string(),
             "Phase 4: Accountability and performance optimization".to_string(),
@@ -241,9 +254,15 @@ impl PrimeCreatorAgent {
                  input.vision_statement))
     }
 
-    async fn create_execution_roadmap(&self, input: &PrimeCreatorTaskInput) -> AgentResult<Vec<String>> {
+    async fn create_execution_roadmap(
+        &self,
+        input: &PrimeCreatorTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Q1: Foundation setup and team formation for: {}", input.vision_statement),
+            format!(
+                "Q1: Foundation setup and team formation for: {}",
+                input.vision_statement
+            ),
             "Q2: Core development and initial implementation".to_string(),
             "Q3: Scaling and optimization".to_string(),
             "Q4: Launch and continuous improvement".to_string(),
@@ -267,13 +286,16 @@ mod tests {
         let agent = PrimeCreatorAgent::default();
         let input = PrimeCreatorTaskInput {
             vision_statement: "Create innovative AI platform".to_string(),
-            creation_objectives: vec!["Develop core AI engine".to_string(), "Build user interface".to_string()],
+            creation_objectives: vec![
+                "Develop core AI engine".to_string(),
+                "Build user interface".to_string(),
+            ],
             resource_constraints: vec!["Limited budget".to_string(), "Small team".to_string()],
         };
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.creation_strategy.is_empty());
         assert!(!output.leadership_plan.is_empty());

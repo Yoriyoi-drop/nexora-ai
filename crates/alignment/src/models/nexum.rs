@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use nexora_shared::base_model::{
-    GenerationMetadata, NxrInput, NxrModel, NxrModelError, NxrOutput, NxrStreamChunk,
-    OutputData, PerformanceMetrics, ResourceUsage, ValidationResult, ModelStatistics,
+    GenerationMetadata, ModelStatistics, NxrInput, NxrModel, NxrModelError, NxrOutput,
+    NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, ValidationResult,
 };
 use nexora_shared::capability_spec::CapabilityVector;
 use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};

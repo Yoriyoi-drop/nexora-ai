@@ -2,8 +2,8 @@
 //!
 //! Individual agent implementations for code analysis and debugging
 
-use nexora_shared::base_model::NxrModelResult;
 use super::{BugHypothesis, DesignPattern, PatternType};
+use nexora_shared::base_model::NxrModelResult;
 
 /// Code Sentinel Agent - Code review and quality enforcement
 pub struct CodeSentinelAgent;
@@ -38,8 +38,9 @@ impl CodeSentinelAgent {
 
     fn estimate_complexity(&self, code: &str) -> f32 {
         let lines = code.lines().count();
-        let cyclomatic =
-            code.matches("if ").count() + code.matches("for ").count() + code.matches("while ").count();
+        let cyclomatic = code.matches("if ").count()
+            + code.matches("for ").count()
+            + code.matches("while ").count();
         (lines as f32 + cyclomatic as f32 * 2.0) / 100.0
     }
 }
@@ -103,7 +104,10 @@ impl TestForgeAgent {
     /// Generate test code from source code
     pub async fn generate_tests(&self, code: &str) -> NxrModelResult<String> {
         let lines: Vec<&str> = code.lines().collect();
-        let mut tests = format!("// Generated tests for ({} lines of code):\n\n", lines.len());
+        let mut tests = format!(
+            "// Generated tests for ({} lines of code):\n\n",
+            lines.len()
+        );
 
         for (i, line) in lines.iter().enumerate() {
             if line.contains("fn ") {

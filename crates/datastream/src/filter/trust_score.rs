@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use url::Url;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction, TrustScoreMap, SourceCategory};
+use crate::types::{DataSample, FilterAction, FilterResult, SourceCategory, TrustScoreMap};
 
 #[derive(Debug, Clone)]
 pub struct TrustScoreFilter {
@@ -23,7 +23,10 @@ impl Default for TrustScoreFilter {
 
 impl TrustScoreFilter {
     pub fn new(min_trust: f64) -> Self {
-        Self { min_trust, ..Default::default() }
+        Self {
+            min_trust,
+            ..Default::default()
+        }
     }
 
     fn source_trust(&self, source: &str) -> f64 {
@@ -36,7 +39,10 @@ impl TrustScoreFilter {
                 if let Some(score) = self.sources.0.get(host) {
                     return *score;
                 }
-                if let Some(score) = self.sources.0.iter()
+                if let Some(score) = self
+                    .sources
+                    .0
+                    .iter()
                     .find(|(k, _)| host.ends_with(k.as_str()))
                     .map(|(_, v)| v)
                 {
@@ -100,8 +106,10 @@ impl Filter for TrustScoreFilter {
 
         let passed = trust_score >= self.min_trust;
         let reason = if !passed {
-            Some(format!("low_trust: {:.2} < min={:.2} (source={}, category={:?})",
-                trust_score, self.min_trust, sample.source.name, sample.source.category))
+            Some(format!(
+                "low_trust: {:.2} < min={:.2} (source={}, category={:?})",
+                trust_score, self.min_trust, sample.source.name, sample.source.category
+            ))
         } else {
             None
         };

@@ -1,6 +1,6 @@
 //! Type definitions for HAS-MoE-FFN
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Expert output type
 #[derive(Debug, Clone, Serialize, Deserialize)]

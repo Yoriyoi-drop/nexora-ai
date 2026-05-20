@@ -1,23 +1,23 @@
 //! Model Serving
-//! 
+//!
 //! Model serving and inference coordination
 
 pub mod unified_api;
 
 use anyhow::Result;
 use axum::{
-    Router,
-    routing::{get, post},
-    response::Json,
     extract::State,
     http::StatusCode,
+    response::Json,
+    routing::{get, post},
+    Router,
 };
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 /// Model serving configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,40 +100,40 @@ impl ModelServer {
     pub fn new(config: ServingConfig) -> Self {
         Self { config }
     }
-    
+
     pub async fn start(&self) -> Result<()> {
         let addr = format!("{}:{}", self.config.host, self.config.port);
         info!("Starting model server on {}", addr);
-        
+
         let app_state = Arc::new(AppState {
             config: self.config.clone(),
             server_state: ServerState::new(),
             semaphore: Semaphore::new(self.config.max_concurrent_requests),
         });
-        
+
         let app = Router::new()
             .route("/health", get(health_handler))
             .route("/infer", post(infer_handler))
             .route("/v1/chat/completions", post(openai_chat_handler))
             .with_state(app_state);
-        
+
         let listener = TcpListener::bind(&addr).await?;
         info!("Model server listening on {}", addr);
-        
-        axum::serve(listener, app)
-            .await?;
-        
+
+        axum::serve(listener, app).await?;
+
         Ok(())
     }
 }
 
 /// Health check endpoint
-async fn health_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<HealthResponse> {
+async fn health_handler(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let uptime = state.server_state.started_at.elapsed().as_secs();
-    let active = state.server_state.request_count.load(std::sync::atomic::Ordering::Relaxed);
-    
+    let active = state
+        .server_state
+        .request_count
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     Json(HealthResponse {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION"),
@@ -148,9 +148,15 @@ async fn infer_handler(
     Json(req): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, (StatusCode, String)> {
     let _permit = state.semaphore.acquire().await.map_err(|_| {
-        (StatusCode::SERVICE_UNAVAILABLE, "Too many concurrent requests".to_string())
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many concurrent requests".to_string(),
+        )
     })?;
-    state.server_state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let config = state.config.clone();
 
@@ -161,11 +167,18 @@ async fn infer_handler(
             return Err("Empty prompt".to_string());
         }
 
-        let generated_text = format!("Response from model '{}' to: {}", req.model_id, &req.prompt[..req.prompt.len().min(50)]);
+        let generated_text = format!(
+            "Response from model '{}' to: {}",
+            req.model_id,
+            &req.prompt[..req.prompt.len().min(50)]
+        );
         let tokens_generated = generated_text.len() / 4;
         let inference_time_ms = start.elapsed().as_millis() as u64;
 
-        info!("Inference completed for model '{}' in {}ms", req.model_id, inference_time_ms);
+        info!(
+            "Inference completed for model '{}' in {}ms",
+            req.model_id, inference_time_ms
+        );
 
         Ok(Json(InferenceResponse {
             generated_text,
@@ -174,12 +187,12 @@ async fn infer_handler(
         }))
     };
 
-    let result = tokio::time::timeout(
-        Duration::from_millis(config.request_timeout_ms),
-        body,
-    ).await;
+    let result = tokio::time::timeout(Duration::from_millis(config.request_timeout_ms), body).await;
 
-    state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
     match result {
         Ok(Ok(resp)) => Ok(resp),
@@ -187,7 +200,7 @@ async fn infer_handler(
         Err(e) => {
             warn!("Inference handler join error: {:?}", e);
             Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()))
-        },
+        }
     }
 }
 
@@ -197,17 +210,34 @@ async fn openai_chat_handler(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let _permit = state.semaphore.acquire().await.map_err(|_| {
-        (StatusCode::SERVICE_UNAVAILABLE, "Too many concurrent requests".to_string())
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many concurrent requests".to_string(),
+        )
     })?;
-    state.server_state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let config = state.config.clone();
 
     let body_future = async move {
-        let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-        let messages = body.get("messages").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let model = body
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let messages = body
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
 
-        info!("Chat completion request for model '{}' with {} messages", model, messages);
+        info!(
+            "Chat completion request for model '{}' with {} messages",
+            model, messages
+        );
 
         let created = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -240,9 +270,13 @@ async fn openai_chat_handler(
     let result = tokio::time::timeout(
         Duration::from_millis(config.request_timeout_ms),
         body_future,
-    ).await;
+    )
+    .await;
 
-    state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
     match result {
         Ok(Ok(resp)) => Ok(resp),
@@ -250,6 +284,6 @@ async fn openai_chat_handler(
         Err(e) => {
             warn!("OpenAI chat handler join error: {:?}", e);
             Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()))
-        },
+        }
     }
 }

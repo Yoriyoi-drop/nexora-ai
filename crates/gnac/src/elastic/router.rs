@@ -29,9 +29,7 @@ impl ElasticRouter {
                 }
                 path
             }
-            ElasticStrategy::HighPrecision => {
-                graph.topological_order().unwrap_or_default()
-            }
+            ElasticStrategy::HighPrecision => graph.topological_order().unwrap_or_default(),
             ElasticStrategy::Balanced => {
                 if input_complexity > self.complexity_thresholds[1] {
                     graph.topological_order().unwrap_or_default()
@@ -49,6 +47,11 @@ impl ElasticRouter {
     }
 
     fn is_expensive(node_type: &crate::NodeType) -> bool {
-        matches!(node_type, crate::NodeType::SelfAttention | crate::NodeType::MultiHeadAttention | crate::NodeType::FlashAttention)
+        matches!(
+            node_type,
+            crate::NodeType::SelfAttention
+                | crate::NodeType::MultiHeadAttention
+                | crate::NodeType::FlashAttention
+        )
     }
 }

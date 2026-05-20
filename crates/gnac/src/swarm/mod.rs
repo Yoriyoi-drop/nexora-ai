@@ -7,14 +7,13 @@
 //!
 //! Objective: J(A) = α·Acc(A) − β·Latency(A) − γ·Memory(A) − δ·Energy(A)
 
-pub mod search;
-pub mod pruning;
 pub mod objective;
+pub mod pruning;
+pub mod search;
 
-pub use search::*;
-pub use pruning::*;
 pub use objective::*;
-
+pub use pruning::*;
+pub use search::*;
 
 /// Konfigurasi Swarm Agent
 #[derive(Debug, Clone)]

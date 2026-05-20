@@ -1,9 +1,12 @@
 //! NXR-OMNIS Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-OMNIS
 
+use nexora_shared::{
+    deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig,
+    model_config::NxrModelConfig,
+};
 use serde::{Deserialize, Serialize};
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-OMNIS Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -721,11 +724,15 @@ impl OmnisConfig {
         }
 
         // Validate agent configurations
-        if self.agents.oracle_7.confidence_threshold < 0.0 || self.agents.oracle_7.confidence_threshold > 1.0 {
+        if self.agents.oracle_7.confidence_threshold < 0.0
+            || self.agents.oracle_7.confidence_threshold > 1.0
+        {
             return Err("oracle_7 confidence_threshold must be between 0.0 and 1.0".to_string());
         }
 
-        if self.agents.synth_prime.quality_threshold < 0.0 || self.agents.synth_prime.quality_threshold > 1.0 {
+        if self.agents.synth_prime.quality_threshold < 0.0
+            || self.agents.synth_prime.quality_threshold > 1.0
+        {
             return Err("synth_prime quality_threshold must be between 0.0 and 1.0".to_string());
         }
 
@@ -739,8 +746,12 @@ impl OmnisConfig {
         }
 
         // Validate truth arbitration configuration
-        if self.truth_arbitration.confidence_threshold < 0.0 || self.truth_arbitration.confidence_threshold > 1.0 {
-            return Err("truth_arbitration confidence_threshold must be between 0.0 and 1.0".to_string());
+        if self.truth_arbitration.confidence_threshold < 0.0
+            || self.truth_arbitration.confidence_threshold > 1.0
+        {
+            return Err(
+                "truth_arbitration confidence_threshold must be between 0.0 and 1.0".to_string(),
+            );
         }
 
         Ok(())
@@ -750,11 +761,21 @@ impl OmnisConfig {
     pub fn get_agent_config(&self, agent_name: &str) -> Option<serde_json::Value> {
         match agent_name {
             "oracle_7" => Some(serde_json::to_value(&self.agents.oracle_7).unwrap_or_default()),
-            "synth_prime" => Some(serde_json::to_value(&self.agents.synth_prime).unwrap_or_default()),
-            "meta_reasoner" => Some(serde_json::to_value(&self.agents.meta_reasoner).unwrap_or_default()),
-            "world_model_x" => Some(serde_json::to_value(&self.agents.world_model_x).unwrap_or_default()),
-            "truth_arbiter" => Some(serde_json::to_value(&self.agents.truth_arbiter).unwrap_or_default()),
-            "chain_executor" => Some(serde_json::to_value(&self.agents.chain_executor).unwrap_or_default()),
+            "synth_prime" => {
+                Some(serde_json::to_value(&self.agents.synth_prime).unwrap_or_default())
+            }
+            "meta_reasoner" => {
+                Some(serde_json::to_value(&self.agents.meta_reasoner).unwrap_or_default())
+            }
+            "world_model_x" => {
+                Some(serde_json::to_value(&self.agents.world_model_x).unwrap_or_default())
+            }
+            "truth_arbiter" => {
+                Some(serde_json::to_value(&self.agents.truth_arbiter).unwrap_or_default())
+            }
+            "chain_executor" => {
+                Some(serde_json::to_value(&self.agents.chain_executor).unwrap_or_default())
+            }
             _ => None,
         }
     }

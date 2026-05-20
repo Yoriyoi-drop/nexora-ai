@@ -1,14 +1,14 @@
 //! Genesis Prime Agent
-//! 
+//!
 //! Origin creation and foundational system design
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Genesis Prime Agent - Origin creation and foundational system design
 #[derive(Debug, Clone)]
@@ -163,21 +163,22 @@ impl BaseAgent for GenesisPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "genesis_prime".to_string(),
-                description: "Origin creation and foundational system design".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["system_purpose".to_string(), "requirements".to_string()],
-                output_types: vec!["foundation_design".to_string(), "architecture_blueprint".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.92,
-                    avg_latency: 4000.0,
-                    resource_usage: 0.8,
-                    reliability: 0.94,
-                },
+        vec![AgentCapability {
+            name: "genesis_prime".to_string(),
+            description: "Origin creation and foundational system design".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["system_purpose".to_string(), "requirements".to_string()],
+            output_types: vec![
+                "foundation_design".to_string(),
+                "architecture_blueprint".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.92,
+                avg_latency: 4000.0,
+                resource_usage: 0.8,
+                reliability: 0.94,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -217,11 +218,17 @@ impl GenesisPrimeAgent {
         Ok(format!("Foundation design for system purpose '{}': Modular architecture with clear separation of concerns and scalable components", input.system_purpose))
     }
 
-    async fn generate_architecture_blueprint(&self, input: &GenesisPrimeTaskInput) -> AgentResult<String> {
+    async fn generate_architecture_blueprint(
+        &self,
+        input: &GenesisPrimeTaskInput,
+    ) -> AgentResult<String> {
         Ok(format!("Architecture blueprint for '{}': Microservices-based architecture with event-driven communication and CQRS patterns", input.system_purpose))
     }
 
-    async fn define_component_specifications(&self, _input: &GenesisPrimeTaskInput) -> AgentResult<Vec<String>> {
+    async fn define_component_specifications(
+        &self,
+        _input: &GenesisPrimeTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             "Core Service: Handles business logic and data management".to_string(),
             "API Gateway: Manages external communication and routing".to_string(),
@@ -229,7 +236,10 @@ impl GenesisPrimeAgent {
         ])
     }
 
-    async fn create_evolution_roadmap(&self, _input: &GenesisPrimeTaskInput) -> AgentResult<Vec<String>> {
+    async fn create_evolution_roadmap(
+        &self,
+        _input: &GenesisPrimeTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             "Phase 1: Core infrastructure implementation".to_string(),
             "Phase 2: Service integration and testing".to_string(),
@@ -260,7 +270,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.foundation_design.is_empty());
         assert!(!output.architecture_blueprint.is_empty());

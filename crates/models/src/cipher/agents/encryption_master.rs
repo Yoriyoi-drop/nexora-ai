@@ -1,14 +1,14 @@
 //! Encryption Master Agent
-//! 
+//!
 //! Advanced encryption and data protection
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Encryption Master Agent - Advanced encryption and data protection
 #[derive(Debug, Clone)]
@@ -165,21 +165,25 @@ impl BaseAgent for EncryptionMasterAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "encryption_master".to_string(),
-                description: "Advanced encryption and data protection".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["protection_request".to_string(), "data_to_protect".to_string()],
-                output_types: vec!["protected_data".to_string(), "encryption_metadata".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.99,
-                    avg_latency: 3500.0,
-                    resource_usage: 0.88,
-                    reliability: 0.99,
-                },
+        vec![AgentCapability {
+            name: "encryption_master".to_string(),
+            description: "Advanced encryption and data protection".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "protection_request".to_string(),
+                "data_to_protect".to_string(),
+            ],
+            output_types: vec![
+                "protected_data".to_string(),
+                "encryption_metadata".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.99,
+                avg_latency: 3500.0,
+                resource_usage: 0.88,
+                reliability: 0.99,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -217,14 +221,27 @@ impl EncryptionMasterAgent {
 
     async fn protect_data(&self, input: &EncryptionMasterTaskInput) -> AgentResult<Vec<u8>> {
         match input.protection_request.as_str() {
-            "encrypt" => self.encrypt_data(&input.data_to_protect, &input.encryption_parameters).await,
-            "sign" => self.sign_data(&input.data_to_protect, &input.encryption_parameters).await,
-            "seal" => self.seal_data(&input.data_to_protect, &input.encryption_parameters).await,
+            "encrypt" => {
+                self.encrypt_data(&input.data_to_protect, &input.encryption_parameters)
+                    .await
+            }
+            "sign" => {
+                self.sign_data(&input.data_to_protect, &input.encryption_parameters)
+                    .await
+            }
+            "seal" => {
+                self.seal_data(&input.data_to_protect, &input.encryption_parameters)
+                    .await
+            }
             _ => Ok(input.data_to_protect.clone()),
         }
     }
 
-    async fn encrypt_data(&self, data: &[u8], _params: &HashMap<String, String>) -> AgentResult<Vec<u8>> {
+    async fn encrypt_data(
+        &self,
+        data: &[u8],
+        _params: &HashMap<String, String>,
+    ) -> AgentResult<Vec<u8>> {
         // Simple XOR encryption for demonstration
         let key = 0xAB;
         let mut encrypted = Vec::with_capacity(data.len());
@@ -234,7 +251,11 @@ impl EncryptionMasterAgent {
         Ok(encrypted)
     }
 
-    async fn sign_data(&self, data: &[u8], _params: &HashMap<String, String>) -> AgentResult<Vec<u8>> {
+    async fn sign_data(
+        &self,
+        data: &[u8],
+        _params: &HashMap<String, String>,
+    ) -> AgentResult<Vec<u8>> {
         // Simple signature for demonstration
         let mut hash = 0u64;
         for &byte in data {
@@ -243,57 +264,101 @@ impl EncryptionMasterAgent {
         Ok(hash.to_le_bytes().to_vec())
     }
 
-    async fn seal_data(&self, data: &[u8], params: &HashMap<String, String>) -> AgentResult<Vec<u8>> {
+    async fn seal_data(
+        &self,
+        data: &[u8],
+        params: &HashMap<String, String>,
+    ) -> AgentResult<Vec<u8>> {
         // Combine encryption and signing for demonstration
         let encrypted = self.encrypt_data(data, params).await?;
         let signature = self.sign_data(data, params).await?;
-        
+
         let mut sealed = Vec::new();
         sealed.extend_from_slice(&(encrypted.len() as u32).to_le_bytes());
         sealed.extend_from_slice(&encrypted);
         sealed.extend_from_slice(&signature);
-        
+
         Ok(sealed)
     }
 
-    async fn generate_encryption_metadata(&self, input: &EncryptionMasterTaskInput) -> AgentResult<HashMap<String, String>> {
+    async fn generate_encryption_metadata(
+        &self,
+        input: &EncryptionMasterTaskInput,
+    ) -> AgentResult<HashMap<String, String>> {
         let mut metadata = HashMap::new();
-        
-        metadata.insert("protection_request".to_string(), input.protection_request.clone());
+
+        metadata.insert(
+            "protection_request".to_string(),
+            input.protection_request.clone(),
+        );
         metadata.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
-        metadata.insert("data_size".to_string(), input.data_to_protect.len().to_string());
-        metadata.insert("encryption_model".to_string(), "HybridEncryption".to_string());
-        metadata.insert("protection_approach".to_string(), "EndToEndProtection".to_string());
-        
+        metadata.insert(
+            "data_size".to_string(),
+            input.data_to_protect.len().to_string(),
+        );
+        metadata.insert(
+            "encryption_model".to_string(),
+            "HybridEncryption".to_string(),
+        );
+        metadata.insert(
+            "protection_approach".to_string(),
+            "EndToEndProtection".to_string(),
+        );
+
         if input.encryption_parameters.contains_key("algorithm") {
-            metadata.insert("algorithm".to_string(), 
-                input.encryption_parameters.get("algorithm").expect("algorithm key exists").clone());
+            metadata.insert(
+                "algorithm".to_string(),
+                input
+                    .encryption_parameters
+                    .get("algorithm")
+                    .expect("algorithm key exists")
+                    .clone(),
+            );
         }
-        
+
         Ok(metadata)
     }
 
-    async fn create_access_controls(&self, input: &EncryptionMasterTaskInput) -> AgentResult<Vec<String>> {
+    async fn create_access_controls(
+        &self,
+        input: &EncryptionMasterTaskInput,
+    ) -> AgentResult<Vec<String>> {
         let mut controls = Vec::new();
-        
+
         controls.push(format!("Access control for: {}", input.protection_request));
         controls.push("Require authentication for data access".to_string());
         controls.push("Implement role-based access control".to_string());
         controls.push("Log all access attempts".to_string());
-        
+
         if input.encryption_parameters.contains_key("access_level") {
-            controls.push(format!("Access level: {}", 
-                input.encryption_parameters.get("access_level").expect("access_level key exists")));
+            controls.push(format!(
+                "Access level: {}",
+                input
+                    .encryption_parameters
+                    .get("access_level")
+                    .expect("access_level key exists")
+            ));
         }
-        
+
         Ok(controls)
     }
 
-    async fn calculate_protection_level(&self, input: &EncryptionMasterTaskInput) -> AgentResult<f32> {
+    async fn calculate_protection_level(
+        &self,
+        input: &EncryptionMasterTaskInput,
+    ) -> AgentResult<f32> {
         let base_protection: f32 = 0.85;
-        let parameter_bonus: f32 = if input.encryption_parameters.len() > 0 { 0.1 } else { 0.0 };
-        let data_size_factor: f32 = if input.data_to_protect.len() > 100 { 0.05 } else { 0.0 };
-        
+        let parameter_bonus: f32 = if input.encryption_parameters.len() > 0 {
+            0.1
+        } else {
+            0.0
+        };
+        let data_size_factor: f32 = if input.data_to_protect.len() > 100 {
+            0.05
+        } else {
+            0.0
+        };
+
         Ok((base_protection + parameter_bonus + data_size_factor).min(1.0))
     }
 }
@@ -323,7 +388,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.protected_data.is_empty());
         assert!(!output.encryption_metadata.is_empty());
@@ -342,7 +407,7 @@ mod tests {
 
         let result = agent.process(input).await.unwrap();
         assert!(!result.protected_data.is_empty());
-        
+
         // Verify sealed data structure: [4 bytes length][encrypted data][8 bytes signature]
         assert!(result.protected_data.len() > 12); // At least 4 + 1 + 8 bytes
     }
@@ -350,25 +415,29 @@ mod tests {
     #[tokio::test]
     async fn test_protection_level_calculation() {
         let agent = EncryptionMasterAgent::default();
-        
+
         let input_with_params = EncryptionMasterTaskInput {
             protection_request: "encrypt".to_string(),
             data_to_protect: vec![0u8; 200], // Large data
-            encryption_parameters: HashMap::from([
-                ("algorithm".to_string(), "aes".to_string()),
-            ]),
+            encryption_parameters: HashMap::from([("algorithm".to_string(), "aes".to_string())]),
         };
-        
-        let level = agent.calculate_protection_level(&input_with_params).await.unwrap();
+
+        let level = agent
+            .calculate_protection_level(&input_with_params)
+            .await
+            .unwrap();
         assert!(level > 0.9); // Should have high protection level
-        
+
         let input_minimal = EncryptionMasterTaskInput {
             protection_request: "encrypt".to_string(),
             data_to_protect: vec![1u8, 2u8, 3u8], // Small data
             encryption_parameters: HashMap::new(),
         };
-        
-        let level_minimal = agent.calculate_protection_level(&input_minimal).await.unwrap();
+
+        let level_minimal = agent
+            .calculate_protection_level(&input_minimal)
+            .await
+            .unwrap();
         assert!(level_minimal >= 0.85); // Base protection level
     }
 }

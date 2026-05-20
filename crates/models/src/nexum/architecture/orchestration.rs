@@ -1,7 +1,7 @@
 //! Orchestration Engine - Agent orchestration and coordination
 
+use super::tasks::{AgentResourceUsage, ExecutionMonitoring, TaskDistribution};
 use std::collections::HashMap;
-use super::tasks::{TaskDistribution, ExecutionMonitoring, AgentResourceUsage};
 
 /// Orchestration Engine
 #[derive(Debug, Clone)]
@@ -28,7 +28,10 @@ pub enum OrchestrationMode {
     /// Hierarchical orchestration
     Hierarchical,
     /// Hybrid orchestration
-    Hybrid { centralized_weight: f32, distributed_weight: f32 },
+    Hybrid {
+        centralized_weight: f32,
+        distributed_weight: f32,
+    },
     /// Adaptive orchestration
     Adaptive,
     /// Swarm orchestration
@@ -130,7 +133,13 @@ impl From<nexum_config::OrchestrationMode> for OrchestrationMode {
             nexum_config::OrchestrationMode::Centralized => Self::Centralized,
             nexum_config::OrchestrationMode::Distributed => Self::Distributed,
             nexum_config::OrchestrationMode::Hierarchical => Self::Hierarchical,
-            nexum_config::OrchestrationMode::Hybrid { centralized_weight, distributed_weight } => Self::Hybrid { centralized_weight, distributed_weight },
+            nexum_config::OrchestrationMode::Hybrid {
+                centralized_weight,
+                distributed_weight,
+            } => Self::Hybrid {
+                centralized_weight,
+                distributed_weight,
+            },
             nexum_config::OrchestrationMode::Adaptive => Self::Adaptive,
             nexum_config::OrchestrationMode::Swarm => Self::Swarm,
             nexum_config::OrchestrationMode::Synchronous => Self::Centralized,

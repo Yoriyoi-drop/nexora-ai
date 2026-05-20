@@ -1,5 +1,5 @@
 // Foundation Alignment Framework (SPARO)
-// 
+//
 // Advanced AI alignment and safety system.
 // Safety and Performance Alignment through Reinforcement Optimization (SPARO) framework
 // untuk advanced AI alignment, safety, dan performance optimization.
@@ -12,8 +12,8 @@ pub use sparo::*;
 
 // Integration with NXR-NEXUM
 pub mod models;
-use nexora_shared::base_model::NxrModel;
 use crate::models::nexum::NxrNexumModel;
+use nexora_shared::base_model::NxrModel;
 
 /// Enhanced SPARO with NXR-NEXUM integration
 pub struct SparoNexumIntegration {
@@ -61,18 +61,29 @@ impl SparoNexumIntegration {
 
     /// Enhanced alignment with multi-agent coordination
     /// Alignment is MANDATORY and cannot be bypassed
-    pub async fn enhanced_alignment(&self, behavior: &str, context: &str) -> Result<EnhancedAlignmentResult, Box<dyn std::error::Error>> {
+    pub async fn enhanced_alignment(
+        &self,
+        behavior: &str,
+        context: &str,
+    ) -> Result<EnhancedAlignmentResult, Box<dyn std::error::Error>> {
         let mut result = EnhancedAlignmentResult::new();
 
         // SPARO alignment analysis is MANDATORY
-        let sparo_result = self.sparo_system.align_behavior(behavior, context).await
+        let sparo_result = self
+            .sparo_system
+            .align_behavior(behavior, context)
+            .await
             .map_err(|e| format!("SPARO alignment failed: {}", e))?;
         result.sparo_alignment = Some(sparo_result);
 
         // Fail if alignment score is too low
         if let Some(ref sparo) = result.sparo_alignment {
             if sparo.alignment_score < 0.3 && self.alignment_enforced {
-                return Err(format!("Alignment gate BLOCKED: score {:.3} below minimum threshold 0.3", sparo.alignment_score).into());
+                return Err(format!(
+                    "Alignment gate BLOCKED: score {:.3} below minimum threshold 0.3",
+                    sparo.alignment_score
+                )
+                .into());
             }
         }
 
@@ -81,7 +92,10 @@ impl SparoNexumIntegration {
             let nexum_input = nexora_shared::base_model::NxrInput {
                 id: uuid::Uuid::new_v4(),
                 timestamp: chrono::Utc::now(),
-                data: nexora_shared::base_model::InputData::Text(format!("Align behavior: {} with context: {}", behavior, context)),
+                data: nexora_shared::base_model::InputData::Text(format!(
+                    "Align behavior: {} with context: {}",
+                    behavior, context
+                )),
                 parameters: std::collections::HashMap::new(),
                 metadata: std::collections::HashMap::new(),
             };
@@ -125,48 +139,54 @@ impl EnhancedAlignmentResult {
     fn combine_results(&mut self, config: &SparoNexumConfig) {
         // Combine insights from both systems
         if let Some(sparo) = &self.sparo_alignment {
-            self.combined_insights.push(format!("Alignment Score: {:.3}", sparo.alignment_score));
-            self.combined_insights.push(format!("Safety Assessment: {}", sparo.safety_level));
+            self.combined_insights
+                .push(format!("Alignment Score: {:.3}", sparo.alignment_score));
+            self.combined_insights
+                .push(format!("Safety Assessment: {}", sparo.safety_level));
         }
 
         if let Some(nexum) = &self.nexum_coordination {
             if let nexora_shared::base_model::OutputData::Text(text) = &nexum.data {
-                self.combined_insights.push(format!("Agent Coordination: {}", text));
-                
+                self.combined_insights
+                    .push(format!("Agent Coordination: {}", text));
+
                 // Generate consensus-based recommendations
                 if text.contains("consensus") && text.contains("successful") {
-                    self.consensus_recommendations.push("Proceed with multi-agent consensus approach".to_string());
+                    self.consensus_recommendations
+                        .push("Proceed with multi-agent consensus approach".to_string());
                 }
                 if text.contains("coordination") && text.contains("efficiency") {
-                    self.consensus_recommendations.push("Optimize agent coordination for better alignment".to_string());
+                    self.consensus_recommendations
+                        .push("Optimize agent coordination for better alignment".to_string());
                 }
             }
         }
 
         // Apply consensus threshold to recommendations
         if config.consensus_threshold > 0.8 {
-            self.consensus_recommendations.push("Require high consensus for alignment decisions".to_string());
+            self.consensus_recommendations
+                .push("Require high consensus for alignment decisions".to_string());
         }
     }
 
     /// Get comprehensive alignment summary
     pub fn summary(&self) -> String {
         let mut summary = String::new();
-        
+
         if !self.combined_insights.is_empty() {
             summary.push_str("Combined Alignment Insights:\n");
             for insight in &self.combined_insights {
                 summary.push_str(&format!("- {}\n", insight));
             }
         }
-        
+
         if !self.consensus_recommendations.is_empty() {
             summary.push_str("\nConsensus Recommendations:\n");
             for rec in &self.consensus_recommendations {
                 summary.push_str(&format!("- {}\n", rec));
             }
         }
-        
+
         summary
     }
 }

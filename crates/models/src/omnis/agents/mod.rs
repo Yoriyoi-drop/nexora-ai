@@ -1,16 +1,16 @@
+pub mod chain_executor_runtime;
+pub mod meta_reasoner_runtime;
 pub mod oracle7_runtime;
 pub mod synth_prime_runtime;
-pub mod meta_reasoner_runtime;
-pub mod world_model_x_runtime;
 pub mod truth_arbiter_runtime;
-pub mod chain_executor_runtime;
+pub mod world_model_x_runtime;
 
+pub use chain_executor_runtime::ChainExecutorRuntimeAgent;
+pub use meta_reasoner_runtime::MetaReasonerRuntimeAgent;
 pub use oracle7_runtime::Oracle7RuntimeAgent;
 pub use synth_prime_runtime::SynthPrimeRuntimeAgent;
-pub use meta_reasoner_runtime::MetaReasonerRuntimeAgent;
-pub use world_model_x_runtime::WorldModelRuntimeAgent;
 pub use truth_arbiter_runtime::TruthArbiterRuntimeAgent;
-pub use chain_executor_runtime::ChainExecutorRuntimeAgent;
+pub use world_model_x_runtime::WorldModelRuntimeAgent;
 
 use nexora_shared::base_model::NxrModelResult;
 

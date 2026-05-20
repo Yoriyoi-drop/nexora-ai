@@ -1,8 +1,8 @@
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
-use crate::{Storage, tensor::next_tensor_id};
+use crate::gpu::{ElemOp, GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
-use crate::gpu::{GpuContext, GpuTensor, ElemOp};
+use crate::{tensor::next_tensor_id, Storage};
 
 pub fn relu(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
@@ -29,11 +29,17 @@ pub fn relu(input: &Tensor) -> Tensor {
                             }),
                             Some(Box::new(|saved_gpu, grad_gpu, ctx| {
                                 let gpu_x = &saved_gpu[0];
-                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(gpu_x.shape(), 1.0)).unwrap();
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
+                                    gpu_x.shape(),
+                                    1.0,
+                                ))
+                                .unwrap();
                                 let mask = ctx.elementwise_unary(gpu_x, ElemOp::Relu).unwrap();
                                 let grad = ctx.elementwise_unary(grad_gpu, ElemOp::Neg).unwrap();
                                 let zeroed = ctx.add(&grad, &ones).unwrap();
-                                let valid = ctx.elementwise_binary(grad_gpu, &mask, ElemOp::Mul).unwrap();
+                                let valid = ctx
+                                    .elementwise_binary(grad_gpu, &mask, ElemOp::Mul)
+                                    .unwrap();
                                 vec![valid]
                             })),
                         );
@@ -87,7 +93,12 @@ pub fn gelu(input: &Tensor) -> Tensor {
                                     let tanh_arg = sqrt_2_over_pi * (xv + 0.044715 * x3);
                                     let t = tanh_arg.tanh();
                                     let sech2 = 1.0 - t * t;
-                                    0.5 * (1.0 + t) + 0.5 * xv * sech2 * sqrt_2_over_pi * (1.0 + 0.134145 * xv * xv)
+                                    0.5 * (1.0 + t)
+                                        + 0.5
+                                            * xv
+                                            * sech2
+                                            * sqrt_2_over_pi
+                                            * (1.0 + 0.134145 * xv * xv)
                                 });
                                 vec![grad.clone() * gelu_grad]
                             }),
@@ -229,7 +240,13 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
         }
     }
     let data = input.data();
-    let result = data.mapv(|x| if x >= 0.0 { 1.0 / (1.0 + (-x).exp()) } else { x.exp() / (1.0 + x.exp()) });
+    let result = data.mapv(|x| {
+        if x >= 0.0 {
+            1.0 / (1.0 + (-x).exp())
+        } else {
+            x.exp() / (1.0 + x.exp())
+        }
+    });
     if !input.requires_grad() {
         return Tensor::new(result);
     }
@@ -266,7 +283,13 @@ pub fn silu(input: &Tensor) -> Tensor {
                             vec![gpu_input.clone()],
                             Box::new(|grad, saved| {
                                 let x = &saved[0];
-                                let sig = x.mapv(|v| if v >= 0.0 { 1.0 / (1.0 + (-v).exp()) } else { v.exp() / (1.0 + v.exp()) });
+                                let sig = x.mapv(|v| {
+                                    if v >= 0.0 {
+                                        1.0 / (1.0 + (-v).exp())
+                                    } else {
+                                        v.exp() / (1.0 + v.exp())
+                                    }
+                                });
                                 let silu_grad = &sig + x * &sig * (1.0 - &sig);
                                 vec![grad.clone() * silu_grad]
                             }),
@@ -279,7 +302,13 @@ pub fn silu(input: &Tensor) -> Tensor {
         }
     }
     let data = input.data();
-    let result = data.mapv(|x| x * if x >= 0.0 { 1.0 / (1.0 + (-x).exp()) } else { x.exp() / (1.0 + x.exp()) });
+    let result = data.mapv(|x| {
+        x * if x >= 0.0 {
+            1.0 / (1.0 + (-x).exp())
+        } else {
+            x.exp() / (1.0 + x.exp())
+        }
+    });
     if !input.requires_grad() {
         return Tensor::new(result);
     }
@@ -290,7 +319,13 @@ pub fn silu(input: &Tensor) -> Tensor {
         vec![saved],
         Box::new(|grad, saved| {
             let x = &saved[0];
-            let sig = x.mapv(|v| if v >= 0.0 { 1.0 / (1.0 + (-v).exp()) } else { v.exp() / (1.0 + v.exp()) });
+            let sig = x.mapv(|v| {
+                if v >= 0.0 {
+                    1.0 / (1.0 + (-v).exp())
+                } else {
+                    v.exp() / (1.0 + v.exp())
+                }
+            });
             let silu_grad = &sig + x * &sig * (1.0 - &sig);
             vec![grad.clone() * silu_grad]
         }),
@@ -300,7 +335,13 @@ pub fn silu(input: &Tensor) -> Tensor {
 pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
     let gate_data = gate.data();
     let x_data = x.data();
-    let sig = gate_data.mapv(|g| if g >= 0.0 { 1.0 / (1.0 + (-g).exp()) } else { g.exp() / (1.0 + g.exp()) });
+    let sig = gate_data.mapv(|g| {
+        if g >= 0.0 {
+            1.0 / (1.0 + (-g).exp())
+        } else {
+            g.exp() / (1.0 + g.exp())
+        }
+    });
     let silu_gate = &gate_data * &sig;
     let result = &silu_gate * &x_data;
     let requires_grad = gate.requires_grad() || x.requires_grad();
@@ -315,7 +356,13 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
         Box::new(|grad, saved| {
             let g = &saved[0];
             let x_val = &saved[1];
-            let sig = g.mapv(|v| if v >= 0.0 { 1.0 / (1.0 + (-v).exp()) } else { v.exp() / (1.0 + v.exp()) });
+            let sig = g.mapv(|v| {
+                if v >= 0.0 {
+                    1.0 / (1.0 + (-v).exp())
+                } else {
+                    v.exp() / (1.0 + v.exp())
+                }
+            });
             let dsilu = &sig + g * &sig * (1.0 - &sig);
             let d_gate = grad.clone() * x_val * dsilu;
             let d_x = grad.clone() * &sig;

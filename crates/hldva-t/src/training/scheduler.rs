@@ -1,6 +1,5 @@
 //! Training Scheduler module for HLDVA-T
 
-
 /// Training Scheduler
 pub struct TrainingScheduler {
     config: SchedulerConfig,
@@ -14,7 +13,7 @@ impl TrainingScheduler {
     pub fn new(config: SchedulerConfig, dataset_size: usize) -> Self {
         let steps_per_epoch = dataset_size / config.batch_size;
         let total_steps = steps_per_epoch * config.num_epochs;
-        
+
         Self {
             config,
             current_epoch: 0,
@@ -22,26 +21,26 @@ impl TrainingScheduler {
             total_steps,
         }
     }
-    
+
     /// Check if should continue training
     pub fn should_continue(&self) -> bool {
         self.current_epoch < self.config.num_epochs
     }
-    
+
     /// Advance to next step
     pub fn step(&mut self) -> bool {
         self.current_step += 1;
-        
+
         // Check if epoch completed
         let steps_per_epoch = self.total_steps / self.config.num_epochs;
         if self.current_step % steps_per_epoch == 0 {
             self.current_epoch += 1;
             return true; // Epoch completed
         }
-        
+
         false
     }
-    
+
     /// Get current learning rate
     pub fn get_learning_rate(&self) -> f32 {
         match &self.config.lr_scheduler {
@@ -55,10 +54,14 @@ impl TrainingScheduler {
             }
             LRSchedulerType::Cosine { t_max, eta_min } => {
                 let progress = (self.current_step % t_max) as f32 / *t_max as f32;
-                eta_min + (self.config.initial_lr - eta_min) * 
-                    (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
+                eta_min
+                    + (self.config.initial_lr - eta_min)
+                        * (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
             }
-            LRSchedulerType::Warmup { warmup_steps, scheduler: _ } => {
+            LRSchedulerType::Warmup {
+                warmup_steps,
+                scheduler: _,
+            } => {
                 if self.current_step < *warmup_steps {
                     self.config.initial_lr * (self.current_step as f32 / *warmup_steps as f32)
                 } else {
@@ -68,32 +71,32 @@ impl TrainingScheduler {
             }
         }
     }
-    
+
     /// Get current epoch
     pub fn current_epoch(&self) -> usize {
         self.current_epoch
     }
-    
+
     /// Get current step
     pub fn current_step(&self) -> usize {
         self.current_step
     }
-    
+
     /// Get progress percentage
     pub fn progress(&self) -> f32 {
         self.current_step as f32 / self.total_steps as f32
     }
-    
+
     /// Check if should save checkpoint
     pub fn should_save_checkpoint(&self) -> bool {
         self.current_step % self.config.checkpoint_interval == 0
     }
-    
+
     /// Check if should validate
     pub fn should_validate(&self) -> bool {
         self.current_step % self.config.validation_interval == 0
     }
-    
+
     /// Check if should log
     pub fn should_log(&self) -> bool {
         self.current_step % self.config.log_interval == 0
@@ -115,10 +118,21 @@ pub struct SchedulerConfig {
 #[derive(Debug, Clone)]
 pub enum LRSchedulerType {
     Constant,
-    Step { step_size: usize, gamma: f32 },
-    Exponential { gamma: f32 },
-    Cosine { t_max: usize, eta_min: f32 },
-    Warmup { warmup_steps: usize, scheduler: Box<LRSchedulerType> },
+    Step {
+        step_size: usize,
+        gamma: f32,
+    },
+    Exponential {
+        gamma: f32,
+    },
+    Cosine {
+        t_max: usize,
+        eta_min: f32,
+    },
+    Warmup {
+        warmup_steps: usize,
+        scheduler: Box<LRSchedulerType>,
+    },
 }
 
 impl Default for SchedulerConfig {
@@ -155,20 +169,21 @@ impl BatchScheduler {
             performance_window: Vec::new(),
         }
     }
-    
+
     /// Update batch size based on performance
     pub fn update_batch_size(&mut self, throughput: f32, memory_usage: f32) {
         self.performance_window.push(throughput);
-        
+
         // Keep only recent performance metrics
         if self.performance_window.len() > 10 {
             self.performance_window.remove(0);
         }
-        
+
         // Adjust batch size based on memory usage and performance
         if memory_usage < self.memory_threshold && self.performance_window.len() >= 5 {
-            let _avg_throughput = self.performance_window.iter().sum::<f32>() / self.performance_window.len() as f32;
-            
+            let _avg_throughput =
+                self.performance_window.iter().sum::<f32>() / self.performance_window.len() as f32;
+
             // Try to increase batch size if performance is improving
             if self.current_batch_size < self.max_batch_size {
                 self.current_batch_size = (self.current_batch_size * 2).min(self.max_batch_size);
@@ -178,7 +193,7 @@ impl BatchScheduler {
             self.current_batch_size = (self.current_batch_size / 2).max(self.min_batch_size);
         }
     }
-    
+
     /// Get current batch size
     pub fn current_batch_size(&self) -> usize {
         self.current_batch_size
@@ -197,7 +212,7 @@ impl GradientAccumulationScheduler {
     /// Create new gradient accumulation scheduler
     pub fn new(base_batch_size: usize, target_batch_size: usize, memory_efficient: bool) -> Self {
         let accumulation_steps = target_batch_size / base_batch_size;
-        
+
         Self {
             base_batch_size,
             target_batch_size,
@@ -205,7 +220,7 @@ impl GradientAccumulationScheduler {
             memory_efficient,
         }
     }
-    
+
     /// Update accumulation steps based on memory constraints
     pub fn update_accumulation_steps(&mut self, available_memory: f32) {
         if self.memory_efficient && available_memory < 0.5 {
@@ -217,12 +232,12 @@ impl GradientAccumulationScheduler {
             self.current_accumulation_steps = (self.current_accumulation_steps * 2).min(max_steps);
         }
     }
-    
+
     /// Get current accumulation steps
     pub fn accumulation_steps(&self) -> usize {
         self.current_accumulation_steps
     }
-    
+
     /// Check if should update parameters
     pub fn should_update(&self, step: usize) -> bool {
         step % self.current_accumulation_steps == 0
@@ -247,25 +262,25 @@ impl MixedPrecisionScheduler {
             max_overflow_count: 3,
         }
     }
-    
+
     /// Handle overflow in mixed precision training
     pub fn handle_overflow(&mut self) -> bool {
         if !self.enabled {
             return false;
         }
-        
+
         self.overflow_counter += 1;
-        
+
         if self.overflow_counter >= self.max_overflow_count {
             // Reduce loss scale
             self.loss_scale /= 2.0;
             self.overflow_counter = 0;
             return true; // Loss scale was reduced
         }
-        
+
         false
     }
-    
+
     /// Update loss scale after successful step
     pub fn update_loss_scale(&mut self) {
         if self.enabled && self.overflow_counter == 0 {
@@ -273,12 +288,12 @@ impl MixedPrecisionScheduler {
             self.loss_scale *= 1.1;
         }
     }
-    
+
     /// Get current loss scale
     pub fn loss_scale(&self) -> f32 {
         self.loss_scale
     }
-    
+
     /// Check if mixed precision is enabled
     pub fn is_enabled(&self) -> bool {
         self.enabled

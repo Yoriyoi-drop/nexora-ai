@@ -1,5 +1,5 @@
 //! Task Executor Module
-//! 
+//!
 //! Provides async task execution capabilities for the runtime
 
 use crate::Result;
@@ -31,12 +31,19 @@ impl TaskExecutor {
         for attempt in 0..=retries {
             match task().await {
                 Ok(()) => {
-                    self.task_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.task_count
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     return Ok(());
                 }
                 Err(e) if attempt < retries => {
-                    tracing::warn!("Task failed (attempt {}/{}): {}", attempt + 1, retries + 1, e);
-                    tokio::time::sleep(std::time::Duration::from_millis(100 * 2u64.pow(attempt))).await;
+                    tracing::warn!(
+                        "Task failed (attempt {}/{}): {}",
+                        attempt + 1,
+                        retries + 1,
+                        e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(100 * 2u64.pow(attempt)))
+                        .await;
                 }
                 Err(e) => return Err(e),
             }
@@ -44,8 +51,6 @@ impl TaskExecutor {
         Ok(())
     }
 }
-
-
 
 impl Default for TaskExecutor {
     fn default() -> Self {

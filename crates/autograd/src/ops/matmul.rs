@@ -1,4 +1,3 @@
-
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
 use crate::Storage;
@@ -17,8 +16,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_))
-            && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
         if on_gpu {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
@@ -36,8 +34,8 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                 let b_gpu = gb.clone();
                                 // Saved GPU tensors needed for backward
                                 let saved_gpu = vec![a_gpu.clone(), b_gpu.clone()];
-                                let gpu_backward: crate::tape::GpuBackwardFn = Box::new(
-                                    move |saved_gpu, grad_gpu, ctx| {
+                                let gpu_backward: crate::tape::GpuBackwardFn =
+                                    Box::new(move |saved_gpu, grad_gpu, ctx| {
                                         let ga = &saved_gpu[0];
                                         let gb = &saved_gpu[1];
                                         match ctx.matmul_backward(ga, gb, grad_gpu) {
@@ -46,27 +44,35 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                                 vec![
                                                     crate::gpu::GpuTensor::from_cpu(
                                                         &ArrayD::zeros(ga.shape()),
-                                                    ).unwrap(),
+                                                    )
+                                                    .unwrap(),
                                                     crate::gpu::GpuTensor::from_cpu(
                                                         &ArrayD::zeros(gb.shape()),
-                                                    ).unwrap(),
+                                                    )
+                                                    .unwrap(),
                                                 ]
                                             }
                                         }
-                                    },
-                                );
+                                    });
                                 // CPU backward fallback
-                                let cpu_backward: Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>> =
-                                    Box::new(move |grad, saved| {
+                                let cpu_backward: Box<
+                                    dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>,
+                                > = Box::new(move |grad, saved| {
                                     let a_val = &saved[0];
                                     let b_val = &saved[1];
                                     let grad_arr = grad.clone();
-                                    let grad_mat = grad_arr.view()
-                                        .into_dimensionality::<ndarray::Ix2>().expect("grad 2D");
-                                    let a_mat = a_val.view()
-                                        .into_dimensionality::<ndarray::Ix2>().expect("a 2D");
-                                    let b_mat = b_val.view()
-                                        .into_dimensionality::<ndarray::Ix2>().expect("b 2D");
+                                    let grad_mat = grad_arr
+                                        .view()
+                                        .into_dimensionality::<ndarray::Ix2>()
+                                        .expect("grad 2D");
+                                    let a_mat = a_val
+                                        .view()
+                                        .into_dimensionality::<ndarray::Ix2>()
+                                        .expect("a 2D");
+                                    let b_mat = b_val
+                                        .view()
+                                        .into_dimensionality::<ndarray::Ix2>()
+                                        .expect("b 2D");
                                     let da = grad_mat.dot(&b_mat.t()).into_dyn();
                                     let db = a_mat.t().dot(&grad_mat).into_dyn();
                                     vec![da, db]
@@ -95,9 +101,11 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     let a_view = a_data.view();
     let b_view = b_data.view();
 
-    let a_mat = a_view.into_dimensionality::<ndarray::Ix2>()
+    let a_mat = a_view
+        .into_dimensionality::<ndarray::Ix2>()
         .expect("MatMul: a must be 2D");
-    let b_mat = b_view.into_dimensionality::<ndarray::Ix2>()
+    let b_mat = b_view
+        .into_dimensionality::<ndarray::Ix2>()
         .expect("MatMul: b must be 2D");
 
     let result = a_mat.dot(&b_mat).into_dyn();
@@ -118,15 +126,18 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
             let b_val = &saved[1];
             let grad_arr = grad.clone();
 
-            let grad_mat = grad_arr.view()
+            let grad_mat = grad_arr
+                .view()
                 .into_dimensionality::<ndarray::Ix2>()
                 .expect("grad must be 2D");
 
-            let a_mat = a_val.view()
+            let a_mat = a_val
+                .view()
                 .into_dimensionality::<ndarray::Ix2>()
                 .expect("a must be 2D");
 
-            let b_mat = b_val.view()
+            let b_mat = b_val
+                .view()
                 .into_dimensionality::<ndarray::Ix2>()
                 .expect("b must be 2D");
 

@@ -1,10 +1,10 @@
 //! NXR-SWIFT Architecture
-//! 
+//!
 //! Implementation of Optimized Transformer + Stream Processing architecture for NXR-SWIFT
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::SwiftConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-SWIFT Architecture Implementation
 pub struct SwiftArchitecture {
@@ -536,17 +536,18 @@ impl SwiftArchitecture {
                 },
             },
             workflow_integration_api: WorkflowIntegrationApi {
-                api_endpoints: vec![
-                    ApiEndpoint {
-                        id: uuid::Uuid::new_v4(),
-                        path: "/api/process".to_string(),
-                        method: HttpMethod::POST,
-                        rate_limit: Some(RateLimit {
-                            requests_per_second: config.performance.throughput_optimization.target_throughput_rps,
-                            burst_size: config.performance.throughput_optimization.batch_size * 2,
-                        }),
-                    },
-                ],
+                api_endpoints: vec![ApiEndpoint {
+                    id: uuid::Uuid::new_v4(),
+                    path: "/api/process".to_string(),
+                    method: HttpMethod::POST,
+                    rate_limit: Some(RateLimit {
+                        requests_per_second: config
+                            .performance
+                            .throughput_optimization
+                            .target_throughput_rps,
+                        burst_size: config.performance.throughput_optimization.batch_size * 2,
+                    }),
+                }],
                 workflow_orchestrator: WorkflowOrchestrator {
                     workflow_templates: HashMap::new(),
                     execution_engine: ExecutionEngine {
@@ -565,10 +566,12 @@ impl SwiftArchitecture {
     /// Initialize architecture
     pub async fn initialize(&mut self, config: &SwiftConfig) -> NxrModelResult<()> {
         // Initialize cache
-        self.cache_management.cache_hierarchy.l1_cache.size_mb = config.performance.latency_optimization.cache_size_mb / 4;
+        self.cache_management.cache_hierarchy.l1_cache.size_mb =
+            config.performance.latency_optimization.cache_size_mb / 4;
 
         // Initialize buffer
-        self.stream_processing_engine.buffer_management.buffer_size = config.stream_processing.buffer_size;
+        self.stream_processing_engine.buffer_management.buffer_size =
+            config.stream_processing.buffer_size;
 
         Ok(())
     }
@@ -576,7 +579,12 @@ impl SwiftArchitecture {
     /// Validate architecture
     pub async fn validate(&self) -> NxrModelResult<()> {
         // Validate transformer configuration
-        if self.optimized_transformer.transformer_architecture.num_layers == 0 {
+        if self
+            .optimized_transformer
+            .transformer_architecture
+            .num_layers
+            == 0
+        {
             return Err("Number of layers must be > 0".into());
         }
 
@@ -631,7 +639,11 @@ impl SwiftArchitecture {
     }
 
     /// Execute workflow
-    pub async fn execute_workflow(&self, workflow_id: &str, input: HashMap<String, String>) -> NxrModelResult<WorkflowResult> {
+    pub async fn execute_workflow(
+        &self,
+        workflow_id: &str,
+        input: HashMap<String, String>,
+    ) -> NxrModelResult<WorkflowResult> {
         Ok(WorkflowResult {
             workflow_id: workflow_id.to_string(),
             status: WorkflowStatus::Completed,

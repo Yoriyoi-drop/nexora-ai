@@ -5,17 +5,17 @@
 //! terhadap objective aktif. Mendukung hierarchical graph compression
 //! dengan MetaNode yang tetap mempertahankan metrik agregat.
 
-pub mod gradient_lens;
 pub mod attention_lens;
+pub mod entropy_lens;
+pub mod gradient_lens;
 pub mod latency_lens;
 pub mod memory_lens;
-pub mod entropy_lens;
 
-pub use gradient_lens::*;
 pub use attention_lens::*;
+pub use entropy_lens::*;
+pub use gradient_lens::*;
 pub use latency_lens::*;
 pub use memory_lens::*;
-pub use entropy_lens::*;
 
 use crate::canvas::NeuralGraph;
 use uuid::Uuid;

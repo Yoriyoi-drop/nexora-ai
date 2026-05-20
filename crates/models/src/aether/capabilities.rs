@@ -1,11 +1,13 @@
 //! NXR-ÆTHER Capabilities
-//! 
+//!
 //! Capability vector and specifications for NXR-ÆTHER
 
 use std::collections::HashMap;
 
 use nexora_shared::{
-    capability_spec::{CapabilityVector, CapabilitySpec, CapabilityDomain, CapabilityLevel, ResourceRequirements},
+    capability_spec::{
+        CapabilityDomain, CapabilityLevel, CapabilitySpec, CapabilityVector, ResourceRequirements,
+    },
     model_identity::NxrModelId,
 };
 
@@ -52,7 +54,7 @@ impl _AetherCapabilities {
             avg_response_time_ms: 380.0,
             resource_utilization: 0.72,
         };
-        
+
         let resource_requirements = ResourceRequirements {
             min_memory_gb: 24.0,
             min_compute_units: 48,
@@ -88,201 +90,215 @@ impl _AetherCapabilities {
     fn create_capability_vector() -> CapabilityVector {
         CapabilityVector::new(NxrModelId::Aether)
             // Emotional capabilities - Transcendent level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Emotional, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "empathy synthesis".to_string(),
-                    "emotional recognition".to_string(),
-                    "emotional analysis".to_string(),
-                    "emotional support generation".to_string(),
-                    "cross-cultural emotional understanding".to_string(),
-                    "emotional context processing".to_string(),
-                    "emotional pattern recognition".to_string(),
-                    "emotional intelligence assessment".to_string(),
-                ])
-                .with_metric("empathy_accuracy".to_string(), 0.965)
-                .with_metric("emotional_granularity".to_string(), 9.0)
-                .with_metric("context_window".to_string(), 512000.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 24.0,
-                    min_compute_units: 48,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(20.0),
-                    requires_network: true,
-                    max_latency_ms: Some(800),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Emotional, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "empathy synthesis".to_string(),
+                        "emotional recognition".to_string(),
+                        "emotional analysis".to_string(),
+                        "emotional support generation".to_string(),
+                        "cross-cultural emotional understanding".to_string(),
+                        "emotional context processing".to_string(),
+                        "emotional pattern recognition".to_string(),
+                        "emotional intelligence assessment".to_string(),
+                    ])
+                    .with_metric("empathy_accuracy".to_string(), 0.965)
+                    .with_metric("emotional_granularity".to_string(), 9.0)
+                    .with_metric("context_window".to_string(), 512000.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 24.0,
+                        min_compute_units: 48,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(20.0),
+                        requires_network: true,
+                        max_latency_ms: Some(800),
+                    }),
+            )
             // Psychological capabilities - Master level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Psychological, CapabilityLevel::Master)
-                .with_sub_capabilities(vec![
-                    "psychological profiling".to_string(),
-                    "personality analysis".to_string(),
-                    "cognitive pattern recognition".to_string(),
-                    "behavioral analysis".to_string(),
-                    "developmental assessment".to_string(),
-                    "mental health screening".to_string(),
-                    "therapeutic support generation".to_string(),
-                    "psychological evaluation".to_string(),
-                ])
-                .with_metric("analysis_accuracy".to_string(), 0.91)
-                .with_metric("profile_depth".to_string(), 8.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 20.0,
-                    min_compute_units: 40,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(18.0),
-                    requires_network: false,
-                    max_latency_ms: Some(600),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Psychological, CapabilityLevel::Master)
+                    .with_sub_capabilities(vec![
+                        "psychological profiling".to_string(),
+                        "personality analysis".to_string(),
+                        "cognitive pattern recognition".to_string(),
+                        "behavioral analysis".to_string(),
+                        "developmental assessment".to_string(),
+                        "mental health screening".to_string(),
+                        "therapeutic support generation".to_string(),
+                        "psychological evaluation".to_string(),
+                    ])
+                    .with_metric("analysis_accuracy".to_string(), 0.91)
+                    .with_metric("profile_depth".to_string(), 8.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 20.0,
+                        min_compute_units: 40,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(18.0),
+                        requires_network: false,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             // Social capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Social, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "social interaction analysis".to_string(),
-                    "relationship dynamics".to_string(),
-                    "social context understanding".to_string(),
-                    "communication style adaptation".to_string(),
-                    "social support generation".to_string(),
-                    "group dynamics analysis".to_string(),
-                    "social pattern recognition".to_string(),
-                ])
-                .with_metric("social_accuracy".to_string(), 0.89)
-                .with_metric("cultural_sensitivity".to_string(), 0.92)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(16.0),
-                    requires_network: true,
-                    max_latency_ms: Some(700),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Social, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "social interaction analysis".to_string(),
+                        "relationship dynamics".to_string(),
+                        "social context understanding".to_string(),
+                        "communication style adaptation".to_string(),
+                        "social support generation".to_string(),
+                        "group dynamics analysis".to_string(),
+                        "social pattern recognition".to_string(),
+                    ])
+                    .with_metric("social_accuracy".to_string(), 0.89)
+                    .with_metric("cultural_sensitivity".to_string(), 0.92)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(16.0),
+                        requires_network: true,
+                        max_latency_ms: Some(700),
+                    }),
+            )
             // Cultural capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Cultural, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "cultural adaptation".to_string(),
-                    "cross-cultural communication".to_string(),
-                    "cultural context analysis".to_string(),
-                    "cultural sensitivity assessment".to_string(),
-                    "cultural pattern recognition".to_string(),
-                    "cultural learning".to_string(),
-                    "cultural norm understanding".to_string(),
-                ])
-                .with_metric("adaptation_accuracy".to_string(), 0.87)
-                .with_metric("cultural_coverage".to_string(), 0.85)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 18.0,
-                    min_compute_units: 36,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(17.0),
-                    requires_network: true,
-                    max_latency_ms: Some(900),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Cultural, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "cultural adaptation".to_string(),
+                        "cross-cultural communication".to_string(),
+                        "cultural context analysis".to_string(),
+                        "cultural sensitivity assessment".to_string(),
+                        "cultural pattern recognition".to_string(),
+                        "cultural learning".to_string(),
+                        "cultural norm understanding".to_string(),
+                    ])
+                    .with_metric("adaptation_accuracy".to_string(), 0.87)
+                    .with_metric("cultural_coverage".to_string(), 0.85)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 18.0,
+                        min_compute_units: 36,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(17.0),
+                        requires_network: true,
+                        max_latency_ms: Some(900),
+                    }),
+            )
             // Support capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Support, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "emotional support".to_string(),
-                    "practical advice generation".to_string(),
-                    "resource recommendation".to_string(),
-                    "referral suggestion".to_string(),
-                    "coping strategy generation".to_string(),
-                    "validation and affirmation".to_string(),
-                    "support personalization".to_string(),
-                ])
-                .with_metric("support_quality".to_string(), 0.93)
-                .with_metric("personalization_level".to_string(), 0.88)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 14.0,
-                    min_compute_units: 28,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(14.0),
-                    requires_network: true,
-                    max_latency_ms: Some(500),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Support, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "emotional support".to_string(),
+                        "practical advice generation".to_string(),
+                        "resource recommendation".to_string(),
+                        "referral suggestion".to_string(),
+                        "coping strategy generation".to_string(),
+                        "validation and affirmation".to_string(),
+                        "support personalization".to_string(),
+                    ])
+                    .with_metric("support_quality".to_string(), 0.93)
+                    .with_metric("personalization_level".to_string(), 0.88)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 14.0,
+                        min_compute_units: 28,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(14.0),
+                        requires_network: true,
+                        max_latency_ms: Some(500),
+                    }),
+            )
             // Communication capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Communication, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "empathetic communication".to_string(),
-                    "adaptive communication style".to_string(),
-                    "emotional language processing".to_string(),
-                    "non-verbal cue analysis".to_string(),
-                    "tone analysis".to_string(),
-                    "context-aware communication".to_string(),
-                    "multilingual emotional support".to_string(),
-                ])
-                .with_metric("communication_accuracy".to_string(), 0.91)
-                .with_metric("adaptability_score".to_string(), 0.86)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 12.0,
-                    min_compute_units: 24,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(12.0),
-                    requires_network: false,
-                    max_latency_ms: Some(400),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Communication, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "empathetic communication".to_string(),
+                        "adaptive communication style".to_string(),
+                        "emotional language processing".to_string(),
+                        "non-verbal cue analysis".to_string(),
+                        "tone analysis".to_string(),
+                        "context-aware communication".to_string(),
+                        "multilingual emotional support".to_string(),
+                    ])
+                    .with_metric("communication_accuracy".to_string(), 0.91)
+                    .with_metric("adaptability_score".to_string(), 0.86)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 12.0,
+                        min_compute_units: 24,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(12.0),
+                        requires_network: false,
+                        max_latency_ms: Some(400),
+                    }),
+            )
             // Logic capabilities - Intermediate level (not primary focus)
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Intermediate)
-                .with_sub_capabilities(vec![
-                    "emotional reasoning".to_string(),
-                    "psychological logic".to_string(),
-                    "emotional decision making".to_string(),
-                ])
-                .with_metric("logic_accuracy".to_string(), 0.78)
-                .with_metric("reasoning_depth".to_string(), 5.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 8.0,
-                    min_compute_units: 16,
-                    requires_gpu: false,
-                    min_gpu_memory_gb: None,
-                    requires_network: false,
-                    max_latency_ms: Some(300),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Intermediate)
+                    .with_sub_capabilities(vec![
+                        "emotional reasoning".to_string(),
+                        "psychological logic".to_string(),
+                        "emotional decision making".to_string(),
+                    ])
+                    .with_metric("logic_accuracy".to_string(), 0.78)
+                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 8.0,
+                        min_compute_units: 16,
+                        requires_gpu: false,
+                        min_gpu_memory_gb: None,
+                        requires_network: false,
+                        max_latency_ms: Some(300),
+                    }),
+            )
             // Knowledge capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "psychological knowledge".to_string(),
-                    "emotional knowledge".to_string(),
-                    "cultural knowledge".to_string(),
-                    "support resource knowledge".to_string(),
-                    "therapeutic knowledge".to_string(),
-                    "mental health knowledge".to_string(),
-                ])
-                .with_metric("knowledge_accuracy".to_string(), 0.88)
-                .with_metric("knowledge_coverage".to_string(), 0.82)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(16.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1000),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "psychological knowledge".to_string(),
+                        "emotional knowledge".to_string(),
+                        "cultural knowledge".to_string(),
+                        "support resource knowledge".to_string(),
+                        "therapeutic knowledge".to_string(),
+                        "mental health knowledge".to_string(),
+                    ])
+                    .with_metric("knowledge_accuracy".to_string(), 0.88)
+                    .with_metric("knowledge_coverage".to_string(), 0.82)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(16.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1000),
+                    }),
+            )
             // Creative capabilities - Intermediate level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Creative, CapabilityLevel::Intermediate)
-                .with_sub_capabilities(vec![
-                    "creative support generation".to_string(),
-                    "emotional creative expression".to_string(),
-                    "therapeutic creativity".to_string(),
-                ])
-                .with_metric("creativity_score".to_string(), 0.75)
-                .with_metric("novelty_score".to_string(), 0.72)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 10.0,
-                    min_compute_units: 20,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(10.0),
-                    requires_network: false,
-                    max_latency_ms: Some(600),
-                }))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Creative, CapabilityLevel::Intermediate)
+                    .with_sub_capabilities(vec![
+                        "creative support generation".to_string(),
+                        "emotional creative expression".to_string(),
+                        "therapeutic creativity".to_string(),
+                    ])
+                    .with_metric("creativity_score".to_string(), 0.75)
+                    .with_metric("novelty_score".to_string(), 0.72)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 10.0,
+                        min_compute_units: 20,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(10.0),
+                        requires_network: false,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             .calculate_score()
     }
 
     /// Check if model supports specific capability
-    pub fn supports_capability(&self, domain: &CapabilityDomain, min_level: CapabilityLevel) -> bool {
+    pub fn supports_capability(
+        &self,
+        domain: &CapabilityDomain,
+        min_level: CapabilityLevel,
+    ) -> bool {
         self.vector.has_capability(domain, min_level)
     }
 
@@ -310,20 +326,26 @@ impl _AetherCapabilities {
     }
 
     /// Get resource requirements for domain
-    pub fn get_resource_requirements(&self, domain: &CapabilityDomain) -> Option<&ResourceRequirements> {
-        self.vector.get_capability(domain).map(|cap| &cap.resource_requirements)
+    pub fn get_resource_requirements(
+        &self,
+        domain: &CapabilityDomain,
+    ) -> Option<&ResourceRequirements> {
+        self.vector
+            .get_capability(domain)
+            .map(|cap| &cap.resource_requirements)
     }
 
     /// Validate capabilities
     pub fn validate(&self) -> Result<(), String> {
         // Check that core capabilities are at transcendent level
-        let core_domains = vec![
-            CapabilityDomain::Emotional,
-        ];
+        let core_domains = vec![CapabilityDomain::Emotional];
 
         for domain in core_domains {
             if !self.supports_capability(&domain, CapabilityLevel::Transcendent) {
-                return Err(format!("Core capability {:?} not at transcendent level", domain));
+                return Err(format!(
+                    "Core capability {:?} not at transcendent level",
+                    domain
+                ));
             }
         }
 
@@ -348,7 +370,10 @@ impl _AetherCapabilities {
     pub fn update_capability(&mut self, domain: CapabilityDomain, performance_score: f32) {
         // This would update the capability based on actual performance
         // For now, just log the update
-        println!("Updating capability {:?} with score: {}", domain, performance_score);
+        println!(
+            "Updating capability {:?} with score: {}",
+            domain, performance_score
+        );
     }
 
     /// Get capability summary
@@ -401,8 +426,10 @@ impl _AetherCapabilities {
                 metrics: capability.metrics.clone(),
                 resource_requirements: capability.resource_requirements.clone(),
             };
-            
-            breakdown.capabilities.insert(domain.clone(), capability_detail);
+
+            breakdown
+                .capabilities
+                .insert(domain.clone(), capability_detail);
         }
 
         breakdown
@@ -415,7 +442,7 @@ impl _AetherCapabilities {
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
             let other_score = other.get_capability_score(domain);
-            
+
             comparison.domain_comparisons.insert(
                 domain.clone(),
                 DomainComparison {
@@ -425,13 +452,12 @@ impl _AetherCapabilities {
                     difference: self_score - other_score,
                     self_level: self.vector.get_capability(domain).map(|c| c.level.clone()),
                     other_level: other.vector.get_capability(domain).map(|c| c.level.clone()),
-                }
+                },
             );
         }
 
         comparison.overall_difference = self.overall_score() - other.overall_score();
         comparison
-
     }
 
     /// Update performance metrics
@@ -449,8 +475,16 @@ impl _AetherCapabilities {
                 suggestions.push(OptimizationSuggestion {
                     domain: domain.clone(),
                     suggestion_type: SuggestionType::ImproveCapability,
-                    description: format!("Capability {:?} is underperforming with score {:.2}", domain, capability.score()),
-                    priority: if capability.score() < 0.5 { SuggestionPriority::High } else { SuggestionPriority::Medium },
+                    description: format!(
+                        "Capability {:?} is underperforming with score {:.2}",
+                        domain,
+                        capability.score()
+                    ),
+                    priority: if capability.score() < 0.5 {
+                        SuggestionPriority::High
+                    } else {
+                        SuggestionPriority::Medium
+                    },
                     estimated_improvement: 0.15,
                     resource_cost: ResourceCost::Medium,
                 });
@@ -473,17 +507,22 @@ impl _AetherCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _AetherCapabilities {
+    pub fn apply_improvement(
+        &self,
+        improvements: &HashMap<CapabilityDomain, f32>,
+    ) -> _AetherCapabilities {
         let mut new_capabilities = self.clone();
-        
+
         for (domain, improvement) in improvements {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
                 let new_score = (current_score + improvement).min(1.0_f32);
-                
+
                 // Update capability metrics
-                capability.metrics.insert("improved_score".to_string(), new_score);
+                capability
+                    .metrics
+                    .insert("improved_score".to_string(), new_score);
             }
         }
 
@@ -498,7 +537,8 @@ impl _AetherCapabilities {
             psychological_analysis: self.performance_metrics.psychological_analysis_accuracy,
             cultural_adaptation: self.performance_metrics.cultural_adaptation_accuracy,
             support_generation: self.performance_metrics.support_generation_quality,
-            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0)) as f32,
+            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0))
+                as f32,
         }
     }
 
@@ -520,9 +560,14 @@ impl _AetherCapabilities {
         let mut capabilities = CulturalAdaptationCapabilities::default();
 
         if let Some(cultural_capability) = self.vector.get_capability(&CapabilityDomain::Cultural) {
-            capabilities.adaptation_accuracy = self.performance_metrics.cultural_adaptation_accuracy;
+            capabilities.adaptation_accuracy =
+                self.performance_metrics.cultural_adaptation_accuracy;
             capabilities.adaptation_methods = cultural_capability.sub_capabilities.clone();
-            capabilities.cultural_coverage = cultural_capability.metrics.get("cultural_coverage").copied().unwrap_or(0.0);
+            capabilities.cultural_coverage = cultural_capability
+                .metrics
+                .get("cultural_coverage")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -532,10 +577,17 @@ impl _AetherCapabilities {
     pub fn get_psychological_analysis_capabilities(&self) -> PsychologicalAnalysisCapabilities {
         let mut capabilities = PsychologicalAnalysisCapabilities::default();
 
-        if let Some(psychological_capability) = self.vector.get_capability(&CapabilityDomain::Psychological) {
-            capabilities.analysis_accuracy = self.performance_metrics.psychological_analysis_accuracy;
+        if let Some(psychological_capability) =
+            self.vector.get_capability(&CapabilityDomain::Psychological)
+        {
+            capabilities.analysis_accuracy =
+                self.performance_metrics.psychological_analysis_accuracy;
             capabilities.analysis_methods = psychological_capability.sub_capabilities.clone();
-            capabilities.analysis_depth = psychological_capability.metrics.get("profile_depth").copied().unwrap_or(0.0);
+            capabilities.analysis_depth = psychological_capability
+                .metrics
+                .get("profile_depth")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -588,8 +640,10 @@ impl CapabilitySummary {
             advanced: self.advanced_domains.len(),
             intermediate: self.intermediate_domains.len(),
             basic: self.basic_domains.len(),
-            total: self.expert_domains.len() + self.advanced_domains.len() + 
-                   self.intermediate_domains.len() + self.basic_domains.len(),
+            total: self.expert_domains.len()
+                + self.advanced_domains.len()
+                + self.intermediate_domains.len()
+                + self.basic_domains.len(),
         }
     }
 
@@ -597,7 +651,7 @@ impl CapabilitySummary {
     pub fn efficiency_rating(&self) -> f32 {
         let capability_score = self.overall_score;
         let resource_efficiency = 1.0 - (self.performance_metrics.resource_utilization - 0.5).abs();
-        
+
         (capability_score + resource_efficiency) / 2.0
     }
 
@@ -606,11 +660,12 @@ impl CapabilitySummary {
         if self.specializations.is_empty() {
             0.0
         } else {
-            let total_score: f32 = self.specializations
+            let total_score: f32 = self
+                .specializations
                 .iter()
                 .map(|domain| self.get_domain_score(domain))
                 .sum();
-            
+
             total_score / self.specializations.len() as f32
         }
     }
@@ -671,23 +726,29 @@ pub struct DetailedCapabilityBreakdown {
 }
 
 impl DetailedCapabilityBreakdown {
-
     /// Get capability by domain
     pub fn get_capability(&self, domain: &CapabilityDomain) -> Option<&CapabilityDetail> {
         self.capabilities.get(domain)
     }
 
     /// Get top capabilities
-    pub fn get_top_capabilities(&self, limit: usize) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
+    pub fn get_top_capabilities(
+        &self,
+        limit: usize,
+    ) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
         let mut capabilities: Vec<_> = self.capabilities.iter().collect();
-        capabilities.sort_by(|a, b| b.1.score.partial_cmp(&a.1.score).unwrap_or(std::cmp::Ordering::Equal));
+        capabilities.sort_by(|a, b| {
+            b.1.score
+                .partial_cmp(&a.1.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         capabilities.into_iter().take(limit).collect()
     }
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
         let mut stats = CapabilityStatistics::default();
-        
+
         for capability in self.capabilities.values() {
             match capability.level {
                 CapabilityLevel::Transcendent => stats.transcendent_count += 1,
@@ -701,7 +762,8 @@ impl DetailedCapabilityBreakdown {
         }
 
         stats.total_capabilities = self.capabilities.len();
-        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>() / self.capabilities.len() as f32;
+        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>()
+            / self.capabilities.len() as f32;
 
         stats
     }
@@ -739,7 +801,6 @@ pub struct CapabilityComparison {
 }
 
 impl CapabilityComparison {
-
     /// Get improvement opportunities
     pub fn get_improvement_opportunities(&self) -> Vec<ImprovementOpportunity> {
         let mut opportunities = Vec::new();
@@ -749,13 +810,21 @@ impl CapabilityComparison {
                 opportunities.push(ImprovementOpportunity {
                     domain: domain.clone(),
                     gap: -comparison.difference,
-                    priority: if comparison.difference < -0.3 { OpportunityPriority::High } else { OpportunityPriority::Medium },
+                    priority: if comparison.difference < -0.3 {
+                        OpportunityPriority::High
+                    } else {
+                        OpportunityPriority::Medium
+                    },
                     potential_improvement: 0.2,
                 });
             }
         }
 
-        opportunities.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap_or(std::cmp::Ordering::Equal));
+        opportunities.sort_by(|a, b| {
+            b.gap
+                .partial_cmp(&a.gap)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         opportunities
     }
 }

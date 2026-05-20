@@ -1,6 +1,9 @@
-use std::collections::HashMap;
-use crate::omnis::{Hypothesis, MetaReasoningState, ReasoningStep, ReasoningStepType, ResolutionStatus, TruthArbitrationState};
+use crate::omnis::{
+    Hypothesis, MetaReasoningState, ReasoningStep, ReasoningStepType, ResolutionStatus,
+    TruthArbitrationState,
+};
 use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct MetaReasonerRuntimeAgent;

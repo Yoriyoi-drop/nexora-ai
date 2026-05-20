@@ -1,5 +1,5 @@
 //! NXR Model Capability Specification
-//! 
+//!
 //! Defines capabilities, domains, and performance specs for NXR models
 
 use serde::{Deserialize, Serialize};
@@ -224,11 +224,8 @@ impl CapabilityVector {
 
     /// Calculate overall score
     pub fn calculate_score(mut self) -> Self {
-        let total_score: f32 = self.capabilities
-            .values()
-            .map(|cap| cap.score())
-            .sum();
-        
+        let total_score: f32 = self.capabilities.values().map(|cap| cap.score()).sum();
+
         self.overall_score = if self.capabilities.is_empty() {
             0.0
         } else {
@@ -236,11 +233,12 @@ impl CapabilityVector {
         };
 
         // Calculate specializations (top 3 domains by level)
-        let mut domains: Vec<_> = self.capabilities
+        let mut domains: Vec<_> = self
+            .capabilities
             .iter()
             .map(|(domain, cap)| (domain.clone(), cap.level))
             .collect();
-        
+
         domains.sort_by(|a, b| b.1.cmp(&a.1));
         self.specializations = domains.into_iter().take(3).map(|(d, _)| d).collect();
 
@@ -277,97 +275,115 @@ pub mod predefined {
     /// NXR-OMNIS capabilities
     pub fn omnis_capabilities() -> CapabilityVector {
         CapabilityVector::new(crate::model_identity::NxrModelId::Omnis)
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Text, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "long-chain reasoning".to_string(),
-                    "world modeling".to_string(),
-                    "context synthesis".to_string(),
-                ])
-                .with_metric("accuracy".to_string(), 0.997)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 64.0,
-                    min_compute_units: 128,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(48.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1000),
-                }))
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "formal reasoning".to_string(),
-                    "proof generation".to_string(),
-                    "paradox resolution".to_string(),
-                ]))
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Mathematics, CapabilityLevel::Master)
-                .with_sub_capabilities(vec![
-                    "advanced calculus".to_string(),
-                    "abstract algebra".to_string(),
-                    "statistical analysis".to_string(),
-                ]))
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Multimodal, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "text-vision synthesis".to_string(),
-                    "cross-modal reasoning".to_string(),
-                ]))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Text, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "long-chain reasoning".to_string(),
+                        "world modeling".to_string(),
+                        "context synthesis".to_string(),
+                    ])
+                    .with_metric("accuracy".to_string(), 0.997)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 64.0,
+                        min_compute_units: 128,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(48.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1000),
+                    }),
+            )
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "formal reasoning".to_string(),
+                        "proof generation".to_string(),
+                        "paradox resolution".to_string(),
+                    ]),
+            )
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Mathematics, CapabilityLevel::Master)
+                    .with_sub_capabilities(vec![
+                        "advanced calculus".to_string(),
+                        "abstract algebra".to_string(),
+                        "statistical analysis".to_string(),
+                    ]),
+            )
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Multimodal, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "text-vision synthesis".to_string(),
+                        "cross-modal reasoning".to_string(),
+                    ]),
+            )
             .calculate_score()
     }
 
     /// NXR-VORTEX capabilities
     pub fn vortex_capabilities() -> CapabilityVector {
         CapabilityVector::new(crate::model_identity::NxrModelId::Vortex)
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Code, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "system architecture".to_string(),
-                    "debugging".to_string(),
-                    "optimization".to_string(),
-                    "security review".to_string(),
-                ])
-                .with_metric("human_eval".to_string(), 0.972)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 32.0,
-                    min_compute_units: 64,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(24.0),
-                    requires_network: false,
-                    max_latency_ms: Some(500),
-                }))
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "program logic".to_string(),
-                    "algorithm design".to_string(),
-                ]))
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Text, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "technical documentation".to_string(),
-                    "code explanation".to_string(),
-                ]))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Code, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "system architecture".to_string(),
+                        "debugging".to_string(),
+                        "optimization".to_string(),
+                        "security review".to_string(),
+                    ])
+                    .with_metric("human_eval".to_string(), 0.972)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 32.0,
+                        min_compute_units: 64,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(24.0),
+                        requires_network: false,
+                        max_latency_ms: Some(500),
+                    }),
+            )
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "program logic".to_string(),
+                        "algorithm design".to_string(),
+                    ]),
+            )
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Text, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "technical documentation".to_string(),
+                        "code explanation".to_string(),
+                    ]),
+            )
             .calculate_score()
     }
 
     /// NXR-ÆTHER capabilities
     pub fn aether_capabilities() -> CapabilityVector {
         CapabilityVector::new(crate::model_identity::NxrModelId::Aether)
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Emotional, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "empathy synthesis".to_string(),
-                    "psychological analysis".to_string(),
-                    "emotional support".to_string(),
-                    "tone adaptation".to_string(),
-                ])
-                .with_metric("eq_score".to_string(), 0.965)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(12.0),
-                    requires_network: false,
-                    max_latency_ms: Some(800),
-                }))
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Text, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "nuanced conversation".to_string(),
-                    "contextual understanding".to_string(),
-                ]))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Emotional, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "empathy synthesis".to_string(),
+                        "psychological analysis".to_string(),
+                        "emotional support".to_string(),
+                        "tone adaptation".to_string(),
+                    ])
+                    .with_metric("eq_score".to_string(), 0.965)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(12.0),
+                        requires_network: false,
+                        max_latency_ms: Some(800),
+                    }),
+            )
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Text, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "nuanced conversation".to_string(),
+                        "contextual understanding".to_string(),
+                    ]),
+            )
             .calculate_score()
     }
 
@@ -377,13 +393,13 @@ pub mod predefined {
             crate::model_identity::NxrModelId::Omnis => omnis_capabilities(),
             crate::model_identity::NxrModelId::Vortex => vortex_capabilities(),
             crate::model_identity::NxrModelId::Aether => aether_capabilities(),
-            crate::model_identity::NxrModelId::Nexum |
-            crate::model_identity::NxrModelId::Spectra |
-            crate::model_identity::NxrModelId::Swift |
-            crate::model_identity::NxrModelId::Genesis |
-            crate::model_identity::NxrModelId::Kronos |
-            crate::model_identity::NxrModelId::Cipher |
-            crate::model_identity::NxrModelId::Axiom => {
+            crate::model_identity::NxrModelId::Nexum
+            | crate::model_identity::NxrModelId::Spectra
+            | crate::model_identity::NxrModelId::Swift
+            | crate::model_identity::NxrModelId::Genesis
+            | crate::model_identity::NxrModelId::Kronos
+            | crate::model_identity::NxrModelId::Cipher
+            | crate::model_identity::NxrModelId::Axiom => {
                 CapabilityVector::new(model_id).calculate_score()
             }
             _ => CapabilityVector::new(model_id).calculate_score(),

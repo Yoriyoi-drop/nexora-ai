@@ -14,10 +14,15 @@ impl GraphPruner {
 
         // Prune node dengan kontribusi marginal rendah
         for (id, node) in &graph.nodes {
-            let edge_count = graph.edges.values()
+            let edge_count = graph
+                .edges
+                .values()
                 .filter(|e| e.source_node == *id || e.target_node == *id)
                 .count();
-            if edge_count == 0 && node.node_type != crate::NodeType::Input && node.node_type != crate::NodeType::Output {
+            if edge_count == 0
+                && node.node_type != crate::NodeType::Input
+                && node.node_type != crate::NodeType::Output
+            {
                 to_remove.insert(*id);
             }
         }
@@ -46,8 +51,16 @@ impl GraphPruner {
         let mut score = 0.0;
 
         // Semakin banyak edge keluar, semakin penting node tsb
-        let outgoing = graph.edges.values().filter(|e| e.source_node == *node_id).count();
-        let incoming = graph.edges.values().filter(|e| e.target_node == *node_id).count();
+        let outgoing = graph
+            .edges
+            .values()
+            .filter(|e| e.source_node == *node_id)
+            .count();
+        let incoming = graph
+            .edges
+            .values()
+            .filter(|e| e.target_node == *node_id)
+            .count();
 
         score -= outgoing as f32 * 0.2;
         score -= incoming as f32 * 0.1;

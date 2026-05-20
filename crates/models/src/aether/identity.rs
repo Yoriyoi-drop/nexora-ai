@@ -1,10 +1,8 @@
 //! NXR-ÆTHER Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-ÆTHER
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-ÆTHER Identity Manager
 pub struct _AetherIdentity {

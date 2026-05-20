@@ -315,12 +315,24 @@ impl From<nexum_config::ResolutionMethod> for ResolutionMethod {
 impl From<nexum_config::ConflictResolutionStrategy> for ResolutionStrategyType {
     fn from(strategy: nexum_config::ConflictResolutionStrategy) -> Self {
         match strategy {
-            nexum_config::ConflictResolutionStrategy::Negotiation => ResolutionStrategyType::Negotiation,
-            nexum_config::ConflictResolutionStrategy::Arbitration => ResolutionStrategyType::Arbitration,
-            nexum_config::ConflictResolutionStrategy::Mediation => ResolutionStrategyType::Mediation,
-            nexum_config::ConflictResolutionStrategy::ConsensusBuilding => ResolutionStrategyType::Consensus,
-            nexum_config::ConflictResolutionStrategy::Compromise => ResolutionStrategyType::Compromise,
-            nexum_config::ConflictResolutionStrategy::Escalation => ResolutionStrategyType::Escalation,
+            nexum_config::ConflictResolutionStrategy::Negotiation => {
+                ResolutionStrategyType::Negotiation
+            }
+            nexum_config::ConflictResolutionStrategy::Arbitration => {
+                ResolutionStrategyType::Arbitration
+            }
+            nexum_config::ConflictResolutionStrategy::Mediation => {
+                ResolutionStrategyType::Mediation
+            }
+            nexum_config::ConflictResolutionStrategy::ConsensusBuilding => {
+                ResolutionStrategyType::Consensus
+            }
+            nexum_config::ConflictResolutionStrategy::Compromise => {
+                ResolutionStrategyType::Compromise
+            }
+            nexum_config::ConflictResolutionStrategy::Escalation => {
+                ResolutionStrategyType::Escalation
+            }
         }
     }
 }

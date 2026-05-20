@@ -1,14 +1,14 @@
 //! System Breeder Agent
-//! 
+//!
 //! System evolution and generative development
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// System Breeder Agent - System evolution and generative development
 #[derive(Debug, Clone)]
@@ -155,7 +155,9 @@ impl BaseAgent for SystemBreederAgent {
         let evolved_systems = self.evolve_systems(&input).await?;
         let fitness_scores = self.evaluate_fitness(&input, &evolved_systems).await?;
         let evolution_history = self.track_evolution_history(&input).await?;
-        let best_candidate = self.select_best_candidate(&evolved_systems, &fitness_scores).await?;
+        let best_candidate = self
+            .select_best_candidate(&evolved_systems, &fitness_scores)
+            .await?;
 
         Ok(SystemBreederTaskOutput {
             evolved_systems,
@@ -174,21 +176,22 @@ impl BaseAgent for SystemBreederAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "system_breeding".to_string(),
-                description: "System evolution and generative development".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["initial_system".to_string(), "evolution_objectives".to_string()],
-                output_types: vec!["evolved_systems".to_string(), "fitness_scores".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.87,
-                    avg_latency: 5000.0,
-                    resource_usage: 0.9,
-                    reliability: 0.89,
-                },
+        vec![AgentCapability {
+            name: "system_breeding".to_string(),
+            description: "System evolution and generative development".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "initial_system".to_string(),
+                "evolution_objectives".to_string(),
+            ],
+            output_types: vec!["evolved_systems".to_string(), "fitness_scores".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.87,
+                avg_latency: 5000.0,
+                resource_usage: 0.9,
+                reliability: 0.89,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -226,21 +229,41 @@ impl SystemBreederAgent {
 
     async fn evolve_systems(&self, input: &SystemBreederTaskInput) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Evolved system 1: {} with enhanced performance", input.initial_system),
-            format!("Evolved system 2: {} with improved efficiency", input.initial_system),
-            format!("Evolved system 3: {} with better scalability", input.initial_system),
+            format!(
+                "Evolved system 1: {} with enhanced performance",
+                input.initial_system
+            ),
+            format!(
+                "Evolved system 2: {} with improved efficiency",
+                input.initial_system
+            ),
+            format!(
+                "Evolved system 3: {} with better scalability",
+                input.initial_system
+            ),
         ])
     }
 
-    async fn evaluate_fitness(&self, _input: &SystemBreederTaskInput, evolved_systems: &[String]) -> AgentResult<Vec<f32>> {
+    async fn evaluate_fitness(
+        &self,
+        _input: &SystemBreederTaskInput,
+        evolved_systems: &[String],
+    ) -> AgentResult<Vec<f32>> {
         Ok(vec![
             0.85, // fitness for evolved system 1
             0.78, // fitness for evolved system 2
             0.92, // fitness for evolved system 3
-        ].iter().take(evolved_systems.len()).cloned().collect())
+        ]
+        .iter()
+        .take(evolved_systems.len())
+        .cloned()
+        .collect())
     }
 
-    async fn track_evolution_history(&self, input: &SystemBreederTaskInput) -> AgentResult<Vec<String>> {
+    async fn track_evolution_history(
+        &self,
+        input: &SystemBreederTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             format!("Initial system: {}", input.initial_system),
             "Generation 1: Applied mutation operators".to_string(),
@@ -249,14 +272,18 @@ impl SystemBreederAgent {
         ])
     }
 
-    async fn select_best_candidate(&self, evolved_systems: &[String], fitness_scores: &[f32]) -> AgentResult<String> {
+    async fn select_best_candidate(
+        &self,
+        evolved_systems: &[String],
+        fitness_scores: &[f32],
+    ) -> AgentResult<String> {
         let best_index = fitness_scores
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(index, _)| index)
             .unwrap_or(0);
-        
+
         Ok(evolved_systems.get(best_index).cloned().unwrap_or_default())
     }
 }
@@ -277,13 +304,19 @@ mod tests {
         let agent = SystemBreederAgent::default();
         let input = SystemBreederTaskInput {
             initial_system: "Basic AI system".to_string(),
-            evolution_objectives: vec!["Improve accuracy".to_string(), "Reduce latency".to_string()],
-            fitness_criteria: vec!["Performance score".to_string(), "Efficiency metric".to_string()],
+            evolution_objectives: vec![
+                "Improve accuracy".to_string(),
+                "Reduce latency".to_string(),
+            ],
+            fitness_criteria: vec![
+                "Performance score".to_string(),
+                "Efficiency metric".to_string(),
+            ],
         };
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.evolved_systems.is_empty());
         assert_eq!(output.evolved_systems.len(), output.fitness_scores.len());

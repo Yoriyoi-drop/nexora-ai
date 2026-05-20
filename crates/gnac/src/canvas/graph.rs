@@ -1,5 +1,5 @@
+use crate::canvas::{GraphEdge, GraphNode, ZoomLevel};
 use crate::{DLResult, NodeType};
-use crate::canvas::{GraphNode, GraphEdge, ZoomLevel};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -35,7 +35,8 @@ impl NeuralGraph {
 
     pub fn remove_node(&mut self, node_id: &Uuid) {
         self.nodes.remove(node_id);
-        self.edges.retain(|_, e| e.source_node != *node_id && e.target_node != *node_id);
+        self.edges
+            .retain(|_, e| e.source_node != *node_id && e.target_node != *node_id);
         self.version += 1;
     }
 
@@ -85,8 +86,16 @@ impl NeuralGraph {
     }
 
     pub fn get_node_connections(&self, node_id: &Uuid) -> (Vec<&GraphEdge>, Vec<&GraphEdge>) {
-        let incoming: Vec<_> = self.edges.values().filter(|e| e.target_node == *node_id).collect();
-        let outgoing: Vec<_> = self.edges.values().filter(|e| e.source_node == *node_id).collect();
+        let incoming: Vec<_> = self
+            .edges
+            .values()
+            .filter(|e| e.target_node == *node_id)
+            .collect();
+        let outgoing: Vec<_> = self
+            .edges
+            .values()
+            .filter(|e| e.source_node == *node_id)
+            .collect();
         (incoming, outgoing)
     }
 

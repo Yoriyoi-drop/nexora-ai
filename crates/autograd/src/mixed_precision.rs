@@ -197,7 +197,6 @@ pub fn bf16_bytes_to_array(data: &[u8], shape: &[usize]) -> ArrayD<f32> {
 
 // ─── Automatic Mixed Precision (AMP) Optimizer ───────────────────────────────
 
-
 /// Wraps an existing optimizer with FP16/BF16 mixed precision support.
 ///
 /// Keeps FP32 master weights, runs forward/backward in half-precision,
@@ -216,11 +215,7 @@ pub struct AmpOptimizer {
 impl AmpOptimizer {
     /// Create a new AMP optimizer wrapping the given Adam optimizer.
     pub fn new(adam: super::Adam, compute_dtype: DType) -> Self {
-        let master_params = adam
-            .parameters
-            .iter()
-            .map(|p| p.data())
-            .collect();
+        let master_params = adam.parameters.iter().map(|p| p.data()).collect();
         Self {
             inner: adam,
             loss_scaler: LossScaler::default(),
@@ -334,8 +329,12 @@ mod tests {
         let output = f16_bytes_to_f32(&bytes);
         for (a, b) in input.iter().zip(output.iter()) {
             let diff = (a - b).abs();
-            assert!(diff < 0.01 || diff / a.abs() < 0.01,
-                "f16 roundtrip failed for {}: got {}", a, b);
+            assert!(
+                diff < 0.01 || diff / a.abs() < 0.01,
+                "f16 roundtrip failed for {}: got {}",
+                a,
+                b
+            );
         }
     }
 
@@ -346,8 +345,12 @@ mod tests {
         let output = bf16_bytes_to_f32(&bytes);
         for (a, b) in input.iter().zip(output.iter()) {
             let diff = (a - b).abs();
-            assert!(diff < 0.1 || diff / a.abs() < 0.01,
-                "bf16 roundtrip failed for {}: got {}", a, b);
+            assert!(
+                diff < 0.1 || diff / a.abs() < 0.01,
+                "bf16 roundtrip failed for {}: got {}",
+                a,
+                b
+            );
         }
     }
 

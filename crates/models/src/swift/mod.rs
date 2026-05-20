@@ -1,35 +1,35 @@
 //! NXR-SWIFT Model Implementation
-//! 
+//!
 //! NXR-08 EDGE - Sub-millisecond Weighted Inference & Fast Thought
 //! Ultra-lightweight edge computing specialist
 
-pub mod identity;
-pub mod config;
-pub mod architecture;
 pub mod agents;
+pub mod architecture;
 pub mod capabilities;
+pub mod config;
+pub mod identity;
 
-use std::collections::HashMap;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
     capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningModel, HasComponents},
-    gnac_integration::GnacModel,
     foundation_components::FoundationComponents,
+    gnac_integration::GnacModel,
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
 };
 
 use self::{
-    identity::SwiftIdentity,
-    config::SwiftConfig,
-    architecture::SwiftArchitecture,
-    agents::SwiftAgents,
-    capabilities::SwiftCapabilities,
+    agents::SwiftAgents, architecture::SwiftArchitecture, capabilities::SwiftCapabilities,
+    config::SwiftConfig, identity::SwiftIdentity,
 };
 
 pub struct NxrSwiftModel {
@@ -75,8 +75,6 @@ pub struct SwiftMetrics {
     pub energy_efficiency: f32,
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
-
-
 
 impl Default for SwiftState {
     fn default() -> Self {
@@ -134,7 +132,7 @@ impl NxrSwiftModel {
 
     async fn fast_inference(&self, input: &str) -> NxrModelResult<String> {
         let start_time = std::time::Instant::now();
-        
+
         // Tokenize input
         let tokens = {
             let tokenizer = self.components.tokenizer.read();
@@ -147,15 +145,17 @@ impl NxrSwiftModel {
         }
 
         // Process input with deep learning
-        let dl_result = self.dl_process(input).await
+        let dl_result = self
+            .dl_process(input)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         // Ultra-fast processing with minimal overhead
         let processed = self.minimal_processing(input)?;
         let optimized = self.edge_optimization(&processed)?;
-        
+
         let latency = start_time.elapsed().as_millis() as u32;
-        
+
         Ok(format!(
             "Edge Response ({}ms): {}\nDL Processing: {} (tokens: {})",
             latency,
@@ -182,7 +182,9 @@ impl NxrSwiftModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -192,19 +194,27 @@ impl NxrSwiftModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -213,7 +223,10 @@ impl NxrSwiftModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -237,12 +250,22 @@ impl NxrModel for NxrSwiftModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        self.architecture.initialize(&config).await
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+        self.architecture
+            .initialize(&config)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
@@ -251,34 +274,46 @@ impl NxrModel for NxrSwiftModel {
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = SwiftState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = SwiftMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SWIFT model not initialized".to_string()
+                "NXR-SWIFT model not initialized".to_string(),
             ));
         }
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-SWIFT only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-SWIFT only supports text input".to_string(),
+                ))
+            }
         };
 
         let result = self.fast_inference(&input_text).await?;
@@ -288,9 +323,21 @@ impl NxrModel for NxrSwiftModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -323,16 +370,12 @@ impl NxrModel for NxrSwiftModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SWIFT model not initialized".to_string()
+                "NXR-SWIFT model not initialized".to_string(),
             ));
         }
 
         // Ultra-fast streaming for edge
-        let steps = vec![
-            "Processing...",
-            "Optimizing...",
-            "Responding...",
-        ];
+        let steps = vec!["Processing...", "Optimizing...", "Responding..."];
 
         for (i, step) in steps.into_iter().enumerate() {
             let chunk = NxrStreamChunk {
@@ -348,8 +391,13 @@ impl NxrModel for NxrSwiftModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -363,15 +411,22 @@ impl NxrModel for NxrSwiftModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 0.5,
             cpu_percent: 20.0,

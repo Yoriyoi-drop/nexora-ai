@@ -1,43 +1,45 @@
-pub mod tensor;
-pub mod tape;
-pub mod engine;
 pub mod broadcast;
-pub mod device;
-pub mod ops;
-pub mod mixed_precision;
 pub mod data_parallel;
+pub mod device;
+pub mod engine;
+pub mod mixed_precision;
+pub mod ops;
+pub mod tape;
+pub mod tensor;
 pub mod training_pipeline;
 
 #[cfg(feature = "gpu")]
 pub mod gpu;
 #[cfg(feature = "gpu")]
-pub mod gpu_caps;
-#[cfg(feature = "gpu")]
-pub mod gpu_memory;
-#[cfg(feature = "gpu")]
-pub mod gpu_profiler;
-#[cfg(feature = "gpu")]
-pub mod gpu_check;
-#[cfg(feature = "gpu")]
-pub mod gpu_mixed;
-#[cfg(feature = "gpu")]
 pub mod gpu_adam;
 #[cfg(feature = "gpu")]
 pub mod gpu_async;
 #[cfg(feature = "gpu")]
-pub mod gpu_sampler;
+pub mod gpu_caps;
+#[cfg(feature = "gpu")]
+pub mod gpu_check;
 #[cfg(feature = "gpu")]
 pub mod gpu_kv_cache;
 #[cfg(feature = "gpu")]
+pub mod gpu_memory;
+#[cfg(feature = "gpu")]
+pub mod gpu_mixed;
+#[cfg(feature = "gpu")]
+pub mod gpu_profiler;
+#[cfg(feature = "gpu")]
+pub mod gpu_sampler;
+#[cfg(feature = "gpu")]
 pub use gpu_caps::GpuCapabilities;
 
-pub use tensor::Tensor;
-pub use tape::clear_tape;
+pub use data_parallel::{DataParallel, DataParallelConfig, GradientAccumulator};
 pub use device::{Device, Storage};
 pub use mixed_precision::{DType, LossScaler};
-pub use data_parallel::{GradientAccumulator, DataParallel, DataParallelConfig};
-pub use training_pipeline::{TrainingLoop, TrainingLoopConfig, TrainingMetrics, Checkpoint, compute_grad_norm};
 pub use ops::*;
+pub use tape::clear_tape;
+pub use tensor::Tensor;
+pub use training_pipeline::{
+    compute_grad_norm, Checkpoint, TrainingLoop, TrainingLoopConfig, TrainingMetrics,
+};
 
 use ndarray::ArrayD;
 
@@ -46,7 +48,10 @@ pub type DLResult<T> = std::result::Result<T, DeepLearningError>;
 #[derive(Debug, thiserror::Error)]
 pub enum DeepLearningError {
     #[error("Tensor shape mismatch: expected {expected:?}, got {actual:?}")]
-    ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
+    ShapeMismatch {
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
     #[error("Invalid input dimension: {dim}")]
     InvalidDimension { dim: usize },
     #[error("Memory allocation failed: {reason}")]
@@ -128,35 +133,81 @@ pub trait TensorOps {
 }
 
 impl TensorOps for Tensor {
-    fn add(&self, other: &Self) -> Tensor { ops::math::add(self, other) }
-    fn sub(&self, other: &Self) -> Tensor { ops::math::sub(self, other) }
-    fn mul(&self, other: &Self) -> Tensor { ops::math::mul(self, other) }
-    fn div(&self, other: &Self) -> Tensor { ops::math::div(self, other) }
-    fn exp(&self) -> Tensor { ops::math::exp(self) }
-    fn ln(&self) -> Tensor { ops::math::ln(self) }
-    fn powf(&self, exponent: f32) -> Tensor { ops::math::powf(self, exponent) }
-    fn sqrt(&self) -> Tensor { ops::math::sqrt(self) }
-    fn matmul(&self, other: &Self) -> Tensor { ops::matmul::matmul(self, other) }
-    fn sum(&self) -> Tensor { ops::reduce::sum(self) }
-    fn mean(&self) -> Tensor { ops::reduce::mean(self) }
-    fn reshape(&self, shape: &[usize]) -> Tensor { ops::shape::reshape(self, shape) }
-    fn transpose(&self) -> Tensor { ops::shape::transpose(self) }
-    fn relu(&self) -> Tensor { ops::activation::relu(self) }
-    fn gelu(&self) -> Tensor { ops::activation::gelu(self) }
-    fn sigmoid(&self) -> Tensor { ops::activation::sigmoid(self) }
-    fn tanh(&self) -> Tensor { ops::activation::tanh(self) }
-    fn leaky_relu(&self, negative_slope: f32) -> Tensor { ops::activation::leaky_relu(self, negative_slope) }
-    fn silu(&self) -> Tensor { ops::activation::silu(self) }
-    fn softmax(&self, axis: usize) -> Tensor { ops::nn::softmax(self, axis) }
-    fn log_softmax(&self, axis: usize) -> Tensor { ops::nn::log_softmax(self, axis) }
-    fn dropout(&self, rate: f32, training: bool) -> Tensor { ops::nn::dropout(self, rate, training) }
+    fn add(&self, other: &Self) -> Tensor {
+        ops::math::add(self, other)
+    }
+    fn sub(&self, other: &Self) -> Tensor {
+        ops::math::sub(self, other)
+    }
+    fn mul(&self, other: &Self) -> Tensor {
+        ops::math::mul(self, other)
+    }
+    fn div(&self, other: &Self) -> Tensor {
+        ops::math::div(self, other)
+    }
+    fn exp(&self) -> Tensor {
+        ops::math::exp(self)
+    }
+    fn ln(&self) -> Tensor {
+        ops::math::ln(self)
+    }
+    fn powf(&self, exponent: f32) -> Tensor {
+        ops::math::powf(self, exponent)
+    }
+    fn sqrt(&self) -> Tensor {
+        ops::math::sqrt(self)
+    }
+    fn matmul(&self, other: &Self) -> Tensor {
+        ops::matmul::matmul(self, other)
+    }
+    fn sum(&self) -> Tensor {
+        ops::reduce::sum(self)
+    }
+    fn mean(&self) -> Tensor {
+        ops::reduce::mean(self)
+    }
+    fn reshape(&self, shape: &[usize]) -> Tensor {
+        ops::shape::reshape(self, shape)
+    }
+    fn transpose(&self) -> Tensor {
+        ops::shape::transpose(self)
+    }
+    fn relu(&self) -> Tensor {
+        ops::activation::relu(self)
+    }
+    fn gelu(&self) -> Tensor {
+        ops::activation::gelu(self)
+    }
+    fn sigmoid(&self) -> Tensor {
+        ops::activation::sigmoid(self)
+    }
+    fn tanh(&self) -> Tensor {
+        ops::activation::tanh(self)
+    }
+    fn leaky_relu(&self, negative_slope: f32) -> Tensor {
+        ops::activation::leaky_relu(self, negative_slope)
+    }
+    fn silu(&self) -> Tensor {
+        ops::activation::silu(self)
+    }
+    fn softmax(&self, axis: usize) -> Tensor {
+        ops::nn::softmax(self, axis)
+    }
+    fn log_softmax(&self, axis: usize) -> Tensor {
+        ops::nn::log_softmax(self, axis)
+    }
+    fn dropout(&self, rate: f32, training: bool) -> Tensor {
+        ops::nn::dropout(self, rate, training)
+    }
 }
 
 /// Module system — like PyTorch nn.Module
 pub trait Module {
     fn parameters(&self) -> Vec<Tensor>;
     fn forward(&self, input: &Tensor) -> Tensor;
-    fn name(&self) -> &str { "Module" }
+    fn name(&self) -> &str {
+        "Module"
+    }
 }
 
 /// Linear layer (fully connected)
@@ -196,7 +247,9 @@ impl Module for Linear {
         out
     }
 
-    fn name(&self) -> &str { "Linear" }
+    fn name(&self) -> &str {
+        "Linear"
+    }
 }
 
 /// Simple MLP
@@ -208,7 +261,11 @@ impl MLP {
     pub fn new(layer_sizes: &[usize], _activation: &str) -> Self {
         let mut layers: Vec<Box<dyn Module>> = Vec::with_capacity(layer_sizes.len() - 1);
         for i in 0..layer_sizes.len() - 1 {
-            layers.push(Box::new(Linear::new(layer_sizes[i], layer_sizes[i + 1], true)));
+            layers.push(Box::new(Linear::new(
+                layer_sizes[i],
+                layer_sizes[i + 1],
+                true,
+            )));
         }
         Self { layers }
     }
@@ -230,7 +287,9 @@ impl Module for MLP {
         h
     }
 
-    fn name(&self) -> &str { "MLP" }
+    fn name(&self) -> &str {
+        "MLP"
+    }
 }
 
 /// AdamW Optimizer (Adam with decoupled weight decay)
@@ -249,9 +308,26 @@ pub struct Adam {
 
 impl Adam {
     pub fn new(parameters: Vec<Tensor>, lr: f32) -> Self {
-        let m = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
-        let v = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
-        Self { parameters, lr, beta1: 0.9, beta2: 0.999, eps: 1e-8, weight_decay: 0.0, max_grad_norm: None, step: 0, m, v }
+        let m = parameters
+            .iter()
+            .map(|p| ArrayD::zeros(p.shape().to_vec()))
+            .collect();
+        let v = parameters
+            .iter()
+            .map(|p| ArrayD::zeros(p.shape().to_vec()))
+            .collect();
+        Self {
+            parameters,
+            lr,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            weight_decay: 0.0,
+            max_grad_norm: None,
+            step: 0,
+            m,
+            v,
+        }
     }
 
     pub fn zero_grad(&self) {
@@ -271,7 +347,10 @@ impl Adam {
     fn clip_gradients(&self, max_norm: f32) {
         let mut total_norm_sq = 0.0f32;
         let mut has_nan = false;
-        let grads: Vec<(usize, ArrayD<f32>)> = self.parameters.iter().enumerate()
+        let grads: Vec<(usize, ArrayD<f32>)> = self
+            .parameters
+            .iter()
+            .enumerate()
             .filter_map(|(i, p)| p.grad().map(|g| (i, g)))
             .collect();
 
@@ -350,12 +429,30 @@ impl Adam {
 
     pub fn collect_optimizer_tensors(&self) -> Vec<(&str, ArrayD<f32>)> {
         let mut tensors: Vec<(&str, ArrayD<f32>)> = Vec::with_capacity(self.m.len() * 2 + 6);
-        tensors.push(("opt.step", ArrayD::from_shape_vec(vec![1], vec![self.step as f32]).unwrap()));
-        tensors.push(("opt.lr", ArrayD::from_shape_vec(vec![1], vec![self.lr]).unwrap()));
-        tensors.push(("opt.beta1", ArrayD::from_shape_vec(vec![1], vec![self.beta1]).unwrap()));
-        tensors.push(("opt.beta2", ArrayD::from_shape_vec(vec![1], vec![self.beta2]).unwrap()));
-        tensors.push(("opt.eps", ArrayD::from_shape_vec(vec![1], vec![self.eps]).unwrap()));
-        tensors.push(("opt.weight_decay", ArrayD::from_shape_vec(vec![1], vec![self.weight_decay]).unwrap()));
+        tensors.push((
+            "opt.step",
+            ArrayD::from_shape_vec(vec![1], vec![self.step as f32]).unwrap(),
+        ));
+        tensors.push((
+            "opt.lr",
+            ArrayD::from_shape_vec(vec![1], vec![self.lr]).unwrap(),
+        ));
+        tensors.push((
+            "opt.beta1",
+            ArrayD::from_shape_vec(vec![1], vec![self.beta1]).unwrap(),
+        ));
+        tensors.push((
+            "opt.beta2",
+            ArrayD::from_shape_vec(vec![1], vec![self.beta2]).unwrap(),
+        ));
+        tensors.push((
+            "opt.eps",
+            ArrayD::from_shape_vec(vec![1], vec![self.eps]).unwrap(),
+        ));
+        tensors.push((
+            "opt.weight_decay",
+            ArrayD::from_shape_vec(vec![1], vec![self.weight_decay]).unwrap(),
+        ));
         for (i, arr) in self.m.iter().enumerate() {
             let key = format!("opt.m.{}", i);
             let leaked: &'static str = Box::leak(key.into_boxed_str());
@@ -369,7 +466,10 @@ impl Adam {
         tensors
     }
 
-    pub fn load_optimizer_state(&mut self, tensors: &std::collections::HashMap<String, ArrayD<f32>>) {
+    pub fn load_optimizer_state(
+        &mut self,
+        tensors: &std::collections::HashMap<String, ArrayD<f32>>,
+    ) {
         if let Some(arr) = tensors.get("opt.step") {
             self.step = arr.iter().next().copied().unwrap_or(0.0) as usize;
         }
@@ -418,7 +518,12 @@ pub struct SGD {
 impl SGD {
     pub fn new(parameters: Vec<Tensor>, lr: f32, momentum: f32) -> Self {
         let velocities = parameters.iter().map(|_| None).collect();
-        Self { parameters, lr, momentum, velocities }
+        Self {
+            parameters,
+            lr,
+            momentum,
+            velocities,
+        }
     }
 
     pub fn zero_grad(&self) {
@@ -431,7 +536,8 @@ impl SGD {
         for (i, p) in self.parameters.iter().enumerate() {
             if let Some(g) = p.grad() {
                 let update = if self.momentum > 0.0 {
-                    let vel = self.velocities[i].get_or_insert_with(|| ArrayD::zeros(g.shape().to_vec()));
+                    let vel =
+                        self.velocities[i].get_or_insert_with(|| ArrayD::zeros(g.shape().to_vec()));
                     let new_vel = &*vel * self.momentum + &g * self.lr;
                     *vel = new_vel.clone();
                     new_vel
@@ -528,7 +634,10 @@ mod tests {
         opt.step();
 
         let new_data = params[0].data();
-        let changed = old_data.iter().zip(new_data.iter()).any(|(a, b)| (a - b).abs() > 1e-6);
+        let changed = old_data
+            .iter()
+            .zip(new_data.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
         assert!(changed, "SGD should update parameters");
     }
 
@@ -654,7 +763,10 @@ mod tests {
         opt.step();
 
         let new_data = params[0].data();
-        let changed = old_data.iter().zip(new_data.iter()).any(|(a, b)| (a - b).abs() > 1e-6);
+        let changed = old_data
+            .iter()
+            .zip(new_data.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
         assert!(changed, "Adam should update parameters");
     }
 
@@ -664,11 +776,15 @@ mod tests {
         let n = 100;
         let d = 5;
         let w_true: Vec<f32> = (0..d).map(|i| (i + 1) as f32 / 10.0).collect();
-        let x_data: Vec<f32> = (0..n * d).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect();
-        let y_data: Vec<f32> = (0..n).map(|i| {
-            let pred: f32 = (0..d).map(|j| x_data[i * d + j] * w_true[j]).sum();
-            pred + rand::random::<f32>() * 0.1
-        }).collect();
+        let x_data: Vec<f32> = (0..n * d)
+            .map(|_| rand::random::<f32>() * 2.0 - 1.0)
+            .collect();
+        let y_data: Vec<f32> = (0..n)
+            .map(|i| {
+                let pred: f32 = (0..d).map(|j| x_data[i * d + j] * w_true[j]).sum();
+                pred + rand::random::<f32>() * 0.1
+            })
+            .collect();
 
         let x = Tensor::from_slice(&x_data, &[n, d]);
         let y = Tensor::from_slice(&y_data, &[n, 1]);
@@ -687,7 +803,11 @@ mod tests {
             losses.push(loss.data()[0]);
         }
 
-        assert!(losses[losses.len() - 1] < 0.5, "Loss should decrease during training: {:?}", losses);
+        assert!(
+            losses[losses.len() - 1] < 0.5,
+            "Loss should decrease during training: {:?}",
+            losses
+        );
     }
 
     #[test]
@@ -695,11 +815,19 @@ mod tests {
         // Simple binary classifier with BCE
         let n = 50;
         let d = 4;
-        let x_data: Vec<f32> = (0..n * d).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect();
-        let y_data: Vec<f32> = (0..n).map(|i| {
-            let sum: f32 = (0..d).map(|j| x_data[i * d + j]).sum();
-            if sum > 0.0 { 1.0 } else { 0.0 }
-        }).collect();
+        let x_data: Vec<f32> = (0..n * d)
+            .map(|_| rand::random::<f32>() * 2.0 - 1.0)
+            .collect();
+        let y_data: Vec<f32> = (0..n)
+            .map(|i| {
+                let sum: f32 = (0..d).map(|j| x_data[i * d + j]).sum();
+                if sum > 0.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
 
         let x = Tensor::from_slice(&x_data, &[n, d]);
         let y = Tensor::from_slice(&y_data, &[n, 1]);
@@ -718,7 +846,11 @@ mod tests {
             losses.push(loss.data()[0]);
         }
 
-        assert!(losses[losses.len() - 1] < 0.5, "BCE loss should decrease: {:?}", losses);
+        assert!(
+            losses[losses.len() - 1] < 0.5,
+            "BCE loss should decrease: {:?}",
+            losses
+        );
     }
 
     #[test]

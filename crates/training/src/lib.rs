@@ -1,21 +1,21 @@
 pub mod lora;
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::collections::VecDeque;
 
-use tracing::{warn, info};
 use ndarray::ArrayD;
-use nexora_autograd::{Tensor, TensorOps, Adam, clear_tape};
-use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::compute_grad_norm;
+use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::Device;
+use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
+use tracing::{info, warn};
 
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::{GpuContext, GpuTensor};
 use nexora_autograd::gpu_adam::GpuAdam;
 
-use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig, safetensors};
+use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct EvalMetrics {
@@ -168,14 +168,16 @@ impl Trainer {
                         p.set_device(Device::Gpu(0));
                     }
                     // Create GpuAdam optimizer
-                    let owned_gpu_params: Vec<GpuTensor> = params.iter()
+                    let owned_gpu_params: Vec<GpuTensor> = params
+                        .iter()
                         .map(|p| match p.storage() {
                             nexora_autograd::Storage::Gpu(g) => g,
                             _ => unreachable!(),
                         })
                         .collect();
                     let gpu_params: Vec<&GpuTensor> = owned_gpu_params.iter().collect();
-                    let mut gpu_opt = GpuAdam::new(ctx, &gpu_params, self.config.learning_rate).unwrap();
+                    let mut gpu_opt =
+                        GpuAdam::new(ctx, &gpu_params, self.config.learning_rate).unwrap();
                     gpu_opt.weight_decay = self.config.weight_decay;
                     gpu_opt.max_grad_norm = self.config.max_grad_norm;
                     self.trainable = Some(trainable);
@@ -203,8 +205,8 @@ impl Trainer {
         if step < warmup_steps {
             base_lr * (step as f32 / warmup_steps.max(1) as f32)
         } else {
-            let progress = ((step - warmup_steps) as f32
-                / (max_steps - warmup_steps).max(1) as f32).min(1.0);
+            let progress =
+                ((step - warmup_steps) as f32 / (max_steps - warmup_steps).max(1) as f32).min(1.0);
             base_lr * 0.5 * (1.0 + (std::f32::consts::PI * progress).cos())
         }
     }
@@ -216,7 +218,10 @@ impl Trainer {
 
         let trainable = match self.trainable.as_ref() {
             Some(t) => t,
-            None => { warn!("train_step called without prepare()"); return None; }
+            None => {
+                warn!("train_step called without prepare()");
+                return None;
+            }
         };
 
         let seq = tokens.len().min(self.config.seq_length);
@@ -229,19 +234,32 @@ impl Trainer {
         if self.gpu_optimizer.is_some() {
             let gpu_opt = self.gpu_optimizer.as_mut().unwrap();
             return train_batch_gpu(
-                &mut self.model, trainable, gpu_opt, tokens, targets, seq,
-                &mut self.total_loss, &mut self.total_tokens,
-                &mut self.accumulation_counter, &mut self.step,
-                &mut self.step_times, &mut self.token_counts,
-                &mut self.loss_ema, &mut self.last_grad_norm,
-                &self.config, &self.stop_flag,
+                &mut self.model,
+                trainable,
+                gpu_opt,
+                tokens,
+                targets,
+                seq,
+                &mut self.total_loss,
+                &mut self.total_tokens,
+                &mut self.accumulation_counter,
+                &mut self.step,
+                &mut self.step_times,
+                &mut self.token_counts,
+                &mut self.loss_ema,
+                &mut self.last_grad_norm,
+                &self.config,
+                &self.stop_flag,
             );
         }
 
         // ─── CPU training path ──────────────────────────────────────────────
         let optimizer = match self.optimizer.as_mut() {
             Some(o) => o,
-            None => { warn!("train_step called without prepare()"); return None; }
+            None => {
+                warn!("train_step called without prepare()");
+                return None;
+            }
         };
 
         let batch_start = std::time::Instant::now();
@@ -325,8 +343,6 @@ impl Trainer {
         Some(loss_val)
     }
 
-
-
     pub fn prepare_batch(&mut self, tokens: &[u32]) -> (Vec<u32>, Vec<u32>) {
         let seq = tokens.len().min(self.config.seq_length + 1);
         if seq < 2 {
@@ -338,7 +354,11 @@ impl Trainer {
     }
 
     pub fn avg_loss(&self) -> f64 {
-        if self.total_tokens == 0 { 0.0 } else { self.total_loss / self.total_tokens as f64 }
+        if self.total_tokens == 0 {
+            0.0
+        } else {
+            self.total_loss / self.total_tokens as f64
+        }
     }
 
     pub fn save_checkpoint(&self) {
@@ -409,7 +429,11 @@ impl Trainer {
             Some(t) => t,
             None => {
                 warn!("evaluate_loss called without prepare()");
-                return EvalMetrics { avg_loss: 0.0, perplexity: 0.0, total_tokens: 0 };
+                return EvalMetrics {
+                    avg_loss: 0.0,
+                    perplexity: 0.0,
+                    total_tokens: 0,
+                };
             }
         };
 
@@ -417,16 +441,23 @@ impl Trainer {
         let mut total_tokens = 0usize;
 
         for tokens in sequences {
-            if tokens.len() < 2 { continue; }
+            if tokens.len() < 2 {
+                continue;
+            }
             for chunk in tokens.chunks(seq_length + 1) {
-                if chunk.len() < 2 { continue; }
+                if chunk.len() < 2 {
+                    continue;
+                }
                 let input_t = Tensor::from_slice(
-                    &chunk[..chunk.len()-1].iter().map(|&x| x as f32).collect::<Vec<_>>(),
-                    &[chunk.len()-1],
+                    &chunk[..chunk.len() - 1]
+                        .iter()
+                        .map(|&x| x as f32)
+                        .collect::<Vec<_>>(),
+                    &[chunk.len() - 1],
                 );
                 let target_t = Tensor::from_slice(
                     &chunk[1..].iter().map(|&x| x as f32).collect::<Vec<_>>(),
-                    &[chunk.len()-1],
+                    &[chunk.len() - 1],
                 );
                 let logits = trainable.forward(&input_t);
                 let loss = cross_entropy_loss(&logits, &target_t).mean();
@@ -435,7 +466,7 @@ impl Trainer {
                     warn!("NaN/Inf detected during evaluation — skipping chunk");
                     continue;
                 }
-                total_loss += step_loss * (chunk.len()-1) as f64;
+                total_loss += step_loss * (chunk.len() - 1) as f64;
                 total_tokens += chunk.len() - 1;
             }
         }
@@ -444,8 +475,16 @@ impl Trainer {
         clear_tape();
 
         EvalMetrics {
-            avg_loss: if total_tokens > 0 { total_loss / total_tokens as f64 } else { 0.0 },
-            perplexity: if total_tokens > 0 { (total_loss / total_tokens as f64).exp() } else { 0.0 },
+            avg_loss: if total_tokens > 0 {
+                total_loss / total_tokens as f64
+            } else {
+                0.0
+            },
+            perplexity: if total_tokens > 0 {
+                (total_loss / total_tokens as f64).exp()
+            } else {
+                0.0
+            },
             total_tokens,
         }
     }
@@ -525,11 +564,13 @@ fn train_batch_gpu(
     let target_arr = ndarray::ArrayD::from_shape_vec(vec![seq], target_buf).unwrap();
     let input_t = Tensor::from_gpu(
         GpuTensor::from_cpu(&input_arr).unwrap(),
-        nexora_autograd::tensor::next_tensor_id(), false,
+        nexora_autograd::tensor::next_tensor_id(),
+        false,
     );
     let target_t = Tensor::from_gpu(
         GpuTensor::from_cpu(&target_arr).unwrap(),
-        nexora_autograd::tensor::next_tensor_id(), false,
+        nexora_autograd::tensor::next_tensor_id(),
+        false,
     );
 
     let logits = trainable.forward(&input_t);
@@ -539,8 +580,13 @@ fn train_batch_gpu(
     let loss_val = loss.data()[0];
     if !loss_val.is_finite() {
         warn!("NaN/Inf loss detected ({}) — skipping GPU step", loss_val);
-        let owned_params: Vec<GpuTensor> = trainable.parameters().iter()
-            .map(|p| match p.storage() { nexora_autograd::Storage::Gpu(g) => g, _ => unreachable!() })
+        let owned_params: Vec<GpuTensor> = trainable
+            .parameters()
+            .iter()
+            .map(|p| match p.storage() {
+                nexora_autograd::Storage::Gpu(g) => g,
+                _ => unreachable!(),
+            })
             .collect();
         let params: Vec<&GpuTensor> = owned_params.iter().collect();
         let _ = gpu_opt.zero_grad(&ctx, &params);
@@ -552,11 +598,18 @@ fn train_batch_gpu(
     *accumulation_counter += 1;
 
     if *accumulation_counter >= config.batch_size {
-        let owned_params: Vec<GpuTensor> = trainable.parameters().iter()
-            .map(|p| match p.storage() { nexora_autograd::Storage::Gpu(g) => g, _ => unreachable!() })
+        let owned_params: Vec<GpuTensor> = trainable
+            .parameters()
+            .iter()
+            .map(|p| match p.storage() {
+                nexora_autograd::Storage::Gpu(g) => g,
+                _ => unreachable!(),
+            })
             .collect();
         let params: Vec<&GpuTensor> = owned_params.iter().collect();
-        let grad_tensors: Vec<GpuTensor> = trainable.parameters().iter()
+        let grad_tensors: Vec<GpuTensor> = trainable
+            .parameters()
+            .iter()
             .map(|p| {
                 let grad_arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
                 GpuTensor::from_cpu(&grad_arr).unwrap()
@@ -565,8 +618,10 @@ fn train_batch_gpu(
         let grad_refs: Vec<&GpuTensor> = grad_tensors.iter().collect();
 
         gpu_opt.lr = Trainer::lr_at_step(
-            *step + 1, config.learning_rate,
-            config.warmup_steps, config.max_steps,
+            *step + 1,
+            config.learning_rate,
+            config.warmup_steps,
+            config.max_steps,
         );
 
         let _ = gpu_opt.step(&ctx, &params, &grad_refs);
@@ -601,7 +656,9 @@ fn train_batch_gpu(
             }
         }
 
-        if stop_flag.load(Ordering::SeqCst) { return None; }
+        if stop_flag.load(Ordering::SeqCst) {
+            return None;
+        }
     }
 
     Some(loss_val)
@@ -615,7 +672,8 @@ fn save_optimizer_file(path: &str, opt: &Adam) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Optimizer save failed: {}", e))
 }
 
-fn load_optimizer_file(path: &str) -> anyhow::Result<std::collections::HashMap<String, ArrayD<f32>>> {
-    safetensors::load_safetensors(path)
-        .map_err(|e| anyhow::anyhow!("Optimizer load failed: {}", e))
+fn load_optimizer_file(
+    path: &str,
+) -> anyhow::Result<std::collections::HashMap<String, ArrayD<f32>>> {
+    safetensors::load_safetensors(path).map_err(|e| anyhow::anyhow!("Optimizer load failed: {}", e))
 }

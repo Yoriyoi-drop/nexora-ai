@@ -1,14 +1,14 @@
 //! Chronos Prime Agent
-//! 
+//!
 //! Time mastery and temporal intelligence
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Chronos Prime Agent - Time mastery and temporal intelligence
 #[derive(Debug, Clone)]
@@ -79,10 +79,7 @@ impl Default for ChronosPrimeConfig {
         Self {
             base_config: BaseAgentConfig::default(),
             temporal_model: TemporalModel::HybridTemporal {
-                models: vec![
-                    TemporalModel::LinearTime,
-                    TemporalModel::CyclicalTime,
-                ],
+                models: vec![TemporalModel::LinearTime, TemporalModel::CyclicalTime],
             },
             intelligence_approach: IntelligenceApproach::PredictiveIntelligence,
         }
@@ -150,7 +147,9 @@ impl BaseAgent for ChronosPrimeAgent {
         let temporal_insights = self.generate_temporal_insights(&input).await?;
         let time_predictions = self.generate_time_predictions(&input).await?;
         let temporal_recommendations = self.generate_temporal_recommendations(&input).await?;
-        let intelligence_confidence = self.calculate_intelligence_confidence(&input, &temporal_insights).await?;
+        let intelligence_confidence = self
+            .calculate_intelligence_confidence(&input, &temporal_insights)
+            .await?;
 
         Ok(ChronosPrimeTaskOutput {
             temporal_insights,
@@ -169,21 +168,22 @@ impl BaseAgent for ChronosPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "chronos_prime".to_string(),
-                description: "Time mastery and temporal intelligence".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["temporal_query".to_string(), "time_context".to_string()],
-                output_types: vec!["temporal_insights".to_string(), "time_predictions".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.94,
-                    avg_latency: 3000.0,
-                    resource_usage: 0.78,
-                    reliability: 0.96,
-                },
+        vec![AgentCapability {
+            name: "chronos_prime".to_string(),
+            description: "Time mastery and temporal intelligence".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["temporal_query".to_string(), "time_context".to_string()],
+            output_types: vec![
+                "temporal_insights".to_string(),
+                "time_predictions".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.94,
+                avg_latency: 3000.0,
+                resource_usage: 0.78,
+                reliability: 0.96,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -219,16 +219,25 @@ impl ChronosPrimeAgent {
         }
     }
 
-    async fn generate_temporal_insights(&self, input: &ChronosPrimeTaskInput) -> AgentResult<Vec<String>> {
+    async fn generate_temporal_insights(
+        &self,
+        input: &ChronosPrimeTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Temporal insight for query '{}': Time patterns reveal cyclical behavior", input.temporal_query),
+            format!(
+                "Temporal insight for query '{}': Time patterns reveal cyclical behavior",
+                input.temporal_query
+            ),
             "Historical data indicates recurring temporal patterns".to_string(),
             "Current temporal context suggests optimal timing for actions".to_string(),
             "Future temporal projections indicate significant events".to_string(),
         ])
     }
 
-    async fn generate_time_predictions(&self, input: &ChronosPrimeTaskInput) -> AgentResult<Vec<(chrono::DateTime<chrono::Utc>, f32)>> {
+    async fn generate_time_predictions(
+        &self,
+        input: &ChronosPrimeTaskInput,
+    ) -> AgentResult<Vec<(chrono::DateTime<chrono::Utc>, f32)>> {
         let base_time = chrono::Utc::now();
         let horizon_hours = match input.prediction_horizon.as_str() {
             "short" => 24,
@@ -236,32 +245,50 @@ impl ChronosPrimeAgent {
             "long" => 720,   // 1 month
             _ => 72,
         };
-        
+
         let mut predictions = Vec::new();
-        
+
         for i in 0..10 {
             let future_time = base_time + chrono::Duration::hours(i * horizon_hours / 10);
             let confidence = 0.9 - (i as f32 * 0.05); // Decreasing confidence over time
             predictions.push((future_time, confidence));
         }
-        
+
         Ok(predictions)
     }
 
-    async fn generate_temporal_recommendations(&self, input: &ChronosPrimeTaskInput) -> AgentResult<Vec<String>> {
+    async fn generate_temporal_recommendations(
+        &self,
+        input: &ChronosPrimeTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Recommendation for '{}': Optimize timing based on temporal patterns", input.temporal_query),
+            format!(
+                "Recommendation for '{}': Optimize timing based on temporal patterns",
+                input.temporal_query
+            ),
             "Schedule critical activities during peak temporal efficiency periods".to_string(),
             "Align actions with cyclical time patterns for maximum effectiveness".to_string(),
             "Consider temporal constraints when planning future activities".to_string(),
         ])
     }
 
-    async fn calculate_intelligence_confidence(&self, input: &ChronosPrimeTaskInput, insights: &[String]) -> AgentResult<f32> {
-        let query_quality = if !input.temporal_query.is_empty() { 0.9 } else { 0.6 };
-        let context_quality = if input.time_context.len() > 0 { 0.85 } else { 0.7 };
+    async fn calculate_intelligence_confidence(
+        &self,
+        input: &ChronosPrimeTaskInput,
+        insights: &[String],
+    ) -> AgentResult<f32> {
+        let query_quality = if !input.temporal_query.is_empty() {
+            0.9
+        } else {
+            0.6
+        };
+        let context_quality = if input.time_context.len() > 0 {
+            0.85
+        } else {
+            0.7
+        };
         let insight_quality = if insights.len() > 0 { 0.8 } else { 0.5 };
-        
+
         Ok((query_quality + context_quality + insight_quality) / 3.0)
     }
 }
@@ -291,7 +318,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.temporal_insights.is_empty());
         assert!(!output.time_predictions.is_empty());

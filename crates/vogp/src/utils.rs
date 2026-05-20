@@ -3,7 +3,7 @@
 //! Helper functions dan tools untuk mendukung implementasi VOGP+
 //! termasuk data augmentation, gradient approximation, dan monitoring.
 
-use ndarray::{Array2, ArrayD, s};
+use ndarray::{s, Array2, ArrayD};
 use rand::prelude::*;
 use rand_distr::StandardNormal;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ impl AugmentationUtils {
         rng: &mut ThreadRng,
     ) -> Array2<f32> {
         let augmentation_type = rng.gen_range(0..6);
-        
+
         match augmentation_type {
             0 => Self::apply_gaussian_noise(data, 0.1 * augmentation_strength, rng),
             1 => Self::apply_dropout(data, 0.1 * augmentation_strength, rng),
@@ -42,7 +42,11 @@ impl AugmentationUtils {
     }
 
     /// Apply dropout-style augmentation
-    pub fn apply_dropout(data: &Array2<f32>, dropout_rate: f32, rng: &mut ThreadRng) -> Array2<f32> {
+    pub fn apply_dropout(
+        data: &Array2<f32>,
+        dropout_rate: f32,
+        rng: &mut ThreadRng,
+    ) -> Array2<f32> {
         data.mapv(|x| {
             if rng.gen::<f32>() < dropout_rate {
                 0.0
@@ -53,17 +57,22 @@ impl AugmentationUtils {
     }
 
     /// Apply random crop augmentation
-    pub fn apply_random_crop(data: &Array2<f32>, crop_ratio: f32, rng: &mut ThreadRng) -> Array2<f32> {
+    pub fn apply_random_crop(
+        data: &Array2<f32>,
+        crop_ratio: f32,
+        rng: &mut ThreadRng,
+    ) -> Array2<f32> {
         let (_, num_features) = data.dim();
         let crop_size = (num_features as f32 * crop_ratio) as usize;
-        
+
         if crop_size >= num_features {
             // Return a view-based clone instead of full clone when possible
             return data.slice(s![.., ..]).to_owned();
         }
-        
+
         let start_idx = rng.gen_range(0..=num_features - crop_size);
-        data.slice(s![.., start_idx..start_idx + crop_size]).to_owned()
+        data.slice(s![.., start_idx..start_idx + crop_size])
+            .to_owned()
     }
 
     /// Apply random flip augmentation
@@ -77,30 +86,40 @@ impl AugmentationUtils {
     }
 
     /// Apply rotation-style augmentation (untuk sequential data)
-    pub fn apply_rotation(data: &Array2<f32>, rotation_strength: f32, rng: &mut ThreadRng) -> Array2<f32> {
+    pub fn apply_rotation(
+        data: &Array2<f32>,
+        rotation_strength: f32,
+        rng: &mut ThreadRng,
+    ) -> Array2<f32> {
         let (_, num_features) = data.dim();
         let shift_amount = (num_features as f32 * rotation_strength) as usize;
-        
+
         if shift_amount == 0 {
             // Return view instead of clone when no rotation needed
             return data.slice(s![.., ..]).to_owned();
         }
-        
+
         let shift_direction: isize = if rng.gen::<bool>() { 1 } else { -1 };
         let shift = shift_amount as isize * shift_direction;
-        
+
         // Circular shift
         let mut result = Array2::zeros(data.dim());
         for i in 0..num_features {
             let source_idx = (i as isize - shift).rem_euclid(num_features as isize) as usize;
-            result.slice_mut(s![.., i]).assign(&data.slice(s![.., source_idx]));
+            result
+                .slice_mut(s![.., i])
+                .assign(&data.slice(s![.., source_idx]));
         }
-        
+
         result
     }
 
     /// Apply brightness-style augmentation
-    pub fn apply_brightness(data: &Array2<f32>, brightness_strength: f32, rng: &mut ThreadRng) -> Array2<f32> {
+    pub fn apply_brightness(
+        data: &Array2<f32>,
+        brightness_strength: f32,
+        rng: &mut ThreadRng,
+    ) -> Array2<f32> {
         let brightness_factor = 1.0 + (rng.gen::<f32>() - 0.5) * 2.0 * brightness_strength;
         data.mapv(|x| x * brightness_factor)
     }
@@ -112,30 +131,30 @@ impl AugmentationUtils {
     ) -> Vec<AugmentationType> {
         let mut rng = thread_rng();
         let mut pipeline = Vec::with_capacity(num_augmentations);
-        
+
         for _ in 0..num_augmentations {
             let aug_type = match rng.gen_range(0..6) {
-                0 => AugmentationType::GaussianNoise { 
-                    std: 0.1 * augmentation_strength 
+                0 => AugmentationType::GaussianNoise {
+                    std: 0.1 * augmentation_strength,
                 },
-                1 => AugmentationType::Dropout { 
-                    rate: 0.1 * augmentation_strength 
+                1 => AugmentationType::Dropout {
+                    rate: 0.1 * augmentation_strength,
                 },
-                2 => AugmentationType::Crop { 
-                    ratio: 0.9 + 0.1 * augmentation_strength 
+                2 => AugmentationType::Crop {
+                    ratio: 0.9 + 0.1 * augmentation_strength,
                 },
                 3 => AugmentationType::Flip,
-                4 => AugmentationType::Rotation { 
-                    strength: 0.1 * augmentation_strength 
+                4 => AugmentationType::Rotation {
+                    strength: 0.1 * augmentation_strength,
                 },
-                5 => AugmentationType::Brightness { 
-                    strength: 0.1 * augmentation_strength 
+                5 => AugmentationType::Brightness {
+                    strength: 0.1 * augmentation_strength,
                 },
                 _ => AugmentationType::None,
             };
             pipeline.push(aug_type);
         }
-        
+
         pipeline
     }
 }
@@ -156,18 +175,18 @@ impl GradientUtils {
     {
         let mut gradients = ArrayD::zeros(parameters.dim());
         let base_loss = loss_fn(parameters);
-        
+
         for (idx, &_param) in parameters.indexed_iter() {
             // Create a mutable view instead of full clone for efficiency
             let mut perturbed = ArrayD::zeros(parameters.dim());
             perturbed.assign(parameters);
             perturbed[idx.clone()] += epsilon;
-            
+
             let perturbed_loss = loss_fn(&perturbed);
             let gradient = (perturbed_loss - base_loss) / epsilon;
             gradients[idx.clone()] = gradient;
         }
-        
+
         gradients
     }
 
@@ -184,7 +203,7 @@ impl GradientUtils {
     {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut total_norm_sq = 0.0;
-        
+
         for _ in 0..num_samples {
             // Generate random direction
             let total_elements = baseline_gradient.len();
@@ -199,18 +218,18 @@ impl GradientUtils {
                     return 0.0;
                 }
             };
-            
+
             // Compute gradient at perturbed point
             let gradient = gradient_fn(&noise);
-            
+
             // Control variate correction
             let corrected_gradient = &gradient - baseline_gradient;
-            
+
             // Compute directional derivative
             let directional_derivative = (&noise * &corrected_gradient).sum();
             total_norm_sq += directional_derivative * directional_derivative;
         }
-        
+
         (total_norm_sq / num_samples as f32).sqrt()
     }
 
@@ -226,24 +245,24 @@ impl GradientUtils {
         F: Fn(&ArrayD<f32>, f32) -> ArrayD<f32>,
     {
         let mut results = Vec::new();
-        
+
         for &scale in scales {
             let mut total_norm = 0.0;
             let mut rng = thread_rng();
-            
+
             for _ in 0..samples_per_scale {
                 let noise = ArrayD::from_shape_fn(input_shape, |_| {
                     rng.sample::<f32, _>(StandardNormal) * scale
                 });
-                
+
                 let gradient = gradient_fn(&noise, scale);
                 let norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt();
                 total_norm += norm;
             }
-            
+
             results.push(total_norm / samples_per_scale as f32);
         }
-        
+
         results
     }
 }
@@ -270,7 +289,7 @@ impl MonitoringUtils {
     pub fn create_metrics_collector() -> MetricsCollector {
         MetricsCollector::new()
     }
-    
+
     /// Log training progress
     pub fn log_training_step(metrics: &VOGPMetrics) {
         info!(
@@ -285,7 +304,7 @@ impl MonitoringUtils {
             metrics.adaptive_threshold
         );
     }
-    
+
     /// Check untuk training stability
     pub fn check_training_stability(
         recent_losses: &[f32],
@@ -300,26 +319,30 @@ impl MonitoringUtils {
                 recommendations: Vec::new(),
             };
         }
-        
+
         let mean = recent_losses.iter().sum::<f32>() / recent_losses.len() as f32;
-        let variance = recent_losses.iter()
+        let variance = recent_losses
+            .iter()
             .map(|x| (x - mean).powi(2))
-            .sum::<f32>() / recent_losses.len() as f32;
-        
-        let max_spike = recent_losses.windows(2)
+            .sum::<f32>()
+            / recent_losses.len() as f32;
+
+        let max_spike = recent_losses
+            .windows(2)
             .map(|w| (w[1] - w[0]).abs())
             .fold(0.0f32, f32::max);
-        
+
         let mut recommendations = Vec::new();
-        
+
         if variance > variance_threshold {
             recommendations.push("Consider increasing EMA beta for more smoothing".to_string());
         }
-        
+
         if max_spike > loss_spike_threshold {
-            recommendations.push("Loss spike detected - consider reducing learning rate".to_string());
+            recommendations
+                .push("Loss spike detected - consider reducing learning rate".to_string());
         }
-        
+
         StabilityReport {
             is_stable: variance < variance_threshold && max_spike < loss_spike_threshold,
             variance,
@@ -342,42 +365,42 @@ impl MetricsCollector {
             max_history_size: 10000,
         }
     }
-    
+
     pub fn add_metrics(&mut self, metrics: VOGPMetrics) {
         self.metrics_history.push(metrics);
-        
+
         // Keep history size manageable
         if self.metrics_history.len() > self.max_history_size {
             self.metrics_history.remove(0);
         }
     }
-    
+
     pub fn get_recent_metrics(&self, window_size: usize) -> &[VOGPMetrics] {
         let start = if self.metrics_history.len() > window_size {
             self.metrics_history.len() - window_size
         } else {
             0
         };
-        
+
         &self.metrics_history[start..]
     }
-    
+
     pub fn get_loss_trend(&self, window_size: usize) -> f32 {
         let recent = self.get_recent_metrics(window_size);
         if recent.len() < 2 {
             return 0.0;
         }
-        
+
         let first_loss = recent[0].total_loss;
         let last_loss = recent[recent.len() - 1].total_loss;
-        
+
         (last_loss - first_loss) / recent.len() as f32
     }
-    
+
     pub fn export_metrics(&self) -> &Vec<VOGPMetrics> {
         &self.metrics_history
     }
-    
+
     pub fn reset(&mut self) {
         self.metrics_history.clear();
     }
@@ -408,15 +431,15 @@ impl BatchUtils {
         T: Clone,
     {
         let mut results = Vec::new();
-        
+
         for chunk in batch.chunks(accumulation_steps) {
             let result = process_fn(chunk);
             results.push(result);
         }
-        
+
         results
     }
-    
+
     /// Create virtual batch untuk small batch scenarios
     pub fn create_virtual_batch<T: Clone>(
         &self,
@@ -425,7 +448,7 @@ impl BatchUtils {
         augmentation_fn: impl Fn(&T) -> T,
     ) -> Vec<T> {
         let mut virtual_batch = small_batch.to_vec();
-        
+
         while virtual_batch.len() < virtual_size {
             for item in small_batch {
                 if virtual_batch.len() >= virtual_size {
@@ -434,10 +457,10 @@ impl BatchUtils {
                 virtual_batch.push(augmentation_fn(item));
             }
         }
-        
+
         virtual_batch
     }
-    
+
     /// Balance batch untuk class imbalance
     pub fn balance_batch<T: Clone>(
         &self,
@@ -445,23 +468,26 @@ impl BatchUtils {
         target_per_class: usize,
     ) -> Vec<(T, usize)> {
         let mut class_groups: HashMap<usize, Vec<T>> = HashMap::new();
-        
+
         for (data, class_id) in batch {
-            class_groups.entry(*class_id)
+            class_groups
+                .entry(*class_id)
                 .or_insert_with(Vec::new)
                 .push(data.clone());
         }
-        
+
         let mut balanced_batch = Vec::new();
-        
+
         for (class_id, samples) in class_groups {
             let needed = target_per_class.min(samples.len());
             balanced_batch.extend(
-                samples.into_iter().take(needed)
-                    .map(|data| (data, class_id))
+                samples
+                    .into_iter()
+                    .take(needed)
+                    .map(|data| (data, class_id)),
             );
         }
-        
+
         balanced_batch
     }
 }
@@ -476,7 +502,7 @@ impl MemoryUtils {
         let total_elements: usize = shape.iter().product();
         (total_elements + elements_per_mb - 1) / elements_per_mb
     }
-    
+
     /// Optimize batch size berdasarkan memory constraint
     pub fn optimize_batch_size(
         &self,
@@ -486,16 +512,21 @@ impl MemoryUtils {
         safety_factor: f32,
     ) -> usize {
         let memory_per_sample = Self::estimate_tensor_memory(sample_shape, dtype);
-        let max_safe_samples = (available_memory_mb as f32 * safety_factor) as usize / memory_per_sample;
-        
+        let max_safe_samples =
+            (available_memory_mb as f32 * safety_factor) as usize / memory_per_sample;
+
         // Power of 2 alignment untuk better performance
         max_safe_samples.next_power_of_two().min(1024)
     }
-    
+
     /// Check memory pressure
-    pub fn check_memory_pressure(&self, current_usage_mb: usize, limit_mb: usize) -> MemoryPressure {
+    pub fn check_memory_pressure(
+        &self,
+        current_usage_mb: usize,
+        limit_mb: usize,
+    ) -> MemoryPressure {
         let usage_ratio = current_usage_mb as f32 / limit_mb as f32;
-        
+
         if usage_ratio > 0.9 {
             MemoryPressure::Critical
         } else if usage_ratio > 0.7 {
@@ -560,7 +591,7 @@ mod tests {
     fn test_augmentation_utils() {
         let mut rng = thread_rng();
         let data = Array::from_elem((2, 10), 0.5);
-        
+
         let augmented = AugmentationUtils::apply_mixed_augmentation(&data, 0.5, &mut rng);
         assert_eq!(augmented.dim(), data.dim());
     }
@@ -568,22 +599,20 @@ mod tests {
     #[test]
     fn test_gradient_approximation() {
         let utils = GradientUtils {};
-        
+
         // Simple quadratic function: f(x) = x^2
-        let loss_fn = |params: &ArrayD<f32>| {
-            params.iter().map(|x| x * x).sum::<f32>()
-        };
-        
+        let loss_fn = |params: &ArrayD<f32>| params.iter().map(|x| x * x).sum::<f32>();
+
         let params = ArrayD::from_elem(vec![3], 1.0);
         let gradients = utils.approximate_gradient_finite_difference(loss_fn, &params, 1e-5);
-        
+
         assert_eq!(gradients.dim(), params.dim());
     }
 
     #[test]
     fn test_metrics_collector() {
         let mut collector = MetricsCollector::new();
-        
+
         let metrics = VOGPMetrics {
             step: 1,
             total_loss: 1.0,
@@ -596,7 +625,7 @@ mod tests {
             consistency_similarity: 0.9,
             training_time_ms: 100,
         };
-        
+
         collector.add_metrics(metrics);
         assert_eq!(collector.get_recent_metrics(5).len(), 1);
     }
@@ -611,7 +640,7 @@ mod tests {
     fn test_stability_check() {
         let losses = vec![1.0, 1.1, 0.9, 1.2, 1.0, 1.3, 0.8, 1.1, 0.9, 1.0];
         let report = MonitoringUtils::check_training_stability(&losses, 0.1, 0.5);
-        
+
         assert!(report.variance > 0.0);
     }
 }

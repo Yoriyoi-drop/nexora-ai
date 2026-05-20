@@ -97,8 +97,7 @@ impl Profiler {
     }
 
     pub fn elapsed_seconds(&self) -> Option<f64> {
-        self.start_time
-            .map(|t| t.elapsed().as_secs_f64())
+        self.start_time.map(|t| t.elapsed().as_secs_f64())
     }
 }
 

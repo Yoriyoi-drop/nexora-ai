@@ -1,14 +1,14 @@
 //! Spectrum Analyzer Agent
-//! 
+//!
 //! Spectral analysis and frequency domain processing
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Spectrum Analyzer Agent - Spectral analysis and frequency domain processing
 #[derive(Debug, Clone)]
@@ -149,8 +149,12 @@ impl BaseAgent for SpectrumAnalyzerAgent {
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let frequency_components = self.analyze_frequency_components(&input).await?;
         let spectral_density = self.compute_spectral_density(&input).await?;
-        let dominant_frequencies = self.identify_dominant_frequencies(&frequency_components).await?;
-        let analysis_quality = self.assess_analysis_quality(&input, &frequency_components).await?;
+        let dominant_frequencies = self
+            .identify_dominant_frequencies(&frequency_components)
+            .await?;
+        let analysis_quality = self
+            .assess_analysis_quality(&input, &frequency_components)
+            .await?;
 
         Ok(SpectrumAnalyzerTaskOutput {
             frequency_components,
@@ -169,21 +173,22 @@ impl BaseAgent for SpectrumAnalyzerAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "spectrum_analysis".to_string(),
-                description: "Spectral analysis and frequency domain processing".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["signal_data".to_string(), "sampling_rate".to_string()],
-                output_types: vec!["frequency_components".to_string(), "spectral_density".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.94,
-                    avg_latency: 1800.0,
-                    resource_usage: 0.7,
-                    reliability: 0.96,
-                },
+        vec![AgentCapability {
+            name: "spectrum_analysis".to_string(),
+            description: "Spectral analysis and frequency domain processing".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["signal_data".to_string(), "sampling_rate".to_string()],
+            output_types: vec![
+                "frequency_components".to_string(),
+                "spectral_density".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.94,
+                avg_latency: 1800.0,
+                resource_usage: 0.7,
+                reliability: 0.96,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -219,43 +224,68 @@ impl SpectrumAnalyzerAgent {
         }
     }
 
-    async fn analyze_frequency_components(&self, input: &SpectrumAnalyzerTaskInput) -> AgentResult<Vec<(f32, f32)>> {
+    async fn analyze_frequency_components(
+        &self,
+        input: &SpectrumAnalyzerTaskInput,
+    ) -> AgentResult<Vec<(f32, f32)>> {
         // Simple FFT simulation - return frequency and amplitude pairs
         let signal_length = input.signal_data.len();
         let mut components = Vec::new();
-        
+
         for i in 0..(signal_length / 2) {
             let frequency = (i as f32) * input.sampling_rate / (signal_length as f32);
             let amplitude = (i as f32 * 0.1).sin().abs();
             components.push((frequency, amplitude));
         }
-        
+
         Ok(components)
     }
 
-    async fn compute_spectral_density(&self, input: &SpectrumAnalyzerTaskInput) -> AgentResult<Vec<f32>> {
+    async fn compute_spectral_density(
+        &self,
+        input: &SpectrumAnalyzerTaskInput,
+    ) -> AgentResult<Vec<f32>> {
         let signal_length = input.signal_data.len();
         let mut density = Vec::new();
-        
+
         for i in 0..signal_length {
             let value = (i as f32 * 0.05).cos().powi(2);
             density.push(value);
         }
-        
+
         Ok(density)
     }
 
-    async fn identify_dominant_frequencies(&self, components: &[(f32, f32)]) -> AgentResult<Vec<f32>> {
+    async fn identify_dominant_frequencies(
+        &self,
+        components: &[(f32, f32)],
+    ) -> AgentResult<Vec<f32>> {
         let mut sorted_components = components.to_vec();
         sorted_components.sort_by(|a, b| b.1.total_cmp(&a.1));
-        
-        Ok(sorted_components.iter().take(5).map(|(freq, _)| *freq).collect())
+
+        Ok(sorted_components
+            .iter()
+            .take(5)
+            .map(|(freq, _)| *freq)
+            .collect())
     }
 
-    async fn assess_analysis_quality(&self, input: &SpectrumAnalyzerTaskInput, _components: &[(f32, f32)]) -> AgentResult<f32> {
-        let signal_quality = if input.signal_data.len() > 100 { 0.9 } else { 0.7 };
-        let sampling_quality = if input.sampling_rate > 1000.0 { 0.85 } else { 0.6 };
-        
+    async fn assess_analysis_quality(
+        &self,
+        input: &SpectrumAnalyzerTaskInput,
+        _components: &[(f32, f32)],
+    ) -> AgentResult<f32> {
+        let signal_quality = if input.signal_data.len() > 100 {
+            0.9
+        } else {
+            0.7
+        };
+        let sampling_quality = if input.sampling_rate > 1000.0 {
+            0.85
+        } else {
+            0.6
+        };
+
         Ok((signal_quality + sampling_quality) / 2.0)
     }
 }
@@ -282,7 +312,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.frequency_components.is_empty());
         assert!(!output.spectral_density.is_empty());

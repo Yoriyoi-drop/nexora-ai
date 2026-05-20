@@ -2,15 +2,17 @@ use ndarray::ArrayD;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
-use crate::{Storage, tensor::next_tensor_id};
-#[cfg(feature = "gpu")]
 use crate::gpu::{GpuContext, GpuTensor};
+#[cfg(feature = "gpu")]
+use crate::{tensor::next_tensor_id, Storage};
 
 pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
     let data = input.data();
     let new_len: usize = new_shape.iter().product();
     assert_eq!(data.len(), new_len, "Reshape: total elements must match");
-    let result = data.clone().into_shape(new_shape.to_vec())
+    let result = data
+        .clone()
+        .into_shape(new_shape.to_vec())
         .expect("Reshape failed");
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -19,7 +21,8 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
     let shape_saved = ArrayD::from_shape_vec(
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
-    ).expect("shape data fits vector");
+    )
+    .expect("shape data fits vector");
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
@@ -27,7 +30,10 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
         Box::new(|grad, saved| {
             let shape_data: Vec<f32> = saved[0].iter().copied().collect();
             let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
-            vec![grad.clone().into_shape(orig_shape).expect("Reshape backward failed")]
+            vec![grad
+                .clone()
+                .into_shape(orig_shape)
+                .expect("Reshape backward failed")]
         }),
     )
 }
@@ -51,7 +57,8 @@ pub fn transpose(input: &Tensor) -> Tensor {
                             vec![],
                             vec![gpu_clone],
                             Box::new(|grad, _| {
-                                let grad_mat = grad.view()
+                                let grad_mat = grad
+                                    .view()
                                     .into_dimensionality::<ndarray::Ix2>()
                                     .expect("grad must be 2D");
                                 vec![grad_mat.t().to_owned().into_dyn()]
@@ -66,7 +73,8 @@ pub fn transpose(input: &Tensor) -> Tensor {
     }
     let data = input.data();
     assert_eq!(data.ndim(), 2, "Transpose: input must be 2D");
-    let result = data.view()
+    let result = data
+        .view()
         .into_dimensionality::<ndarray::Ix2>()
         .expect("Transpose: must be 2D")
         .t()
@@ -80,7 +88,8 @@ pub fn transpose(input: &Tensor) -> Tensor {
         vec![input.clone()],
         vec![],
         Box::new(|grad, _| {
-            let grad_mat = grad.view()
+            let grad_mat = grad
+                .view()
                 .into_dimensionality::<ndarray::Ix2>()
                 .expect("grad must be 2D");
             vec![grad_mat.t().to_owned().into_dyn()]

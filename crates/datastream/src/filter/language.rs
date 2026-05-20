@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::collections::HashSet;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct LanguageFilter {
@@ -13,8 +13,12 @@ pub struct LanguageFilter {
 impl Default for LanguageFilter {
     fn default() -> Self {
         Self {
-            allowed_languages: ["en", "id", "ms", "vi", "th", "zh", "ja", "ko", "de", "fr", "es"]
-                .iter().map(|s| s.to_string()).collect(),
+            allowed_languages: [
+                "en", "id", "ms", "vi", "th", "zh", "ja", "ko", "de", "fr", "es",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
             min_alpha_ratio: 0.5,
         }
     }
@@ -62,10 +66,16 @@ impl LanguageFilter {
         if sample.contains(" 的") || sample.contains(" 了") || sample.contains(" 是") {
             return Some("zh".to_string());
         }
-        if sample.chars().any(|c| ('\u{3040}'..='\u{309f}').contains(&c)) {
+        if sample
+            .chars()
+            .any(|c| ('\u{3040}'..='\u{309f}').contains(&c))
+        {
             return Some("ja".to_string());
         }
-        if sample.chars().any(|c| ('\u{ac00}'..='\u{d7af}').contains(&c)) {
+        if sample
+            .chars()
+            .any(|c| ('\u{ac00}'..='\u{d7af}').contains(&c))
+        {
             return Some("ko".to_string());
         }
 

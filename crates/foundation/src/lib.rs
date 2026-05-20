@@ -1,25 +1,23 @@
 //! Foundation AI Components for Nexora
-//! 
+//!
 //! Shared tensor operations, validation, and core utilities
 //! for all AI frameworks in the Nexora ecosystem.
 //! Now includes NXR Model Series foundation implementations.
 
-
-
 // Include framework modules
 
+pub mod atqs;
+pub mod reasoning;
+pub mod safetensors;
 pub mod validation;
 pub mod validation_modules;
-pub mod safetensors;
-pub mod reasoning;
-pub mod atqs;
 
 pub mod multimodal;
 
 // Include research modules
+pub mod alignment;
 pub mod has_moe_ffn;
 pub mod oracle;
-pub mod alignment;
 pub mod traits;
 
 // Include HLDVA-T module
@@ -35,29 +33,29 @@ pub mod erp;
 pub mod training;
 
 // Include NXR Model Series
-pub mod shared;
-pub mod models;
-pub mod clustering_orchestrator;
-pub mod quantization;
 pub mod causal_lm_model;
+pub mod clustering_orchestrator;
 pub mod init;
 pub mod model_agent_manager;
+pub mod models;
+pub mod quantization;
+pub mod shared;
 
 // Re-export main components for easier access
 
-pub use validation::*;
-pub use hldva_t::*;
-pub use vogp::*;
 pub use erp::*;
+pub use hldva_t::*;
+pub use validation::*;
+pub use vogp::*;
 
 // Re-export external framework modules
-pub use crate::reasoning::*;
 pub use crate::atqs::*;
 pub use crate::multimodal::*;
+pub use crate::reasoning::*;
 
 // Re-export NXR Model Series components
-pub use shared::*;
 pub use models::*;
+pub use shared::*;
 
 // Define FoundationResult directly to avoid nested structure issues
 pub type FoundationResult<T> = std::result::Result<T, FoundationError>;

@@ -1,25 +1,25 @@
-pub mod sse;
 pub mod apss;
-pub mod mbhw;
-pub mod rhc;
-pub mod prm;
-pub mod irr;
 pub mod derr;
-pub mod tkrr;
+pub mod irr;
 pub mod isc;
+pub mod mbhw;
+pub mod model;
+pub mod prm;
+pub mod rhc;
+pub mod sse;
+pub mod tkrr;
 pub mod training;
 pub mod utils;
-pub mod model;
 
-pub use sse::*;
 pub use apss::*;
-pub use mbhw::*;
-pub use rhc::*;
-pub use prm::*;
-pub use irr::*;
 pub use derr::*;
-pub use tkrr::*;
+pub use irr::*;
 pub use isc::*;
+pub use mbhw::*;
+pub use prm::*;
+pub use rhc::*;
+pub use sse::*;
+pub use tkrr::*;
 pub use training::*;
 pub use utils::*;
 
@@ -28,7 +28,10 @@ pub type DLResult<T> = std::result::Result<T, DeepLearningError>;
 #[derive(Debug, thiserror::Error)]
 pub enum DeepLearningError {
     #[error("Tensor shape mismatch: expected {expected:?}, got {actual:?}")]
-    ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
+    ShapeMismatch {
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
     #[error("Invalid input dimension: {dim}")]
     InvalidDimension { dim: usize },
     #[error("Memory allocation failed: {reason}")]
@@ -41,7 +44,10 @@ pub enum DeepLearningError {
 
 impl From<ndarray::ShapeError> for DeepLearningError {
     fn from(_err: ndarray::ShapeError) -> Self {
-        DeepLearningError::ShapeMismatch { expected: vec![], actual: vec![] }
+        DeepLearningError::ShapeMismatch {
+            expected: vec![],
+            actual: vec![],
+        }
     }
 }
 
@@ -141,7 +147,10 @@ impl EchoNetState {
             semantic_phase: ArrayD::zeros(vec![config.phase_dim]),
             resonance_energy: ArrayD::zeros(vec![config.resonance_dim]),
             holographic_bands: vec![ArrayD::zeros(vec![config.embedding_dim]); config.num_bands],
-            compressed_memory: vec![ArrayD::zeros(vec![config.embedding_dim]); config.compression_levels],
+            compressed_memory: vec![
+                ArrayD::zeros(vec![config.embedding_dim]);
+                config.compression_levels
+            ],
             persistent_memory: ArrayD::zeros(vec![config.memory_size, config.embedding_dim]),
             memory_priorities: vec![0.0; config.memory_size],
             memory_timestamps: vec![0; config.memory_size],
@@ -158,8 +167,12 @@ impl EchoNetState {
         self.amplitude_spectrum.fill(0.0);
         self.semantic_phase.fill(0.0);
         self.resonance_energy.fill(0.0);
-        for band in &mut self.holographic_bands { band.fill(0.0); }
-        for memory in &mut self.compressed_memory { memory.fill(0.0); }
+        for band in &mut self.holographic_bands {
+            band.fill(0.0);
+        }
+        for memory in &mut self.compressed_memory {
+            memory.fill(0.0);
+        }
         self.persistent_memory.fill(0.0);
         self.memory_priorities.fill(0.0);
         self.memory_timestamps.fill(0);
@@ -190,10 +203,17 @@ pub struct EchoNetMetrics {
 impl Default for EchoNetMetrics {
     fn default() -> Self {
         Self {
-            memory_utilization: 0.0, resonance_efficiency: 0.0, compression_ratio: 0.0,
-            retrieval_accuracy: 0.0, reasoning_depth: 0.0, streaming_latency: 0.0,
-            semantic_coherence: 0.0, energy_stability: 0.0, throughput_tokens_per_second: 0.0,
-            sparsity_ratio: 0.0, update_frequency: 0.0,
+            memory_utilization: 0.0,
+            resonance_efficiency: 0.0,
+            compression_ratio: 0.0,
+            retrieval_accuracy: 0.0,
+            reasoning_depth: 0.0,
+            streaming_latency: 0.0,
+            semantic_coherence: 0.0,
+            energy_stability: 0.0,
+            throughput_tokens_per_second: 0.0,
+            sparsity_ratio: 0.0,
+            update_frequency: 0.0,
         }
     }
 }
@@ -206,7 +226,10 @@ pub struct ComplexTensor {
 
 impl ComplexTensor {
     pub fn new(shape: Vec<usize>) -> Self {
-        Self { real: ArrayD::zeros(shape.clone()), imag: ArrayD::zeros(shape) }
+        Self {
+            real: ArrayD::zeros(shape.clone()),
+            imag: ArrayD::zeros(shape),
+        }
     }
 
     pub fn from_polar(amplitude: &ArrayD<f32>, phase: &ArrayD<f32>) -> DLResult<Self> {
@@ -264,8 +287,11 @@ impl HolographicWave {
 
     pub fn evaluate(&self, position: f32) -> ArrayD<f32> {
         let mut result = ArrayD::zeros(self.amplitude.shape());
-        for ((idx, &amp), (&phase, &freq)) in self.amplitude.indexed_iter()
-            .zip(self.phase.iter().zip(self.frequency.iter())) {
+        for ((idx, &amp), (&phase, &freq)) in self
+            .amplitude
+            .indexed_iter()
+            .zip(self.phase.iter().zip(self.frequency.iter()))
+        {
             let value = amp * (2.0 * std::f32::consts::PI * freq * position + phase).cos();
             result[idx.clone()] = value;
         }
@@ -296,7 +322,10 @@ pub mod model_tests {
         };
         let model = model::EchoNetModel::new(config).unwrap();
         let params = model.parameters();
-        assert!(!params.is_empty(), "EchoNet should have trainable parameters");
+        assert!(
+            !params.is_empty(),
+            "EchoNet should have trainable parameters"
+        );
         assert_eq!(params.len(), 9, "Expected 9 trainable parameter tensors");
     }
 }

@@ -1,9 +1,9 @@
 //! Context Module - Context management and evolution
 
 use async_trait::async_trait;
-use uuid::Uuid;
-use std::collections::HashMap;
 use nexora_foundation::{FoundationError, FoundationResult};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Context window for tracking conversation/task state
 #[derive(Debug, Clone)]
@@ -47,9 +47,18 @@ pub trait ContextManager: Send + Sync {
     async fn create_context(&self, max_size: usize) -> FoundationResult<Uuid>;
     async fn add_entry(&self, context_id: Uuid, entry: ContextEntry) -> FoundationResult<()>;
     async fn get_context(&self, context_id: Uuid) -> FoundationResult<Option<ContextWindow>>;
-    async fn evolve_context(&self, context_id: Uuid, new_info: &str) -> FoundationResult<ContextWindow>;
+    async fn evolve_context(
+        &self,
+        context_id: Uuid,
+        new_info: &str,
+    ) -> FoundationResult<ContextWindow>;
     async fn prune_context(&self, context_id: Uuid, threshold: f32) -> FoundationResult<usize>;
-    async fn retrieve_relevant(&self, context_id: Uuid, query: &str, limit: usize) -> FoundationResult<Vec<ContextEntry>>;
+    async fn retrieve_relevant(
+        &self,
+        context_id: Uuid,
+        query: &str,
+        limit: usize,
+    ) -> FoundationResult<Vec<ContextEntry>>;
 }
 
 /// Default context manager implementation
@@ -99,13 +108,16 @@ impl ContextManager for DefaultContextManager {
 
     async fn add_entry(&self, context_id: Uuid, entry: ContextEntry) -> FoundationResult<()> {
         let mut contexts = self.contexts.write().await;
-        let window = contexts.get_mut(&context_id)
-            .ok_or_else(|| FoundationError::Implementation(
-                format!("Context {} not found", context_id),
-            ))?;
+        let window = contexts.get_mut(&context_id).ok_or_else(|| {
+            FoundationError::Implementation(format!("Context {} not found", context_id))
+        })?;
 
         if window.entries.len() >= window.max_size {
-            window.entries.sort_by(|a, b| a.importance.partial_cmp(&b.importance).unwrap_or(std::cmp::Ordering::Equal));
+            window.entries.sort_by(|a, b| {
+                a.importance
+                    .partial_cmp(&b.importance)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             window.entries.pop();
         }
 
@@ -124,12 +136,15 @@ impl ContextManager for DefaultContextManager {
         Ok(contexts.get(&context_id).cloned())
     }
 
-    async fn evolve_context(&self, context_id: Uuid, new_info: &str) -> FoundationResult<ContextWindow> {
+    async fn evolve_context(
+        &self,
+        context_id: Uuid,
+        new_info: &str,
+    ) -> FoundationResult<ContextWindow> {
         let mut contexts = self.contexts.write().await;
-        let window = contexts.get_mut(&context_id)
-            .ok_or_else(|| FoundationError::Implementation(
-                format!("Context {} not found", context_id),
-            ))?;
+        let window = contexts.get_mut(&context_id).ok_or_else(|| {
+            FoundationError::Implementation(format!("Context {} not found", context_id))
+        })?;
 
         let entry = ContextEntry {
             id: Uuid::new_v4(),
@@ -144,7 +159,11 @@ impl ContextManager for DefaultContextManager {
         };
 
         if window.entries.len() >= window.max_size {
-            window.entries.sort_by(|a, b| a.importance.partial_cmp(&b.importance).unwrap_or(std::cmp::Ordering::Equal));
+            window.entries.sort_by(|a, b| {
+                a.importance
+                    .partial_cmp(&b.importance)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             window.entries.pop();
         }
 
@@ -160,10 +179,9 @@ impl ContextManager for DefaultContextManager {
 
     async fn prune_context(&self, context_id: Uuid, threshold: f32) -> FoundationResult<usize> {
         let mut contexts = self.contexts.write().await;
-        let window = contexts.get_mut(&context_id)
-            .ok_or_else(|| FoundationError::Implementation(
-                format!("Context {} not found", context_id),
-            ))?;
+        let window = contexts.get_mut(&context_id).ok_or_else(|| {
+            FoundationError::Implementation(format!("Context {} not found", context_id))
+        })?;
 
         let before = window.entries.len();
         window.entries.retain(|e| e.importance >= threshold);
@@ -177,20 +195,27 @@ impl ContextManager for DefaultContextManager {
         Ok(pruned)
     }
 
-    async fn retrieve_relevant(&self, context_id: Uuid, query: &str, limit: usize) -> FoundationResult<Vec<ContextEntry>> {
+    async fn retrieve_relevant(
+        &self,
+        context_id: Uuid,
+        query: &str,
+        limit: usize,
+    ) -> FoundationResult<Vec<ContextEntry>> {
         let contexts = self.contexts.read().await;
-        let window = contexts.get(&context_id)
-            .ok_or_else(|| FoundationError::Implementation(
-                format!("Context {} not found", context_id),
-            ))?;
+        let window = contexts.get(&context_id).ok_or_else(|| {
+            FoundationError::Implementation(format!("Context {} not found", context_id))
+        })?;
 
         let query_lower = query.to_lowercase();
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
 
-        let mut scored: Vec<(f32, &ContextEntry)> = window.entries.iter()
+        let mut scored: Vec<(f32, &ContextEntry)> = window
+            .entries
+            .iter()
             .map(|e| {
                 let content_lower = e.content.to_lowercase();
-                let overlap = query_words.iter()
+                let overlap = query_words
+                    .iter()
                     .filter(|w| content_lower.contains(*w))
                     .count();
                 let relevance = overlap as f32 / query_words.len().max(1) as f32;
@@ -200,6 +225,10 @@ impl ContextManager for DefaultContextManager {
             .collect();
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        Ok(scored.into_iter().take(limit).map(|(_, e)| e.clone()).collect())
+        Ok(scored
+            .into_iter()
+            .take(limit)
+            .map(|(_, e)| e.clone())
+            .collect())
     }
 }

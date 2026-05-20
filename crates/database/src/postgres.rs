@@ -5,10 +5,10 @@
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::warn;
 use tokio::sync::RwLock;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client, Config, NoTls};
+use tracing::warn;
 
 use crate::{
     credentials::{CredentialManager, DatabaseCredentials},
@@ -291,8 +291,7 @@ impl Database for PostgreSQLDatabase {
                     Value::Bytes(bytes) => Box::new(bytes.clone()),
                     Value::Json(json) => Box::new(json.to_string()),
                     Value::Timestamp(ts) => {
-                        let dur =
-                            ts.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                        let dur = ts.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                         let datetime = chrono::DateTime::from_timestamp(
                             dur.as_secs() as i64,
                             dur.subsec_nanos(),
@@ -866,7 +865,7 @@ impl PostgreSQLConnection {
                 Err(e) => {
                     warn!("Database health check failed: {:?}", e);
                     false
-                },
+                }
             }
         } else {
             false
@@ -892,20 +891,25 @@ impl PostgreSQLConnection {
             let statement = client.prepare(query).await?;
 
             // Convert params with proper NULL handling for parameterized execution
-            let string_params: Vec<Option<String>> = params.iter().map(|v| match v {
-                crate::Value::Null => None,
-                crate::Value::Bool(b) => Some(b.to_string()),
-                crate::Value::I32(i) => Some(i.to_string()),
-                crate::Value::I64(i) => Some(i.to_string()),
-                crate::Value::F32(f) => Some(f.to_string()),
-                crate::Value::F64(f) => Some(f.to_string()),
-                crate::Value::String(s) => Some(s.clone()),
-                crate::Value::Bytes(b) => Some(String::from_utf8_lossy(b).to_string()),
-                crate::Value::Json(j) => Some(j.to_string()),
-                crate::Value::Timestamp(t) => Some(format!("{:?}", t)),
-            }).collect();
-            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-                string_params.iter().map(|s| s as &(dyn ToSql + Sync)).collect();
+            let string_params: Vec<Option<String>> = params
+                .iter()
+                .map(|v| match v {
+                    crate::Value::Null => None,
+                    crate::Value::Bool(b) => Some(b.to_string()),
+                    crate::Value::I32(i) => Some(i.to_string()),
+                    crate::Value::I64(i) => Some(i.to_string()),
+                    crate::Value::F32(f) => Some(f.to_string()),
+                    crate::Value::F64(f) => Some(f.to_string()),
+                    crate::Value::String(s) => Some(s.clone()),
+                    crate::Value::Bytes(b) => Some(String::from_utf8_lossy(b).to_string()),
+                    crate::Value::Json(j) => Some(j.to_string()),
+                    crate::Value::Timestamp(t) => Some(format!("{:?}", t)),
+                })
+                .collect();
+            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = string_params
+                .iter()
+                .map(|s| s as &(dyn ToSql + Sync))
+                .collect();
             let rows = client.query(&statement, &param_refs).await?;
 
             // Convert rows to our format
@@ -918,9 +922,12 @@ impl PostgreSQLConnection {
                         Ok(Some(val)) => crate::Value::String(val),
                         Ok(None) => crate::Value::Null,
                         Err(e) => {
-                            warn!("Failed to parse column '{}' value as String: {:?}", column_name, e);
+                            warn!(
+                                "Failed to parse column '{}' value as String: {:?}",
+                                column_name, e
+                            );
                             crate::Value::Null
-                        },
+                        }
                     };
                     row_data.insert(column_name.to_string(), value);
                 }

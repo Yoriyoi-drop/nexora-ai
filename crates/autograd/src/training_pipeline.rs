@@ -6,8 +6,8 @@ use std::time::Instant;
 use ndarray::ArrayD;
 use serde::{Deserialize, Serialize};
 
-use super::{Tensor, Adam};
 use super::mixed_precision::LossScaler;
+use super::{Adam, Tensor};
 
 // ─── Optimizer State ─────────────────────────────────────────────────────────
 
@@ -22,8 +22,16 @@ pub struct OptimizerState {
 impl OptimizerState {
     pub fn from_adam(adam: &Adam) -> Self {
         Self {
-            m: adam.m.iter().map(|arr| arr.iter().copied().collect()).collect(),
-            v: adam.v.iter().map(|arr| arr.iter().copied().collect()).collect(),
+            m: adam
+                .m
+                .iter()
+                .map(|arr| arr.iter().copied().collect())
+                .collect(),
+            v: adam
+                .v
+                .iter()
+                .map(|arr| arr.iter().copied().collect())
+                .collect(),
             step: adam.step,
         }
     }
@@ -77,7 +85,10 @@ impl Checkpoint {
             epoch,
             best_val_loss,
             loss_scaler_scale: loss_scaler.map(|ls| ls.scale()),
-            model_params: params.iter().map(|p| p.data().iter().copied().collect()).collect(),
+            model_params: params
+                .iter()
+                .map(|p| p.data().iter().copied().collect())
+                .collect(),
             model_shapes: params.iter().map(|p| p.shape()).collect(),
             optimizer_state: Some(OptimizerState::from_adam(adam)),
         };
@@ -100,7 +111,8 @@ impl Checkpoint {
                 let arr = ArrayD::from_shape_vec(
                     self.model_shapes[i].clone(),
                     self.model_params[i].clone(),
-                ).expect("shape mismatch restoring params");
+                )
+                .expect("shape mismatch restoring params");
                 p.set_data(arr);
             }
         }
@@ -151,9 +163,10 @@ impl TrainingMetrics {
     }
 
     pub fn best_loss(&self) -> Option<f64> {
-        self.losses.iter().copied().fold(None, |best, x| {
-            Some(best.map_or(x, |b| b.min(x)))
-        })
+        self.losses
+            .iter()
+            .copied()
+            .fold(None, |best, x| Some(best.map_or(x, |b| b.min(x))))
     }
 
     pub fn avg_loss(&self, window: usize) -> Option<f64> {
@@ -167,7 +180,10 @@ impl TrainingMetrics {
     }
 
     pub fn smoothed_loss(&self, alpha: f64) -> Option<f64> {
-        self.losses.iter().copied().reduce(|a, b| alpha * b + (1.0 - alpha) * a)
+        self.losses
+            .iter()
+            .copied()
+            .reduce(|a, b| alpha * b + (1.0 - alpha) * a)
     }
 
     pub fn avg_throughput(&self) -> Option<f32> {
@@ -267,25 +283,26 @@ impl TrainingLoop {
 
     /// Call each optimizer step.
     /// Returns true if training should continue, false if stopped.
-    pub fn on_step(
-        &mut self,
-        loss: f64,
-        lr: f32,
-        grad_norm: f32,
-        tokens_in_batch: usize,
-    ) -> bool {
+    pub fn on_step(&mut self, loss: f64, lr: f32, grad_norm: f32, tokens_in_batch: usize) -> bool {
         self.step += 1;
         self.total_tokens += tokens_in_batch;
 
         // Throughput
-        let elapsed = self.start_time.map(|t| t.elapsed().as_secs_f32()).unwrap_or(1.0);
+        let elapsed = self
+            .start_time
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(1.0);
         let throughput = self.total_tokens as f32 / elapsed;
 
-        self.metrics.record(self.step, loss, lr, grad_norm, throughput);
+        self.metrics
+            .record(self.step, loss, lr, grad_norm, throughput);
 
         // Logging
         if self.step % self.config.log_interval == 0 {
-            let avg = self.metrics.avg_loss(self.config.log_interval).unwrap_or(loss);
+            let avg = self
+                .metrics
+                .avg_loss(self.config.log_interval)
+                .unwrap_or(loss);
             println!(
                 "[Step {}] loss={:.4} (avg={:.4}) lr={:.2e} grad_norm={:.4} tok/s={:.0}",
                 self.step, loss, avg, lr, grad_norm, throughput
@@ -328,7 +345,10 @@ impl TrainingLoop {
             Some(_) => {
                 self.patience_counter += 1;
                 if self.patience_counter >= self.config.early_stop_patience {
-                    println!("  Early stopping triggered (patience={})", self.config.early_stop_patience);
+                    println!(
+                        "  Early stopping triggered (patience={})",
+                        self.config.early_stop_patience
+                    );
                 }
                 false
             }
@@ -343,8 +363,14 @@ impl TrainingLoop {
     /// Call at end of epoch
     pub fn on_epoch_end(&mut self) {
         self.epoch += 1;
-        let avg = self.metrics.avg_loss(self.config.log_interval).unwrap_or(0.0);
-        println!("=== Epoch {} complete | avg_loss={:.4} | best_val={:?} ===", self.epoch, avg, self.best_val_loss);
+        let avg = self
+            .metrics
+            .avg_loss(self.config.log_interval)
+            .unwrap_or(0.0);
+        println!(
+            "=== Epoch {} complete | avg_loss={:.4} | best_val={:?} ===",
+            self.epoch, avg, self.best_val_loss
+        );
     }
 
     /// Check external stop signal
@@ -359,7 +385,9 @@ impl TrainingLoop {
 
     /// Training duration in seconds
     pub fn elapsed_secs(&self) -> f64 {
-        self.start_time.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
+        self.start_time
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0)
     }
 
     /// Summary report
@@ -370,9 +398,15 @@ impl TrainingLoop {
         println!("  Epochs: {}", self.epoch);
         println!("  Total tokens: {}", self.total_tokens);
         println!("  Duration: {:.1}s", self.elapsed_secs());
-        println!("  Avg throughput: {:.0} tok/s", self.metrics.avg_throughput().unwrap_or(0.0));
+        println!(
+            "  Avg throughput: {:.0} tok/s",
+            self.metrics.avg_throughput().unwrap_or(0.0)
+        );
         println!("  Best loss: {:?}", self.best_val_loss);
-        println!("  Final loss: {:?}", self.metrics.last_loss().unwrap_or(0.0));
+        println!(
+            "  Final loss: {:?}",
+            self.metrics.last_loss().unwrap_or(0.0)
+        );
         println!("═══════════════════════════════════════");
     }
 }
@@ -391,7 +425,7 @@ pub fn compute_grad_norm(params: &[Tensor]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Tensor, TensorOps, Linear, Module};
+    use crate::{Linear, Module, Tensor, TensorOps};
 
     #[test]
     fn test_checkpoint_save_load_roundtrip() {
@@ -405,7 +439,10 @@ mod tests {
             epoch: 2,
             best_val_loss: Some(0.5),
             loss_scaler_scale: Some(65536.0),
-            model_params: params.iter().map(|p| p.data().iter().copied().collect()).collect(),
+            model_params: params
+                .iter()
+                .map(|p| p.data().iter().copied().collect())
+                .collect(),
             model_shapes: params.iter().map(|p| p.shape()).collect(),
             optimizer_state: Some(OptimizerState::from_adam(&adam)),
         };

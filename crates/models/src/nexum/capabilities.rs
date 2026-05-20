@@ -1,12 +1,14 @@
 //! NXR-NEXUM Capabilities
-//! 
+//!
 //! Capability vector and specifications for NXR-NEXUM
 
-use std::collections::HashMap;
 use nexora_shared::{
-    capability_spec::{CapabilityVector, CapabilitySpec, CapabilityDomain, CapabilityLevel, ResourceRequirements},
+    capability_spec::{
+        CapabilityDomain, CapabilityLevel, CapabilitySpec, CapabilityVector, ResourceRequirements,
+    },
     model_identity::NxrModelId,
 };
+use std::collections::HashMap;
 
 /// NXR-NEXUM Capabilities Manager
 #[derive(Clone)]
@@ -54,7 +56,7 @@ impl _NexumCapabilities {
             avg_response_time_ms: 380.0,
             resource_utilization: 0.78,
         };
-        
+
         let resource_requirements = ResourceRequirements {
             min_memory_gb: 24.0,
             min_compute_units: 48,
@@ -90,7 +92,11 @@ impl _NexumCapabilities {
     fn create_capability_vector() -> CapabilityVector {
         CapabilityVector::new(NxrModelId::Nexum)
             // Orchestration capabilities - Transcendent level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Orchestration, CapabilityLevel::Transcendent)
+            .with_capability(
+                CapabilitySpec::new(
+                    CapabilityDomain::Orchestration,
+                    CapabilityLevel::Transcendent,
+                )
                 .with_sub_capabilities(vec![
                     "multi_agent_coordination".to_string(),
                     "task_distribution".to_string(),
@@ -113,78 +119,85 @@ impl _NexumCapabilities {
                     min_gpu_memory_gb: Some(16.0),
                     requires_network: true,
                     max_latency_ms: Some(800),
-                }))
-            
+                }),
+            )
             // Consensus capabilities - Master level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Consensus, CapabilityLevel::Master)
-                .with_sub_capabilities(vec![
-                    "consensus_building".to_string(),
-                    "voting_mechanisms".to_string(),
-                    "agreement_protocols".to_string(),
-                    "conflict_detection".to_string(),
-                    "consensus_optimization".to_string(),
-                    "byzantine_fault_tolerance".to_string(),
-                    "distributed_consensus".to_string(),
-                    "consensus_algorithms".to_string(),
-                ])
-                .with_metric("consensus_accuracy".to_string(), 0.89)
-                .with_metric("consensus_speed".to_string(), 0.87)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 20.0,
-                    min_compute_units: 40,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(14.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1000),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Consensus, CapabilityLevel::Master)
+                    .with_sub_capabilities(vec![
+                        "consensus_building".to_string(),
+                        "voting_mechanisms".to_string(),
+                        "agreement_protocols".to_string(),
+                        "conflict_detection".to_string(),
+                        "consensus_optimization".to_string(),
+                        "byzantine_fault_tolerance".to_string(),
+                        "distributed_consensus".to_string(),
+                        "consensus_algorithms".to_string(),
+                    ])
+                    .with_metric("consensus_accuracy".to_string(), 0.89)
+                    .with_metric("consensus_speed".to_string(), 0.87)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 20.0,
+                        min_compute_units: 40,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(14.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1000),
+                    }),
+            )
             // Coordination capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Coordination, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "agent_coordination".to_string(),
-                    "task_coordination".to_string(),
-                    "resource_coordination".to_string(),
-                    "communication_coordination".to_string(),
-                    "workflow_coordination".to_string(),
-                    "event_coordination".to_string(),
-                    "service_coordination".to_string(),
-                    "cross_agent_coordination".to_string(),
-                ])
-                .with_metric("coordination_accuracy".to_string(), 0.91)
-                .with_metric("coordination_speed".to_string(), 0.85)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 18.0,
-                    min_compute_units: 36,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(12.0),
-                    requires_network: true,
-                    max_latency_ms: Some(600),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Coordination, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "agent_coordination".to_string(),
+                        "task_coordination".to_string(),
+                        "resource_coordination".to_string(),
+                        "communication_coordination".to_string(),
+                        "workflow_coordination".to_string(),
+                        "event_coordination".to_string(),
+                        "service_coordination".to_string(),
+                        "cross_agent_coordination".to_string(),
+                    ])
+                    .with_metric("coordination_accuracy".to_string(), 0.91)
+                    .with_metric("coordination_speed".to_string(), 0.85)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 18.0,
+                        min_compute_units: 36,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(12.0),
+                        requires_network: true,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             // Alignment capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Alignment, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "goal_alignment".to_string(),
-                    "value_alignment".to_string(),
-                    "policy_enforcement".to_string(),
-                    "ethical_alignment".to_string(),
-                    "compliance_monitoring".to_string(),
-                    "alignment_verification".to_string(),
-                    "conflict_resolution".to_string(),
-                ])
-                .with_metric("alignment_score".to_string(), 0.87)
-                .with_metric("compliance_rate".to_string(), 0.83)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(10.0),
-                    requires_network: false,
-                    max_latency_ms: Some(500),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Alignment, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "goal_alignment".to_string(),
+                        "value_alignment".to_string(),
+                        "policy_enforcement".to_string(),
+                        "ethical_alignment".to_string(),
+                        "compliance_monitoring".to_string(),
+                        "alignment_verification".to_string(),
+                        "conflict_resolution".to_string(),
+                    ])
+                    .with_metric("alignment_score".to_string(), 0.87)
+                    .with_metric("compliance_rate".to_string(), 0.83)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(10.0),
+                        requires_network: false,
+                        max_latency_ms: Some(500),
+                    }),
+            )
             // Resource Management capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::ResourceManagement, CapabilityLevel::Advanced)
+            .with_capability(
+                CapabilitySpec::new(
+                    CapabilityDomain::ResourceManagement,
+                    CapabilityLevel::Advanced,
+                )
                 .with_sub_capabilities(vec![
                     "resource_allocation".to_string(),
                     "resource_optimization".to_string(),
@@ -203,93 +216,102 @@ impl _NexumCapabilities {
                     min_gpu_memory_gb: Some(8.0),
                     requires_network: false,
                     max_latency_ms: Some(400),
-                }))
-            
+                }),
+            )
             // Communication capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Communication, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "agent_communication".to_string(),
-                    "message_routing".to_string(),
-                    "protocol_management".to_string(),
-                    "communication_optimization".to_string(),
-                    "network_coordination".to_string(),
-                    "message_security".to_string(),
-                    "broadcast_communication".to_string(),
-                ])
-                .with_metric("communication_efficiency".to_string(), 0.89)
-                .with_metric("message_throughput".to_string(), 0.86)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 12.0,
-                    min_compute_units: 24,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(8.0),
-                    requires_network: true,
-                    max_latency_ms: Some(300),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Communication, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "agent_communication".to_string(),
+                        "message_routing".to_string(),
+                        "protocol_management".to_string(),
+                        "communication_optimization".to_string(),
+                        "network_coordination".to_string(),
+                        "message_security".to_string(),
+                        "broadcast_communication".to_string(),
+                    ])
+                    .with_metric("communication_efficiency".to_string(), 0.89)
+                    .with_metric("message_throughput".to_string(), 0.86)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 12.0,
+                        min_compute_units: 24,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(8.0),
+                        requires_network: true,
+                        max_latency_ms: Some(300),
+                    }),
+            )
             // Logic capabilities - Intermediate level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Intermediate)
-                .with_sub_capabilities(vec![
-                    "coordination_logic".to_string(),
-                    "resource_logic".to_string(),
-                    "optimization_logic".to_string(),
-                    "scheduling_logic".to_string(),
-                ])
-                .with_metric("logic_accuracy".to_string(), 0.78)
-                .with_metric("reasoning_depth".to_string(), 5.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 10.0,
-                    min_compute_units: 20,
-                    requires_gpu: false,
-                    min_gpu_memory_gb: None,
-                    requires_network: false,
-                    max_latency_ms: Some(400),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Intermediate)
+                    .with_sub_capabilities(vec![
+                        "coordination_logic".to_string(),
+                        "resource_logic".to_string(),
+                        "optimization_logic".to_string(),
+                        "scheduling_logic".to_string(),
+                    ])
+                    .with_metric("logic_accuracy".to_string(), 0.78)
+                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 10.0,
+                        min_compute_units: 20,
+                        requires_gpu: false,
+                        min_gpu_memory_gb: None,
+                        requires_network: false,
+                        max_latency_ms: Some(400),
+                    }),
+            )
             // Knowledge capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "orchestration_knowledge".to_string(),
-                    "consensus_protocols".to_string(),
-                    "coordination_strategies".to_string(),
-                    "resource_management".to_string(),
-                    "agent_capabilities".to_string(),
-                    "system_architecture".to_string(),
-                ])
-                .with_metric("knowledge_accuracy".to_string(), 0.88)
-                .with_metric("knowledge_coverage".to_string(), 0.85)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(10.0),
-                    requires_network: true,
-                    max_latency_ms: Some(600),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "orchestration_knowledge".to_string(),
+                        "consensus_protocols".to_string(),
+                        "coordination_strategies".to_string(),
+                        "resource_management".to_string(),
+                        "agent_capabilities".to_string(),
+                        "system_architecture".to_string(),
+                    ])
+                    .with_metric("knowledge_accuracy".to_string(), 0.88)
+                    .with_metric("knowledge_coverage".to_string(), 0.85)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(10.0),
+                        requires_network: true,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             // Support capabilities - Intermediate level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Support, CapabilityLevel::Intermediate)
-                .with_sub_capabilities(vec![
-                    "orchestration_guidance".to_string(),
-                    "coordination_advice".to_string(),
-                    "resource_recommendations".to_string(),
-                    "consensus_facilitation".to_string(),
-                ])
-                .with_metric("support_quality".to_string(), 0.82)
-                .with_metric("guidance_effectiveness".to_string(), 0.79)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 12.0,
-                    min_compute_units: 24,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(8.0),
-                    requires_network: false,
-                    max_latency_ms: Some(500),
-                }))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Support, CapabilityLevel::Intermediate)
+                    .with_sub_capabilities(vec![
+                        "orchestration_guidance".to_string(),
+                        "coordination_advice".to_string(),
+                        "resource_recommendations".to_string(),
+                        "consensus_facilitation".to_string(),
+                    ])
+                    .with_metric("support_quality".to_string(), 0.82)
+                    .with_metric("guidance_effectiveness".to_string(), 0.79)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 12.0,
+                        min_compute_units: 24,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(8.0),
+                        requires_network: false,
+                        max_latency_ms: Some(500),
+                    }),
+            )
             .calculate_score()
     }
 
     /// Check if model supports specific capability
-    pub fn supports_capability(&self, domain: &CapabilityDomain, min_level: CapabilityLevel) -> bool {
+    pub fn supports_capability(
+        &self,
+        domain: &CapabilityDomain,
+        min_level: CapabilityLevel,
+    ) -> bool {
         self.vector.has_capability(domain, min_level)
     }
 
@@ -317,20 +339,26 @@ impl _NexumCapabilities {
     }
 
     /// Get resource requirements for domain
-    pub fn get_resource_requirements(&self, domain: &CapabilityDomain) -> Option<&ResourceRequirements> {
-        self.vector.get_capability(domain).map(|cap| &cap.resource_requirements)
+    pub fn get_resource_requirements(
+        &self,
+        domain: &CapabilityDomain,
+    ) -> Option<&ResourceRequirements> {
+        self.vector
+            .get_capability(domain)
+            .map(|cap| &cap.resource_requirements)
     }
 
     /// Validate capabilities
     pub fn validate(&self) -> Result<(), String> {
         // Check that core capabilities are at transcendent level
-        let core_domains = vec![
-            CapabilityDomain::Orchestration,
-        ];
+        let core_domains = vec![CapabilityDomain::Orchestration];
 
         for domain in core_domains {
             if !self.supports_capability(&domain, CapabilityLevel::Transcendent) {
-                return Err(format!("Core capability {:?} not at transcendent level", domain));
+                return Err(format!(
+                    "Core capability {:?} not at transcendent level",
+                    domain
+                ));
             }
         }
 
@@ -359,7 +387,10 @@ impl _NexumCapabilities {
     pub fn update_capability(&mut self, domain: CapabilityDomain, performance_score: f32) {
         // This would update the capability based on actual performance
         // For now, just log the update
-        println!("Updating capability {:?} with score: {}", domain, performance_score);
+        println!(
+            "Updating capability {:?} with score: {}",
+            domain, performance_score
+        );
     }
 
     /// Get capability summary
@@ -412,8 +443,10 @@ impl _NexumCapabilities {
                 metrics: capability.metrics.clone(),
                 resource_requirements: capability.resource_requirements.clone(),
             };
-            
-            breakdown.capabilities.insert(domain.clone(), capability_detail);
+
+            breakdown
+                .capabilities
+                .insert(domain.clone(), capability_detail);
         }
 
         breakdown
@@ -426,7 +459,7 @@ impl _NexumCapabilities {
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
             let other_score = other.get_capability_score(domain);
-            
+
             comparison.domain_comparisons.insert(
                 domain.clone(),
                 DomainComparison {
@@ -436,13 +469,12 @@ impl _NexumCapabilities {
                     difference: self_score - other_score,
                     self_level: self.vector.get_capability(domain).map(|c| c.level.clone()),
                     other_level: other.vector.get_capability(domain).map(|c| c.level.clone()),
-                }
+                },
             );
         }
 
         comparison.overall_difference = self.overall_score() - other.overall_score();
         comparison
-
     }
 
     /// Update performance metrics
@@ -460,8 +492,16 @@ impl _NexumCapabilities {
                 suggestions.push(OptimizationSuggestion {
                     domain: domain.clone(),
                     suggestion_type: SuggestionType::ImproveCapability,
-                    description: format!("Capability {:?} is underperforming with score {:.2}", domain, capability.score()),
-                    priority: if capability.score() < 0.6 { SuggestionPriority::High } else { SuggestionPriority::Medium },
+                    description: format!(
+                        "Capability {:?} is underperforming with score {:.2}",
+                        domain,
+                        capability.score()
+                    ),
+                    priority: if capability.score() < 0.6 {
+                        SuggestionPriority::High
+                    } else {
+                        SuggestionPriority::Medium
+                    },
                     estimated_improvement: 0.15,
                     resource_cost: ResourceCost::Medium,
                 });
@@ -484,17 +524,22 @@ impl _NexumCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _NexumCapabilities {
+    pub fn apply_improvement(
+        &self,
+        improvements: &HashMap<CapabilityDomain, f32>,
+    ) -> _NexumCapabilities {
         let mut new_capabilities = self.clone();
-        
+
         for (domain, improvement) in improvements {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
                 let new_score = (current_score + improvement).min(1.0_f32);
-                
+
                 // Update capability metrics
-                capability.metrics.insert("improved_score".to_string(), new_score);
+                capability
+                    .metrics
+                    .insert("improved_score".to_string(), new_score);
             }
         }
 
@@ -510,7 +555,8 @@ impl _NexumCapabilities {
             resource_optimization: self.performance_metrics.resource_optimization_efficiency,
             agent_coordination: self.performance_metrics.agent_coordination_latency,
             alignment_enforcement: self.performance_metrics.alignment_enforcement_strength,
-            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0)) as f32,
+            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0))
+                as f32,
         }
     }
 
@@ -518,10 +564,16 @@ impl _NexumCapabilities {
     pub fn get_multi_agent_coordination_capabilities(&self) -> MultiAgentCoordinationCapabilities {
         let mut capabilities = MultiAgentCoordinationCapabilities::default();
 
-        if let Some(orchestration_capability) = self.vector.get_capability(&CapabilityDomain::Orchestration) {
+        if let Some(orchestration_capability) =
+            self.vector.get_capability(&CapabilityDomain::Orchestration)
+        {
             capabilities.coordination_accuracy = self.performance_metrics.orchestration_accuracy;
             capabilities.coordination_methods = orchestration_capability.sub_capabilities.clone();
-            capabilities.coordination_speed = orchestration_capability.metrics.get("coordination_efficiency").copied().unwrap_or(0.0);
+            capabilities.coordination_speed = orchestration_capability
+                .metrics
+                .get("coordination_efficiency")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -531,10 +583,15 @@ impl _NexumCapabilities {
     pub fn get_consensus_building_capabilities(&self) -> ConsensusBuildingCapabilities {
         let mut capabilities = ConsensusBuildingCapabilities::default();
 
-        if let Some(consensus_capability) = self.vector.get_capability(&CapabilityDomain::Consensus) {
+        if let Some(consensus_capability) = self.vector.get_capability(&CapabilityDomain::Consensus)
+        {
             capabilities.consensus_accuracy = self.performance_metrics.consensus_building_speed;
             capabilities.consensus_methods = consensus_capability.sub_capabilities.clone();
-            capabilities.consensus_speed = consensus_capability.metrics.get("consensus_speed").copied().unwrap_or(0.0);
+            capabilities.consensus_speed = consensus_capability
+                .metrics
+                .get("consensus_speed")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -544,10 +601,18 @@ impl _NexumCapabilities {
     pub fn get_resource_management_capabilities(&self) -> ResourceManagementCapabilities {
         let mut capabilities = ResourceManagementCapabilities::default();
 
-        if let Some(resource_capability) = self.vector.get_capability(&CapabilityDomain::ResourceManagement) {
-            capabilities.management_accuracy = self.performance_metrics.resource_optimization_efficiency;
+        if let Some(resource_capability) = self
+            .vector
+            .get_capability(&CapabilityDomain::ResourceManagement)
+        {
+            capabilities.management_accuracy =
+                self.performance_metrics.resource_optimization_efficiency;
             capabilities.management_methods = resource_capability.sub_capabilities.clone();
-            capabilities.optimization_score = resource_capability.metrics.get("resource_efficiency").copied().unwrap_or(0.0);
+            capabilities.optimization_score = resource_capability
+                .metrics
+                .get("resource_efficiency")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -557,10 +622,16 @@ impl _NexumCapabilities {
     pub fn get_alignment_enforcement_capabilities(&self) -> AlignmentEnforcementCapabilities {
         let mut capabilities = AlignmentEnforcementCapabilities::default();
 
-        if let Some(alignment_capability) = self.vector.get_capability(&CapabilityDomain::Alignment) {
-            capabilities.enforcement_accuracy = self.performance_metrics.alignment_enforcement_strength;
+        if let Some(alignment_capability) = self.vector.get_capability(&CapabilityDomain::Alignment)
+        {
+            capabilities.enforcement_accuracy =
+                self.performance_metrics.alignment_enforcement_strength;
             capabilities.enforcement_methods = alignment_capability.sub_capabilities.clone();
-            capabilities.compliance_rate = alignment_capability.metrics.get("compliance_rate").copied().unwrap_or(0.0);
+            capabilities.compliance_rate = alignment_capability
+                .metrics
+                .get("compliance_rate")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -570,10 +641,16 @@ impl _NexumCapabilities {
     pub fn get_orchestration_capabilities_breakdown(&self) -> OrchestrationCapabilitiesBreakdown {
         let mut breakdown = OrchestrationCapabilitiesBreakdown::default();
 
-        if let Some(orchestration_capability) = self.vector.get_capability(&CapabilityDomain::Orchestration) {
+        if let Some(orchestration_capability) =
+            self.vector.get_capability(&CapabilityDomain::Orchestration)
+        {
             breakdown.orchestration_quality = self.performance_metrics.orchestration_accuracy;
             breakdown.orchestration_methods = orchestration_capability.sub_capabilities.clone();
-            breakdown.coordination_efficiency = orchestration_capability.metrics.get("coordination_efficiency").copied().unwrap_or(0.0);
+            breakdown.coordination_efficiency = orchestration_capability
+                .metrics
+                .get("coordination_efficiency")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         breakdown
@@ -606,7 +683,8 @@ impl _NexumCapabilities {
         // Estimate based on coordination speed and response time
         let base_throughput = 1000.0_f32; // Base throughput in tasks/hour
         let coordination_factor = self.performance_metrics.agent_coordination_latency;
-        let response_factor = ((1000.0_f32 / self.performance_metrics.avg_response_time_ms as f32).min(1.0));
+        let response_factor =
+            ((1000.0_f32 / self.performance_metrics.avg_response_time_ms as f32).min(1.0));
 
         base_throughput * coordination_factor * response_factor
     }
@@ -650,10 +728,14 @@ impl _NexumCapabilities {
         let mut assessment = CapabilityMaturityAssessment::default();
 
         assessment.overall_maturity = self.calculate_maturity_level();
-        assessment.orchestration_maturity = self.calculate_domain_maturity(&CapabilityDomain::Orchestration);
-        assessment.consensus_maturity = self.calculate_domain_maturity(&CapabilityDomain::Consensus);
-        assessment.coordination_maturity = self.calculate_domain_maturity(&CapabilityDomain::Coordination);
-        assessment.resource_maturity = self.calculate_domain_maturity(&CapabilityDomain::ResourceManagement);
+        assessment.orchestration_maturity =
+            self.calculate_domain_maturity(&CapabilityDomain::Orchestration);
+        assessment.consensus_maturity =
+            self.calculate_domain_maturity(&CapabilityDomain::Consensus);
+        assessment.coordination_maturity =
+            self.calculate_domain_maturity(&CapabilityDomain::Coordination);
+        assessment.resource_maturity =
+            self.calculate_domain_maturity(&CapabilityDomain::ResourceManagement);
 
         assessment
     }
@@ -661,7 +743,7 @@ impl _NexumCapabilities {
     /// Calculate overall maturity level
     fn calculate_maturity_level(&self) -> MaturityLevel {
         let overall_score = self.overall_score();
-        
+
         if overall_score >= 0.95 {
             MaturityLevel::Optimized
         } else if overall_score >= 0.9 {
@@ -680,7 +762,7 @@ impl _NexumCapabilities {
     /// Calculate domain maturity level
     fn calculate_domain_maturity(&self, domain: &CapabilityDomain) -> MaturityLevel {
         let score = self.get_capability_score(domain);
-        
+
         if score >= 0.95 {
             MaturityLevel::Optimized
         } else if score >= 0.9 {
@@ -743,8 +825,10 @@ impl CapabilitySummary {
             advanced: self.advanced_domains.len(),
             intermediate: self.intermediate_domains.len(),
             basic: self.basic_domains.len(),
-            total: self.expert_domains.len() + self.advanced_domains.len() + 
-                   self.intermediate_domains.len() + self.basic_domains.len(),
+            total: self.expert_domains.len()
+                + self.advanced_domains.len()
+                + self.intermediate_domains.len()
+                + self.basic_domains.len(),
         }
     }
 
@@ -752,7 +836,7 @@ impl CapabilitySummary {
     pub fn efficiency_rating(&self) -> f32 {
         let capability_score = self.overall_score;
         let resource_efficiency = 1.0 - (self.performance_metrics.resource_utilization - 0.5).abs();
-        
+
         (capability_score + resource_efficiency) / 2.0
     }
 
@@ -761,11 +845,12 @@ impl CapabilitySummary {
         if self.specializations.is_empty() {
             0.0
         } else {
-            let total_score: f32 = self.specializations
+            let total_score: f32 = self
+                .specializations
                 .iter()
                 .map(|domain| self.get_domain_score(domain))
                 .sum();
-            
+
             total_score / self.specializations.len() as f32
         }
     }
@@ -832,16 +917,23 @@ impl DetailedCapabilityBreakdown {
     }
 
     /// Get top capabilities
-    pub fn get_top_capabilities(&self, limit: usize) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
+    pub fn get_top_capabilities(
+        &self,
+        limit: usize,
+    ) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
         let mut capabilities: Vec<_> = self.capabilities.iter().collect();
-        capabilities.sort_by(|a, b| b.1.score.partial_cmp(&a.1.score).unwrap_or(std::cmp::Ordering::Equal));
+        capabilities.sort_by(|a, b| {
+            b.1.score
+                .partial_cmp(&a.1.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         capabilities.into_iter().take(limit).collect()
     }
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
         let mut stats = CapabilityStatistics::default();
-        
+
         for capability in self.capabilities.values() {
             match capability.level {
                 CapabilityLevel::Transcendent => stats.transcendent_count += 1,
@@ -855,7 +947,8 @@ impl DetailedCapabilityBreakdown {
         }
 
         stats.total_capabilities = self.capabilities.len();
-        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>() / self.capabilities.len() as f32;
+        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>()
+            / self.capabilities.len() as f32;
 
         stats
     }
@@ -902,13 +995,21 @@ impl CapabilityComparison {
                 opportunities.push(ImprovementOpportunity {
                     domain: domain.clone(),
                     gap: -comparison.difference,
-                    priority: if comparison.difference < -0.3 { OpportunityPriority::High } else { OpportunityPriority::Medium },
+                    priority: if comparison.difference < -0.3 {
+                        OpportunityPriority::High
+                    } else {
+                        OpportunityPriority::Medium
+                    },
                     potential_improvement: 0.2,
                 });
             }
         }
 
-        opportunities.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap_or(std::cmp::Ordering::Equal));
+        opportunities.sort_by(|a, b| {
+            b.gap
+                .partial_cmp(&a.gap)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         opportunities
     }
 }

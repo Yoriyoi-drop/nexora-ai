@@ -1,11 +1,11 @@
 //! NXR-SPECTRA Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-SPECTRA
 
-use std::collections::HashMap;
+use nexora_shared::model_config::NxrModelConfig;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
-use nexora_shared::model_config::NxrModelConfig;
+use std::collections::HashMap;
 
 /// NXR-SPECTRA Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,7 +75,10 @@ pub enum CreativeModelType {
     /// Transformative model
     Transformative,
     /// Hybrid model
-    Hybrid { generative_weight: f32, transformative_weight: f32 },
+    Hybrid {
+        generative_weight: f32,
+        transformative_weight: f32,
+    },
     /// Ensemble model
     Ensemble { models: Vec<CreativeModelType> },
 }
@@ -338,7 +341,10 @@ impl Default for StyleConfig {
                 ArtisticStyle {
                     name: "Impressionism".to_string(),
                     category: StyleCategory::Classical,
-                    characteristics: vec!["light and color".to_string(), "visible brush strokes".to_string()],
+                    characteristics: vec![
+                        "light and color".to_string(),
+                        "visible brush strokes".to_string(),
+                    ],
                     parameters: StyleParameters {
                         color_palette: vec!["vibrant".to_string(), "natural".to_string()],
                         brush_stroke_style: "visible".to_string(),
@@ -351,7 +357,11 @@ impl Default for StyleConfig {
                 ArtisticStyle {
                     name: "Abstract Expressionism".to_string(),
                     category: StyleCategory::Modern,
-                    characteristics: vec!["abstract".to_string(), "emotional".to_string(), "gestural".to_string()],
+                    characteristics: vec![
+                        "abstract".to_string(),
+                        "emotional".to_string(),
+                        "gestural".to_string(),
+                    ],
                     parameters: StyleParameters {
                         color_palette: vec!["bold".to_string(), "contrasting".to_string()],
                         brush_stroke_style: "gestural".to_string(),
@@ -381,19 +391,17 @@ impl Default for InnovationConfig {
                 InnovationDomain::Text,
                 InnovationDomain::Conceptual,
             ],
-            creative_constraints: vec![
-                CreativeConstraint {
-                    name: "aesthetic_balance".to_string(),
-                    constraint_type: ConstraintType::Style,
-                    parameters: {
-                        let mut params = HashMap::with_capacity(2);
-                        params.insert("balance".to_string(), 0.8);
-                        params.insert("harmony".to_string(), 0.7);
-                        params
-                    },
-                    flexibility: 0.3,
+            creative_constraints: vec![CreativeConstraint {
+                name: "aesthetic_balance".to_string(),
+                constraint_type: ConstraintType::Style,
+                parameters: {
+                    let mut params = HashMap::with_capacity(2);
+                    params.insert("balance".to_string(), 0.8);
+                    params.insert("harmony".to_string(), 0.7);
+                    params
                 },
-            ],
+                flexibility: 0.3,
+            }],
         }
     }
 }
@@ -447,12 +455,16 @@ impl SpectraConfig {
     }
 
     /// Update component configuration
-    pub fn update_component_config<T>(&mut self, component: String, config: T) -> Result<(), serde_json::Error>
+    pub fn update_component_config<T>(
+        &mut self,
+        component: String,
+        config: T,
+    ) -> Result<(), serde_json::Error>
     where
         T: Serialize,
     {
         let json_value = serde_json::to_value(config)?;
-        
+
         match component.as_str() {
             "creative" => {
                 self.creative = serde_json::from_value(json_value)?;
@@ -467,7 +479,10 @@ impl SpectraConfig {
                 self.innovation = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(SerdeError::custom(format!("unknown component: {}", component)));
+                return Err(SerdeError::custom(format!(
+                    "unknown component: {}",
+                    component
+                )));
             }
         }
 
@@ -476,17 +491,29 @@ impl SpectraConfig {
 
     /// Get supported modalities as strings
     pub fn get_supported_modalities(&self) -> Vec<String> {
-        self.multimodal.supported_modalities.iter().map(|m| format!("{:?}", m)).collect()
+        self.multimodal
+            .supported_modalities
+            .iter()
+            .map(|m| format!("{:?}", m))
+            .collect()
     }
 
     /// Get supported styles as strings
     pub fn get_supported_styles(&self) -> Vec<String> {
-        self.style.supported_styles.iter().map(|s| s.name.clone()).collect()
+        self.style
+            .supported_styles
+            .iter()
+            .map(|s| s.name.clone())
+            .collect()
     }
 
     /// Get innovation domains as strings
     pub fn get_innovation_domains(&self) -> Vec<String> {
-        self.innovation.innovation_domains.iter().map(|d| format!("{:?}", d)).collect()
+        self.innovation
+            .innovation_domains
+            .iter()
+            .map(|d| format!("{:?}", d))
+            .collect()
     }
 
     /// Check if cross-modal creativity is enabled
@@ -564,7 +591,9 @@ impl SpectraConfig {
     /// Remove supported modality
     pub fn remove_supported_modality(&mut self, modality: &Modality) -> bool {
         let original_len = self.multimodal.supported_modalities.len();
-        self.multimodal.supported_modalities.retain(|m| m != modality);
+        self.multimodal
+            .supported_modalities
+            .retain(|m| m != modality);
         self.multimodal.supported_modalities.len() < original_len
     }
 
@@ -596,7 +625,11 @@ impl SpectraConfig {
 
     /// Get modality weight
     pub fn get_modality_weight(&self, modality: &str) -> f32 {
-        self.multimodal.modality_weights.get(modality).copied().unwrap_or(0.0)
+        self.multimodal
+            .modality_weights
+            .get(modality)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// Set modality weight
@@ -612,13 +645,19 @@ impl SpectraConfig {
     /// Remove creative constraint
     pub fn remove_creative_constraint(&mut self, constraint_name: &str) -> bool {
         let original_len = self.innovation.creative_constraints.len();
-        self.innovation.creative_constraints.retain(|c| c.name != constraint_name);
+        self.innovation
+            .creative_constraints
+            .retain(|c| c.name != constraint_name);
         self.innovation.creative_constraints.len() < original_len
     }
 
     /// Get creative constraints as strings
     pub fn get_creative_constraints(&self) -> Vec<String> {
-        self.innovation.creative_constraints.iter().map(|c| c.name.clone()).collect()
+        self.innovation
+            .creative_constraints
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
     }
 
     /// Validate modality
@@ -633,7 +672,11 @@ impl SpectraConfig {
             _ => return Err(format!("Unsupported modality: {}", modality)),
         };
 
-        if !self.multimodal.supported_modalities.contains(&modality_enum) {
+        if !self
+            .multimodal
+            .supported_modalities
+            .contains(&modality_enum)
+        {
             return Err(format!("Modality {} is not supported", modality));
         }
 
@@ -642,7 +685,12 @@ impl SpectraConfig {
 
     /// Validate style
     pub fn validate_style(&self, style_name: &str) -> Result<(), String> {
-        if !self.style.supported_styles.iter().any(|s| s.name == style_name) {
+        if !self
+            .style
+            .supported_styles
+            .iter()
+            .any(|s| s.name == style_name)
+        {
             return Err(format!("Style {} is not supported", style_name));
         }
 
@@ -651,15 +699,18 @@ impl SpectraConfig {
 
     /// Get style by name
     pub fn get_style_by_name(&self, style_name: &str) -> Option<&ArtisticStyle> {
-        self.style.supported_styles.iter().find(|s| s.name == style_name)
+        self.style
+            .supported_styles
+            .iter()
+            .find(|s| s.name == style_name)
     }
 
     /// Create configuration for specific style
     pub fn create_style_specific_config(&self, style_name: &str) -> Option<SpectraConfig> {
         let style = self.get_style_by_name(style_name)?;
-        
+
         let mut style_config = self.clone();
-        
+
         // Adjust creativity level based on style
         style_config.creative.creativity_level = match style.category {
             StyleCategory::Experimental => CreativityLevel::Transcendent,
@@ -669,19 +720,19 @@ impl SpectraConfig {
             StyleCategory::Classical => CreativityLevel::Moderate,
             StyleCategory::Cultural => CreativityLevel::Moderate,
         };
-        
+
         // Adjust innovation threshold based on style characteristics
         if style.characteristics.contains(&"innovative".to_string()) {
             style_config.creative.innovation_threshold = 0.8;
         }
-        
+
         Some(style_config)
     }
 
     /// Get recommended modality weights for task
     pub fn get_recommended_modality_weights_for_task(&self, task: &str) -> HashMap<String, f32> {
         let mut weights = self.multimodal.modality_weights.clone();
-        
+
         // Adjust weights based on task type
         if task.contains("visual") || task.contains("image") {
             weights.insert("image".to_string(), 0.5);
@@ -699,7 +750,7 @@ impl SpectraConfig {
             weights.insert("audio".to_string(), 0.2);
             weights.insert("text".to_string(), 0.2);
         }
-        
+
         weights
     }
 
@@ -737,12 +788,24 @@ impl SpectraConfig {
             CreativityLevel::Maximum => 0.8,
             CreativityLevel::Transcendent => 1.0,
         };
-        
-        let cross_modal_bonus: f32 = if self.creative.enable_cross_modal_creativity { 0.1 } else { 0.0 };
+
+        let cross_modal_bonus: f32 = if self.creative.enable_cross_modal_creativity {
+            0.1
+        } else {
+            0.0
+        };
         let style_learning_bonus: f32 = if self.style.style_learning { 0.1 } else { 0.0 };
-        let concept_generation_bonus: f32 = if self.innovation.enable_concept_generation { 0.1 } else { 0.0 };
-        
-        (creativity_level_score + cross_modal_bonus + style_learning_bonus + concept_generation_bonus).min(1.0f32)
+        let concept_generation_bonus: f32 = if self.innovation.enable_concept_generation {
+            0.1
+        } else {
+            0.0
+        };
+
+        (creativity_level_score
+            + cross_modal_bonus
+            + style_learning_bonus
+            + concept_generation_bonus)
+            .min(1.0f32)
     }
 
     /// Get configuration summary

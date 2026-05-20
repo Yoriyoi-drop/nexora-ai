@@ -1,14 +1,14 @@
 //! Axiom Prime Agent
-//! 
+//!
 //! Fundamental truth discovery and logical reasoning
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Axiom Prime Agent - Fundamental truth discovery and logical reasoning
 #[derive(Debug, Clone)]
@@ -169,21 +169,19 @@ impl BaseAgent for AxiomPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "axiom_prime".to_string(),
-                description: "Fundamental truth discovery and logical reasoning".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["problem_statement".to_string(), "given_facts".to_string()],
-                output_types: vec!["derived_axioms".to_string(), "truth_assessment".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.93,
-                    avg_latency: 2800.0,
-                    resource_usage: 0.6,
-                    reliability: 0.95,
-                },
+        vec![AgentCapability {
+            name: "axiom_prime".to_string(),
+            description: "Fundamental truth discovery and logical reasoning".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["problem_statement".to_string(), "given_facts".to_string()],
+            output_types: vec!["derived_axioms".to_string(), "truth_assessment".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.93,
+                avg_latency: 2800.0,
+                resource_usage: 0.6,
+                reliability: 0.95,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -221,17 +219,31 @@ impl AxiomPrimeAgent {
 
     async fn derive_axioms(&self, input: &AxiomPrimeTaskInput) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Axiom 1: From problem '{}', we derive that fundamental principles apply", input.problem_statement),
-            format!("Axiom 2: Given facts '{}', logical consistency must be maintained", input.given_facts.join(", ")),
+            format!(
+                "Axiom 1: From problem '{}', we derive that fundamental principles apply",
+                input.problem_statement
+            ),
+            format!(
+                "Axiom 2: Given facts '{}', logical consistency must be maintained",
+                input.given_facts.join(", ")
+            ),
             "Axiom 3: Truth is determined through systematic reasoning".to_string(),
         ])
     }
 
-    async fn assess_truth(&self, input: &AxiomPrimeTaskInput, _axioms: &[String]) -> AgentResult<String> {
+    async fn assess_truth(
+        &self,
+        input: &AxiomPrimeTaskInput,
+        _axioms: &[String],
+    ) -> AgentResult<String> {
         Ok(format!("Truth assessment for '{}': Based on correspondence theory, the problem statement aligns with given facts and logical principles", input.problem_statement))
     }
 
-    async fn create_reasoning_chain(&self, input: &AxiomPrimeTaskInput, _axioms: &[String]) -> AgentResult<Vec<String>> {
+    async fn create_reasoning_chain(
+        &self,
+        input: &AxiomPrimeTaskInput,
+        _axioms: &[String],
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             format!("Step 1: Analyze problem: {}", input.problem_statement),
             "Step 2: Apply logical inference rules".to_string(),
@@ -240,7 +252,11 @@ impl AxiomPrimeAgent {
         ])
     }
 
-    async fn calculate_confidence(&self, _input: &AxiomPrimeTaskInput, _axioms: &[String]) -> AgentResult<f32> {
+    async fn calculate_confidence(
+        &self,
+        _input: &AxiomPrimeTaskInput,
+        _axioms: &[String],
+    ) -> AgentResult<f32> {
         Ok(0.87)
     }
 }
@@ -261,13 +277,16 @@ mod tests {
         let agent = AxiomPrimeAgent::default();
         let input = AxiomPrimeTaskInput {
             problem_statement: "What is the nature of truth?".to_string(),
-            given_facts: vec!["Truth is consistent".to_string(), "Truth is verifiable".to_string()],
+            given_facts: vec![
+                "Truth is consistent".to_string(),
+                "Truth is verifiable".to_string(),
+            ],
             reasoning_type: "deductive".to_string(),
         };
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.derived_axioms.is_empty());
         assert!(!output.truth_assessment.is_empty());

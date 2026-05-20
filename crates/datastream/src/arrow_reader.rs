@@ -1,9 +1,9 @@
-use std::path::Path;
 use anyhow::{Context, Result};
+use std::path::Path;
 use uuid::Uuid;
 
-use arrow::array::{Array, StringArray, LargeStringArray};
-use crate::types::{DataSample, SourceInfo, SampleStats};
+use crate::types::{DataSample, SampleStats, SourceInfo};
+use arrow::array::{Array, LargeStringArray, StringArray};
 
 fn get_text_value(col: &dyn Array, i: usize) -> Option<String> {
     if let Some(arr) = col.as_any().downcast_ref::<StringArray>() {
@@ -29,7 +29,8 @@ pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample
         .with_context(|| format!("Failed to read arrow IPC file: {}", path.display()))?;
 
     let schema = reader.schema();
-    let text_idx = schema.index_of("text")
+    let text_idx = schema
+        .index_of("text")
         .or_else(|_| schema.index_of("Text"))
         .map_err(|_| anyhow::anyhow!("Arrow file must have a 'text' or 'Text' column"))?;
 

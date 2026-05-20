@@ -56,16 +56,13 @@ impl GpuCapabilities {
         };
 
         let supports_subgroups = features.contains(wgpu::Features::SUBGROUP);
-        let supports_subgroup_barrier =
-            features.contains(wgpu::Features::SUBGROUP_BARRIER);
+        let supports_subgroup_barrier = features.contains(wgpu::Features::SUBGROUP_BARRIER);
 
         let dedicated_video_memory = match info.device_type {
-            wgpu::DeviceType::DiscreteGpu => {
-                match limits.max_storage_buffer_binding_size {
-                    size if size > 1 << 30 => size,
-                    _ => 8 << 30,
-                }
-            }
+            wgpu::DeviceType::DiscreteGpu => match limits.max_storage_buffer_binding_size {
+                size if size > 1 << 30 => size,
+                _ => 8 << 30,
+            },
             _ => 0,
         };
 
@@ -89,8 +86,7 @@ impl GpuCapabilities {
             max_compute_workgroup_size_x: limits.max_compute_workgroup_size_x,
             max_compute_workgroup_size_y: limits.max_compute_workgroup_size_y,
             max_compute_workgroup_size_z: limits.max_compute_workgroup_size_z,
-            max_compute_invocations_per_workgroup:
-                limits.max_compute_invocations_per_workgroup,
+            max_compute_invocations_per_workgroup: limits.max_compute_invocations_per_workgroup,
             max_compute_shared_memory: limits.max_compute_workgroup_storage_size,
             max_storage_buffer_binding_size: limits.max_storage_buffer_binding_size,
             max_bind_groups: limits.max_bind_groups,
@@ -149,4 +145,3 @@ fn format_size(bytes: u64) -> String {
     }
     format!("{:.1}{}", size, UNITS[unit_idx])
 }
-

@@ -1,5 +1,5 @@
 //! Simple Logging Configuration for Nexora AI
-//! 
+//!
 //! Simplified logging setup without complex type issues
 
 use anyhow::Result;
@@ -71,7 +71,7 @@ fn build_env_filter(config: &LoggingConfig, level: Level) -> Result<EnvFilter> {
     } else {
         format!("nexora={},{}", level, config.filters.join(","))
     };
-    
+
     EnvFilter::try_new(&filter_str)
         .map_err(|e| anyhow::anyhow!("Failed to create env filter: {}", e))
 }
@@ -79,34 +79,36 @@ fn build_env_filter(config: &LoggingConfig, level: Level) -> Result<EnvFilter> {
 /// Initialize simple logging system
 pub fn init_logging(config: LoggingConfig) -> Result<()> {
     let level = parse_log_level(&config.level)?;
-    
+
     // Build environment filter
     let env_filter = build_env_filter(&config, level)?;
-    
+
     // Create simple subscriber
-    let subscriber = Registry::default()
-        .with(env_filter)
-        .with(
-            fmt::layer()
-                .with_target(config.target)
-                .with_thread_ids(config.thread_ids)
-                .with_span_events(if config.span_events { FmtSpan::CLOSE } else { FmtSpan::NONE })
-                .with_ansi(true)
-                .with_writer(std::io::stdout)
-        );
-    
+    let subscriber = Registry::default().with(env_filter).with(
+        fmt::layer()
+            .with_target(config.target)
+            .with_thread_ids(config.thread_ids)
+            .with_span_events(if config.span_events {
+                FmtSpan::CLOSE
+            } else {
+                FmtSpan::NONE
+            })
+            .with_ansi(true)
+            .with_writer(std::io::stdout),
+    );
+
     // Initialize global subscriber
     subscriber.init();
-    
+
     tracing::info!("Logging initialized with level: {}", config.level);
     Ok(())
 }
 
 /// Simple logging utilities
 pub mod utils {
-    
+
     use std::time::Instant;
-    
+
     /// Measure execution time of a function
     pub fn time_it<F, T>(name: &str, f: F) -> T
     where
@@ -115,15 +117,16 @@ pub mod utils {
         let start = Instant::now();
         let result = f();
         let duration = start.elapsed();
-        
+
         tracing::debug!(
             duration_ms = duration.as_millis(),
-            "Function {} completed", name
+            "Function {} completed",
+            name
         );
-        
+
         result
     }
-    
+
     /// Measure execution time of an async function
     pub async fn time_it_async<F, T>(name: &str, f: F) -> T
     where
@@ -132,12 +135,13 @@ pub mod utils {
         let start = Instant::now();
         let result = f.await;
         let duration = start.elapsed();
-        
+
         tracing::debug!(
             duration_ms = duration.as_millis(),
-            "Async function {} completed", name
+            "Async function {} completed",
+            name
         );
-        
+
         result
     }
 }

@@ -237,8 +237,12 @@ impl From<nexum_config::OptimizationAlgorithm> for OptimizationAlgorithm {
             nexum_config::OptimizationAlgorithm::LinearProgramming => Self::LinearProgramming,
             nexum_config::OptimizationAlgorithm::GeneticAlgorithm => Self::GeneticAlgorithm,
             nexum_config::OptimizationAlgorithm::SimulatedAnnealing => Self::SimulatedAnnealing,
-            nexum_config::OptimizationAlgorithm::ParticleSwarmOptimization => Self::ParticleSwarmOptimization,
-            nexum_config::OptimizationAlgorithm::ReinforcementLearning => Self::ReinforcementLearning,
+            nexum_config::OptimizationAlgorithm::ParticleSwarmOptimization => {
+                Self::ParticleSwarmOptimization
+            }
+            nexum_config::OptimizationAlgorithm::ReinforcementLearning => {
+                Self::ReinforcementLearning
+            }
             nexum_config::OptimizationAlgorithm::MultiObjective => Self::MultiObjective,
         }
     }

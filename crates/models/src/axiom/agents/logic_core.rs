@@ -1,14 +1,14 @@
 //! Logic Core Agent
-//! 
+//!
 //! Logical inference and formal reasoning engine
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Logic Core Agent - Logical inference and formal reasoning engine
 #[derive(Debug, Clone)]
@@ -172,21 +172,19 @@ impl BaseAgent for LogicCoreAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "logic_core".to_string(),
-                description: "Logical inference and formal reasoning engine".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["premises".to_string(), "conclusion".to_string()],
-                output_types: vec!["proof_steps".to_string(), "validity_result".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.95,
-                    avg_latency: 2200.0,
-                    resource_usage: 0.5,
-                    reliability: 0.97,
-                },
+        vec![AgentCapability {
+            name: "logic_core".to_string(),
+            description: "Logical inference and formal reasoning engine".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["premises".to_string(), "conclusion".to_string()],
+            output_types: vec!["proof_steps".to_string(), "validity_result".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.95,
+                avg_latency: 2200.0,
+                resource_usage: 0.5,
+                reliability: 0.97,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -235,11 +233,15 @@ impl LogicCoreAgent {
         // Simple validity check based on premise-conclusion relationship
         let has_relevant_premises = !input.premises.is_empty();
         let conclusion_follows = !input.conclusion.is_empty();
-        
+
         Ok(has_relevant_premises && conclusion_follows)
     }
 
-    async fn calculate_confidence(&self, _input: &LogicCoreTaskInput, _proof_steps: &[String]) -> AgentResult<f32> {
+    async fn calculate_confidence(
+        &self,
+        _input: &LogicCoreTaskInput,
+        _proof_steps: &[String],
+    ) -> AgentResult<f32> {
         Ok(0.91)
     }
 
@@ -278,7 +280,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.proof_steps.is_empty());
         assert!(output.validity_result);

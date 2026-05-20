@@ -1,12 +1,10 @@
 //! Memory Model Types
-//! 
+//!
 //! Extracted dari memory_model.rs untuk modular structure
 
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
 pub use crate::memory_model::MemoryType;
-
-
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Memory statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]

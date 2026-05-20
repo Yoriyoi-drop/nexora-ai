@@ -12,7 +12,8 @@ thread_local! {
 }
 
 #[cfg(feature = "gpu")]
-pub(crate) type GpuBackwardFn = Box<dyn FnOnce(&[GpuTensor], &GpuTensor, &GpuContext) -> Vec<GpuTensor> + Send>;
+pub(crate) type GpuBackwardFn =
+    Box<dyn FnOnce(&[GpuTensor], &GpuTensor, &GpuContext) -> Vec<GpuTensor> + Send>;
 
 pub(crate) struct GradFn {
     pub inputs: Vec<Tensor>,

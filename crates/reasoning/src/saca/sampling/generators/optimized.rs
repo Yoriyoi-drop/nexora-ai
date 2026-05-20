@@ -1,9 +1,9 @@
 //! Optimized Algorithm Generator
-//! 
+//!
 //! Generates performance-optimized implementations for modules.
 
 use super::{AlgorithmGenerator, AlgorithmType};
-use crate::saca::{types::*, error::*};
+use crate::saca::{error::*, types::*};
 use uuid::Uuid;
 
 /// Optimized algorithm generator
@@ -65,9 +65,10 @@ impl AlgorithmGenerator for OptimizedAlgorithmGenerator {
                     InputType::C(x) => OutputType::A(x >> 1),\n\
                 }}\n\
             }}\n",
-            module.name, module.name.to_lowercase()
+            module.name,
+            module.name.to_lowercase()
         );
-        
+
         Ok(SamplingCandidate {
             id: Uuid::new_v4(),
             module_id: module.id.clone(),

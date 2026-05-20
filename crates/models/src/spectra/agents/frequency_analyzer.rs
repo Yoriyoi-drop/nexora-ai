@@ -1,14 +1,14 @@
 //! Frequency Analyzer Agent
-//! 
+//!
 //! Frequency domain analysis and signal decomposition
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Frequency Analyzer Agent - Frequency domain analysis and signal decomposition
 #[derive(Debug, Clone)]
@@ -153,7 +153,9 @@ impl BaseAgent for FrequencyAnalyzerAgent {
         let frequency_spectrum = self.compute_frequency_spectrum(&input).await?;
         let harmonic_components = self.analyze_harmonics(&input, &frequency_spectrum).await?;
         let spectral_peaks = self.identify_spectral_peaks(&frequency_spectrum).await?;
-        let analysis_accuracy = self.assess_analysis_accuracy(&input, &frequency_spectrum).await?;
+        let analysis_accuracy = self
+            .assess_analysis_accuracy(&input, &frequency_spectrum)
+            .await?;
 
         Ok(FrequencyAnalyzerTaskOutput {
             frequency_spectrum,
@@ -172,21 +174,22 @@ impl BaseAgent for FrequencyAnalyzerAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "frequency_analysis".to_string(),
-                description: "Frequency domain analysis and signal decomposition".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["signal_data".to_string(), "sampling_frequency".to_string()],
-                output_types: vec!["frequency_spectrum".to_string(), "harmonic_components".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.95,
-                    avg_latency: 1900.0,
-                    resource_usage: 0.72,
-                    reliability: 0.97,
-                },
+        vec![AgentCapability {
+            name: "frequency_analysis".to_string(),
+            description: "Frequency domain analysis and signal decomposition".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["signal_data".to_string(), "sampling_frequency".to_string()],
+            output_types: vec![
+                "frequency_spectrum".to_string(),
+                "harmonic_components".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.95,
+                avg_latency: 1900.0,
+                resource_usage: 0.72,
+                reliability: 0.97,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -222,81 +225,108 @@ impl FrequencyAnalyzerAgent {
         }
     }
 
-    async fn compute_frequency_spectrum(&self, input: &FrequencyAnalyzerTaskInput) -> AgentResult<Vec<(f32, f32)>> {
+    async fn compute_frequency_spectrum(
+        &self,
+        input: &FrequencyAnalyzerTaskInput,
+    ) -> AgentResult<Vec<(f32, f32)>> {
         let signal_length = input.signal_data.len();
         let mut spectrum = Vec::new();
-        
+
         // Simple FFT simulation
         for i in 0..(signal_length / 2) {
             let frequency = (i as f32) * input.sampling_frequency / (signal_length as f32);
             let mut magnitude = 0.0;
-            
+
             for (j, &sample) in input.signal_data.iter().enumerate() {
                 let angle = 2.0 * std::f32::consts::PI * (i * j) as f32 / signal_length as f32;
                 magnitude += sample * angle.cos();
             }
-            
+
             magnitude = magnitude.abs() / signal_length as f32;
             spectrum.push((frequency, magnitude));
         }
-        
+
         Ok(spectrum)
     }
 
-    async fn analyze_harmonics(&self, input: &FrequencyAnalyzerTaskInput, spectrum: &[(f32, f32)]) -> AgentResult<Vec<(f32, f32, f32)>> {
+    async fn analyze_harmonics(
+        &self,
+        input: &FrequencyAnalyzerTaskInput,
+        spectrum: &[(f32, f32)],
+    ) -> AgentResult<Vec<(f32, f32, f32)>> {
         let mut harmonics = Vec::new();
-        
+
         // Find fundamental frequency (highest magnitude)
-        let fundamental = spectrum.iter()
+        let fundamental = spectrum
+            .iter()
             .max_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(freq, _)| *freq)
             .unwrap_or(0.0);
-        
+
         if fundamental > 0.0 {
             // Generate harmonics (2nd, 3rd, 4th, 5th)
             for n in 2..=5 {
                 let harmonic_freq = fundamental * n as f32;
-                
+
                 // Find magnitude at harmonic frequency
-                let harmonic_magnitude = spectrum.iter()
-                    .filter(|(freq, _)| (*freq - harmonic_freq).abs() < input.sampling_frequency / input.signal_data.len() as f32)
+                let harmonic_magnitude = spectrum
+                    .iter()
+                    .filter(|(freq, _)| {
+                        (*freq - harmonic_freq).abs()
+                            < input.sampling_frequency / input.signal_data.len() as f32
+                    })
                     .map(|(_, mag)| *mag)
                     .max_by(|a, b| a.total_cmp(b))
                     .unwrap_or(0.0);
-                
+
                 let phase = (n as f32 * std::f32::consts::PI / 4.0).sin();
                 harmonics.push((harmonic_freq, harmonic_magnitude, phase));
             }
         }
-        
+
         Ok(harmonics)
     }
 
-    async fn identify_spectral_peaks(&self, spectrum: &[(f32, f32)]) -> AgentResult<Vec<(f32, f32)>> {
+    async fn identify_spectral_peaks(
+        &self,
+        spectrum: &[(f32, f32)],
+    ) -> AgentResult<Vec<(f32, f32)>> {
         let mut peaks = Vec::new();
-        
+
         for i in 1..(spectrum.len() - 1) {
             let current_mag = spectrum[i].1;
             let prev_mag = spectrum[i - 1].1;
             let next_mag = spectrum[i + 1].1;
-            
+
             if current_mag > prev_mag && current_mag > next_mag && current_mag > 0.1 {
                 peaks.push((spectrum[i].0, current_mag));
             }
         }
-        
+
         // Sort peaks by magnitude (descending) and take top 10
         peaks.sort_by(|a, b| b.1.total_cmp(&a.1));
         peaks.truncate(10);
-        
+
         Ok(peaks)
     }
 
-    async fn assess_analysis_accuracy(&self, input: &FrequencyAnalyzerTaskInput, spectrum: &[(f32, f32)]) -> AgentResult<f32> {
-        let signal_quality = if input.signal_data.len() > 64 { 0.9 } else { 0.7 };
-        let sampling_quality = if input.sampling_frequency > 1000.0 { 0.85 } else { 0.6 };
+    async fn assess_analysis_accuracy(
+        &self,
+        input: &FrequencyAnalyzerTaskInput,
+        spectrum: &[(f32, f32)],
+    ) -> AgentResult<f32> {
+        let signal_quality = if input.signal_data.len() > 64 {
+            0.9
+        } else {
+            0.7
+        };
+        let sampling_quality = if input.sampling_frequency > 1000.0 {
+            0.85
+        } else {
+            0.6
+        };
         let spectrum_quality = if spectrum.len() > 0 { 0.8 } else { 0.5 };
-        
+
         Ok((signal_quality + sampling_quality + spectrum_quality) / 3.0)
     }
 }
@@ -323,7 +353,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.frequency_spectrum.is_empty());
         assert!(!output.harmonic_components.is_empty());

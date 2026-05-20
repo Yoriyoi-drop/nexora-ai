@@ -67,7 +67,10 @@ pub enum SandboxKind {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ToolStatus {
     Idle,
-    Executing { agent_id: Uuid, started_at: chrono::DateTime<chrono::Utc> },
+    Executing {
+        agent_id: Uuid,
+        started_at: chrono::DateTime<chrono::Utc>,
+    },
     Blocked,
     Error(String),
 }
@@ -165,7 +168,11 @@ impl ToolIsolationLayer {
             },
         };
 
-        self.gateways.entry(kind.clone()).or_insert(gateway).tools.insert(kind, pod.clone());
+        self.gateways
+            .entry(kind.clone())
+            .or_insert(gateway)
+            .tools
+            .insert(kind, pod.clone());
         pod
     }
 
@@ -173,15 +180,19 @@ impl ToolIsolationLayer {
         &mut self,
         request: ToolExecutionRequest,
     ) -> Result<ToolExecutionResult, ToolIsolationError> {
-        let gateway = self.gateways.get_mut(&request.tool_kind)
-            .ok_or(ToolIsolationError::ToolNotRegistered(request.tool_kind.clone()))?;
+        let gateway = self.gateways.get_mut(&request.tool_kind).ok_or(
+            ToolIsolationError::ToolNotRegistered(request.tool_kind.clone()),
+        )?;
 
         if !gateway.enabled {
-            return Err(ToolIsolationError::GatewayDisabled(request.tool_kind.clone()));
+            return Err(ToolIsolationError::GatewayDisabled(
+                request.tool_kind.clone(),
+            ));
         }
 
-        let pod = gateway.tools.get_mut(&request.tool_kind)
-            .ok_or(ToolIsolationError::ToolPodNotFound(request.tool_kind.clone()))?;
+        let pod = gateway.tools.get_mut(&request.tool_kind).ok_or(
+            ToolIsolationError::ToolPodNotFound(request.tool_kind.clone()),
+        )?;
 
         if !self.allowed_tools.contains(&request.tool_kind) {
             gateway.audit_log.push(ToolCallAudit {
@@ -193,7 +204,9 @@ impl ToolIsolationLayer {
                 timestamp: chrono::Utc::now(),
                 reason: "Tool not in allowed list".into(),
             });
-            return Err(ToolIsolationError::ToolNotAllowed(request.tool_kind.clone()));
+            return Err(ToolIsolationError::ToolNotAllowed(
+                request.tool_kind.clone(),
+            ));
         }
 
         if !pod.allowed_commands.is_empty() && !pod.allowed_commands.contains(&request.command) {
@@ -231,9 +244,13 @@ impl ToolIsolationLayer {
         kind: &ToolKind,
         commands: Vec<String>,
     ) -> Result<(), ToolIsolationError> {
-        let gateway = self.gateways.get_mut(kind)
+        let gateway = self
+            .gateways
+            .get_mut(kind)
             .ok_or(ToolIsolationError::ToolNotRegistered(kind.clone()))?;
-        let pod = gateway.tools.get_mut(kind)
+        let pod = gateway
+            .tools
+            .get_mut(kind)
             .ok_or(ToolIsolationError::ToolPodNotFound(kind.clone()))?;
         pod.allowed_commands = commands;
         Ok(())
@@ -244,22 +261,29 @@ impl ToolIsolationLayer {
         kind: &ToolKind,
         commands: Vec<String>,
     ) -> Result<(), ToolIsolationError> {
-        let gateway = self.gateways.get_mut(kind)
+        let gateway = self
+            .gateways
+            .get_mut(kind)
             .ok_or(ToolIsolationError::ToolNotRegistered(kind.clone()))?;
-        let pod = gateway.tools.get_mut(kind)
+        let pod = gateway
+            .tools
+            .get_mut(kind)
             .ok_or(ToolIsolationError::ToolPodNotFound(kind.clone()))?;
         pod.denied_commands = commands;
         Ok(())
     }
 
     pub fn get_audit_log(&self, kind: &ToolKind) -> Vec<&ToolCallAudit> {
-        self.gateways.get(kind)
+        self.gateways
+            .get(kind)
             .map(|g| g.audit_log.iter().collect())
             .unwrap_or_default()
     }
 
     pub fn disable_tool(&mut self, kind: &ToolKind) -> Result<(), ToolIsolationError> {
-        let gateway = self.gateways.get_mut(kind)
+        let gateway = self
+            .gateways
+            .get_mut(kind)
             .ok_or(ToolIsolationError::ToolNotRegistered(kind.clone()))?;
         gateway.enabled = false;
         Ok(())
@@ -292,24 +316,33 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
         ToolKind::Browser => "chromium",
         ToolKind::FileSystem => "ls",
         ToolKind::Network => "curl",
-        _ => return ToolExecutionResult {
-            success: false,
-            stdout: String::new(),
-            stderr: "Unknown tool kind - command execution blocked for safety".to_string(),
-            exit_code: -1,
-            execution_time_ms: 0,
-            sandbox_violations: vec!["unsafe_tool_kind".to_string()],
-        },
+        _ => {
+            return ToolExecutionResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "Unknown tool kind - command execution blocked for safety".to_string(),
+                exit_code: -1,
+                execution_time_ms: 0,
+                sandbox_violations: vec!["unsafe_tool_kind".to_string()],
+            }
+        }
     };
 
     let mut cmd = tokio::process::Command::new(program);
-    cmd.args(&request.args)
-        .env_clear()
-        .kill_on_drop(true);
+    cmd.args(&request.args).env_clear().kill_on_drop(true);
 
     // Strip dangerous environment variables
-    let denied_env_keys = ["LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
-        "LD_OPENCL", "LD_ORIGIN_PATH", "PATH", "PYTHONPATH", "BASH_ENV"];
+    let denied_env_keys = [
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT",
+        "LD_DEBUG",
+        "LD_OPENCL",
+        "LD_ORIGIN_PATH",
+        "PATH",
+        "PYTHONPATH",
+        "BASH_ENV",
+    ];
     for (key, value) in &request.env_vars {
         if !denied_env_keys.contains(&key.as_str()) {
             cmd.env(key, value);
@@ -368,18 +401,16 @@ mod tests {
             timeout_seconds: None,
             env_vars: HashMap::new(),
         });
-        assert!(tokio::runtime::Runtime::new().unwrap().block_on(result).is_ok());
+        assert!(tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(result)
+            .is_ok());
     }
 
     #[test]
     fn test_denied_tool() {
         let mut layer = ToolIsolationLayer::new(vec![ToolKind::Browser]);
-        layer.register_tool(
-            ToolKind::Shell,
-            SandboxSpec::default_tool(),
-            false,
-            false,
-        );
+        layer.register_tool(ToolKind::Shell, SandboxSpec::default_tool(), false, false);
         let result = layer.request_execution(ToolExecutionRequest {
             agent_id: Uuid::new_v4(),
             tool_kind: ToolKind::Shell,
@@ -388,7 +419,10 @@ mod tests {
             timeout_seconds: None,
             env_vars: HashMap::new(),
         });
-        assert!(tokio::runtime::Runtime::new().unwrap().block_on(result).is_err());
+        assert!(tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(result)
+            .is_err());
     }
 }
 

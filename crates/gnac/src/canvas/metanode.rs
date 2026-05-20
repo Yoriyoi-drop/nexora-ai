@@ -1,4 +1,4 @@
-use crate::canvas::{NeuralGraph, CanvasPosition};
+use crate::canvas::{CanvasPosition, NeuralGraph};
 use crate::HealthStatus;
 use uuid::Uuid;
 
@@ -43,7 +43,8 @@ impl MetaNode {
         self.aggregated_flops = self.inner_graph.total_flops();
         self.aggregated_params = self.inner_graph.total_params();
 
-        let dead_count = self.inner_graph
+        let dead_count = self
+            .inner_graph
             .nodes
             .values()
             .filter(|n| n.health == HealthStatus::Dead)

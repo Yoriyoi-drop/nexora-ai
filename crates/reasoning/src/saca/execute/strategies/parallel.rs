@@ -1,9 +1,9 @@
 //! Parallel Execution Strategy
-//! 
+//!
 //! Implements parallel execution of candidates for improved performance.
 
-use crate::saca::{types::*, error::*};
 use super::super::engine::ExecuteEngine;
+use crate::saca::{error::*, types::*};
 
 /// Parallel execution strategy
 pub struct ParallelExecutionStrategy;
@@ -19,13 +19,17 @@ impl ParallelExecutionStrategy {
             .map(|candidate| {
                 let engine = engine.clone();
                 let context = context.clone();
-                async move { engine.execute_candidate_with_fix_loop(candidate, &context).await }
+                async move {
+                    engine
+                        .execute_candidate_with_fix_loop(candidate, &context)
+                        .await
+                }
             })
             .collect();
-        
+
         // Execute all tasks in parallel
         let results = futures::future::join_all(tasks).await;
-        
+
         // Collect results, handling any errors
         let mut execution_results = Vec::new();
         for result in results {
@@ -47,7 +51,7 @@ impl ParallelExecutionStrategy {
                 }
             }
         }
-        
+
         Ok(execution_results)
     }
 }

@@ -1,6 +1,6 @@
 //! Layer implementations for HAS-MoE-FFN
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Layer configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,8 +33,12 @@ impl DenseLayer {
         } else {
             None
         };
-        
-        Self { config, weights, bias }
+
+        Self {
+            config,
+            weights,
+            bias,
+        }
     }
 }
 
@@ -42,28 +46,28 @@ impl Layer for DenseLayer {
     fn forward(&self, input: &[f32]) -> Vec<f32> {
         // Perform matrix multiplication: output = input * weights^T + bias
         let mut output = Vec::with_capacity(self.config.output_size);
-        
+
         for i in 0..self.config.output_size {
             let mut sum = 0.0;
-            
+
             // Matrix multiplication
             for j in 0..self.config.input_size {
                 sum += input[j] * self.weights[i][j];
             }
-            
+
             // Add bias if present
             if let Some(ref bias) = self.bias {
                 sum += bias[i];
             }
-            
+
             // Apply activation function
             let activated = self.apply_activation(sum);
             output.push(activated);
         }
-        
+
         output
     }
-    
+
     fn config(&self) -> &LayerConfig {
         &self.config
     }
@@ -81,12 +85,12 @@ impl DenseLayer {
             _ => x, // No activation
         }
     }
-    
+
     /// Initialize weights with Xavier/Glorot initialization
     fn init_weights(input_size: usize, output_size: usize) -> Vec<Vec<f32>> {
         let scale = (6.0 / (input_size + output_size) as f32).sqrt();
         let mut weights = Vec::with_capacity(output_size);
-        
+
         for i in 0..output_size {
             let row: Vec<f32> = (0..input_size)
                 .map(|j| {
@@ -97,22 +101,26 @@ impl DenseLayer {
                 .collect();
             weights.push(row);
         }
-        
+
         weights
     }
-    
+
     /// Initialize bias with zeros
     fn init_bias(size: usize) -> Vec<f32> {
         vec![0.0; size]
     }
-    
+
     /// Get layer parameters count
     pub fn param_count(&self) -> usize {
         let weight_params = self.config.input_size * self.config.output_size;
-        let bias_params = if self.config.use_bias { self.config.output_size } else { 0 };
+        let bias_params = if self.config.use_bias {
+            self.config.output_size
+        } else {
+            0
+        };
         weight_params + bias_params
     }
-    
+
     /// Get layer shape information
     pub fn shape(&self) -> (usize, usize) {
         (self.config.input_size, self.config.output_size)

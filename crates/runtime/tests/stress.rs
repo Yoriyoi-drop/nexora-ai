@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 use nexora_runtime::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -10,7 +10,8 @@ fn make_request(model_id: &str, priority: u8) -> InferenceRequest {
         model_id: model_id.to_string(),
         inputs: vec![],
         parameters: [("max_tokens".to_string(), serde_json::json!(100))]
-            .into_iter().collect(),
+            .into_iter()
+            .collect(),
         request_id: Some(uuid::Uuid::new_v4().to_string()),
         input_tokens: vec![],
         target_tokens: None,
@@ -38,11 +39,7 @@ async fn kv_cache_concurrent_put_get() {
         let cnt = Arc::clone(&counter);
         handles.push(tokio::spawn(async move {
             let key = format!("key-{}", i);
-            let entry = CacheEntry::new(
-                vec![i as f32; 64],
-                vec![i as f32; 64],
-                1, 12, 64, 12,
-            );
+            let entry = CacheEntry::new(vec![i as f32; 64], vec![i as f32; 64], 1, 12, 64, 12);
             c.put(key.clone(), entry).await.unwrap();
             let got = c.get(&key).await.unwrap();
             assert!(got.is_some(), "key-{} should exist", i);
@@ -54,7 +51,11 @@ async fn kv_cache_concurrent_put_get() {
     }
 
     assert_eq!(counter.load(Ordering::SeqCst), n);
-    Arc::try_unwrap(cache).unwrap_or_else(|_| panic!("refs still held")).shutdown().await.unwrap();
+    Arc::try_unwrap(cache)
+        .unwrap_or_else(|_| panic!("refs still held"))
+        .shutdown()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -75,10 +76,7 @@ async fn kv_cache_concurrent_eviction() {
     for i in 0..n {
         let c = Arc::clone(&cache);
         let key = format!("evict-{}", i);
-        let entry = CacheEntry::new(
-            vec![1.0; 256], vec![1.0; 256],
-            1, 12, 64, 12,
-        );
+        let entry = CacheEntry::new(vec![1.0; 256], vec![1.0; 256], 1, 12, 64, 12);
         handles.push(tokio::spawn(async move {
             c.put(key, entry).await.unwrap();
         }));
@@ -89,7 +87,11 @@ async fn kv_cache_concurrent_eviction() {
 
     let stats = cache.get_stats().await;
     assert!(stats.evictions > 0 || stats.current_size_bytes <= stats.max_size_bytes);
-    Arc::try_unwrap(cache).unwrap_or_else(|_| panic!("refs still held")).shutdown().await.unwrap();
+    Arc::try_unwrap(cache)
+        .unwrap_or_else(|_| panic!("refs still held"))
+        .shutdown()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -101,9 +103,13 @@ async fn kv_cache_ttl_expiry() {
     });
     cache.initialize().await.unwrap();
 
-    cache.put("ttl-key".to_string(), CacheEntry::new(
-        vec![1.0; 64], vec![1.0; 64], 1, 12, 64, 12,
-    )).await.unwrap();
+    cache
+        .put(
+            "ttl-key".to_string(),
+            CacheEntry::new(vec![1.0; 64], vec![1.0; 64], 1, 12, 64, 12),
+        )
+        .await
+        .unwrap();
 
     assert!(cache.get("ttl-key").await.unwrap().is_some());
 
@@ -128,10 +134,12 @@ async fn kv_cache_1000_concurrent_access() {
         handles.push(tokio::spawn(async move {
             let key = format!("heavy-{}", i % 100);
             if i % 3 == 0 {
-                c.put(key, CacheEntry::new(
-                    vec![i as f32; 64], vec![i as f32; 64],
-                    1, 12, 64, 12,
-                )).await.ok();
+                c.put(
+                    key,
+                    CacheEntry::new(vec![i as f32; 64], vec![i as f32; 64], 1, 12, 64, 12),
+                )
+                .await
+                .ok();
             } else {
                 let _ = c.get(&key).await;
             }
@@ -141,7 +149,11 @@ async fn kv_cache_1000_concurrent_access() {
         h.await.unwrap();
     }
 
-    Arc::try_unwrap(cache).unwrap_or_else(|_| panic!("refs still held")).shutdown().await.unwrap();
+    Arc::try_unwrap(cache)
+        .unwrap_or_else(|_| panic!("refs still held"))
+        .shutdown()
+        .await
+        .unwrap();
 }
 
 // ─── Scheduler Stress ───────────────────────────────────────────────────
@@ -170,7 +182,11 @@ async fn scheduler_concurrent_submit() {
 
     let stats = scheduler.get_stats().await;
     assert_eq!(stats.total_requests, n as u64);
-    Arc::try_unwrap(scheduler).unwrap_or_else(|_| panic!("refs still held")).shutdown().await.unwrap();
+    Arc::try_unwrap(scheduler)
+        .unwrap_or_else(|_| panic!("refs still held"))
+        .shutdown()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -193,7 +209,12 @@ async fn scheduler_fifo_ordering() {
         if let Some(next) = scheduler.get_next_request().await.unwrap() {
             assert_eq!(next.request.request_id.as_deref(), expected.as_deref());
             // Start and complete it to allow next
-            let uuid = next.request.request_id.as_ref().and_then(|s| uuid::Uuid::parse_str(s).ok()).unwrap();
+            let uuid = next
+                .request
+                .request_id
+                .as_ref()
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                .unwrap();
             scheduler.start_request(uuid).await.unwrap();
             scheduler.complete_request(uuid).await.unwrap();
         } else {
@@ -210,7 +231,10 @@ async fn scheduler_stats_track_requests() {
     let n = 50;
     for _ in 0..n {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        scheduler.submit_request(make_request("model-a", 50), tx).await.unwrap();
+        scheduler
+            .submit_request(make_request("model-a", 50), tx)
+            .await
+            .unwrap();
     }
 
     let stats = scheduler.get_stats().await;
@@ -260,7 +284,10 @@ async fn scheduler_shutdown_stress() {
     let n = 50;
     for _ in 0..n {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        scheduler.submit_request(make_request("model-a", 50), tx).await.unwrap();
+        scheduler
+            .submit_request(make_request("model-a", 50), tx)
+            .await
+            .unwrap();
     }
 
     scheduler.shutdown().await.unwrap();
@@ -285,10 +312,19 @@ async fn streaming_concurrent_streams() {
             let sid = stream.stream_id;
 
             for j in 0..5 {
-                engine.send_token(sid, GeneratedToken {
-                    token_id: j, text: format!("token-{}", j),
-                    logprob: 0.0, is_special: false,
-                }, j == 4).await.unwrap();
+                engine
+                    .send_token(
+                        sid,
+                        GeneratedToken {
+                            token_id: j,
+                            text: format!("token-{}", j),
+                            logprob: 0.0,
+                            is_special: false,
+                        },
+                        j == 4,
+                    )
+                    .await
+                    .unwrap();
             }
 
             let status = engine.get_stream_status(sid).await.unwrap();
@@ -341,17 +377,22 @@ async fn executor_retry_on_failure() {
     let attempt = Arc::new(AtomicUsize::new(0));
 
     let a = Arc::clone(&attempt);
-    let result = executor.execute_with_retry(|| {
-        let a = Arc::clone(&a);
-        async move {
-            let prev = a.fetch_add(1, Ordering::SeqCst);
-            if prev < 2 {
-                Err(anyhow::anyhow!("simulated failure {}", prev))
-            } else {
-                Ok(())
-            }
-        }
-    }, 3).await;
+    let result = executor
+        .execute_with_retry(
+            || {
+                let a = Arc::clone(&a);
+                async move {
+                    let prev = a.fetch_add(1, Ordering::SeqCst);
+                    if prev < 2 {
+                        Err(anyhow::anyhow!("simulated failure {}", prev))
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            3,
+        )
+        .await;
 
     assert!(result.is_ok());
     assert_eq!(attempt.load(Ordering::SeqCst), 3);
@@ -360,9 +401,9 @@ async fn executor_retry_on_failure() {
 #[tokio::test]
 async fn executor_exhaust_retries() {
     let executor = TaskExecutor::new();
-    let result = executor.execute_with_retry(|| async {
-        Err(anyhow::anyhow!("always fails"))
-    }, 2).await;
+    let result = executor
+        .execute_with_retry(|| async { Err(anyhow::anyhow!("always fails")) }, 2)
+        .await;
 
     assert!(result.is_err());
 }
@@ -380,14 +421,19 @@ async fn runtime_concurrent_task_storm() {
         let exec = Arc::clone(&executor);
         let c = Arc::clone(&counter);
         handles.push(tokio::spawn(async move {
-            exec.execute_with_retry(|| {
-                let c = Arc::clone(&c);
-                async move {
-                    tokio::time::sleep(Duration::from_micros(10)).await;
-                    c.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
-                }
-            }, 1).await.ok();
+            exec.execute_with_retry(
+                || {
+                    let c = Arc::clone(&c);
+                    async move {
+                        tokio::time::sleep(Duration::from_micros(10)).await;
+                        c.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    }
+                },
+                1,
+            )
+            .await
+            .ok();
         }));
     }
     for h in handles {
@@ -408,11 +454,15 @@ async fn runtime_timeout_storm() {
         handles.push(tokio::spawn(async move {
             let result = tokio::time::timeout(
                 Duration::from_millis(1),
-                exec.execute_with_retry(|| async {
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                    Ok(())
-                }, 0)
-            ).await;
+                exec.execute_with_retry(
+                    || async {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        Ok(())
+                    },
+                    0,
+                ),
+            )
+            .await;
             assert!(result.is_err() || result.unwrap().is_err());
         }));
     }

@@ -1,9 +1,12 @@
 //! NXR-KRONOS Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-KRONOS
 
+use nexora_shared::{
+    deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig,
+    model_config::NxrModelConfig,
+};
 use serde::{Deserialize, Serialize};
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-KRONOS Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -481,7 +484,12 @@ impl KronosConfig {
         // Note: result_limit validation removed as field doesn't exist in SemanticSearchConfig
 
         // Validate knowledge graph configuration
-        if self.knowledge_graph.entity_extraction.entity_types.is_empty() {
+        if self
+            .knowledge_graph
+            .entity_extraction
+            .entity_types
+            .is_empty()
+        {
             return Err("At least one entity type required".to_string());
         }
 
@@ -494,10 +502,18 @@ impl KronosConfig {
     /// Get configuration for specific agent
     pub fn get_agent_config(&self, agent_name: &str) -> Option<serde_json::Value> {
         match agent_name {
-            "index_builder" => Some(serde_json::to_value(&self.agents.index_builder).unwrap_or_default()),
-            "semantic_search" => Some(serde_json::to_value(&self.agents.semantic_search).unwrap_or_default()),
-            "knowledge_graph" => Some(serde_json::to_value(&self.agents.knowledge_graph).unwrap_or_default()),
-            "synthesizer" => Some(serde_json::to_value(&self.agents.synthesizer).unwrap_or_default()),
+            "index_builder" => {
+                Some(serde_json::to_value(&self.agents.index_builder).unwrap_or_default())
+            }
+            "semantic_search" => {
+                Some(serde_json::to_value(&self.agents.semantic_search).unwrap_or_default())
+            }
+            "knowledge_graph" => {
+                Some(serde_json::to_value(&self.agents.knowledge_graph).unwrap_or_default())
+            }
+            "synthesizer" => {
+                Some(serde_json::to_value(&self.agents.synthesizer).unwrap_or_default())
+            }
             _ => None,
         }
     }

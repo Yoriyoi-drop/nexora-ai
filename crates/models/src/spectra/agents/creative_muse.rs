@@ -1,15 +1,15 @@
 //! Creative Muse Agent
-//! 
+//!
 //! Core creative synthesis agent for NXR-SPECTRA
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
-    base_agent::{BaseAgent, BaseAgentConfig, AgentLifecycle},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
+    base_agent::{AgentLifecycle, BaseAgent, BaseAgentConfig},
     base_model::NxrModelResult,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Creative Muse Agent - Core creative synthesis
 #[derive(Debug, Clone)]
@@ -216,10 +216,7 @@ impl Default for CreativeMuseConfig {
             originality_weight: 0.5,
             innovation_threshold: 0.6,
             creative_diversity: 0.7,
-            inspiration_sources: vec![
-                "internal_knowledge".to_string(),
-                "cross_modal".to_string(),
-            ],
+            inspiration_sources: vec!["internal_knowledge".to_string(), "cross_modal".to_string()],
             creative_domains: vec![
                 "visual".to_string(),
                 "text".to_string(),
@@ -245,14 +242,8 @@ impl Default for CreativeCapabilities {
 impl Default for ContentGeneration {
     fn default() -> Self {
         Self {
-            strategies: vec![
-                GenerationStrategy::Hybrid,
-                GenerationStrategy::Adaptive,
-            ],
-            output_formats: vec![
-                "text".to_string(),
-                "json".to_string(),
-            ],
+            strategies: vec![GenerationStrategy::Hybrid, GenerationStrategy::Adaptive],
+            output_formats: vec!["text".to_string(), "json".to_string()],
             quality_thresholds: QualityThresholds {
                 min_originality: 0.6,
                 min_creativity: 0.5,
@@ -301,19 +292,19 @@ impl BaseAgent for CreativeMuseAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Generate creative content
         let content = self.generate_creative_content(&input).await?;
-        
+
         // Calculate quality scores
         let creativity_score = self.calculate_creativity_score(&input, &content);
         let originality_score = self.calculate_originality_score(&content);
         let innovation_score = self.calculate_innovation_score(&input, &content);
         let coherence_score = self.calculate_coherence_score(&content);
-        
+
         // Build output
         let output = CreativeTaskOutput {
             content,
@@ -324,9 +315,9 @@ impl BaseAgent for CreativeMuseAgent {
             metadata: HashMap::new(),
             inspiration_sources: self.get_inspiration_sources_used(&input),
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -339,21 +330,19 @@ impl BaseAgent for CreativeMuseAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "creative_synthesis".to_string(),
-                description: "Core creative synthesis across multiple domains".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["creative_task".to_string()],
-                output_types: vec!["creative_content".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.85,
-                    avg_latency: 500.0,
-                    resource_usage: 0.6,
-                    reliability: 0.9,
-                },
+        vec![AgentCapability {
+            name: "creative_synthesis".to_string(),
+            description: "Core creative synthesis across multiple domains".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["creative_task".to_string()],
+            output_types: vec!["creative_content".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.85,
+                avg_latency: 500.0,
+                resource_usage: 0.6,
+                reliability: 0.9,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -395,16 +384,16 @@ impl CreativeMuseAgent {
     fn validate_input(&self, input: &CreativeTaskInput) -> AgentResult<()> {
         if input.description.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Task description cannot be empty".to_string()
+                "Task description cannot be empty".to_string(),
             ));
         }
-        
+
         if input.domain.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Creative domain cannot be empty".to_string()
+                "Creative domain cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
@@ -414,19 +403,19 @@ impl CreativeMuseAgent {
         // In a real system, this would involve complex creative generation algorithms
         let creativity_level = self.config.creativity_level.value();
         let originality_weight = self.config.originality_weight;
-        
+
         // Simulate creative content generation
         let base_content = format!(
             "Creative content for: {} in domain: {} with creativity level: {:.2}",
             input.description, input.domain, creativity_level
         );
-        
+
         let enhanced_content = if originality_weight > 0.7 {
             format!("{} [High Originality]", base_content)
         } else {
             base_content
         };
-        
+
         Ok(enhanced_content)
     }
 
@@ -438,20 +427,23 @@ impl CreativeMuseAgent {
         } else {
             0.0
         };
-        
+
         (base_score + domain_bonus).min(1.0)
     }
 
     /// Calculate originality score
     fn calculate_originality_score(&self, content: &str) -> f32 {
         // Simplified originality calculation
-        let unique_words = content.split_whitespace().collect::<std::collections::HashSet<_>>().len();
+        let unique_words = content
+            .split_whitespace()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         let total_words = content.split_whitespace().count();
-        
+
         if total_words == 0 {
             return 0.0;
         }
-        
+
         let uniqueness_ratio = unique_words as f32 / total_words as f32;
         (uniqueness_ratio * self.config.originality_weight).min(1.0)
     }
@@ -460,7 +452,7 @@ impl CreativeMuseAgent {
     fn calculate_innovation_score(&self, input: &CreativeTaskInput, content: &str) -> f32 {
         let base_score = content.len() as f32 / 1000.0; // Simplified
         let threshold_adjustment = self.config.innovation_threshold;
-        
+
         (base_score * threshold_adjustment).min(1.0)
     }
 
@@ -471,12 +463,12 @@ impl CreativeMuseAgent {
         if sentences == 0 {
             return 0.0;
         }
-        
+
         // Base coherence on sentence structure
         let avg_sentence_length = content.len() as f32 / sentences as f32;
         let optimal_length = 50.0;
         let length_score = 1.0 - (avg_sentence_length - optimal_length).abs() / optimal_length;
-        
+
         length_score.max(0.0).min(1.0)
     }
 
@@ -517,7 +509,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.content.is_empty());
         assert!(output.creativity_score > 0.0);

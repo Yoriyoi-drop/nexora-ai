@@ -1,5 +1,5 @@
 //! Unified API for Integrated Nexora Models
-//! 
+//!
 //! Provides a single interface for using all integrated models:
 //! - SACA (Systematic Adaptive Code Architecture)
 //! - ATQS (Adaptive Tensor Quantization & Sparsification)
@@ -7,22 +7,13 @@
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN)
 
 // Import from foundation modules
-use nexora_foundation::reasoning::{
-    SACAConfig,
-    CodingTask,
-    SACASolution,
-    SACAIntegration,
-};
+use nexora_foundation::reasoning::{CodingTask, SACAConfig, SACAIntegration, SACASolution};
 
-use nexora_foundation::atqs::{
-    ATQSConfig,
-    compression::CompressionEngine,
-};
+use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
 
 use nexora_foundation::multimodal::caffeine::{
-    Caffeine,
-    CaffeineConfig,
     types::{MultiModalInputs, TextInput},
+    Caffeine, CaffeineConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -46,10 +37,10 @@ pub struct ExpertRouter;
 impl HasMoeFfnConfig {
     pub fn medium_model() -> Self {
         Self {
-            router_config: RouterConfig { 
-                hidden_size: 768, 
-                num_experts: 8, 
-                top_k: 2 
+            router_config: RouterConfig {
+                hidden_size: 768,
+                num_experts: 8,
+                top_k: 2,
             },
         }
     }
@@ -68,7 +59,7 @@ impl ExpertRouter {
 }
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 // Explicit Result type to avoid ambiguity
 pub type ApiResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -108,24 +99,29 @@ pub struct UnifiedModel {
 impl UnifiedModel {
     /// Create new unified model instance
     pub async fn new(config: UnifiedConfig) -> ApiResult<Self> {
-        info!("Initializing Unified Model with integration mode: {:?}", config.integration_mode);
-        
+        info!(
+            "Initializing Unified Model with integration mode: {:?}",
+            config.integration_mode
+        );
+
         // Initialize SACA integration
         let mut saca_integration = SACAIntegration::new(config.saca_config.clone()).await?;
-        
+
         // Add ATQS compression if enabled
         if let Some(atqs_config) = &config.atqs_config {
             match config.integration_mode {
                 IntegrationMode::SACAWithATQS | IntegrationMode::FullIntegration => {
-                    let compression_engine = Arc::new(CompressionEngine::new(atqs_config.clone())
-                        .map_err(|e| format!("Compression engine creation failed: {}", e))?);
+                    let compression_engine = Arc::new(
+                        CompressionEngine::new(atqs_config.clone())
+                            .map_err(|e| format!("Compression engine creation failed: {}", e))?,
+                    );
                     saca_integration = saca_integration.with_atqs_compression(compression_engine);
                     info!("ATQS compression enabled");
                 }
                 _ => {}
             }
         }
-        
+
         // Add Caffeine model if enabled
         let caffeine_model = if let Some(caffeine_config) = &config.caffeine_config {
             match config.integration_mode {
@@ -140,7 +136,7 @@ impl UnifiedModel {
         } else {
             None
         };
-        
+
         // Add HAS-MoE-FFN routing if enabled
         if let Some(has_moe_config) = &config.has_moe_config {
             match config.integration_mode {
@@ -148,7 +144,7 @@ impl UnifiedModel {
                     let router = Arc::new(nexora_foundation::has_moe_ffn::routing::Router::new(
                         has_moe_config.router_config.hidden_size,
                         has_moe_config.router_config.num_experts,
-                        has_moe_config.router_config.top_k
+                        has_moe_config.router_config.top_k,
                     ));
                     saca_integration = saca_integration.with_has_moe_routing(router);
                     info!("HAS-MoE-FFN expert routing enabled");
@@ -156,23 +152,26 @@ impl UnifiedModel {
                 _ => {}
             }
         }
-        
+
         Ok(Self {
             config,
             saca_integration,
             caffeine_model,
         })
     }
-    
+
     /// Solve coding task using integrated models
     pub async fn generate_code(&self, task: &CodingTask) -> ApiResult<UnifiedSolution> {
         info!("Starting unified coding task solution");
-        
+
         let start_time = std::time::Instant::now();
-        
+
         // Use SACA integration for enhanced solution
-        let enhanced_solution = self.saca_integration.solve_with_models(task.clone()).await?;
-        
+        let enhanced_solution = self
+            .saca_integration
+            .solve_with_models(task.clone())
+            .await?;
+
         // Additional processing based on integration mode
         let mut solution = UnifiedSolution {
             base_solution: enhanced_solution.base_solution,
@@ -186,16 +185,19 @@ impl UnifiedModel {
             integration_mode: self.config.integration_mode.clone(),
             quality_score: 0.0,
         };
-        
+
         // Apply additional processing if needed
         match self.config.integration_mode {
             IntegrationMode::FullIntegration => {
-                self.apply_full_integration_processing(&mut solution, &task).await?;
+                self.apply_full_integration_processing(&mut solution, &task)
+                    .await?;
             }
             IntegrationMode::SACAWithCaffeine => {
-                let task_text = format!("Task: {}\nRequirements: {}",
+                let task_text = format!(
+                    "Task: {}\nRequirements: {}",
                     task.description,
-                    task.requirements.join(", "));
+                    task.requirements.join(", ")
+                );
                 let multimodal_input = MultiModalInputs {
                     text: Some(TextInput {
                         text: task_text,
@@ -219,60 +221,80 @@ impl UnifiedModel {
             }
             _ => {}
         }
-        
-        info!("Unified solution completed in {:?}", solution.execution_time);
+
+        info!(
+            "Unified solution completed in {:?}",
+            solution.execution_time
+        );
         Ok(solution)
     }
-    
+
     /// Process multimodal inputs
-    pub async fn process_multimodal(&self, inputs: &MultiModalInputs) -> ApiResult<nexora_foundation::multimodal::caffeine::types::MultiModalOutputs> {
+    pub async fn process_multimodal(
+        &self,
+        inputs: &MultiModalInputs,
+    ) -> ApiResult<nexora_foundation::multimodal::caffeine::types::MultiModalOutputs> {
         if let Some(caffeine) = &self.caffeine_model {
             let mut guard = caffeine.lock().await;
-            guard.forward(inputs).await
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { format!("Caffeine forward failed: {}", e).into() })
+            guard
+                .forward(inputs)
+                .await
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                    format!("Caffeine forward failed: {}", e).into()
+                })
         } else {
-            Err(Box::<dyn std::error::Error + Send + Sync>::from("CAFFEINE model not enabled"))
+            Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                "CAFFEINE model not enabled",
+            ))
         }
     }
-    
+
     /// Apply full integration processing
-    async fn apply_full_integration_processing(&self, solution: &mut UnifiedSolution, _task: &CodingTask) -> ApiResult<()> {
+    async fn apply_full_integration_processing(
+        &self,
+        solution: &mut UnifiedSolution,
+        _task: &CodingTask,
+    ) -> ApiResult<()> {
         debug!("Applying full integration processing");
-        
+
         // Apply cross-model optimizations
         if solution.atqs_compression_applied && solution.caffeine_multimodal_enhanced {
             // Optimize compressed code based on multimodal insights
             solution.quality_score += 0.02;
         }
-        
+
         if solution.has_moe_routing_applied && solution.routing_efficiency > 0.9 {
             // Boost quality for excellent routing
             solution.quality_score += 0.01;
         }
-        
+
         // Ensure quality score stays within bounds
         solution.quality_score = solution.quality_score.min(1.0);
-        
+
         Ok(())
     }
-    
+
     /// Apply HAS-MoE-FFN post-processing
-    async fn apply_has_moe_routing(&self, solution: &mut UnifiedSolution, _task: &CodingTask) -> ApiResult<()> {
+    async fn apply_has_moe_routing(
+        &self,
+        solution: &mut UnifiedSolution,
+        _task: &CodingTask,
+    ) -> ApiResult<()> {
         debug!("Applying HAS-MoE-FFN post-processing");
-        
+
         // Additional routing optimizations could be applied here
         if solution.has_moe_routing_applied && solution.routing_efficiency > 0.8 {
             solution.quality_score += 0.01;
             solution.quality_score = solution.quality_score.min(1.0);
         }
-        
+
         Ok(())
     }
-    
+
     /// Get model statistics
     pub fn get_statistics(&self) -> UnifiedStats {
         let integration_stats = self.saca_integration.get_integration_stats();
-        
+
         UnifiedStats {
             integration_mode: self.config.integration_mode.clone(),
             models_enabled: integration_stats.total_models_enabled,
@@ -323,7 +345,7 @@ impl UnifiedModelFactory {
         };
         UnifiedModel::new(config).await
     }
-    
+
     /// Create model for code generation with compression
     pub async fn create_compressed_coder() -> ApiResult<UnifiedModel> {
         let config = UnifiedConfig {
@@ -335,7 +357,7 @@ impl UnifiedModelFactory {
         };
         UnifiedModel::new(config).await
     }
-    
+
     /// Create model for multimodal code generation
     pub async fn create_multimodal_coder() -> ApiResult<UnifiedModel> {
         let config = UnifiedConfig {
@@ -347,7 +369,7 @@ impl UnifiedModelFactory {
         };
         UnifiedModel::new(config).await
     }
-    
+
     /// Create model for expert-routed code generation
     pub async fn create_expert_coder() -> ApiResult<UnifiedModel> {
         let config = UnifiedConfig {
@@ -359,7 +381,7 @@ impl UnifiedModelFactory {
         };
         UnifiedModel::new(config).await
     }
-    
+
     /// Create full integration model
     pub async fn create_full_integration() -> ApiResult<UnifiedModel> {
         let config = UnifiedConfig {
@@ -376,20 +398,22 @@ impl UnifiedModelFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_unified_model_creation() {
         let model = UnifiedModelFactory::create_basic_coder().await;
         assert!(model.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_integration_modes() {
         let basic = UnifiedModelFactory::create_basic_coder().await.unwrap();
         let stats = basic.get_statistics();
         assert_eq!(stats.models_enabled, 0);
-        
-        let compressed = UnifiedModelFactory::create_compressed_coder().await.unwrap();
+
+        let compressed = UnifiedModelFactory::create_compressed_coder()
+            .await
+            .unwrap();
         let stats = compressed.get_statistics();
         assert!(stats.atqs_enabled);
     }

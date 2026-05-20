@@ -85,12 +85,12 @@ pub fn analyze_model_layers(
 ) -> Result<Vec<LayerAnalysis>, crate::ATQSError> {
     let layers = model.get_layers();
     let mut analyses = Vec::new();
-    
+
     for (layer_idx, layer) in layers.iter().enumerate() {
         let analysis = analyze_single_layer(layer, layer_idx, model, config)?;
         analyses.push(analysis);
     }
-    
+
     Ok(analyses)
 }
 
@@ -102,30 +102,30 @@ pub fn analyze_single_layer(
     config: &LayerAnalysisConfig,
 ) -> Result<LayerAnalysis, crate::ATQSError> {
     let layer_type = layer.get_layer_info();
-    
+
     // Analyze weight statistics
     let weight_statistics = analyze_weight_statistics(layer)?;
-    
+
     // Analyze activation statistics (if requested)
     let activation_statistics = if config.analyze_activations {
         Some(analyze_activation_statistics(layer, config.sample_size)?)
     } else {
         None
     };
-    
+
     // Analyze gradient statistics (if requested)
     let gradient_statistics = if config.analyze_gradients {
         Some(analyze_gradient_statistics(layer, config.sample_size)?)
     } else {
         None
     };
-    
+
     // Compute computational cost
     let computational_cost = compute_computational_cost(layer)?;
-    
+
     // Compute memory footprint
     let memory_footprint = compute_memory_footprint(layer)?;
-    
+
     // Identify criticality indicators
     let criticality_indicators = identify_criticality_indicators(
         &weight_statistics,
@@ -135,7 +135,7 @@ pub fn analyze_single_layer(
         &layer_type.layer_type,
         config,
     )?;
-    
+
     Ok(LayerAnalysis {
         layer_idx,
         layer_type: layer_type.clone(),
@@ -154,24 +154,24 @@ fn analyze_weight_statistics(
 ) -> Result<WeightStatistics, crate::ATQSError> {
     let weights = layer.get_weights();
     let flat_weights: Vec<f32> = weights.iter().cloned().collect();
-    
+
     // Basic statistics
     let mean = flat_weights.iter().sum::<f32>() / flat_weights.len() as f32;
-    let variance = flat_weights.iter()
-        .map(|w| (w - mean).powi(2))
-        .sum::<f32>() / flat_weights.len() as f32;
+    let variance =
+        flat_weights.iter().map(|w| (w - mean).powi(2)).sum::<f32>() / flat_weights.len() as f32;
     let std_dev = variance.sqrt();
     let min = flat_weights.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-    let max = flat_weights.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-    
+    let max = flat_weights
+        .iter()
+        .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+
     // Sparsity
-    let sparsity = flat_weights.iter()
-        .filter(|&&w| w.abs() < 1e-8)
-        .count() as f32 / flat_weights.len() as f32;
-    
+    let sparsity =
+        flat_weights.iter().filter(|&&w| w.abs() < 1e-8).count() as f32 / flat_weights.len() as f32;
+
     // Rank estimation using SVD
     let (rank_estimate, singular_values) = estimate_weight_rank(&weights)?;
-    
+
     Ok(WeightStatistics {
         mean,
         std_dev,
@@ -190,34 +190,35 @@ fn analyze_activation_statistics(
 ) -> Result<ActivationStatistics, crate::ATQSError> {
     let weights = layer.get_weights();
     let mut activations = Vec::new();
-    
+
     // Generate random inputs and compute activations
     for _ in 0..sample_size {
         let input = generate_random_input(&weights.shape())?;
         let activation = compute_layer_activation(&weights, &input)?;
         activations.push(activation);
     }
-    
+
     // Compute statistics
     let mean_activation = activations.iter().sum::<f32>() / activations.len() as f32;
-    let activation_variance = activations.iter()
+    let activation_variance = activations
+        .iter()
         .map(|a| (a - mean_activation).powi(2))
-        .sum::<f32>() / activations.len() as f32;
-    
+        .sum::<f32>()
+        / activations.len() as f32;
+
     // Dead neuron ratio (very small activations)
-    let dead_neuron_ratio = activations.iter()
-        .filter(|&&a| a.abs() < 1e-6)
-        .count() as f32 / activations.len() as f32;
-    
+    let dead_neuron_ratio =
+        activations.iter().filter(|&&a| a.abs() < 1e-6).count() as f32 / activations.len() as f32;
+
     // Activation entropy
     let activation_entropy = compute_activation_entropy(&activations)?;
-    
+
     // Output distribution
     let mut output_distribution = HashMap::new();
     output_distribution.insert("mean".to_string(), mean_activation);
     output_distribution.insert("variance".to_string(), activation_variance);
     output_distribution.insert("dead_ratio".to_string(), dead_neuron_ratio);
-    
+
     Ok(ActivationStatistics {
         mean_activation,
         activation_variance,
@@ -234,35 +235,41 @@ fn analyze_gradient_statistics(
 ) -> Result<GradientStatistics, crate::ATQSError> {
     let weights = layer.get_weights();
     let mut gradients = Vec::new();
-    
+
     // Approximate gradients using finite differences
     for _ in 0..sample_size {
         let gradient = approximate_layer_gradient(&weights)?;
         gradients.push(gradient);
     }
-    
+
     // Compute gradient statistics
-    let gradient_norm = gradients.iter()
+    let gradient_norm = gradients
+        .iter()
         .map(|g| g.iter().map(|&x| x * x).sum::<f32>().sqrt())
-        .sum::<f32>() / gradients.len() as f32;
-    
-    let gradient_variance = gradients.iter()
+        .sum::<f32>()
+        / gradients.len() as f32;
+
+    let gradient_variance = gradients
+        .iter()
         .map(|g| {
             let mean = g.iter().sum::<f32>() / g.len() as f32;
             g.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / g.len() as f32
         })
-        .sum::<f32>() / gradients.len() as f32;
-    
-    let gradient_sparsity = gradients.iter()
-        .map(|g| {
-            g.iter().filter(|&&x| x.abs() < 1e-8).count() as f32 / g.len() as f32
-        })
-        .sum::<f32>() / gradients.len() as f32;
-    
-    let update_magnitude = gradients.iter()
+        .sum::<f32>()
+        / gradients.len() as f32;
+
+    let gradient_sparsity = gradients
+        .iter()
+        .map(|g| g.iter().filter(|&&x| x.abs() < 1e-8).count() as f32 / g.len() as f32)
+        .sum::<f32>()
+        / gradients.len() as f32;
+
+    let update_magnitude = gradients
+        .iter()
         .map(|g| g.iter().map(|&x| x.abs()).sum::<f32>())
-        .sum::<f32>() / gradients.len() as f32;
-    
+        .sum::<f32>()
+        / gradients.len() as f32;
+
     Ok(GradientStatistics {
         gradient_norm,
         gradient_variance,
@@ -278,91 +285,91 @@ fn compute_computational_cost(
     let weights = layer.get_weights();
     let layer_type = layer.get_layer_info();
     let shape = weights.shape();
-    
+
     let (flops_per_forward, flops_per_backward) = match layer_type.layer_type.as_str() {
         "Attention" => {
             // Attention: Q*K^T + softmax + (Q*K^T)*V
             let seq_len = shape[0];
             let hidden_dim = shape[1];
             let head_dim = hidden_dim / 8; // Assuming 8 heads
-            
+
             let qk_flops = seq_len * seq_len * head_dim;
             let softmax_flops = seq_len * seq_len;
             let qkv_flops = seq_len * seq_len * head_dim;
-            
+
             let forward_flops = qk_flops + softmax_flops + qkv_flops;
             let backward_flops = forward_flops * 2; // Gradient computation
-            
+
             (forward_flops, backward_flops)
         }
         "FeedForward" => {
             // FFN: Linear + ReLU + Linear
             let input_dim = shape[0];
             let hidden_dim = shape[1];
-            
+
             let linear1_flops = input_dim * hidden_dim;
             let relu_flops = hidden_dim;
             let linear2_flops = hidden_dim * input_dim;
-            
+
             let forward_flops = linear1_flops + relu_flops + linear2_flops;
             let backward_flops = forward_flops * 2;
-            
+
             (forward_flops, backward_flops)
         }
         "Embedding" => {
             // Embedding lookup
             let _vocab_size = shape[0];
             let embed_dim = shape[1];
-            
+
             let forward_flops = embed_dim; // Just lookup
             let backward_flops = embed_dim; // Gradient update
-            
+
             (forward_flops, backward_flops)
         }
         "LayerNorm" => {
             // Layer normalization
             let dim: usize = shape.iter().product();
-            
+
             let forward_flops = dim * 3; // mean, var, normalize
             let backward_flops = dim * 2;
-            
+
             (forward_flops, backward_flops)
         }
         "Output" => {
             // Output projection
             let input_dim = shape[0];
             let output_dim = shape[1];
-            
+
             let forward_flops = input_dim * output_dim;
             let backward_flops = forward_flops * 2;
-            
+
             (forward_flops, backward_flops)
         }
         _ => {
             // Default case: treat as simple matrix multiplication
             let input_dim = shape[0];
             let output_dim = shape[1];
-            
+
             let forward_flops = input_dim * output_dim;
             let backward_flops = forward_flops * 2;
-            
+
             (forward_flops, backward_flops)
         }
     };
-    
+
     // Memory accesses (rough estimate)
     let memory_accesses = weights.len() * 2; // Read + write
-    
+
     // Parallel efficiency (simplified estimate)
     let parallel_efficiency = match layer_type.layer_type.as_str() {
-        "Attention" => 0.8, // Good parallelization
+        "Attention" => 0.8,   // Good parallelization
         "FeedForward" => 0.9, // Excellent parallelization
-        "Embedding" => 0.7, // Memory bound
-        "LayerNorm" => 0.6, // Sequential dependencies
-        "Output" => 0.9, // Good parallelization
-        _ => 0.8, // Default
+        "Embedding" => 0.7,   // Memory bound
+        "LayerNorm" => 0.6,   // Sequential dependencies
+        "Output" => 0.9,      // Good parallelization
+        _ => 0.8,             // Default
     };
-    
+
     Ok(ComputationalCost {
         flops_per_forward,
         flops_per_backward,
@@ -387,62 +394,60 @@ fn identify_criticality_indicators(
     config: &LayerAnalysisConfig,
 ) -> Result<Vec<CriticalityIndicator>, crate::ATQSError> {
     let mut indicators = Vec::new();
-    
+
     // High gradient norm indicator
     if let Some(grad_stats) = gradient_stats {
         if grad_stats.gradient_norm > config.sensitivity_threshold {
             indicators.push(CriticalityIndicator::HighGradientNorm);
         }
     }
-    
+
     // Low sparsity indicator (dense layers are often critical)
     if weight_stats.sparsity < 0.1 {
         indicators.push(CriticalityIndicator::LowSparsity);
     }
-    
+
     // High rank indicator
     if weight_stats.rank_estimate > 64 {
         indicators.push(CriticalityIndicator::HighRank);
     }
-    
+
     // Early layer indicator
     if layer_idx < 4 {
         indicators.push(CriticalityIndicator::EarlyLayer);
     }
-    
+
     // Attention head indicator
     if layer_type == "Attention" {
         indicators.push(CriticalityIndicator::AttentionHead);
     }
-    
+
     // Critical path indicator (based on computational cost)
     if let Some(act_stats) = activation_stats {
         if act_stats.activation_variance > 0.5 {
             indicators.push(CriticalityIndicator::CriticalPath);
         }
     }
-    
+
     Ok(indicators)
 }
 
 /// Estimate weight rank using SVD
-fn estimate_weight_rank(
-    weights: &ArrayD<f32>,
-) -> Result<(usize, Vec<f32>), crate::ATQSError> {
+fn estimate_weight_rank(weights: &ArrayD<f32>) -> Result<(usize, Vec<f32>), crate::ATQSError> {
     let shape = weights.shape();
-    
+
     // Reshape to 2D for SVD
     let rows = shape[0];
     let cols = shape.iter().skip(1).product();
     let reshaped = weights.clone().into_shape((rows, cols))?;
-    
+
     // Compute SVD
     let (_u, s, _vt) = compute_weight_svd(&reshaped.view())?;
-    
+
     // Estimate rank based on singular value threshold
     let threshold = s[0] * 1e-6; // Relative threshold
     let rank = s.iter().take_while(|&sv| *sv > threshold).count();
-    
+
     Ok((rank, s))
 }
 
@@ -452,15 +457,15 @@ fn compute_weight_svd(
 ) -> Result<(Array<f32, ndarray::Ix2>, Vec<f32>, Array<f32, ndarray::Ix2>), crate::ATQSError> {
     let (m, n) = matrix.dim();
     let rank = m.min(n);
-    
+
     // Compute SVD using power iteration method (simplified but functional)
     let (u, s, vt) = compute_svd_power_iteration(matrix, rank)?;
-    
+
     Ok((u, s, vt))
 }
 
 /// Compute SVD using power iteration method
-/// 
+///
 /// This is a simplified but functional implementation of SVD decomposition.
 /// For production use, consider using LAPACK or other optimized libraries.
 fn compute_svd_power_iteration(
@@ -469,33 +474,33 @@ fn compute_svd_power_iteration(
 ) -> Result<(Array<f32, ndarray::Ix2>, Vec<f32>, Array<f32, ndarray::Ix2>), crate::ATQSError> {
     let (m, n) = matrix.dim();
     let rank = target_rank.min(m).min(n);
-    
+
     // Initialize U, S, V^T matrices
     let mut u = Array::zeros((m, rank));
     let mut s = Vec::with_capacity(rank);
     let mut vt = Array::zeros((rank, n));
-    
+
     // Compute singular values and vectors using power iteration
     for i in 0..rank {
         // Power iteration untuk find singular value dan corresponding vectors
-        
+
         // Initialize random vector untuk right singular vector
         let mut v = Array::zeros(n);
         for elem in v.iter_mut() {
             *elem = rand::random::<f32>();
         }
-        
+
         // Normalize v
         let v_norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         if v_norm > 1e-8 {
             v /= v_norm;
         }
-        
+
         // Power iteration iterations
         let max_iterations = 100;
         let tolerance = 1e-6;
         let mut sigma = 0.0;
-        
+
         for _iteration in 0..max_iterations {
             // Compute u = A @ v
             let mut new_u = Array::zeros(m);
@@ -506,15 +511,15 @@ fn compute_svd_power_iteration(
                 }
                 new_u[row] = sum;
             }
-            
+
             // Compute new sigma = norm(u)
             let new_sigma = new_u.iter().map(|x| x * x).sum::<f32>().sqrt();
-            
+
             // Normalize u
             if new_sigma > 1e-8 {
                 new_u /= new_sigma;
             }
-            
+
             // Compute new v = A^T @ u
             let mut new_v = Array::zeros(n);
             for col in 0..n {
@@ -524,27 +529,27 @@ fn compute_svd_power_iteration(
                 }
                 new_v[col] = sum;
             }
-            
+
             // Normalize v
             let v_norm = new_v.iter().map(|x| x * x).sum::<f32>().sqrt();
             if v_norm > 1e-8 {
                 new_v /= v_norm;
             }
-            
+
             // Check convergence
             if (new_sigma - sigma).abs() < tolerance {
                 sigma = new_sigma;
                 v = new_v;
                 break;
             }
-            
+
             sigma = new_sigma;
             v = new_v;
         }
-        
+
         // Store singular value and vectors
         s.push(sigma);
-        
+
         // Store left singular vector in U
         for row in 0..m {
             u[[row, i]] = {
@@ -559,40 +564,40 @@ fn compute_svd_power_iteration(
                 }
             };
         }
-        
+
         // Store right singular vector in V^T
         for col in 0..n {
             vt[[i, col]] = v[col];
         }
-        
+
         // Deflate matrix untuk next singular value (simplified)
         if i < rank - 1 {
             // In practice, ini would involve proper matrix deflation
             // For now, we continue with the original matrix
         }
     }
-    
+
     // Sort singular values in descending order
     let mut indexed_s: Vec<(usize, f32)> = s.iter().enumerate().map(|(i, &val)| (i, val)).collect();
     indexed_s.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    
+
     // Reorder U, S, V^T based on sorted singular values
     let mut sorted_u = Array::zeros((m, rank));
     let mut sorted_s = Vec::with_capacity(rank);
     let mut sorted_vt = Array::zeros((rank, n));
-    
+
     for (new_idx, &(orig_idx, singular_val)) in indexed_s.iter().enumerate() {
         sorted_s.push(singular_val);
-        
+
         for row in 0..m {
             sorted_u[[row, new_idx]] = u[[row, orig_idx]];
         }
-        
+
         for col in 0..n {
             sorted_vt[[new_idx, col]] = vt[[orig_idx, col]];
         }
     }
-    
+
     Ok((sorted_u, sorted_s, sorted_vt))
 }
 
@@ -604,7 +609,12 @@ fn generate_random_input(shape: &[usize]) -> Result<ArrayD<f32>, crate::ATQSErro
         for elem in array.iter_mut() {
             *elem = rand::random::<f32>();
         }
-        Ok(array.into_shape(shape).map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape random array".to_string()))?.into_dyn())
+        Ok(array
+            .into_shape(shape)
+            .map_err(|_| {
+                crate::ATQSError::InvalidInput("Failed to reshape random array".to_string())
+            })?
+            .into_dyn())
     }
 }
 
@@ -614,10 +624,12 @@ fn compute_layer_activation(
     input: &ArrayD<f32>,
 ) -> Result<f32, crate::ATQSError> {
     // Simplified activation computation
-    let dot_product = weights.iter().zip(input.iter())
+    let dot_product = weights
+        .iter()
+        .zip(input.iter())
         .map(|(w, i)| w * i)
         .sum::<f32>();
-    
+
     // Apply ReLU activation
     Ok(dot_product.max(0.0))
 }
@@ -627,24 +639,24 @@ fn compute_activation_entropy(activations: &[f32]) -> Result<f32, crate::ATQSErr
     if activations.is_empty() {
         return Ok(0.0);
     }
-    
+
     // Create histogram
     let bins = 10;
     let min = activations.iter().fold(f32::INFINITY, |a, &b| a.min(b));
     let max = activations.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
     let range = max - min;
-    
+
     if range < 1e-12 {
         return Ok(0.0);
     }
-    
+
     let mut histogram = vec![0; bins];
     for &activation in activations {
         let bin_idx = ((activation - min) / range * bins as f32) as usize;
         let bin_idx = bin_idx.min(bins - 1);
         histogram[bin_idx] += 1;
     }
-    
+
     // Compute entropy
     let total = activations.len() as f32;
     let mut entropy = 0.0;
@@ -654,31 +666,29 @@ fn compute_activation_entropy(activations: &[f32]) -> Result<f32, crate::ATQSErr
             entropy -= p * p.ln();
         }
     }
-    
+
     Ok(entropy)
 }
 
 /// Approximate layer gradient using finite differences
-fn approximate_layer_gradient(
-    weights: &ArrayD<f32>,
-) -> Result<Vec<f32>, crate::ATQSError> {
+fn approximate_layer_gradient(weights: &ArrayD<f32>) -> Result<Vec<f32>, crate::ATQSError> {
     let flat_weights: Vec<f32> = weights.iter().cloned().collect();
     let mut gradients = Vec::new();
     let epsilon = 1e-6;
-    
+
     for (i, &_weight) in flat_weights.iter().enumerate() {
         // Perturb weight slightly
         let mut perturbed_weights = flat_weights.clone();
         perturbed_weights[i] += epsilon;
-        
+
         // Compute approximate gradient (simplified)
         let original_output = compute_simple_output(&flat_weights);
         let perturbed_output = compute_simple_output(&perturbed_weights);
         let gradient = (perturbed_output - original_output) / epsilon;
-        
+
         gradients.push(gradient);
     }
-    
+
     Ok(gradients)
 }
 

@@ -1,38 +1,38 @@
 //! NXR-OMNIS Model Implementation
-//! 
+//!
 //! NXR-01 ULTRA - Nexus Omniscient Reasoning System
 //! Flagship model with maximum capabilities
 
-pub mod identity;
-pub mod config;
-pub mod architecture;
 pub mod agents;
+pub mod architecture;
 pub mod capabilities;
+pub mod config;
+pub mod identity;
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrModelError, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
-    capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningModel, HasComponents},
-    gnac_integration::GnacModel,
-    foundation_components::FoundationComponents,
-};
-use nexora_erp::{ERPEngine, ERPConfig, CompressionMode};
-use nexora_vogp::VOGPConfig;
+use nexora_erp::{CompressionMode, ERPConfig, ERPEngine};
 use nexora_has_moe_ffn::HasMoeFFNConfig;
+use nexora_shared::{
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelError, NxrModelResult, NxrOutput,
+        NxrStreamChunk, ResourceUsage, ValidationResult,
+    },
+    capability_spec::CapabilityVector,
+    deeplearning_integration::{DeepLearningModel, HasComponents},
+    foundation_components::FoundationComponents,
+    gnac_integration::GnacModel,
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
+};
+use nexora_vogp::VOGPConfig;
 
 use self::{
-    identity::OmnisIdentity,
-    config::OmnisConfig,
-    architecture::OmnisArchitecture,
-    agents::OmnisAgents,
-    capabilities::OmnisCapabilities,
+    agents::OmnisAgents, architecture::OmnisArchitecture, capabilities::OmnisCapabilities,
+    config::OmnisConfig, identity::OmnisIdentity,
 };
 
 /// NXR-OMNIS Model Implementation
@@ -317,22 +317,28 @@ impl NxrOmnisModel {
         };
 
         // Process input with deep learning
-        let dl_result = self.components.dl_engine.process_text(input).await
+        let dl_result = self
+            .components
+            .dl_engine
+            .process_text(input)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Process through MoE for expert routing
         let moe_input = ndarray::Array2::from_shape_vec(
             (1, tokens.len().max(1)),
             tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
-        ).unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
+        )
+        .unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
         let moe_output = self.components.moe.forward(&moe_input);
 
         // Apply ERP compression on deep learning state
         {
             let mut erp = self.components.erp.write();
-            let weights = vec![
-                ndarray::Array2::<f32>::zeros((moe_output.shape()[0], moe_output.shape()[1])),
-            ];
+            let weights = vec![ndarray::Array2::<f32>::zeros((
+                moe_output.shape()[0],
+                moe_output.shape()[1],
+            ))];
             let _compressed = erp.apply_pruning(&weights);
         }
 
@@ -340,39 +346,56 @@ impl NxrOmnisModel {
         let decomposition = self.agents.oracle_7().decompose_problem(input).await?;
 
         // Step 2: Meta-reasoning about approach
-        let meta_reasoning = self.agents.meta_reasoner().analyze_approach(&decomposition).await?;
+        let meta_reasoning = self
+            .agents
+            .meta_reasoner()
+            .analyze_approach(&decomposition)
+            .await?;
 
         // Step 3: World modeling
         let world_model = self.agents.world_model_x().update_context(input).await?;
 
         // Step 4: Chain execution
-        let chain_result = self.agents.chain_executor().execute_chain(&decomposition, &meta_reasoning).await?;
+        let chain_result = self
+            .agents
+            .chain_executor()
+            .execute_chain(&decomposition, &meta_reasoning)
+            .await?;
 
         // Step 5: Truth arbitration
         let truth_arbitration = self.agents.truth_arbiter().arbitrate(&chain_result).await?;
 
         // Step 6: Synthesis
-        let synthesis = self.agents.synth_prime().synthesize(&truth_arbitration).await?;
+        let synthesis = self
+            .agents
+            .synth_prime()
+            .synthesize(&truth_arbitration)
+            .await?;
 
-        Ok(format!("{}\n\nDL Processing: {} (tokens: {})", synthesis, dl_result, tokens.len()))
+        Ok(format!(
+            "{}\n\nDL Processing: {} (tokens: {})",
+            synthesis,
+            dl_result,
+            tokens.len()
+        ))
     }
 
     /// Update world model
     async fn update_world_model(&self, input: &str) -> NxrModelResult<()> {
         let current_state = self.base.state().await?;
         let mut new_state = current_state;
-        
+
         // Update world model state with new information
         let world_update = self.agents.world_model_x().process_input(input).await?;
         new_state.world_model_state.extend(world_update);
-        
+
         self.base.update_state(new_state).await
     }
 
     /// Perform meta-reasoning
     async fn _meta_reason(&self, problem: &str) -> NxrModelResult<MetaReasoningState> {
         let meta_analysis = self.agents.meta_reasoner().analyze_problem(problem).await?;
-        
+
         Ok(MetaReasoningState {
             reasoning_chain: meta_analysis.reasoning_chain,
             confidence_scores: meta_analysis.confidence_scores,
@@ -383,7 +406,9 @@ impl NxrOmnisModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -393,19 +418,27 @@ impl NxrOmnisModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -414,7 +447,10 @@ impl NxrOmnisModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -438,73 +474,101 @@ impl NxrModel for NxrOmnisModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         // Validate configuration
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+
         // Initialize architecture
-        self.architecture.initialize(&config).await
+        self.architecture
+            .initialize(&config)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Initialize agents
-        self.agents.initialize(&config).await
+        self.agents
+            .initialize(&config)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         // Mark as initialized
         self.base.mark_initialized().await;
         self.config = config;
-        
+
         Ok(())
     }
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = OmnisState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = OmnisMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-OMNIS model not initialized".to_string()
+                "NXR-OMNIS model not initialized".to_string(),
             ));
         }
 
         let start_time = std::time::Instant::now();
-        
+
         // Extract input text
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-OMNIS only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-OMNIS only supports text input".to_string(),
+                ))
+            }
         };
 
         // Perform deep reasoning
         let result = self.deep_reasoning(&input_text).await?;
-        
+
         // Update world model
         self.update_world_model(&input_text).await?;
-        
+
         // Update metrics
         let mut metrics = self.metrics().await?;
         metrics.total_inferences += 1;
-        metrics.avg_reasoning_depth = (metrics.avg_reasoning_depth * (metrics.total_inferences - 1) as f32 + 5.0) / metrics.total_inferences as f32;
+        metrics.avg_reasoning_depth =
+            (metrics.avg_reasoning_depth * (metrics.total_inferences - 1) as f32 + 5.0)
+                / metrics.total_inferences as f32;
         metrics.last_updated = chrono::Utc::now();
-        self.base.update_metrics(metrics).await
+        self.base
+            .update_metrics(metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         let generation_time_ms = start_time.elapsed().as_millis() as u64;
@@ -513,9 +577,21 @@ impl NxrModel for NxrOmnisModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -548,21 +624,27 @@ impl NxrModel for NxrOmnisModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-OMNIS model not initialized".to_string()
+                "NXR-OMNIS model not initialized".to_string(),
             ));
         }
 
         // Extract input text
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-OMNIS only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-OMNIS only supports text input".to_string(),
+                ))
+            }
         };
 
         // Stream reasoning steps
-        let reasoning_steps = self.agents.meta_reasoner().stream_reasoning(&input_text).await?;
-        
+        let reasoning_steps = self
+            .agents
+            .meta_reasoner()
+            .stream_reasoning(&input_text)
+            .await?;
+
         for (i, step) in reasoning_steps.into_iter().enumerate() {
             let chunk = NxrStreamChunk {
                 id: uuid::Uuid::new_v4(),
@@ -577,10 +659,15 @@ impl NxrModel for NxrOmnisModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
-        
+
         // Reinitialize with new config
         self.initialize(config).await
     }
@@ -626,15 +713,22 @@ impl NxrModel for NxrOmnisModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         // This would integrate with system monitoring
         Ok(ResourceUsage {
             memory_gb: 64.0,

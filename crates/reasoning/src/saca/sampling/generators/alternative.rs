@@ -1,9 +1,9 @@
 //! Alternative Algorithm Generator
-//! 
+//!
 //! Generates alternative approach implementations using functional programming patterns.
 
 use super::{AlgorithmGenerator, AlgorithmType};
-use crate::saca::{types::*, error::*};
+use crate::saca::{error::*, types::*};
 use uuid::Uuid;
 
 /// Alternative algorithm generator
@@ -82,9 +82,10 @@ impl AlgorithmGenerator for AlternativeAlgorithmGenerator {
                 // Normalization logic\n\
                 output\n\
             }}\n",
-            module.name, module.name.to_lowercase()
+            module.name,
+            module.name.to_lowercase()
         );
-        
+
         Ok(SamplingCandidate {
             id: Uuid::new_v4(),
             module_id: module.id.clone(),

@@ -43,6 +43,12 @@ procfs = "0.16"
 nvml-wrapper = "0.9"
 libc = "0.2"
 
+# GPU sampling
+nexora-autograd = { path = "../autograd" }
+
+[features]
+gpu = ["nexora-autograd/gpu"]
+
 [dev-dependencies]
 mockall.workspace = true
 tokio-test = "0.4"

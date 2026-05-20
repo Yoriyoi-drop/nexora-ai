@@ -1,10 +1,8 @@
 //! NXR-GENESIS Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-GENESIS
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-GENESIS Identity Manager
 pub struct GenesisIdentity {
@@ -77,12 +75,7 @@ impl GenesisIdentity {
 
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
-        vec![
-            "CREATIVE-ENGINE",
-            "INNOVATOR",
-            "SYNTHESIZER",
-            "EVALUATOR",
-        ]
+        vec!["CREATIVE-ENGINE", "INNOVATOR", "SYNTHESIZER", "EVALUATOR"]
     }
 
     /// Get architecture components

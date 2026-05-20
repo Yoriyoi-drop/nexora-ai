@@ -60,7 +60,11 @@ openblas-src = { workspace = true }
 [features]
 default = []
 production = ["mimalloc"]
-gpu = ["nexora-deeplearning/gpu"]
+gpu = [
+    "nexora-deeplearning/gpu",
+    "nexora-transformer/gpu",
+    "nexora-inference/gpu",
+]
 
 [[bin]]
 name = "nexora"

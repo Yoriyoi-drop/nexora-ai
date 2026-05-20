@@ -1,9 +1,9 @@
 //! Calibration optimizer for ATQS-Compress
 //! Optimizes calibration parameters and schedules
 
+use crate::types::{CalibrationBatch, CalibrationDataset};
 use ndarray::{Array, ArrayD};
 use std::collections::HashMap;
-use crate::types::{CalibrationDataset, CalibrationBatch};
 
 /// Calibration optimizer configuration
 #[derive(Debug, Clone)]
@@ -28,9 +28,19 @@ pub enum OptimizationMethod {
 #[derive(Debug, Clone)]
 pub enum LearningRateSchedule {
     Fixed(f32),
-    ExponentialDecay { initial_rate: f32, decay_rate: f32 },
-    CosineAnnealing { max_rate: f32, min_rate: f32 },
-    WarmupCosine { warmup_steps: usize, max_rate: f32, min_rate: f32 },
+    ExponentialDecay {
+        initial_rate: f32,
+        decay_rate: f32,
+    },
+    CosineAnnealing {
+        max_rate: f32,
+        min_rate: f32,
+    },
+    WarmupCosine {
+        warmup_steps: usize,
+        max_rate: f32,
+        min_rate: f32,
+    },
 }
 
 /// Optimization state
@@ -74,49 +84,49 @@ pub fn optimize_calibration(
     let mut optimizer = create_optimizer(config)?;
     let mut state = initialize_optimization_state(config)?;
     let mut history = Vec::new();
-    
+
     // Split data into training and validation
     let (train_data, val_data) = split_calibration_data(calibration_data, config.validation_split)?;
-    
+
     // Optimization loop
     for iteration in 0..config.max_iterations {
         // Sample training batch
         let batch = sample_training_batch(&train_data)?;
-        
+
         // Forward pass
         let outputs = forward_pass_batch(model, &batch.inputs)?;
-        
+
         // Compute loss
         let _loss = compute_batch_loss(&outputs, &batch.targets)?;
-        
+
         // Backward pass
         let gradients = compute_gradients(model, &batch)?;
-        
+
         // Update parameters
         update_parameters(model, &gradients, &mut optimizer, &mut state)?;
-        
+
         // Update learning rate
         update_learning_rate(&mut state, &config.learning_rate_schedule, iteration)?;
-        
+
         // Validation
         if iteration % 10 == 0 {
             let val_loss = evaluate_validation_loss(model, &val_data)?;
             update_validation_metrics(&mut state, val_loss, config)?;
-            
+
             // Check for convergence
             if check_convergence(&state, config)? {
                 break;
             }
         }
-        
+
         // Record state
         state.current_iteration = iteration;
         history.push(state.clone());
     }
-    
+
     // Extract best parameters
     let best_parameters = extract_best_parameters(model)?;
-    
+
     Ok(OptimizationResult {
         final_state: state.clone(),
         optimization_history: history,
@@ -127,7 +137,9 @@ pub fn optimize_calibration(
 }
 
 /// Create optimizer based on configuration
-fn create_optimizer(config: &CalibrationOptimizerConfig) -> Result<Box<dyn CalibrationOptimizer>, crate::ATQSError> {
+fn create_optimizer(
+    config: &CalibrationOptimizerConfig,
+) -> Result<Box<dyn CalibrationOptimizer>, crate::ATQSError> {
     match config.optimization_method {
         OptimizationMethod::Adam => Ok(Box::new(AdamOptimizer::new(config))),
         OptimizationMethod::SGDWithMomentum => Ok(Box::new(SGDMomentumOptimizer::new(config))),
@@ -138,14 +150,16 @@ fn create_optimizer(config: &CalibrationOptimizerConfig) -> Result<Box<dyn Calib
 }
 
 /// Initialize optimization state
-fn initialize_optimization_state(config: &CalibrationOptimizerConfig) -> Result<OptimizationState, crate::ATQSError> {
+fn initialize_optimization_state(
+    config: &CalibrationOptimizerConfig,
+) -> Result<OptimizationState, crate::ATQSError> {
     let initial_lr = match &config.learning_rate_schedule {
         LearningRateSchedule::Fixed(lr) => *lr,
         LearningRateSchedule::ExponentialDecay { initial_rate, .. } => *initial_rate,
         LearningRateSchedule::CosineAnnealing { max_rate, .. } => *max_rate,
         LearningRateSchedule::WarmupCosine { max_rate, .. } => *max_rate,
     };
-    
+
     Ok(OptimizationState {
         current_iteration: 0,
         best_validation_loss: f32::INFINITY,
@@ -170,24 +184,24 @@ fn split_calibration_data(
     let total_samples = data.inputs.len().min(data.targets.len());
     let val_size = (total_samples as f32 * validation_split) as usize;
     let train_size = total_samples - val_size;
-    
+
     // Shuffle indices
     let mut indices: Vec<usize> = (0..total_samples).collect();
     fastrand::shuffle(&mut indices);
-    
+
     // Split data
     let mut train_data = CalibrationDataset {
         inputs: Vec::new(),
         targets: Vec::new(),
         metadata: data.metadata.clone(),
     };
-    
+
     let mut val_data = CalibrationDataset {
         inputs: Vec::new(),
         targets: Vec::new(),
         metadata: data.metadata.clone(),
     };
-    
+
     for (i, &idx) in indices.iter().enumerate() {
         if i < train_size {
             train_data.inputs.push(data.inputs[idx].clone());
@@ -197,7 +211,7 @@ fn split_calibration_data(
             val_data.targets.push(data.targets[idx].clone());
         }
     }
-    
+
     Ok((train_data, val_data))
 }
 
@@ -207,22 +221,22 @@ fn sample_training_batch(
 ) -> Result<CalibrationBatch, crate::ATQSError> {
     let batch_size = 32; // Fixed batch size for simplicity
     let dataset_size = train_data.inputs.len().min(train_data.targets.len());
-    
+
     if dataset_size == 0 {
         return Err(crate::ATQSError::CalibrationError(
             "Empty training dataset".to_string(),
         ));
     }
-    
+
     let mut batch_inputs = Vec::new();
     let mut batch_targets = Vec::new();
-    
+
     for _ in 0..batch_size {
         let idx = fastrand::usize(0..dataset_size);
         batch_inputs.push(train_data.inputs[idx].clone());
         batch_targets.push(train_data.targets[idx].clone());
     }
-    
+
     Ok(CalibrationBatch {
         inputs: batch_inputs,
         targets: batch_targets,
@@ -235,12 +249,12 @@ fn forward_pass_batch(
     inputs: &[ArrayD<f32>],
 ) -> Result<Vec<ArrayD<f32>>, crate::ATQSError> {
     let mut outputs = Vec::new();
-    
+
     for input in inputs {
         let output = forward_pass_single(model, input)?;
         outputs.push(output);
     }
-    
+
     Ok(outputs)
 }
 
@@ -254,14 +268,14 @@ fn compute_batch_loss(
             "Outputs and targets length mismatch".to_string(),
         ));
     }
-    
+
     let mut total_loss = 0.0;
-    
+
     for (output, target) in outputs.iter().zip(targets.iter()) {
         let loss = compute_mse_loss(output, target)?;
         total_loss += loss;
     }
-    
+
     Ok(total_loss / outputs.len() as f32)
 }
 
@@ -272,15 +286,15 @@ fn compute_gradients(
 ) -> Result<HashMap<String, ArrayD<f32>>, crate::ATQSError> {
     let mut gradients = HashMap::new();
     let layers = model.get_layers();
-    
+
     for (layer_idx, _layer) in layers.iter().enumerate() {
         let layer_gradients = compute_layer_gradients(model, layer_idx, batch)?;
-        
+
         for (param_name, gradient) in layer_gradients {
             gradients.insert(format!("layer_{}_{}", layer_idx, param_name), gradient);
         }
     }
-    
+
     Ok(gradients)
 }
 
@@ -291,26 +305,26 @@ fn compute_layer_gradients(
     batch: &CalibrationBatch,
 ) -> Result<HashMap<String, ArrayD<f32>>, crate::ATQSError> {
     let mut layer_gradients = HashMap::new();
-    
+
     // Get layer weights
     let layers = model.get_layers();
     if layer_idx >= layers.len() {
         return Ok(layer_gradients);
     }
-    
+
     let layer = &layers[layer_idx];
     let weights = layer.get_weights();
-    
+
     // Compute weight gradients using finite differences
     let weight_gradients = compute_weight_gradients(model, layer_idx, &weights, batch)?;
     layer_gradients.insert("weights".to_string(), weight_gradients);
-    
+
     // Compute bias gradients if applicable
     if let Some(biases) = get_layer_biases(model, layer_idx)? {
         let bias_gradients = compute_bias_gradients(model, layer_idx, &biases, batch)?;
         layer_gradients.insert("biases".to_string(), bias_gradients);
     }
-    
+
     Ok(layer_gradients)
 }
 
@@ -323,28 +337,27 @@ fn compute_weight_gradients(
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     let epsilon = 1e-6;
     let mut gradients = Array::zeros(weights.shape());
-    
+
     // Compute original loss
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
-    
+
     // Compute gradients for each weight
     for (idx, &_weight) in weights.indexed_iter() {
-        
         // Perturb weight
         let mut perturbed_weights = weights.clone();
         perturbed_weights[&idx] += epsilon;
-        
+
         // Temporarily update weights
         model.update_layer_weights(layer_idx, perturbed_weights)?;
         let perturbed_loss = compute_layer_loss(model, layer_idx, batch)?;
-        
+
         // Restore original weights
         model.update_layer_weights(layer_idx, weights.clone())?;
-        
+
         // Compute gradient
         gradients[&idx] = (perturbed_loss - original_loss) / epsilon;
     }
-    
+
     Ok(gradients)
 }
 
@@ -357,28 +370,27 @@ fn compute_bias_gradients(
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     let epsilon = 1e-6;
     let mut gradients = Array::zeros(biases.shape());
-    
+
     // Compute original loss
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
-    
+
     // Compute gradients for each bias
     for (idx, &_bias) in biases.indexed_iter() {
-        
         // Perturb bias
         let mut perturbed_biases = biases.clone();
         perturbed_biases[&idx] += epsilon;
-        
+
         // Temporarily update biases
         update_layer_biases(model, layer_idx, &perturbed_biases)?;
         let perturbed_loss = compute_layer_loss(model, layer_idx, batch)?;
-        
+
         // Restore original biases
         update_layer_biases(model, layer_idx, biases)?;
-        
+
         // Compute gradient
         gradients[&idx] = (perturbed_loss - original_loss) / epsilon;
     }
-    
+
     Ok(gradients)
 }
 
@@ -390,20 +402,21 @@ fn update_parameters(
     state: &mut OptimizationState,
 ) -> Result<(), crate::ATQSError> {
     // Compute gradient norm
-    let gradient_norm: f32 = gradients.values()
+    let gradient_norm: f32 = gradients
+        .values()
         .map(|g| g.iter().map(|&x| x * x).sum::<f32>())
         .sum::<f32>()
         .sqrt();
-    
+
     state.gradient_norm = gradient_norm;
-    
+
     // Update each parameter
     for (param_name, gradient) in gradients {
         if let Some((layer_idx, param_type)) = parse_parameter_name(param_name) {
             optimizer.update_parameter(model, layer_idx, &param_type, gradient, state)?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -415,25 +428,31 @@ fn update_learning_rate(
 ) -> Result<(), crate::ATQSError> {
     state.learning_rate = match schedule {
         LearningRateSchedule::Fixed(lr) => *lr,
-        LearningRateSchedule::ExponentialDecay { initial_rate, decay_rate } => {
-            initial_rate * decay_rate.powi(iteration as i32)
-        }
+        LearningRateSchedule::ExponentialDecay {
+            initial_rate,
+            decay_rate,
+        } => initial_rate * decay_rate.powi(iteration as i32),
         LearningRateSchedule::CosineAnnealing { max_rate, min_rate } => {
             let progress = (iteration as f32 / 1000.0).min(1.0); // Assume 1000 max iterations
             min_rate + (max_rate - min_rate) * 0.5 * (1.0 + (std::f32::consts::PI * progress).cos())
         }
-        LearningRateSchedule::WarmupCosine { warmup_steps, max_rate, min_rate } => {
+        LearningRateSchedule::WarmupCosine {
+            warmup_steps,
+            max_rate,
+            min_rate,
+        } => {
             if iteration < *warmup_steps {
                 // Warmup phase
                 max_rate * (iteration as f32 / *warmup_steps as f32)
             } else {
                 // Cosine annealing phase
                 let progress = ((iteration - warmup_steps) as f32 / 1000.0).min(1.0);
-                min_rate + (max_rate - min_rate) * 0.5 * (1.0 + (std::f32::consts::PI * progress).cos())
+                min_rate
+                    + (max_rate - min_rate) * 0.5 * (1.0 + (std::f32::consts::PI * progress).cos())
             }
         }
     };
-    
+
     Ok(())
 }
 
@@ -444,17 +463,17 @@ fn evaluate_validation_loss(
 ) -> Result<f32, crate::ATQSError> {
     let mut total_loss = 0.0;
     let num_samples = val_data.inputs.len().min(val_data.targets.len());
-    
+
     for i in 0..num_samples {
         let input = &val_data.inputs[i];
         let target = &val_data.targets[i];
-        
+
         let output = forward_pass_single(model, input)?;
         let loss = compute_mse_loss(&output, target)?;
-        
+
         total_loss += loss;
     }
-    
+
     Ok(total_loss / num_samples as f32)
 }
 
@@ -465,7 +484,7 @@ fn update_validation_metrics(
     _config: &CalibrationOptimizerConfig,
 ) -> Result<(), crate::ATQSError> {
     state.convergence_metrics.validation_scores.push(val_loss);
-    
+
     // Update best validation loss
     if val_loss < state.best_validation_loss {
         state.best_validation_loss = val_loss;
@@ -473,11 +492,14 @@ fn update_validation_metrics(
     } else {
         state.patience_counter += 1;
     }
-    
+
     // Update loss trend
     state.convergence_metrics.loss_trend.push(val_loss);
-    state.convergence_metrics.gradient_norms.push(state.gradient_norm);
-    
+    state
+        .convergence_metrics
+        .gradient_norms
+        .push(state.gradient_norm);
+
     Ok(())
 }
 
@@ -490,19 +512,19 @@ fn check_convergence(
     if state.patience_counter >= config.early_stopping_patience {
         return Ok(true);
     }
-    
+
     // Check loss convergence
     if let Some(&recent_loss) = state.convergence_metrics.loss_trend.last() {
         if recent_loss < config.convergence_threshold {
             return Ok(true);
         }
     }
-    
+
     // Check gradient norm convergence
     if state.gradient_norm < 1e-6 {
         return Ok(true);
     }
-    
+
     Ok(false)
 }
 
@@ -512,16 +534,16 @@ fn extract_best_parameters(
 ) -> Result<HashMap<String, ArrayD<f32>>, crate::ATQSError> {
     let mut parameters = HashMap::new();
     let layers = model.get_layers();
-    
+
     for (layer_idx, layer) in layers.iter().enumerate() {
         let weights = layer.get_weights();
         parameters.insert(format!("layer_{}_weights", layer_idx), weights.clone());
-        
+
         if let Some(biases) = get_layer_biases(model, layer_idx)? {
             parameters.insert(format!("layer_{}_biases", layer_idx), biases.clone());
         }
     }
-    
+
     Ok(parameters)
 }
 
@@ -590,13 +612,13 @@ fn compute_layer_loss(
     batch: &CalibrationBatch,
 ) -> Result<f32, crate::ATQSError> {
     let mut total_loss = 0.0;
-    
+
     for (input, target) in batch.inputs.iter().zip(batch.targets.iter()) {
         let layer_output = forward_pass_to_layer(model, input, layer_idx)?;
         let loss = compute_mse_loss(&layer_output, target)?;
         total_loss += loss;
     }
-    
+
     Ok(total_loss / batch.inputs.len() as f32)
 }
 
@@ -607,12 +629,12 @@ fn forward_pass_single(
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     let layers = model.get_layers();
     let mut output = input.clone();
-    
+
     for layer in layers.iter() {
         let weights = layer.get_weights();
         output = apply_layer_operation(&weights, &output)?;
     }
-    
+
     Ok(output)
 }
 
@@ -623,16 +645,16 @@ fn forward_pass_to_layer(
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     let layers = model.get_layers();
     let mut output = input.clone();
-    
+
     for (layer_idx, layer) in layers.iter().enumerate() {
         let weights = layer.get_weights();
         output = apply_layer_operation(&weights, &output)?;
-        
+
         if layer_idx == target_layer {
             break;
         }
     }
-    
+
     Ok(output)
 }
 
@@ -644,20 +666,21 @@ fn apply_layer_operation(
         let weights_2d = weights.view().into_dimensionality::<ndarray::Ix2>()?;
         let input_reshaped = input.view().into_shape((input.len(), 1))?;
         let output = weights_2d.dot(&input_reshaped);
-        Ok(output.clone().into_shape((output.len(),)).map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape output".to_string()))?.into_dyn())
+        Ok(output
+            .clone()
+            .into_shape((output.len(),))
+            .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape output".to_string()))?
+            .into_dyn())
     } else {
         Ok(Array::zeros(weights.shape()).into_dyn())
     }
 }
 
-fn compute_mse_loss(
-    output: &ArrayD<f32>,
-    target: &ArrayD<f32>,
-) -> Result<f32, crate::ATQSError> {
+fn compute_mse_loss(output: &ArrayD<f32>, target: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
     if output.shape() != target.shape() {
         return Ok(0.0);
     }
-    
+
     let diff = output - target;
     let mse = diff.iter().map(|&x| x * x).sum::<f32>() / diff.len() as f32;
     Ok(mse)
@@ -710,31 +733,43 @@ impl CalibrationOptimizer for AdamOptimizer {
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError> {
         let param_name = format!("layer_{}_{}", layer_idx, param_type);
-        
+
         // Initialize moments if needed
         if !self.m.contains_key(&param_name) {
-            self.m.insert(param_name.clone(), Array::zeros(gradient.shape()));
-            self.v.insert(param_name.clone(), Array::zeros(gradient.shape()));
+            self.m
+                .insert(param_name.clone(), Array::zeros(gradient.shape()));
+            self.v
+                .insert(param_name.clone(), Array::zeros(gradient.shape()));
         }
-        
+
         // Update moments
-        let m = self.m.get_mut(&param_name).ok_or_else(|| crate::ATQSError::InvalidInput(format!("Parameter '{}' not found in moments", param_name)))?;
-        let v = self.v.get_mut(&param_name).ok_or_else(|| crate::ATQSError::InvalidInput(format!("Parameter '{}' not found in moments", param_name)))?;
-        
+        let m = self.m.get_mut(&param_name).ok_or_else(|| {
+            crate::ATQSError::InvalidInput(format!(
+                "Parameter '{}' not found in moments",
+                param_name
+            ))
+        })?;
+        let v = self.v.get_mut(&param_name).ok_or_else(|| {
+            crate::ATQSError::InvalidInput(format!(
+                "Parameter '{}' not found in moments",
+                param_name
+            ))
+        })?;
+
         *m = m.mapv(|x| self.beta1 * x) + gradient.mapv(|x| (1.0 - self.beta1) * x);
         *v = v.mapv(|x| self.beta2 * x) + gradient.mapv(|x| (1.0 - self.beta2) * x * x);
-        
+
         // Bias correction
         let m_hat = m.mapv(|x| x / (1.0 - self.beta1.powi(self.t as i32 + 1)));
         let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32 + 1)));
-        
+
         // Update parameters
-        let update = m_hat.mapv(|x| x * state.learning_rate) / 
-                    v_hat.mapv(|x| x.sqrt() + self.epsilon);
-        
+        let update =
+            m_hat.mapv(|x| x * state.learning_rate) / v_hat.mapv(|x| x.sqrt() + self.epsilon);
+
         // Apply update to model (simplified)
         apply_parameter_update(model, layer_idx, param_type, &update)?;
-        
+
         self.t += 1;
         Ok(())
     }
@@ -767,26 +802,32 @@ impl CalibrationOptimizer for SGDMomentumOptimizer {
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError> {
         let param_name = format!("layer_{}_{}", layer_idx, param_type);
-        
+
         // Initialize velocity if needed
         if !self.velocity.contains_key(&param_name) {
-            self.velocity.insert(param_name.clone(), Array::zeros(gradient.shape()));
+            self.velocity
+                .insert(param_name.clone(), Array::zeros(gradient.shape()));
         }
-        
+
         // Update velocity
-        let velocity = self.velocity.get_mut(&param_name).ok_or_else(|| crate::ATQSError::InvalidInput(format!("Parameter '{}' not found in velocity", param_name)))?;
-        *velocity = velocity.mapv(|v| self.momentum * v) + 
-                   gradient.mapv(|g| state.learning_rate * g);
-        
+        let velocity = self.velocity.get_mut(&param_name).ok_or_else(|| {
+            crate::ATQSError::InvalidInput(format!(
+                "Parameter '{}' not found in velocity",
+                param_name
+            ))
+        })?;
+        *velocity =
+            velocity.mapv(|v| self.momentum * v) + gradient.mapv(|g| state.learning_rate * g);
+
         // Apply update
         apply_parameter_update(model, layer_idx, param_type, velocity)?;
-        
+
         Ok(())
     }
 }
 
 /// AdaGrad optimizer implementation untuk calibration
-/// 
+///
 /// AdaGrad accumulates squared gradients and adapts learning rates per parameter.
 /// Particularly effective for sparse gradients and non-stationary objectives.
 pub struct AdaGradOptimizer {
@@ -804,18 +845,18 @@ impl AdaGradOptimizer {
             epsilon: 1e-8,
         }
     }
-    
+
     /// Create AdaGrad dengan custom epsilon
     pub fn with_epsilon(mut self, epsilon: f32) -> Self {
         self.epsilon = epsilon;
         self
     }
-    
+
     /// Get accumulated gradients untuk debugging
     pub fn get_accumulated_gradients(&self, param_key: &str) -> Option<&ArrayD<f32>> {
         self.accumulated_gradients.get(param_key)
     }
-    
+
     /// Reset accumulated gradients
     pub fn reset_gradients(&mut self) {
         self.accumulated_gradients.clear();
@@ -834,42 +875,48 @@ impl CalibrationOptimizer for AdaGradOptimizer {
         // BUGFIX: Key tidak boleh include `state.step` karena step berubah setiap iterasi,
         // menyebabkan accumulated gradients tidak pernah ditemukan kembali (always re-initialized).
         let param_key = format!("{}_{}", layer_idx, param_type);
-        
+
         // Get or initialize accumulated gradients
-        let accumulated = self.accumulated_gradients.entry(param_key.clone())
+        let accumulated = self
+            .accumulated_gradients
+            .entry(param_key.clone())
             .or_insert_with(|| ArrayD::zeros(gradient.shape()));
-        
+
         // Update accumulated gradients (sum of squares)
         *accumulated += &gradient.mapv(|g| g * g);
-        
+
         // Compute AdaGrad update: lr / sqrt(accumulated + epsilon) * gradient
         let adaptive_lr = state.learning_rate / (accumulated.mapv(|g| (g + self.epsilon).sqrt()));
         let update = gradient.mapv(|g| -g) * adaptive_lr;
-        
+
         // Apply parameter update
         apply_parameter_update(model, layer_idx, param_type, &update)?;
-        
+
         // Log optimization metrics
         if state.step % 100 == 0 {
             let grad_norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt();
             let accumulated_norm = accumulated.iter().map(|x| x * x).sum::<f32>().sqrt();
-            tracing::debug!("AdaGrad step {}: grad_norm={:.6}, accumulated_norm={:.6}", 
-                           state.step, grad_norm, accumulated_norm);
+            tracing::debug!(
+                "AdaGrad step {}: grad_norm={:.6}, accumulated_norm={:.6}",
+                state.step,
+                grad_norm,
+                accumulated_norm
+            );
         }
-        
+
         Ok(())
     }
 }
 
 /// RMSProp optimizer implementation untuk calibration
-/// 
+///
 /// RMSProp uses exponential moving average of squared gradients to adapt learning rates.
 /// Particularly effective for non-stationary objectives and deep networks.
 pub struct RMSPropOptimizer {
     _config: CalibrationOptimizerConfig,
     squared_gradients: HashMap<String, ArrayD<f32>>,
     decay_rate: f32, // Exponential moving average decay
-    epsilon: f32, // Small constant to avoid division by zero
+    epsilon: f32,    // Small constant to avoid division by zero
 }
 
 impl RMSPropOptimizer {
@@ -882,19 +929,19 @@ impl RMSPropOptimizer {
             epsilon: 1e-8,
         }
     }
-    
+
     /// Create RMSProp dengan custom decay rate dan epsilon
     pub fn with_params(mut self, decay_rate: f32, epsilon: f32) -> Self {
         self.decay_rate = decay_rate;
         self.epsilon = epsilon;
         self
     }
-    
+
     /// Get squared gradients untuk debugging
     pub fn get_squared_gradients(&self, param_key: &str) -> Option<&ArrayD<f32>> {
         self.squared_gradients.get(param_key)
     }
-    
+
     /// Reset squared gradients
     pub fn reset_gradients(&mut self) {
         self.squared_gradients.clear();
@@ -911,31 +958,37 @@ impl CalibrationOptimizer for RMSPropOptimizer {
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError> {
         let param_key = format!("{}_{}_{}", layer_idx, param_type, state.step);
-        
+
         // Get or initialize squared gradients
-        let squared_grads = self.squared_gradients.entry(param_key.clone())
+        let squared_grads = self
+            .squared_gradients
+            .entry(param_key.clone())
             .or_insert_with(|| ArrayD::zeros(gradient.shape()));
-        
+
         // Update exponential moving average of squared gradients
         let gradient_squared = gradient.mapv(|g| g * g);
-        *squared_grads = squared_grads.mapv(|s| self.decay_rate * s) + 
-                        gradient_squared.mapv(|gs| (1.0 - self.decay_rate) * gs);
-        
+        *squared_grads = squared_grads.mapv(|s| self.decay_rate * s)
+            + gradient_squared.mapv(|gs| (1.0 - self.decay_rate) * gs);
+
         // Compute RMSProp update: lr / sqrt(moving_avg + epsilon) * gradient
         let adaptive_lr = state.learning_rate / (squared_grads.mapv(|s| (s + self.epsilon).sqrt()));
         let update = gradient.mapv(|g| -g) * adaptive_lr;
-        
+
         // Apply parameter update
         apply_parameter_update(model, layer_idx, param_type, &update)?;
-        
+
         // Log optimization metrics
         if state.step % 100 == 0 {
             let grad_norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt();
             let rms_norm = squared_grads.iter().map(|x| x * x).sum::<f32>().sqrt();
-            tracing::debug!("RMSProp step {}: grad_norm={:.6}, rms_norm={:.6}", 
-                           state.step, grad_norm, rms_norm);
+            tracing::debug!(
+                "RMSProp step {}: grad_norm={:.6}, rms_norm={:.6}",
+                state.step,
+                grad_norm,
+                rms_norm
+            );
         }
-        
+
         Ok(())
     }
 }
@@ -977,8 +1030,10 @@ impl CalibrationOptimizer for LAMBOptimizer {
 
         // Initialize moments if needed
         if !self.m.contains_key(&param_key) {
-            self.m.insert(param_key.clone(), Array::zeros(gradient.shape()));
-            self.v.insert(param_key.clone(), Array::zeros(gradient.shape()));
+            self.m
+                .insert(param_key.clone(), Array::zeros(gradient.shape()));
+            self.v
+                .insert(param_key.clone(), Array::zeros(gradient.shape()));
         }
 
         let m = self.m.get_mut(&param_key).ok_or_else(|| {
@@ -996,8 +1051,8 @@ impl CalibrationOptimizer for LAMBOptimizer {
         let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32 + 1)));
 
         // Adam update
-        let adam_update = m_hat.mapv(|x| x * state.learning_rate)
-            / v_hat.mapv(|x| x.sqrt() + self.epsilon);
+        let adam_update =
+            m_hat.mapv(|x| x * state.learning_rate) / v_hat.mapv(|x| x.sqrt() + self.epsilon);
 
         // LAMB trust ratio: layer-wise normalization
         let adam_norm = adam_update.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon;
@@ -1024,14 +1079,14 @@ fn apply_parameter_update(
     if layer_idx >= layers.len() {
         return Ok(());
     }
-    
+
     let layer = &layers[layer_idx];
     let current_weights = layer.get_weights();
-    
+
     if param_type.contains("weights") {
         let updated_weights = current_weights + update;
         model.update_layer_weights(layer_idx, updated_weights)?;
     }
-    
+
     Ok(())
 }

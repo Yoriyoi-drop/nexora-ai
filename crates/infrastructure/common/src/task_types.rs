@@ -1,8 +1,8 @@
 //! Shared Task Types for Nexora-AI
-//! 
+//!
 //! Centralized task type definitions to ensure consistency across modules
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Unified Task Type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -14,7 +14,7 @@ pub enum TaskType {
     Conditional = 4,
     Iterative = 5,
     Hierarchical = 6,
-    
+
     // Specific task types from orchestrator
     Generation = 7,
     Classification = 8,
@@ -52,7 +52,7 @@ impl TaskType {
             TaskType::Creative => "Creative",
         }
     }
-    
+
     /// Get base execution time in milliseconds
     pub fn base_execution_time(&self) -> u64 {
         match self {
@@ -73,15 +73,18 @@ impl TaskType {
             TaskType::Creative => 2000,
         }
     }
-    
+
     /// Check if this task type requires RAG
     pub fn requires_rag(&self) -> bool {
         matches!(self, TaskType::QuestionAnswering | TaskType::Reasoning)
     }
-    
+
     /// Check if this task type is complex
     pub fn is_complex(&self) -> bool {
-        matches!(self, TaskType::Hierarchical | TaskType::Reasoning | TaskType::Creative)
+        matches!(
+            self,
+            TaskType::Hierarchical | TaskType::Reasoning | TaskType::Creative
+        )
     }
 }
 

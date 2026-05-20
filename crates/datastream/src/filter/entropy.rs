@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct EntropyFilter {
@@ -20,7 +20,10 @@ impl Default for EntropyFilter {
 
 impl EntropyFilter {
     pub fn new(min_entropy: f64) -> Self {
-        Self { min_entropy, ..Default::default() }
+        Self {
+            min_entropy,
+            ..Default::default()
+        }
     }
 
     fn compute_entropy(&self, text: &str) -> f64 {
@@ -90,18 +93,28 @@ impl Filter for EntropyFilter {
             reason = Some("repetitive_content".to_string());
             false
         } else if entropy < self.min_entropy {
-            reason = Some(format!("low_entropy: {:.2} < {}", entropy, self.min_entropy));
+            reason = Some(format!(
+                "low_entropy: {:.2} < {}",
+                entropy, self.min_entropy
+            ));
             false
         } else if entropy > self.max_entropy {
-            reason = Some(format!("high_entropy: {:.2} > {}", entropy, self.max_entropy));
+            reason = Some(format!(
+                "high_entropy: {:.2} > {}",
+                entropy, self.max_entropy
+            ));
             false
         } else {
             true
         };
 
-        let quality = if entropy > 3.5 && entropy < 6.0 { 0.8 }
-                      else if entropy > 2.0 { 0.5 }
-                      else { 0.2 };
+        let quality = if entropy > 3.5 && entropy < 6.0 {
+            0.8
+        } else if entropy > 2.0 {
+            0.5
+        } else {
+            0.2
+        };
 
         FilterResult {
             passed,

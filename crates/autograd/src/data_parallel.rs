@@ -220,7 +220,8 @@ impl DataParallel {
 
     /// Reduce (average) gradients from all workers into the first worker's gradients
     pub fn reduce_gradients(&self, results: &mut [WorkerResult]) {
-        let grads: Vec<&mut Vec<ArrayD<f32>>> = results.iter_mut().map(|r| &mut r.gradients).collect();
+        let grads: Vec<&mut Vec<ArrayD<f32>>> =
+            results.iter_mut().map(|r| &mut r.gradients).collect();
         let mut grad_refs: Vec<Vec<ArrayD<f32>>> = Vec::new();
         for g in grads {
             grad_refs.push(std::mem::take(g));
@@ -285,7 +286,9 @@ mod tests {
 
     #[test]
     fn test_all_reduce_single_worker() {
-        let mut grads = vec![vec![ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap()]];
+        let mut grads = vec![vec![
+            ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap()
+        ]];
         all_reduce_gradients(&mut grads);
         // Single worker: no change
         assert_eq!(grads[0][0][0], 1.0);

@@ -132,11 +132,7 @@ mod tests {
 
     #[test]
     fn test_storage_cpu_basics() {
-        let arr = ArrayD::from_shape_vec(
-            vec![2, 3],
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        )
-        .unwrap();
+        let arr = ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
         let storage: Storage = arr.clone().into();
 
         assert_eq!(storage.shape(), vec![2, 3]);

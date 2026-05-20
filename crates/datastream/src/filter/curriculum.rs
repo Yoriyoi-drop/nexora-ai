@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction, Domain, CurriculumLevel};
+use crate::types::{CurriculumLevel, DataSample, Domain, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct CurriculumRanker {
@@ -12,12 +12,36 @@ impl Default for CurriculumRanker {
     fn default() -> Self {
         Self {
             curriculum: vec![
-                (CurriculumLevel::BasicGrammar, vec![Domain::Conversation, Domain::Instruction], 10_000),
-                (CurriculumLevel::BasicInstruction, vec![Domain::Knowledge, Domain::Creative, Domain::General], 50_000),
-                (CurriculumLevel::MediumReasoning, vec![Domain::Code, Domain::Memory, Domain::Math], 100_000),
-                (CurriculumLevel::ChainOfThought, vec![Domain::Science, Domain::Architecture], 200_000),
-                (CurriculumLevel::AgenticPlanning, vec![Domain::Reasoning], 500_000),
-                (CurriculumLevel::MultiHopLogic, vec![Domain::Planning], 1_000_000),
+                (
+                    CurriculumLevel::BasicGrammar,
+                    vec![Domain::Conversation, Domain::Instruction],
+                    10_000,
+                ),
+                (
+                    CurriculumLevel::BasicInstruction,
+                    vec![Domain::Knowledge, Domain::Creative, Domain::General],
+                    50_000,
+                ),
+                (
+                    CurriculumLevel::MediumReasoning,
+                    vec![Domain::Code, Domain::Memory, Domain::Math],
+                    100_000,
+                ),
+                (
+                    CurriculumLevel::ChainOfThought,
+                    vec![Domain::Science, Domain::Architecture],
+                    200_000,
+                ),
+                (
+                    CurriculumLevel::AgenticPlanning,
+                    vec![Domain::Reasoning],
+                    500_000,
+                ),
+                (
+                    CurriculumLevel::MultiHopLogic,
+                    vec![Domain::Planning],
+                    1_000_000,
+                ),
             ],
         }
     }
@@ -31,7 +55,9 @@ impl CurriculumRanker {
     pub fn rank(&self, _sample: &DataSample, domain: Domain) -> (CurriculumLevel, u8) {
         let domain_level = domain.curriculum_level();
 
-        let level = self.curriculum.iter()
+        let level = self
+            .curriculum
+            .iter()
             .enumerate()
             .find(|(_, (_, domains, _))| domains.contains(&domain))
             .map(|(i, (level, _, _))| (level.clone(), i as u8))

@@ -6,8 +6,8 @@
 //! - Potensi sharing antar sequence (copy-on-write)
 //! - Eviction terprediksi (per-block, bukan per-entry)
 
+use ndarray::{s, Array2};
 use std::collections::HashMap;
-use ndarray::{Array2, s};
 
 use nexora_transformer::KVCacheEntry;
 use tracing::warn;
@@ -179,7 +179,9 @@ impl PagedKVCache {
         let blocks: Vec<Vec<PhysicalBlock>> = (0..num_layers)
             .map(|_| Vec::with_capacity(max_blocks))
             .collect();
-        let free_lists: Vec<Vec<usize>> = (0..num_layers).map(|_| Vec::with_capacity(max_blocks / 4)).collect();
+        let free_lists: Vec<Vec<usize>> = (0..num_layers)
+            .map(|_| Vec::with_capacity(max_blocks / 4))
+            .collect();
 
         Self {
             config,
@@ -227,7 +229,10 @@ impl PagedKVCache {
 
         let idx = self.blocks[layer].len();
         if idx >= self.config.max_blocks {
-            warn!("PagedKVCache: max_blocks ({}) reached, cannot allocate", self.config.max_blocks);
+            warn!(
+                "PagedKVCache: max_blocks ({}) reached, cannot allocate",
+                self.config.max_blocks
+            );
             return None;
         }
         self.blocks[layer].push(PhysicalBlock::new(&self.config));
@@ -253,12 +258,7 @@ impl PagedKVCache {
 
     /// Get the next physical block for appending at a given token position.
     /// Allocates a new block if needed.
-    fn get_or_alloc_block(
-        &mut self,
-        seq_id: u64,
-        layer: usize,
-        token_pos: usize,
-    ) -> Option<usize> {
+    fn get_or_alloc_block(&mut self, seq_id: u64, layer: usize, token_pos: usize) -> Option<usize> {
         let logical = token_pos / self.config.block_size;
 
         // Step 1: ensure block table has space (separate borrow)
@@ -355,7 +355,12 @@ impl PagedKVCache {
     }
 
     /// Read KV data for a token position.
-    pub fn read(&self, seq_id: u64, layer: usize, token_pos: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+    pub fn read(
+        &self,
+        seq_id: u64,
+        layer: usize,
+        token_pos: usize,
+    ) -> Option<(Vec<f32>, Vec<f32>)> {
         let table = self.sequences.get(&seq_id)?;
         let logical = token_pos / self.config.block_size;
         let offset = token_pos % self.config.block_size;
@@ -452,7 +457,8 @@ impl PagedKVCache {
 
     /// Memory usage estimate in bytes
     pub fn memory_usage_bytes(&self) -> usize {
-        let per_block = self.config.block_size * self.config.num_kv_heads * self.config.head_dim * 4 * 2;
+        let per_block =
+            self.config.block_size * self.config.num_kv_heads * self.config.head_dim * 4 * 2;
         self.total_blocks() * per_block
     }
 }
@@ -466,7 +472,14 @@ impl nexora_transformer::PagedCacheReader for PagedKVCache {
         self.sequences.get(&seq_id).map(|t| t.num_tokens)
     }
 
-    fn append(&mut self, seq_id: u64, layer: usize, token_pos: usize, k_row: &[f32], v_row: &[f32]) {
+    fn append(
+        &mut self,
+        seq_id: u64,
+        layer: usize,
+        token_pos: usize,
+        k_row: &[f32],
+        v_row: &[f32],
+    ) {
         PagedKVCache::append(self, seq_id, layer, token_pos, k_row, v_row);
     }
 }
@@ -589,12 +602,16 @@ mod tests {
             assert!(
                 (k[0] - expected_k0).abs() < 1e-6,
                 "pos={}: expected k[0]={}, got k[0]={}",
-                pos, expected_k0, k[0]
+                pos,
+                expected_k0,
+                k[0]
             );
             assert!(
                 (v[0] - expected_v0).abs() < 1e-6,
                 "pos={}: expected v[0]={}, got v[0]={}",
-                pos, expected_v0, v[0]
+                pos,
+                expected_v0,
+                v[0]
             );
         }
     }
@@ -686,7 +703,8 @@ mod tests {
         cache.register_sequence(1);
 
         let k_arr = Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32).collect()).unwrap();
-        let v_arr = Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32 * 2.0).collect()).unwrap();
+        let v_arr =
+            Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32 * 2.0).collect()).unwrap();
 
         cache.append_token(1, 0, 0, &k_arr, &v_arr);
 
@@ -758,7 +776,12 @@ mod tests {
             assert_eq!(logits.len(), 256);
             if i > 0 {
                 let got = paged_cache.num_tokens(1).unwrap_or(0);
-                assert_eq!(got, i + 1, "after token {i}, cache should have {} entries", i + 1);
+                assert_eq!(
+                    got,
+                    i + 1,
+                    "after token {i}, cache should have {} entries",
+                    i + 1
+                );
             }
         }
 
@@ -806,7 +829,8 @@ mod tests {
                 assert!(
                     diff < 1e-4,
                     "mismatch at token {i}, logit {j}: flat={} paged={}",
-                    logits_flat[j], logits_paged[j]
+                    logits_flat[j],
+                    logits_paged[j]
                 );
             }
         }

@@ -1,17 +1,17 @@
 //! Context Agent
-//! 
+//!
 //! Agent untuk merge context dari memory, prompt, dan session.
 
+use async_trait::async_trait;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_trait::async_trait;
-use uuid::Uuid;
-use serde_json::{Value, json};
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 use crate::{
-    Agent, AgentError, Result, AgentMessage, AgentResponse, AgentStatus,
-    AgentContext, AgentStats, AgentConfig
+    Agent, AgentConfig, AgentContext, AgentError, AgentMessage, AgentResponse, AgentStats,
+    AgentStatus, Result,
 };
 use nexora_memory::MemoryLayers;
 
@@ -117,10 +117,7 @@ pub struct MergedContext {
 
 impl ContextAgent {
     /// Create new context agent
-    pub fn new(
-        memory_store: Arc<MemoryLayers>,
-        config: ContextAgentConfig,
-    ) -> Self {
+    pub fn new(memory_store: Arc<MemoryLayers>, config: ContextAgentConfig) -> Self {
         Self {
             id: Uuid::new_v4(),
             name: "ContextAgent".to_string(),
@@ -130,7 +127,7 @@ impl ContextAgent {
             config,
         }
     }
-    
+
     /// Merge context dari berbagai sumber
     pub async fn merge_context(
         &self,
@@ -139,45 +136,61 @@ impl ContextAgent {
         prompt_context: &AgentContext,
     ) -> Result<MergedContext> {
         debug!("Merging context for session: {}", session_id);
-        
+
         let mut context_data = HashMap::new();
         let mut contributions = HashMap::new();
         let mut total_size = 0;
-        
+
         // Collect context dari setiap source
         for source in &self.config.context_sources {
-            let (data, size) = self.collect_context_from_source(source, session_id, user_id, prompt_context).await?;
-            
+            let (data, size) = self
+                .collect_context_from_source(source, session_id, user_id, prompt_context)
+                .await?;
+
             if !data.is_null() {
                 context_data.insert(format!("{:?}", source), data.clone());
                 contributions.insert(source.clone(), size as f64);
                 total_size += size;
             }
         }
-        
+
         // Apply merge strategy
-        let merged_context = self.apply_merge_strategy(&context_data, &contributions).await?;
-        
+        let merged_context = self
+            .apply_merge_strategy(&context_data, &contributions)
+            .await?;
+
         // Apply retention policy
         let final_context = self.apply_retention_policy(&merged_context).await?;
-        
+
         let result = MergedContext {
             context: final_context,
             contributions: contributions.clone(),
             size_tokens: total_size,
             metadata: {
                 let mut meta = HashMap::new();
-                meta.insert("session_id".to_string(), Value::String(session_id.to_string()));
-                meta.insert("merge_strategy".to_string(), Value::String(format!("{:?}", self.config.merge_strategy)));
-                meta.insert("sources_count".to_string(), Value::Number(contributions.len().into()));
+                meta.insert(
+                    "session_id".to_string(),
+                    Value::String(session_id.to_string()),
+                );
+                meta.insert(
+                    "merge_strategy".to_string(),
+                    Value::String(format!("{:?}", self.config.merge_strategy)),
+                );
+                meta.insert(
+                    "sources_count".to_string(),
+                    Value::Number(contributions.len().into()),
+                );
                 meta
             },
         };
-        
-        debug!("Context merged successfully, size: {} tokens", result.size_tokens);
+
+        debug!(
+            "Context merged successfully, size: {} tokens",
+            result.size_tokens
+        );
         Ok(result)
     }
-    
+
     /// Collect context dari specific source
     async fn collect_context_from_source(
         &self,
@@ -189,13 +202,18 @@ impl ContextAgent {
         match source {
             ContextSource::Session => {
                 let session_data = Value::Object(
-                    prompt_context.session_state.iter()
+                    prompt_context
+                        .session_state
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect()
+                        .collect(),
                 );
-                Ok((session_data.clone(), self.estimate_token_count(&session_data)))
+                Ok((
+                    session_data.clone(),
+                    self.estimate_token_count(&session_data),
+                ))
             }
-            
+
             ContextSource::UserMemory => {
                 if let Some(user_id) = user_id {
                     let query = MemoryQuery {
@@ -207,7 +225,7 @@ impl ContextAgent {
                         offset: None,
                         filters: HashMap::new(),
                     };
-                    
+
                     match self.memory_store.query(&query.query_text).await {
                         Ok(results) => {
                             let converted_results = self.convert_layers_to_memory_results(results);
@@ -223,7 +241,7 @@ impl ContextAgent {
                     Ok((Value::Null, 0))
                 }
             }
-            
+
             ContextSource::EpisodicMemory => {
                 let query = MemoryQuery {
                     user_id,
@@ -234,7 +252,7 @@ impl ContextAgent {
                     offset: None,
                     filters: HashMap::new(),
                 };
-                
+
                 match self.memory_store.query(&query.query_text).await {
                     Ok(results) => {
                         let converted_results = self.convert_layers_to_memory_results(results);
@@ -247,7 +265,7 @@ impl ContextAgent {
                     }
                 }
             }
-            
+
             ContextSource::SemanticMemory => {
                 let query = MemoryQuery {
                     user_id,
@@ -258,7 +276,7 @@ impl ContextAgent {
                     offset: None,
                     filters: HashMap::new(),
                 };
-                
+
                 match self.memory_store.query(&query.query_text).await {
                     Ok(results) => {
                         let converted_results = self.convert_layers_to_memory_results(results);
@@ -271,7 +289,7 @@ impl ContextAgent {
                     }
                 }
             }
-            
+
             ContextSource::WorkingMemory => {
                 let query = MemoryQuery {
                     user_id,
@@ -282,7 +300,7 @@ impl ContextAgent {
                     offset: None,
                     filters: HashMap::new(),
                 };
-                
+
                 match self.memory_store.query(&query.query_text).await {
                     Ok(results) => {
                         let converted_results = self.convert_layers_to_memory_results(results);
@@ -295,7 +313,7 @@ impl ContextAgent {
                     }
                 }
             }
-            
+
             ContextSource::External(source_name) => {
                 // Implement external context fetching
                 debug!("Fetching external context from source: {}", source_name);
@@ -303,7 +321,7 @@ impl ContextAgent {
             }
         }
     }
-    
+
     /// Fetch external context from various sources
     async fn fetch_external_context(&self, source_name: &str) -> Result<(Value, usize)> {
         match source_name {
@@ -312,15 +330,15 @@ impl ContextAgent {
             "news" => self.fetch_news_context().await,
             "weather" => self.fetch_weather_context().await,
             "stock" => self.fetch_stock_context().await,
-            
-            // Database sources  
+
+            // Database sources
             "user_profile" => self.fetch_user_profile_context().await,
             "knowledge_base" => self.fetch_knowledge_base_context().await,
-            
+
             // File system sources
             "documents" => self.fetch_document_context().await,
             "logs" => self.fetch_log_context().await,
-            
+
             // Default fallback
             _ => {
                 warn!("Unknown external context source: {}", source_name);
@@ -328,25 +346,29 @@ impl ContextAgent {
             }
         }
     }
-    
+
     /// Fetch context from Wikipedia API
     async fn fetch_wikipedia_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching Wikipedia context via API");
-        
+
         let response = reqwest::get("https://en.wikipedia.org/api/rest_v1/page/random/summary")
             .await
-            .map_err(|e| AgentError::ProcessingError(
-                format!("External source wikipedia requires reqwest dependency: {}", e)
-            ))?;
-        
+            .map_err(|e| {
+                AgentError::ProcessingError(format!(
+                    "External source wikipedia requires reqwest dependency: {}",
+                    e
+                ))
+            })?;
+
         if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(
-                format!("Wikipedia API returned unexpected status: {}", response.status())
-            ));
+            return Err(AgentError::ProcessingError(format!(
+                "Wikipedia API returned unexpected status: {}",
+                response.status()
+            )));
         }
-        
+
         let data: Value = response.json().await?;
-        
+
         let result = json!({
             "source": "wikipedia",
             "title": data["title"],
@@ -355,63 +377,74 @@ impl ContextAgent {
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.9
         });
-        
+
         let token_count = self.estimate_token_count(&result);
         Ok((result, token_count))
     }
-    
+
     /// Fetch context from news API
     async fn fetch_news_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching news context via NewsAPI");
-        
-        let api_key = std::env::var("NEWSAPI_KEY")
-            .map_err(|_| AgentError::ProcessingError(
-                "External source news requires NEWSAPI_KEY environment variable".to_string()
-            ))?;
-        
+
+        let api_key = std::env::var("NEWSAPI_KEY").map_err(|_| {
+            AgentError::ProcessingError(
+                "External source news requires NEWSAPI_KEY environment variable".to_string(),
+            )
+        })?;
+
         let response = reqwest::Client::new()
             .get("https://newsapi.org/v2/top-headlines")
             .query(&[("country", "us"), ("pageSize", "5")])
             .header("X-Api-Key", &api_key)
             .send()
             .await
-            .map_err(|e| AgentError::ProcessingError(
-                format!("External source news requires reqwest dependency: {}", e)
-            ))?;
-        
+            .map_err(|e| {
+                AgentError::ProcessingError(format!(
+                    "External source news requires reqwest dependency: {}",
+                    e
+                ))
+            })?;
+
         if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(
-                format!("News API returned status: {}", response.status())
-            ));
+            return Err(AgentError::ProcessingError(format!(
+                "News API returned status: {}",
+                response.status()
+            )));
         }
-        
+
         let data: Value = response.json().await?;
-        
-        let headlines: Vec<Value> = data["articles"].as_array()
+
+        let headlines: Vec<Value> = data["articles"]
+            .as_array()
             .map(|articles| {
-                articles.iter().map(|a| json!({
-                    "title": a["title"],
-                    "source": a["source"]["name"],
-                    "url": a["url"],
-                })).collect()
+                articles
+                    .iter()
+                    .map(|a| {
+                        json!({
+                            "title": a["title"],
+                            "source": a["source"]["name"],
+                            "url": a["url"],
+                        })
+                    })
+                    .collect()
             })
             .unwrap_or_default();
-        
+
         let result = json!({
             "source": "news",
             "headlines": headlines,
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.8
         });
-        
+
         let token_count = self.estimate_token_count(&result);
         Ok((result, token_count))
     }
-    
+
     /// Fetch context from weather API via Open-Meteo (free, no API key required)
     async fn fetch_weather_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching weather context via Open-Meteo API");
-        
+
         let response = reqwest::get(
             "https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current_weather=true"
         )
@@ -419,16 +452,17 @@ impl ContextAgent {
             .map_err(|e| AgentError::ProcessingError(
                 format!("External source weather requires reqwest dependency: {}", e)
             ))?;
-        
+
         if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(
-                format!("Weather API returned status: {}", response.status())
-            ));
+            return Err(AgentError::ProcessingError(format!(
+                "Weather API returned status: {}",
+                response.status()
+            )));
         }
-        
+
         let data: Value = response.json().await?;
         let current = &data["current_weather"];
-        
+
         let result = json!({
             "source": "weather",
             "temperature": format!("{}°C", current["temperature"].as_f64().unwrap_or(0.0)),
@@ -439,38 +473,43 @@ impl ContextAgent {
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.7
         });
-        
+
         let token_count = self.estimate_token_count(&result);
         Ok((result, token_count))
     }
-    
+
     /// Fetch context from stock market API via Finnhub
     async fn fetch_stock_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching stock context via Finnhub API");
-        
-        let api_key = std::env::var("FINNHUB_API_KEY")
-            .map_err(|_| AgentError::ProcessingError(
-                "External source stock requires FINNHUB_API_KEY environment variable".to_string()
-            ))?;
-        
+
+        let api_key = std::env::var("FINNHUB_API_KEY").map_err(|_| {
+            AgentError::ProcessingError(
+                "External source stock requires FINNHUB_API_KEY environment variable".to_string(),
+            )
+        })?;
+
         let response = reqwest::Client::new()
             .get("https://finnhub.io/api/v1/quote")
             .query(&[("symbol", "SPY")])
             .header("X-Finnhub-Token", &api_key)
             .send()
             .await
-            .map_err(|e| AgentError::ProcessingError(
-                format!("External source stock requires reqwest dependency: {}", e)
-            ))?;
-        
+            .map_err(|e| {
+                AgentError::ProcessingError(format!(
+                    "External source stock requires reqwest dependency: {}",
+                    e
+                ))
+            })?;
+
         if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(
-                format!("Stock API returned status: {}", response.status())
-            ));
+            return Err(AgentError::ProcessingError(format!(
+                "Stock API returned status: {}",
+                response.status()
+            )));
         }
-        
+
         let data: Value = response.json().await?;
-        
+
         let current_price = data["c"].as_f64().unwrap_or(0.0);
         let previous_close = data["pc"].as_f64().unwrap_or(0.0);
         let change_pct = if previous_close > 0.0 {
@@ -478,7 +517,7 @@ impl ContextAgent {
         } else {
             0.0
         };
-        
+
         let result = json!({
             "source": "stock",
             "market_status": "Open",
@@ -488,48 +527,50 @@ impl ContextAgent {
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.6
         });
-        
+
         let token_count = self.estimate_token_count(&result);
         Ok((result, token_count))
     }
-    
+
     /// Fetch user profile context from database
     async fn fetch_user_profile_context(&self) -> Result<(Value, usize)> {
         Err(AgentError::ProcessingError(
-            "External source user_profile requires a configured user profile database service".to_string()
+            "External source user_profile requires a configured user profile database service"
+                .to_string(),
         ))
     }
-    
+
     /// Fetch context from knowledge base
     async fn fetch_knowledge_base_context(&self) -> Result<(Value, usize)> {
         Err(AgentError::ProcessingError(
-            "External source knowledge_base requires a configured knowledge base service".to_string()
+            "External source knowledge_base requires a configured knowledge base service"
+                .to_string(),
         ))
     }
-    
+
     /// Fetch context from document storage via filesystem
     async fn fetch_document_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching document context from filesystem");
-        
+
         let docs_dir = std::path::Path::new("documents");
         if !docs_dir.exists() {
             return Err(AgentError::ProcessingError(
-                "External source documents requires a 'documents/' directory with indexed files".to_string()
+                "External source documents requires a 'documents/' directory with indexed files"
+                    .to_string(),
             ));
         }
-        
-        let entries = std::fs::read_dir(docs_dir)
-            .map_err(|e| AgentError::ProcessingError(
-                format!("Failed to read documents directory: {}", e)
-            ))?;
-        
+
+        let entries = std::fs::read_dir(docs_dir).map_err(|e| {
+            AgentError::ProcessingError(format!("Failed to read documents directory: {}", e))
+        })?;
+
         let mut recent_files = Vec::with_capacity(10);
         let mut total_files = 0u64;
-        
+
         for entry in entries {
-            let entry = entry.map_err(|e| AgentError::ProcessingError(
-                format!("Failed to read document entry: {}", e)
-            ))?;
+            let entry = entry.map_err(|e| {
+                AgentError::ProcessingError(format!("Failed to read document entry: {}", e))
+            })?;
             if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 total_files += 1;
                 if recent_files.len() < 10 {
@@ -539,7 +580,7 @@ impl ContextAgent {
                 }
             }
         }
-        
+
         let result = json!({
             "source": "documents",
             "recent_files": recent_files,
@@ -547,54 +588,61 @@ impl ContextAgent {
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.7
         });
-        
+
         let token_count = self.estimate_token_count(&result);
         Ok((result, token_count))
     }
-    
+
     /// Fetch context from log files via filesystem
     async fn fetch_log_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching log context from filesystem");
-        
+
         let log_dir = std::path::Path::new("logs");
         if !log_dir.exists() {
             return Err(AgentError::ProcessingError(
-                "External source logs requires a 'logs/' directory with application logs".to_string()
+                "External source logs requires a 'logs/' directory with application logs"
+                    .to_string(),
             ));
         }
-        
-        let entries = std::fs::read_dir(log_dir)
-            .map_err(|e| AgentError::ProcessingError(
-                format!("Failed to read logs directory: {}", e)
-            ))?;
-        
+
+        let entries = std::fs::read_dir(log_dir).map_err(|e| {
+            AgentError::ProcessingError(format!("Failed to read logs directory: {}", e))
+        })?;
+
         let mut recent_errors = Vec::with_capacity(10);
         let mut system_status = "Unknown".to_string();
         let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
-        
+
         for entry in entries {
-            let entry = entry.map_err(|e| AgentError::ProcessingError(
-                format!("Failed to read log entry: {}", e)
-            ))?;
-            
+            let entry = entry.map_err(|e| {
+                AgentError::ProcessingError(format!("Failed to read log entry: {}", e))
+            })?;
+
             if let Ok(meta) = entry.metadata() {
                 let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 if modified > latest_time && meta.is_file() {
                     latest_time = modified;
                     if let Ok(content) = std::fs::read_to_string(entry.path()) {
                         for line in content.lines().rev().take(20) {
-                            if line.contains("error") || line.contains("ERROR") || line.contains("Error") {
+                            if line.contains("error")
+                                || line.contains("ERROR")
+                                || line.contains("Error")
+                            {
                                 if recent_errors.len() < 10 {
                                     recent_errors.push(Value::String(line.to_string()));
                                 }
                             }
                         }
-                        system_status = if recent_errors.is_empty() { "Healthy".to_string() } else { "Degraded".to_string() };
+                        system_status = if recent_errors.is_empty() {
+                            "Healthy".to_string()
+                        } else {
+                            "Degraded".to_string()
+                        };
                     }
                 }
             }
         }
-        
+
         let result = json!({
             "source": "logs",
             "recent_errors": recent_errors,
@@ -602,11 +650,11 @@ impl ContextAgent {
             "last_updated": chrono::Utc::now().to_rfc3339(),
             "confidence": 0.6
         });
-        
+
         let token_count = self.estimate_token_count(&result);
         Ok((result, token_count))
     }
-    
+
     /// Apply merge strategy
     async fn apply_merge_strategy(
         &self,
@@ -621,10 +669,10 @@ impl ContextAgent {
                 }
                 Ok(Value::Object(merged))
             }
-            
+
             ContextMergeStrategy::Weighted(weights) => {
                 let mut weighted_data = serde_json::Map::new();
-                
+
                 for (source_name, data) in context_data {
                     if let Ok(source_enum) = source_name.parse::<ContextSource>() {
                         if let Some(&weight) = weights.get(&source_enum) {
@@ -637,37 +685,38 @@ impl ContextAgent {
                         }
                     }
                 }
-                
+
                 Ok(Value::Object(weighted_data))
             }
-            
+
             ContextMergeStrategy::Priority(priority_order) => {
                 let mut prioritized_data = serde_json::Map::new();
-                
+
                 for source in priority_order {
                     let source_key = format!("{:?}", source);
                     if let Some(data) = context_data.get(&source_key) {
                         prioritized_data.insert(source_key, data.clone());
                     }
                 }
-                
+
                 // Add remaining sources
                 for (key, value) in context_data {
                     if !prioritized_data.contains_key(key) {
                         prioritized_data.insert(key.clone(), value.clone());
                     }
                 }
-                
+
                 Ok(Value::Object(prioritized_data))
             }
-            
+
             ContextMergeStrategy::Semantic => {
                 // Implement semantic merge with similarity scoring
                 debug!("Performing semantic context merge");
-                
+
                 let mut merged = serde_json::Map::new();
-                let mut context_items: Vec<(String, Value, f64)> = Vec::with_capacity(contributions.len());
-                
+                let mut context_items: Vec<(String, Value, f64)> =
+                    Vec::with_capacity(contributions.len());
+
                 // Extract items with their contribution scores
                 for (source, contribution) in contributions {
                     let source_key = format!("{:?}", source);
@@ -681,17 +730,18 @@ impl ContextAgent {
                         }
                     }
                 }
-                
+
                 // Sort by contribution score (highest first)
-                context_items.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-                
+                context_items
+                    .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
                 // Merge with semantic deduplication
                 let mut merged_keys = std::collections::HashSet::new();
                 for (source, data, score) in context_items {
                     if let Value::Object(obj) = &data {
                         for (key, value) in obj {
                             let merged_key = format!("{}_{}", source, key);
-                            
+
                             // Check for semantic conflicts
                             if !merged_keys.contains(&merged_key) {
                                 // Apply semantic weighting based on contribution score
@@ -714,14 +764,15 @@ impl ContextAgent {
                                         "warning": "Low confidence"
                                     })
                                 };
-                                
+
                                 merged.insert(merged_key.clone(), weighted_value);
                                 merged_keys.insert(merged_key);
                             } else {
                                 // Handle semantic conflicts - merge with priority
                                 if let Some(existing) = merged.get_mut(&merged_key) {
                                     if let Some(existing_confidence) = existing.get("confidence") {
-                                        let existing_conf = existing_confidence.as_f64().unwrap_or(0.0);
+                                        let existing_conf =
+                                            existing_confidence.as_f64().unwrap_or(0.0);
                                         if score > existing_conf {
                                             // Replace with higher confidence value
                                             *existing = json!({
@@ -740,30 +791,33 @@ impl ContextAgent {
                         merged.insert(format!("{}_data", source), data.clone());
                     }
                 }
-                
+
                 // Add merge metadata
                 merged.insert("_merge_strategy".to_string(), json!("semantic"));
-                merged.insert("_merge_timestamp".to_string(), json!(chrono::Utc::now().to_rfc3339()));
+                merged.insert(
+                    "_merge_timestamp".to_string(),
+                    json!(chrono::Utc::now().to_rfc3339()),
+                );
                 merged.insert("_items_merged".to_string(), json!(merged_keys.len()));
-                
+
                 Ok(Value::Object(merged))
             }
         }
     }
-    
+
     /// Apply retention policy
     async fn apply_retention_policy(&self, context: &Value) -> Result<Value> {
         match &self.config.retention_policy {
             ContextRetentionPolicy::KeepAll => Ok(context.clone()),
-            
+
             ContextRetentionPolicy::KeepLast(n) => {
                 // Implement keep last N items
                 debug!("Keeping last {} items from context", n);
-                
+
                 if let Value::Object(obj) = &context {
                     let mut filtered = serde_json::Map::new();
                     let mut items_kept = 0;
-                    
+
                     // Keep items in order of insertion (last N)
                     for (key, value) in obj.iter().rev() {
                         if items_kept < *n {
@@ -771,26 +825,29 @@ impl ContextAgent {
                             items_kept += 1;
                         }
                     }
-                    
+
                     Ok(Value::Object(filtered))
                 } else {
                     Ok(context.clone())
                 }
             }
-            
+
             ContextRetentionPolicy::TimeWindow(hours) => {
                 // Implement time window filtering
                 debug!("Filtering context within {} hour time window", hours);
-                
+
                 let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(*hours as i64);
-                
+
                 if let Value::Object(obj) = &context {
                     let mut filtered = serde_json::Map::new();
-                    
+
                     for (key, value) in obj {
                         // Check if value has timestamp
-                        if let Some(timestamp_str) = value.get("timestamp").and_then(|v| v.as_str()) {
-                            if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                        if let Some(timestamp_str) = value.get("timestamp").and_then(|v| v.as_str())
+                        {
+                            if let Ok(timestamp) =
+                                chrono::DateTime::parse_from_rfc3339(timestamp_str)
+                            {
                                 if timestamp > chrono::DateTime::<chrono::Utc>::from(cutoff_time) {
                                     filtered.insert(key.clone(), value.clone());
                                 }
@@ -803,20 +860,20 @@ impl ContextAgent {
                             filtered.insert(key.clone(), value.clone());
                         }
                     }
-                    
+
                     Ok(Value::Object(filtered))
                 } else {
                     Ok(context.clone())
                 }
             }
-            
+
             ContextRetentionPolicy::RelevanceThreshold(threshold) => {
                 // Implement relevance filtering
                 debug!("Filtering context with relevance threshold: {}", threshold);
-                
+
                 if let Value::Object(obj) = &context {
                     let mut filtered = serde_json::Map::new();
-                    
+
                     for (key, value) in obj {
                         // Check if value has relevance score
                         if let Some(relevance) = value.get("relevance").and_then(|v| v.as_f64()) {
@@ -828,7 +885,7 @@ impl ContextAgent {
                             filtered.insert(key.clone(), value.clone());
                         }
                     }
-                    
+
                     Ok(Value::Object(filtered))
                 } else {
                     Ok(context.clone())
@@ -836,30 +893,32 @@ impl ContextAgent {
             }
         }
     }
-    
+
     /// Helper function to convert Vec<layers::MemoryEntry> to Vec<MemoryResult<MemoryEntry>>
-    fn convert_layers_to_memory_results(&self, layers_results: Vec<nexora_memory::layers::MemoryEntry>) -> Vec<MemoryResult<nexora_memory::MemoryEntry>> {
+    fn convert_layers_to_memory_results(
+        &self,
+        layers_results: Vec<nexora_memory::layers::MemoryEntry>,
+    ) -> Vec<MemoryResult<nexora_memory::MemoryEntry>> {
         layers_results
             .into_iter()
             .enumerate()
             .map(|(i, entry)| {
                 // Use simple sequential ID — hash was immediately overwritten
                 let memory_id = i as u32;
-                
+
                 // Determine memory type from entry content and context
-                let memory_type = if entry.value.contains("context") || 
-                                 entry.value.contains("session") {
+                let memory_type = if entry.value.contains("context")
+                    || entry.value.contains("session")
+                {
                     nexora_memory::MemoryType::Working
-                } else if entry.value.contains("semantic") || 
-                         entry.value.contains("fact") {
+                } else if entry.value.contains("semantic") || entry.value.contains("fact") {
                     nexora_memory::MemoryType::Semantic
-                } else if entry.value.contains("episodic") || 
-                         entry.value.contains("experience") {
+                } else if entry.value.contains("episodic") || entry.value.contains("experience") {
                     nexora_memory::MemoryType::Episodic
                 } else {
                     nexora_memory::MemoryType::Working // Default for context agent
                 };
-                
+
                 let model_entry = nexora_memory::MemoryEntry {
                     memory_id,
                     memory_type,
@@ -876,30 +935,32 @@ impl ContextAgent {
             })
             .collect()
     }
-    
+
     /// Convert memory results to JSON
-    fn convert_memory_results(&self, results: &[MemoryResult<nexora_memory::MemoryEntry>]) -> Value {
-        let memories: Vec<Value> = results.iter()
-            .filter_map(|result| {
-                match result {
-                    Ok(entry) => Some(json!({
-                        "memory_id": entry.memory_id,
-                        "memory_type": entry.memory_type,
-                        "content": entry.content,
-                        "timestamp": entry.timestamp,
-                        "activation": entry.activation,
-                        "relevance": entry.relevance,
-                        "emotional_salience": entry.emotional_salience,
-                        "strength": entry.strength
-                    })),
-                    Err(_) => None,
-                }
+    fn convert_memory_results(
+        &self,
+        results: &[MemoryResult<nexora_memory::MemoryEntry>],
+    ) -> Value {
+        let memories: Vec<Value> = results
+            .iter()
+            .filter_map(|result| match result {
+                Ok(entry) => Some(json!({
+                    "memory_id": entry.memory_id,
+                    "memory_type": entry.memory_type,
+                    "content": entry.content,
+                    "timestamp": entry.timestamp,
+                    "activation": entry.activation,
+                    "relevance": entry.relevance,
+                    "emotional_salience": entry.emotional_salience,
+                    "strength": entry.strength
+                })),
+                Err(_) => None,
             })
             .collect();
-        
+
         Value::Array(memories)
     }
-    
+
     /// Estimate token count (rough approximation)
     fn estimate_token_count(&self, value: &Value) -> usize {
         let json_str = serde_json::to_string(value).unwrap_or_default();
@@ -913,52 +974,56 @@ impl Agent for ContextAgent {
     fn id(&self) -> Uuid {
         self.id
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn agent_type(&self) -> &str {
         "context"
     }
-    
+
     fn status(&self) -> AgentStatus {
         self.status.clone()
     }
-    
+
     async fn initialize(&mut self, _config: AgentConfig) -> Result<()> {
         info!("Initializing ContextAgent");
         self.status = AgentStatus::Ready;
         Ok(())
     }
-    
+
     async fn receive(&mut self, message: AgentMessage) -> Result<()> {
         debug!("ContextAgent received message: {}", message.message_type);
         // Store message for processing
         Ok(())
     }
-    
+
     async fn process(&mut self, context: AgentContext) -> Result<AgentResponse> {
         let start_time = std::time::Instant::now();
-        
-        debug!("ContextAgent processing context for session: {}", context.session_id);
-        
+
+        debug!(
+            "ContextAgent processing context for session: {}",
+            context.session_id
+        );
+
         // Extract session info from context
         let session_id = context.session_id;
         let user_id = context.user_id;
-        
+
         // Merge context
         let merged_context = self.merge_context(session_id, user_id, &context).await?;
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         // Update stats
         self.stats.messages_processed += 1;
-        self.stats.avg_processing_time_ms = 
-            (self.stats.avg_processing_time_ms * (self.stats.messages_processed - 1) as f64 + 
-             processing_time as f64) / self.stats.messages_processed as f64;
+        self.stats.avg_processing_time_ms = (self.stats.avg_processing_time_ms
+            * (self.stats.messages_processed - 1) as f64
+            + processing_time as f64)
+            / self.stats.messages_processed as f64;
         self.stats.last_activity = chrono::Utc::now();
-        
+
         let response = AgentResponse::success(
             context.session_id, // Using session_id as request_id for now
             json!({
@@ -969,21 +1034,21 @@ impl Agent for ContextAgent {
             }),
             processing_time,
         );
-        
+
         Ok(response)
     }
-    
+
     async fn respond(&mut self, _response: AgentResponse) -> Result<()> {
         debug!("ContextAgent sending response");
         Ok(())
     }
-    
+
     async fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down ContextAgent");
         self.status = AgentStatus::Shutdown;
         Ok(())
     }
-    
+
     async fn health_check(&self) -> Result<bool> {
         // Check if memory store is accessible
         let test_query = MemoryQuery {
@@ -995,17 +1060,17 @@ impl Agent for ContextAgent {
             offset: None,
             filters: HashMap::new(),
         };
-        
+
         match self.memory_store.query(&test_query.query_text).await {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
         }
     }
-    
+
     fn get_stats(&self) -> AgentStats {
         self.stats.clone()
     }
-    
+
     fn get_config(&self) -> AgentConfig {
         self.config.clone().into()
     }
@@ -1041,7 +1106,7 @@ impl Default for ContextAgentConfig {
 // Implement parsing for ContextSource
 impl std::str::FromStr for ContextSource {
     type Err = String;
-    
+
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "Session" => Ok(ContextSource::Session),

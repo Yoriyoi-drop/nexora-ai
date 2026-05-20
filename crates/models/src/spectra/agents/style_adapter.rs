@@ -1,14 +1,14 @@
 //! Style Adapter Agent
-//! 
+//!
 //! Dynamic style learning and adaptation agent for NXR-SPECTRA
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Style Adapter Agent - Dynamic style learning and adaptation
 #[derive(Debug, Clone)]
@@ -327,10 +327,7 @@ impl Default for StyleLearning {
                 LearningAlgorithm::NeuralNetwork,
                 LearningAlgorithm::StatisticalPattern,
             ],
-            training_sources: vec![
-                "user_feedback".to_string(),
-                "style_examples".to_string(),
-            ],
+            training_sources: vec!["user_feedback".to_string(), "style_examples".to_string()],
             learning_progress: LearningProgress {
                 total_samples: 0,
                 successful_adaptations: 0,
@@ -397,27 +394,30 @@ impl BaseAgent for StyleAdapterAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze source style
         let source_analysis = self.analyze_source_style(&input).await?;
-        
+
         // Analyze target style
         let target_analysis = self.analyze_target_style(&input).await?;
-        
+
         // Select adaptation method
-        let adaptation_method = self.select_adaptation_method(&input, &source_analysis, &target_analysis);
-        
+        let adaptation_method =
+            self.select_adaptation_method(&input, &source_analysis, &target_analysis);
+
         // Perform style adaptation
-        let adaptation_result = self.perform_style_adaptation(&input, &adaptation_method).await?;
-        
+        let adaptation_result = self
+            .perform_style_adaptation(&input, &adaptation_method)
+            .await?;
+
         // Calculate adaptation metrics
         let success_rate = self.calculate_adaptation_success(&input, &adaptation_result);
         let confidence = self.calculate_adaptation_confidence(&adaptation_result);
         let preservation_score = self.calculate_style_preservation(&input, &adaptation_result);
-        
+
         // Build output
         let output = StyleAdaptationTaskOutput {
             adapted_content: adaptation_result.adapted_content,
@@ -427,9 +427,9 @@ impl BaseAgent for StyleAdapterAgent {
             style_preservation_score: preservation_score,
             metadata: adaptation_result.metadata,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -442,21 +442,19 @@ impl BaseAgent for StyleAdapterAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "style_adaptation".to_string(),
-                description: "Dynamic style learning and adaptation".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["style_adaptation_task".to_string()],
-                output_types: vec!["adapted_content".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.88,
-                    avg_latency: 600.0,
-                    resource_usage: 0.65,
-                    reliability: 0.92,
-                },
+        vec![AgentCapability {
+            name: "style_adaptation".to_string(),
+            description: "Dynamic style learning and adaptation".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["style_adaptation_task".to_string()],
+            output_types: vec!["adapted_content".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.88,
+                avg_latency: 600.0,
+                resource_usage: 0.65,
+                reliability: 0.92,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -498,31 +496,35 @@ impl StyleAdapterAgent {
     fn validate_input(&self, input: &StyleAdaptationTaskInput) -> AgentResult<()> {
         if input.source_content.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Source content cannot be empty".to_string()
+                "Source content cannot be empty".to_string(),
             ));
         }
-        
+
         if input.source_style.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Source style cannot be empty".to_string()
+                "Source style cannot be empty".to_string(),
             ));
         }
-        
+
         if input.target_style.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Target style cannot be empty".to_string()
+                "Target style cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Analyze source style
-    async fn analyze_source_style(&self, input: &StyleAdaptationTaskInput) -> AgentResult<StyleAnalysis> {
+    async fn analyze_source_style(
+        &self,
+        input: &StyleAdaptationTaskInput,
+    ) -> AgentResult<StyleAnalysis> {
         // Simplified source style analysis
-        let characteristics = self.extract_style_characteristics(&input.source_content, &input.source_style);
+        let characteristics =
+            self.extract_style_characteristics(&input.source_content, &input.source_style);
         let confidence = self.calculate_style_confidence(&characteristics);
-        
+
         Ok(StyleAnalysis {
             style_name: input.source_style.clone(),
             characteristics,
@@ -532,9 +534,14 @@ impl StyleAdapterAgent {
     }
 
     /// Analyze target style
-    async fn analyze_target_style(&self, input: &StyleAdaptationTaskInput) -> AgentResult<StyleAnalysis> {
+    async fn analyze_target_style(
+        &self,
+        input: &StyleAdaptationTaskInput,
+    ) -> AgentResult<StyleAnalysis> {
         // Get target style definition from knowledge base
-        let target_definition = self.style_knowledge.style_definitions
+        let target_definition = self
+            .style_knowledge
+            .style_definitions
             .get(&input.target_style)
             .cloned()
             .unwrap_or_else(|| StyleDefinition {
@@ -544,7 +551,7 @@ impl StyleAdapterAgent {
                 rules: Vec::new(),
                 metadata: HashMap::new(),
             });
-        
+
         Ok(StyleAnalysis {
             style_name: input.target_style.clone(),
             characteristics: target_definition.characteristics,
@@ -554,9 +561,12 @@ impl StyleAdapterAgent {
     }
 
     /// Select adaptation method
-    fn select_adaptation_method(&self, input: &StyleAdaptationTaskInput, 
-                               source_analysis: &StyleAnalysis, 
-                               target_analysis: &StyleAnalysis) -> AdaptationMethod {
+    fn select_adaptation_method(
+        &self,
+        input: &StyleAdaptationTaskInput,
+        source_analysis: &StyleAnalysis,
+        target_analysis: &StyleAnalysis,
+    ) -> AdaptationMethod {
         // Simplified method selection
         if source_analysis.confidence > 0.8 && target_analysis.confidence > 0.8 {
             AdaptationMethod::NeuralAdaptation
@@ -568,36 +578,45 @@ impl StyleAdapterAgent {
     }
 
     /// Perform style adaptation
-    async fn perform_style_adaptation(&self, input: &StyleAdaptationTaskInput, 
-                                    method: &AdaptationMethod) -> AgentResult<AdaptationResult> {
+    async fn perform_style_adaptation(
+        &self,
+        input: &StyleAdaptationTaskInput,
+        method: &AdaptationMethod,
+    ) -> AgentResult<AdaptationResult> {
         let adapted_content = match method {
             AdaptationMethod::NeuralAdaptation => {
-                format!("{} [Neural Style Adaptation: {} -> {}]", 
-                       input.source_content, input.source_style, input.target_style)
-            },
+                format!(
+                    "{} [Neural Style Adaptation: {} -> {}]",
+                    input.source_content, input.source_style, input.target_style
+                )
+            }
             AdaptationMethod::FeatureTransformation => {
-                format!("{} [Feature Transformation: {} -> {}]", 
-                       input.source_content, input.source_style, input.target_style)
-            },
+                format!(
+                    "{} [Feature Transformation: {} -> {}]",
+                    input.source_content, input.source_style, input.target_style
+                )
+            }
             AdaptationMethod::HybridAdaptation => {
-                format!("{} [Hybrid Style Adaptation: {} -> {}]", 
-                       input.source_content, input.source_style, input.target_style)
-            },
+                format!(
+                    "{} [Hybrid Style Adaptation: {} -> {}]",
+                    input.source_content, input.source_style, input.target_style
+                )
+            }
             _ => {
-                format!("{} [Style Adaptation: {} -> {}]", 
-                       input.source_content, input.source_style, input.target_style)
+                format!(
+                    "{} [Style Adaptation: {} -> {}]",
+                    input.source_content, input.source_style, input.target_style
+                )
             }
         };
-        
-        let applied_adaptations = vec![
-            AppliedAdaptation {
-                adaptation_type: format!("{:?}", method),
-                strength: self.config.adaptation_sensitivity,
-                success: true,
-                details: HashMap::new(),
-            }
-        ];
-        
+
+        let applied_adaptations = vec![AppliedAdaptation {
+            adaptation_type: format!("{:?}", method),
+            strength: self.config.adaptation_sensitivity,
+            success: true,
+            details: HashMap::new(),
+        }];
+
         Ok(AdaptationResult {
             adapted_content,
             applied_adaptations,
@@ -606,56 +625,84 @@ impl StyleAdapterAgent {
     }
 
     /// Calculate adaptation success rate
-    fn calculate_adaptation_success(&self, input: &StyleAdaptationTaskInput, result: &AdaptationResult) -> f32 {
+    fn calculate_adaptation_success(
+        &self,
+        input: &StyleAdaptationTaskInput,
+        result: &AdaptationResult,
+    ) -> f32 {
         // Simplified success calculation
-        let content_length_ratio = result.adapted_content.len() as f32 / input.source_content.len() as f32;
+        let content_length_ratio =
+            result.adapted_content.len() as f32 / input.source_content.len() as f32;
         let adaptation_count = result.applied_adaptations.len() as f32;
-        
-        let length_score = if content_length_ratio >= 0.8 && content_length_ratio <= 1.2 { 0.8 } else { 0.5 };
+
+        let length_score = if content_length_ratio >= 0.8 && content_length_ratio <= 1.2 {
+            0.8
+        } else {
+            0.5
+        };
         let adaptation_score = if adaptation_count > 0.0 { 0.9 } else { 0.0 };
-        
+
         (length_score + adaptation_score) / 2.0
     }
 
     /// Calculate adaptation confidence
     fn calculate_adaptation_confidence(&self, result: &AdaptationResult) -> f32 {
-        let successful_adaptations = result.applied_adaptations.iter()
+        let successful_adaptations = result
+            .applied_adaptations
+            .iter()
             .filter(|adaptation| adaptation.success)
             .count() as f32;
-        
+
         let total_adaptations = result.applied_adaptations.len() as f32;
-        
+
         if total_adaptations == 0.0 {
             return 0.0;
         }
-        
+
         successful_adaptations / total_adaptations
     }
 
     /// Calculate style preservation score
-    fn calculate_style_preservation(&self, input: &StyleAdaptationTaskInput, result: &AdaptationResult) -> f32 {
+    fn calculate_style_preservation(
+        &self,
+        input: &StyleAdaptationTaskInput,
+        result: &AdaptationResult,
+    ) -> f32 {
         // Simplified preservation calculation
-        let source_words = input.source_content.split_whitespace().collect::<std::collections::HashSet<_>>();
-        let adapted_words = result.adapted_content.split_whitespace().collect::<std::collections::HashSet<_>>();
-        
+        let source_words = input
+            .source_content
+            .split_whitespace()
+            .collect::<std::collections::HashSet<_>>();
+        let adapted_words = result
+            .adapted_content
+            .split_whitespace()
+            .collect::<std::collections::HashSet<_>>();
+
         if source_words.is_empty() {
             return 0.0;
         }
-        
+
         let common_words = source_words.intersection(&adapted_words).count() as f32;
         common_words / source_words.len() as f32
     }
 
     /// Extract style characteristics
-    fn extract_style_characteristics(&self, content: &str, style_name: &str) -> HashMap<String, f32> {
+    fn extract_style_characteristics(
+        &self,
+        content: &str,
+        style_name: &str,
+    ) -> HashMap<String, f32> {
         let mut characteristics = HashMap::new();
-        
+
         // Simplified characteristic extraction
         characteristics.insert("formality".to_string(), 0.5);
-        characteristics.insert("complexity".to_string(), self.calculate_content_complexity(content));
+        characteristics.insert(
+            "complexity".to_string(),
+            self.calculate_content_complexity(content),
+        );
         characteristics.insert("creativity".to_string(), 0.6);
         characteristics.insert("consistency".to_string(), 0.7);
-        
+
         characteristics
     }
 
@@ -665,19 +712,22 @@ impl StyleAdapterAgent {
         if values.is_empty() {
             return 0.0;
         }
-        
+
         values.iter().sum::<f32>() / values.len() as f32
     }
 
     /// Calculate content complexity
     fn calculate_content_complexity(&self, content: &str) -> f32 {
         let word_count = content.split_whitespace().count() as f32;
-        let unique_words = content.split_whitespace().collect::<std::collections::HashSet<_>>().len() as f32;
-        
+        let unique_words = content
+            .split_whitespace()
+            .collect::<std::collections::HashSet<_>>()
+            .len() as f32;
+
         if word_count == 0.0 {
             return 0.0;
         }
-        
+
         unique_words / word_count
     }
 }
@@ -730,7 +780,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.adapted_content.is_empty());
         assert!(output.success_rate > 0.0);
@@ -741,13 +791,13 @@ mod tests {
     #[test]
     fn test_content_complexity_calculation() {
         let agent = StyleAdapterAgent::default();
-        
+
         let simple_text = "hello world";
         let complex_text = "hello wonderful beautiful amazing world";
-        
+
         let simple_complexity = agent.calculate_content_complexity(simple_text);
         let complex_complexity = agent.calculate_content_complexity(complex_text);
-        
+
         assert!(simple_complexity >= 0.0 && simple_complexity <= 1.0);
         assert!(complex_complexity >= 0.0 && complex_complexity <= 1.0);
     }

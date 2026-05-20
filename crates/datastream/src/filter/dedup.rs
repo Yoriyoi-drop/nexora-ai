@@ -1,12 +1,12 @@
 use async_trait::async_trait;
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use parking_lot::Mutex;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 /// Fuzzy dedup filter using MinHash-style similarity estimation.
 ///
@@ -158,10 +158,7 @@ impl Filter for DedupFilter {
         }
 
         // Multi-hash: use MinHash-style Jaccard similarity estimate
-        let match_count = fingerprints
-            .iter()
-            .filter(|h| hashes.contains(h))
-            .count();
+        let match_count = fingerprints.iter().filter(|h| hashes.contains(h)).count();
         let match_ratio = match_count as f64 / total_hashes as f64;
 
         if match_ratio >= self.similarity_threshold {

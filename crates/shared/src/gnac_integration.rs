@@ -6,17 +6,20 @@
 
 use nexora_gnac::{
     canvas::NeuralGraph,
-    smart_tensor::ShapePropagator,
-    lensing::{NeuralLens, GradientFailureLens, AttentionFlowLens, LatencyLens, MemoryLens, ActivationEntropyLens, LensObservation},
-    rce::{ResourceEstimator, ResourceConstraints, ResourceReport, HardwareTarget},
-    swarm::{SwarmAgent, SwarmConfig, SearchSpace, estimate_accuracy},
-    execution::ExecutionBackend,
-    scheduler::{MemoryCheckpointer, TensorPager},
-    intervention::{AnomalyDetector, DiagnosticAssistant, DetectedAnomaly},
-    elastic::{ElasticRouter, ElasticStrategy},
     distillation::ExportManager,
+    elastic::{ElasticRouter, ElasticStrategy},
+    execution::ExecutionBackend,
     experiment::{Experiment, ExperimentSnapshot},
+    intervention::{AnomalyDetector, DetectedAnomaly, DiagnosticAssistant},
+    lensing::{
+        ActivationEntropyLens, AttentionFlowLens, GradientFailureLens, LatencyLens,
+        LensObservation, MemoryLens, NeuralLens,
+    },
+    rce::{HardwareTarget, ResourceConstraints, ResourceEstimator, ResourceReport},
     sandbox::{ModelVerifier, VerificationReport},
+    scheduler::{MemoryCheckpointer, TensorPager},
+    smart_tensor::ShapePropagator,
+    swarm::{estimate_accuracy, SearchSpace, SwarmAgent, SwarmConfig},
     GnacConfig,
 };
 use serde::{Deserialize, Serialize};
@@ -163,7 +166,11 @@ impl GnacEngine {
     /// Buat engine baru dengan graf default
     pub fn new(cfg: GnacIntegrationConfig) -> Self {
         let graph = NeuralGraph::new("nxr_model_graph");
-        let max_vram = cfg.resource_constraints.as_ref().map(|c| c.max_vram_mb).unwrap_or(4096.0);
+        let max_vram = cfg
+            .resource_constraints
+            .as_ref()
+            .map(|c| c.max_vram_mb)
+            .unwrap_or(4096.0);
 
         Self {
             config: cfg,
@@ -222,8 +229,16 @@ impl GnacEngine {
 
     /// Run Swarm Agent NAS
     pub async fn run_architecture_search(&self) -> Result<NeuralGraph, String> {
-        let config = self.config.swarm_config.clone().ok_or("Swarm config not set")?;
-        let space = self.config.search_space.clone().ok_or("Search space not set")?;
+        let config = self
+            .config
+            .swarm_config
+            .clone()
+            .ok_or("Swarm config not set")?;
+        let space = self
+            .config
+            .search_space
+            .clone()
+            .ok_or("Search space not set")?;
 
         let mut agent = SwarmAgent::new(config, space);
         agent.initialize();
@@ -292,7 +307,8 @@ impl GnacEngine {
         }
 
         let graph = self.graph.read().await;
-        let complexity = input_embedding.iter().map(|&x| x.abs()).sum::<f32>() / input_embedding.len() as f32;
+        let complexity =
+            input_embedding.iter().map(|&x| x.abs()).sum::<f32>() / input_embedding.len() as f32;
 
         let router = ElasticRouter::new(ElasticStrategy::Balanced);
         let path = router.select_path(complexity as f64, &graph);

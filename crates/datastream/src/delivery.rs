@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, info, warn};
 
-use crate::types::{DataSample, BatchConfig};
+use crate::types::{BatchConfig, DataSample};
 
 pub struct TrainingDeliveryLayer {
     pub batch_config: BatchConfig,
@@ -66,7 +66,10 @@ impl TrainingDeliveryLayer {
             debug!("Delivered {} samples (total: {})", batch_size, total);
         }
 
-        info!("Training delivery complete: {} samples to {}", total, output_path);
+        info!(
+            "Training delivery complete: {} samples to {}",
+            total, output_path
+        );
         Ok(total)
     }
 
@@ -80,7 +83,11 @@ impl TrainingDeliveryLayer {
         let path = if offset == 0 {
             output_path.to_string()
         } else {
-            format!("{}.part{}", output_path, offset / self.batch_config.max_batch_size as u64)
+            format!(
+                "{}.part{}",
+                output_path,
+                offset / self.batch_config.max_batch_size as u64
+            )
         };
 
         let mut file = tokio::fs::OpenOptions::new()

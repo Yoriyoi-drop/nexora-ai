@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::manifest::{DatasetManifest, ManifestError};
@@ -58,7 +58,10 @@ impl DatasetRegistry {
             .or_default()
             .push(info);
 
-        info!("Dataset registered: {} v{} ({} samples)", manifest.name, manifest.version, manifest.total_samples);
+        info!(
+            "Dataset registered: {} v{} ({} samples)",
+            manifest.name, manifest.version, manifest.total_samples
+        );
         Ok(())
     }
 
@@ -67,7 +70,10 @@ impl DatasetRegistry {
     }
 
     pub fn get_version(&self, name: &str, version: &str) -> Option<&DatasetInfo> {
-        self.datasets.get(name)?.iter().find(|d| d.version == version)
+        self.datasets
+            .get(name)?
+            .iter()
+            .find(|d| d.version == version)
     }
 
     pub fn latest(&self, name: &str) -> Option<&DatasetInfo> {
@@ -86,8 +92,7 @@ impl DatasetRegistry {
 
         let content = serde_json::to_string_pretty(&self.datasets)
             .map_err(|e| RegistryError::Serialize(e.to_string()))?;
-        std::fs::write(&path, content)
-            .map_err(|e| RegistryError::Io(e.to_string()))?;
+        std::fs::write(&path, content).map_err(|e| RegistryError::Io(e.to_string()))?;
         info!("Registry saved: {}", path.display());
         Ok(())
     }
@@ -97,10 +102,10 @@ impl DatasetRegistry {
             return Ok(Self::new().with_registry_path(path.to_path_buf()));
         }
 
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| RegistryError::Io(e.to_string()))?;
-        let datasets: HashMap<String, Vec<DatasetInfo>> = serde_json::from_str(&content)
-            .map_err(|e| RegistryError::Parse(e.to_string()))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| RegistryError::Io(e.to_string()))?;
+        let datasets: HashMap<String, Vec<DatasetInfo>> =
+            serde_json::from_str(&content).map_err(|e| RegistryError::Parse(e.to_string()))?;
 
         info!("Registry loaded: {} datasets", datasets.len());
         Ok(Self {

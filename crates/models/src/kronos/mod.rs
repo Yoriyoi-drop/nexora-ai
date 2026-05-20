@@ -1,35 +1,35 @@
 //! NXR-KRONOS Model Implementation
-//! 
+//!
 //! NXR-09 CORE - Knowledge Retrieval & Ontological Neural Optimization System
 //! Knowledge management and scientific research specialist
 
-pub mod identity;
-pub mod config;
-pub mod architecture;
 pub mod agents;
+pub mod architecture;
 pub mod capabilities;
+pub mod config;
+pub mod identity;
 
-use std::collections::HashMap;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
     capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningModel, HasComponents},
-    gnac_integration::GnacModel,
     foundation_components::FoundationComponents,
+    gnac_integration::GnacModel,
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
 };
 
 use self::{
-    identity::KronosIdentity,
-    config::KronosConfig,
-    architecture::KronosArchitecture,
-    agents::KronosAgents,
-    capabilities::KronosCapabilities,
+    agents::KronosAgents, architecture::KronosArchitecture, capabilities::KronosCapabilities,
+    config::KronosConfig, identity::KronosIdentity,
 };
 
 pub struct NxrKronosModel {
@@ -83,9 +83,6 @@ pub struct KronosMetrics {
     pub knowledge_coverage: f32,
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
-
-
-
 
 impl Default for KronosState {
     fn default() -> Self {
@@ -153,7 +150,9 @@ impl NxrKronosModel {
         };
 
         // Process query with deep learning
-        let dl_result = self.dl_process(query).await
+        let dl_result = self
+            .dl_process(query)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Optimize retrieval with VOGP
@@ -163,9 +162,8 @@ impl NxrKronosModel {
             let predictions = Array2::zeros((1, tokens.len()));
             let targets = Array1::zeros(tokens.len());
             let augmented = Array2::zeros((1, tokens.len()));
-            let (total_loss, _components) = vogp.compute_loss(
-                &predictions, &targets, &augmented, None
-            );
+            let (total_loss, _components) =
+                vogp.compute_loss(&predictions, &targets, &augmented, None);
             format!("VOGP loss: {:.4}", total_loss)
         };
 
@@ -173,7 +171,7 @@ impl NxrKronosModel {
         let knowledge_retrieval = self.retrieve_from_graph(&query_analysis)?;
         let fact_verification = self.verify_facts(&knowledge_retrieval)?;
         let synthesis = self.synthesize_knowledge(&knowledge_retrieval, &fact_verification)?;
-        
+
         Ok(format!(
             "Knowledge Retrieval:\nQuery Type: {:?}\nFacts Retrieved: {}\nVerification: {:.2}%\nSynthesis: {}\nDL Processing: {} (tokens: {})\n{}",
             query_analysis.query_type,
@@ -228,9 +226,14 @@ impl NxrKronosModel {
         })
     }
 
-    fn synthesize_knowledge(&self, retrieval: &KnowledgeRetrieval, verification: &FactVerification) -> NxrModelResult<KnowledgeSynthesis> {
+    fn synthesize_knowledge(
+        &self,
+        retrieval: &KnowledgeRetrieval,
+        verification: &FactVerification,
+    ) -> NxrModelResult<KnowledgeSynthesis> {
         Ok(KnowledgeSynthesis {
-            summary: "Comprehensive answer based on verified facts and scientific consensus".to_string(),
+            summary: "Comprehensive answer based on verified facts and scientific consensus"
+                .to_string(),
             confidence: verification.verification_score,
             knowledge_gaps: vec!["gap1".to_string()],
         })
@@ -238,7 +241,9 @@ impl NxrKronosModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -248,19 +253,27 @@ impl NxrKronosModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -269,7 +282,10 @@ impl NxrKronosModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -323,12 +339,22 @@ impl NxrModel for NxrKronosModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        self.architecture.initialize(&config).await
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+        self.architecture
+            .initialize(&config)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
@@ -337,34 +363,46 @@ impl NxrModel for NxrKronosModel {
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = KronosState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = KronosMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-KRONOS model not initialized".to_string()
+                "NXR-KRONOS model not initialized".to_string(),
             ));
         }
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-KRONOS only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-KRONOS only supports text input".to_string(),
+                ))
+            }
         };
 
         let result = self.retrieve_knowledge(&input_text).await?;
@@ -374,9 +412,21 @@ impl NxrModel for NxrKronosModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -409,7 +459,7 @@ impl NxrModel for NxrKronosModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-KRONOS model not initialized".to_string()
+                "NXR-KRONOS model not initialized".to_string(),
             ));
         }
 
@@ -434,8 +484,13 @@ impl NxrModel for NxrKronosModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -449,15 +504,22 @@ impl NxrModel for NxrKronosModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 128.0,
             cpu_percent: 80.0,

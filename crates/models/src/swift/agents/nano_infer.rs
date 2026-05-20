@@ -1,14 +1,14 @@
 //! Nano Infer Agent
-//! 
+//!
 //! Ultra-lightweight inference engine for limited hardware
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Nano Infer Agent - Ultra-lightweight inference engine
 #[derive(Debug, Clone)]
@@ -199,24 +199,32 @@ impl BaseAgent for NanoInferAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Quantize model if needed
         let quantized_model = self.quantize_model(&input.model_data).await?;
-        
+
         // Optimize for target hardware
         let optimized_model = self.optimize_for_hardware(&quantized_model).await?;
-        
+
         // Run inference with ultra-lightweight engine
-        let inference_result = self.run_inference(&optimized_model, &input.input_data).await?;
-        
+        let inference_result = self
+            .run_inference(&optimized_model, &input.input_data)
+            .await?;
+
         // Calculate performance metrics
-        let performance_metrics = self.calculate_performance_metrics(start_time.elapsed()).await?;
-        
+        let performance_metrics = self
+            .calculate_performance_metrics(start_time.elapsed())
+            .await?;
+
         // Calculate accuracy metrics
-        let accuracy_metrics = self.calculate_accuracy_metrics(&inference_result, &input.accuracy_requirements).await?;
-        
+        let accuracy_metrics = self
+            .calculate_accuracy_metrics(&inference_result, &input.accuracy_requirements)
+            .await?;
+
         // Calculate resource usage
-        let resource_usage = self.calculate_resource_usage(&input.performance_constraints).await?;
+        let resource_usage = self
+            .calculate_resource_usage(&input.performance_constraints)
+            .await?;
 
         Ok(NanoInferTaskOutput {
             inference_result,
@@ -235,21 +243,22 @@ impl BaseAgent for NanoInferAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "nano_infer".to_string(),
-                description: "Ultra-lightweight inference engine for edge devices".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["model_data".to_string(), "input_data".to_string()],
-                output_types: vec!["inference_result".to_string(), "performance_metrics".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.92,
-                    avg_latency: 0.5,
-                    resource_usage: 0.3,
-                    reliability: 0.98,
-                },
+        vec![AgentCapability {
+            name: "nano_infer".to_string(),
+            description: "Ultra-lightweight inference engine for edge devices".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["model_data".to_string(), "input_data".to_string()],
+            output_types: vec![
+                "inference_result".to_string(),
+                "performance_metrics".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.92,
+                avg_latency: 0.5,
+                resource_usage: 0.3,
+                reliability: 0.98,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -296,7 +305,7 @@ impl NanoInferAgent {
 
         let compressed_size = (model_data.len() as f32 / compression_ratio) as usize;
         let mut quantized = Vec::with_capacity(compressed_size);
-        
+
         // Simple quantization simulation
         for chunk in model_data.chunks(8) {
             let quantized_byte = chunk.iter().sum::<u8>() / chunk.len() as u8;
@@ -309,20 +318,20 @@ impl NanoInferAgent {
     async fn optimize_for_hardware(&self, model_data: &[u8]) -> AgentResult<Vec<u8>> {
         // Simulate hardware optimization
         let mut optimized = model_data.to_vec();
-        
+
         match self.config.hardware_target {
             HardwareTarget::ARMNeon => {
                 // ARM NEON optimizations
                 optimized.push(0xAE); // NEON marker
-            },
+            }
             HardwareTarget::SIMD => {
                 // SIMD optimizations
                 optimized.push(0xD1); // SIMD marker
-            },
+            }
             HardwareTarget::CPU => {
                 // CPU optimizations
                 optimized.push(0xC1); // CPU marker
-            },
+            }
             HardwareTarget::Custom(_) => {
                 // Custom optimizations
                 optimized.push(0xCC); // Custom marker
@@ -335,7 +344,7 @@ impl NanoInferAgent {
     async fn run_inference(&self, model_data: &[u8], input_data: &[f32]) -> AgentResult<Vec<f32>> {
         // Ultra-lightweight inference simulation
         let mut result = Vec::new();
-        
+
         // Simple matrix multiplication simulation
         for (i, &input_val) in input_data.iter().enumerate() {
             if i < model_data.len() {
@@ -351,7 +360,10 @@ impl NanoInferAgent {
         Ok(result)
     }
 
-    async fn calculate_performance_metrics(&self, elapsed: std::time::Duration) -> AgentResult<InferenceMetrics> {
+    async fn calculate_performance_metrics(
+        &self,
+        elapsed: std::time::Duration,
+    ) -> AgentResult<InferenceMetrics> {
         let latency_ms = elapsed.as_millis() as f32;
         let throughput = 1000.0 / latency_ms;
 
@@ -363,11 +375,19 @@ impl NanoInferAgent {
         })
     }
 
-    async fn calculate_accuracy_metrics(&self, result: &[f32], _requirements: &AccuracyRequirements) -> AgentResult<AccuracyMetrics> {
+    async fn calculate_accuracy_metrics(
+        &self,
+        result: &[f32],
+        _requirements: &AccuracyRequirements,
+    ) -> AgentResult<AccuracyMetrics> {
         // Calculate confidence based on result distribution
         let max_val = result.iter().fold(0.0f32, |a, &b| a.max(b));
         let sum_val = result.iter().sum::<f32>();
-        let confidence: f32 = if sum_val > 0.0 { max_val / sum_val } else { 0.0 };
+        let confidence: f32 = if sum_val > 0.0 {
+            max_val / sum_val
+        } else {
+            0.0
+        };
 
         Ok(AccuracyMetrics {
             confidence_score: confidence,
@@ -377,7 +397,10 @@ impl NanoInferAgent {
         })
     }
 
-    async fn calculate_resource_usage(&self, _constraints: &PerformanceConstraints) -> AgentResult<ResourceUsage> {
+    async fn calculate_resource_usage(
+        &self,
+        _constraints: &PerformanceConstraints,
+    ) -> AgentResult<ResourceUsage> {
         Ok(ResourceUsage {
             memory_used_mb: 128.0,
             cpu_utilization: 15.0,
@@ -419,7 +442,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.inference_result.is_empty());
         assert!(output.performance_metrics.latency_ms < 10.0);
@@ -430,10 +453,10 @@ mod tests {
     async fn test_quantization_levels() {
         let agent = NanoInferAgent::default();
         let model_data = vec![255; 1000];
-        
+
         let int8_result = agent.quantize_model(&model_data).await.unwrap();
         let int4_result = agent.quantize_model(&model_data).await.unwrap();
-        
+
         assert!(int4_result.len() <= int8_result.len());
     }
 }

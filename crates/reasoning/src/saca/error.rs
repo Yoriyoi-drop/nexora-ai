@@ -7,61 +7,61 @@ use thiserror::Error;
 pub enum SACAError {
     #[error("Chain-of-Thought reasoning failed: {0}")]
     CoTError(String),
-    
+
     #[error("Modular decomposition failed: {0}")]
     DecomposeError(String),
-    
+
     #[error("Context analysis failed: {0}")]
     ContextError(String),
-    
+
     #[error("Sampling failed: {0}")]
     SamplingError(String),
-    
+
     #[error("Execution failed: {0}")]
     ExecuteError(String),
-    
+
     #[error("Reranking failed: {0}")]
     RerankError(String),
-    
+
     #[error("Feedback system error: {0}")]
     FeedbackError(String),
-    
+
     #[error("Pipeline error in phase {phase}: {message}")]
     PipelineError { phase: String, message: String },
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Session error: {0}")]
     SessionError(String),
-    
+
     #[error("Quality threshold not met: {current:.3} < {threshold:.3}")]
     QualityThresholdNotMet { current: f32, threshold: f32 },
-    
+
     #[error("Maximum feedback loops exceeded: {0}")]
     MaxFeedbackLoopsExceeded(u32),
-    
+
     #[error("Timeout during {operation}: {timeout_ms}ms")]
     Timeout { operation: String, timeout_ms: u64 },
-    
+
     #[error("Resource exhaustion: {0}")]
     ResourceExhaustion(String),
-    
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-    
+
     #[error("Core error: {0}")]
     CoreError(String),
-    
+
     #[error("Task cancelled")]
     Cancelled,
-    
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -74,7 +74,7 @@ impl SACAError {
             message: message.into(),
         }
     }
-    
+
     /// Check if this is a recoverable error
     pub fn is_recoverable(&self) -> bool {
         match self {
@@ -100,7 +100,7 @@ impl SACAError {
             Self::Unknown(_) => true,
         }
     }
-    
+
     /// Get error severity level
     pub fn severity(&self) -> ErrorSeverity {
         match self {
@@ -131,10 +131,10 @@ impl SACAError {
 /// Error severity levels
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ErrorSeverity {
-    Low,       // Minor issues, can continue
-    Medium,    // Significant but recoverable
-    High,      // Serious issues, may need intervention
-    Critical,  // System-level failures
+    Low,      // Minor issues, can continue
+    Medium,   // Significant but recoverable
+    High,     // Serious issues, may need intervention
+    Critical, // System-level failures
 }
 
 /// Result type for SACA operations
@@ -160,14 +160,15 @@ impl ErrorContext {
             additional_info: std::collections::HashMap::new(),
         }
     }
-    
+
     pub fn with_session(mut self, session_id: uuid::Uuid) -> Self {
         self.session_id = Some(session_id);
         self
     }
-    
+
     pub fn with_info(mut self, key: &str, value: &str) -> Self {
-        self.additional_info.insert(key.to_string(), value.to_string());
+        self.additional_info
+            .insert(key.to_string(), value.to_string());
         self
     }
 }
@@ -197,9 +198,7 @@ impl std::fmt::Display for ContextualError {
         write!(
             f,
             "[{}:{}] {}",
-            self.context.phase,
-            self.context.operation,
-            self.error
+            self.context.phase, self.context.operation, self.error
         )
     }
 }

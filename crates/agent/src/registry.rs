@@ -1,17 +1,17 @@
 //! Agent Registry
-//! 
+//!
 //! Registry untuk tracking semua agent aktif dan mapping intent ke agent.
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use tracing::{debug, warn};
+use uuid::Uuid;
 
+use crate::{Agent, AgentConfig, AgentError, AgentStatus, Result};
 use tokio::sync::Mutex;
-use crate::{Agent, AgentError, Result, AgentStatus, AgentConfig};
 
 /// Information tentang registered agent
 #[derive(Debug, Clone)]
@@ -67,7 +67,7 @@ impl AgentRegistry {
             type_index: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Register new agent
     pub async fn register_agent(
         &self,
@@ -76,7 +76,7 @@ impl AgentRegistry {
         agent: Box<dyn Agent>,
     ) -> Result<()> {
         let now = Utc::now();
-        
+
         // Check jika agent sudah terdaftar
         {
             let agents = self.agents.read().await;
@@ -84,10 +84,10 @@ impl AgentRegistry {
                 return Err(AgentError::AgentAlreadyExists(agent_id.to_string()));
             }
         }
-        
+
         // Get config from agent
         let agent_config = agent.get_config();
-        
+
         // Create agent info
         let info = AgentInfo {
             agent_id,
@@ -98,50 +98,54 @@ impl AgentRegistry {
             last_updated: now,
             restart_attempts: 0,
         };
-        
+
         // Register agent (wrap in Arc<Mutex> for shared access)
         {
             let mut agents = self.agents.write().await;
             agents.insert(agent_id, Arc::new(Mutex::new(agent)));
         }
-        
+
         // Register info
         {
             let mut agent_info = self.agent_info.write().await;
             agent_info.insert(agent_id, info);
         }
-        
+
         // Update type index
         {
             let mut type_index = self.type_index.write().await;
-            type_index.entry(agent_type).or_insert_with(Vec::new).push(agent_id);
+            type_index
+                .entry(agent_type)
+                .or_insert_with(Vec::new)
+                .push(agent_id);
         }
-        
+
         Ok(())
     }
-    
+
     /// Unregister agent
     pub async fn unregister_agent(&self, agent_id: Uuid) -> Result<()> {
         // Get agent type before removing
         let agent_type = {
             let agent_info = self.agent_info.read().await;
-            agent_info.get(&agent_id)
+            agent_info
+                .get(&agent_id)
                 .map(|info| info.agent_type.clone())
         };
-        
+
         if let Some(agent_type) = agent_type {
             // Remove from agents
             {
                 let mut agents = self.agents.write().await;
                 agents.remove(&agent_id);
             }
-            
+
             // Remove from info
             {
                 let mut agent_info = self.agent_info.write().await;
                 agent_info.remove(&agent_id);
             }
-            
+
             // Update type index
             {
                 let mut type_index = self.type_index.write().await;
@@ -152,26 +156,29 @@ impl AgentRegistry {
                     }
                 }
             }
-            
+
             Ok(())
         } else {
             Err(AgentError::AgentNotFound(agent_id.to_string()))
         }
     }
-    
+
     /// Get agent instance (shared handle)
     pub async fn get_agent(&self, agent_id: Uuid) -> Result<Arc<Mutex<Box<dyn Agent>>>> {
-        self.agents.read().await.get(&agent_id)
+        self.agents
+            .read()
+            .await
+            .get(&agent_id)
             .cloned()
             .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))
     }
-    
+
     /// Get agent info
     pub async fn get_agent_info(&self, agent_id: Uuid) -> Result<Option<AgentInfo>> {
         let agent_info = self.agent_info.read().await;
         Ok(agent_info.get(&agent_id).cloned())
     }
-    
+
     /// Update agent status
     pub async fn update_agent_status(&self, agent_id: Uuid, status: AgentStatus) -> Result<()> {
         let mut agent_info = self.agent_info.write().await;
@@ -183,38 +190,38 @@ impl AgentRegistry {
             Err(AgentError::AgentNotFound(agent_id.to_string()))
         }
     }
-    
+
     /// List all agents
     pub async fn list_agents(&self) -> Result<Vec<(Uuid, String, AgentStatus)>> {
         let agent_info = self.agent_info.read().await;
         let mut result = Vec::with_capacity(agent_info.len());
-        
+
         for (agent_id, info) in agent_info.iter() {
             result.push((*agent_id, info.agent_type.clone(), info.status.clone()));
         }
-        
+
         Ok(result)
     }
-    
+
     /// Get agents by type
     pub async fn get_agents_by_type(&self, agent_type: &str) -> Result<Vec<Uuid>> {
         let type_index = self.type_index.read().await;
         Ok(type_index.get(agent_type).cloned().unwrap_or_default())
     }
-    
+
     /// Get agent count
     pub async fn agent_count(&self) -> usize {
         let agents = self.agents.read().await;
         agents.len()
     }
-    
+
     /// Add intent mapping
     pub async fn add_intent_mapping(&self, mapping: IntentMapping) -> Result<()> {
         let mut mappings = self.intent_mappings.write().await;
         mappings.push(mapping);
         Ok(())
     }
-    
+
     /// Remove intent mapping
     pub async fn remove_intent_mapping(&self, index: usize) -> Result<()> {
         let mut mappings = self.intent_mappings.write().await;
@@ -222,25 +229,28 @@ impl AgentRegistry {
             mappings.remove(index);
             Ok(())
         } else {
-            Err(AgentError::ProcessingError("Invalid mapping index".to_string()))
+            Err(AgentError::ProcessingError(
+                "Invalid mapping index".to_string(),
+            ))
         }
     }
-    
+
     /// Get agent for intent
     pub async fn get_agent_for_intent(&self, intent: &str) -> Result<Option<Uuid>> {
         let mappings = self.intent_mappings.read().await;
-        
+
         // Find matching mapping (sorted by priority)
-        let mut matching_mappings: Vec<_> = mappings.iter()
+        let mut matching_mappings: Vec<_> = mappings
+            .iter()
             .filter(|m| m.active && self.intent_matches(intent, &m.intent_pattern))
             .collect();
-        
+
         matching_mappings.sort_by(|a, b| b.priority.cmp(&a.priority));
-        
+
         if let Some(mapping) = matching_mappings.first() {
             // Get available agent of this type
             let agents = self.get_agents_by_type(&mapping.agent_type).await?;
-            
+
             // Return first available agent
             for agent_id in agents {
                 if let Ok(Some(info)) = self.get_agent_info(agent_id).await {
@@ -250,48 +260,54 @@ impl AgentRegistry {
                 }
             }
         }
-        
+
         Ok(None)
     }
-    
+
     /// Check if intent matches pattern
     fn intent_matches(&self, intent: &str, pattern: &str) -> bool {
         // Implement regex matching
         match regex::Regex::new(pattern) {
             Ok(regex) => {
                 let matches = regex.is_match(intent);
-                debug!("Intent '{}' matches pattern '{}': {}", intent, pattern, matches);
+                debug!(
+                    "Intent '{}' matches pattern '{}': {}",
+                    intent, pattern, matches
+                );
                 matches
             }
             Err(e) => {
-                warn!("Invalid regex pattern '{}': {}, falling back to simple matching", pattern, e);
+                warn!(
+                    "Invalid regex pattern '{}': {}, falling back to simple matching",
+                    pattern, e
+                );
                 // Fallback to simple string matching
-                intent.to_lowercase().contains(&pattern.to_lowercase()) ||
-                pattern.to_lowercase().contains(&intent.to_lowercase())
+                intent.to_lowercase().contains(&pattern.to_lowercase())
+                    || pattern.to_lowercase().contains(&intent.to_lowercase())
             }
         }
     }
-    
+
     /// Get all intent mappings
     pub async fn get_intent_mappings(&self) -> Vec<IntentMapping> {
         let mappings = self.intent_mappings.read().await;
         mappings.clone()
     }
-    
+
     /// Get agents by status
     pub async fn get_agents_by_status(&self, status: AgentStatus) -> Result<Vec<Uuid>> {
         let agent_info = self.agent_info.read().await;
         let mut result = Vec::with_capacity(agent_info.len());
-        
+
         for (agent_id, info) in agent_info.iter() {
             if info.status == status {
                 result.push(*agent_id);
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Increment restart attempts
     pub async fn increment_restart_attempts(&self, agent_id: Uuid) -> Result<u32> {
         let mut agent_info = self.agent_info.write().await;
@@ -303,7 +319,7 @@ impl AgentRegistry {
             Err(AgentError::AgentNotFound(agent_id.to_string()))
         }
     }
-    
+
     /// Reset restart attempts
     pub async fn reset_restart_attempts(&self, agent_id: Uuid) -> Result<()> {
         let mut agent_info = self.agent_info.write().await;
@@ -315,31 +331,32 @@ impl AgentRegistry {
             Err(AgentError::AgentNotFound(agent_id.to_string()))
         }
     }
-    
+
     /// Cleanup old/dead agents
     pub async fn cleanup_dead_agents(&self, max_idle_seconds: u64) -> Result<usize> {
         let now = Utc::now();
         let mut dead_agents = Vec::new();
-        
+
         {
             let agent_info = self.agent_info.read().await;
             for (agent_id, info) in agent_info.iter() {
                 let idle_duration = (now - info.last_updated).num_seconds();
-                
-                if idle_duration > max_idle_seconds as i64 &&
-                   matches!(info.status, AgentStatus::Error(_) | AgentStatus::Shutdown) {
+
+                if idle_duration > max_idle_seconds as i64
+                    && matches!(info.status, AgentStatus::Error(_) | AgentStatus::Shutdown)
+                {
                     dead_agents.push(*agent_id);
                 }
             }
         }
-        
+
         // Unregister dead agents
         for agent_id in dead_agents.iter() {
             if let Err(e) = self.unregister_agent(*agent_id).await {
                 eprintln!("Failed to unregister dead agent {}: {}", agent_id, e);
             }
         }
-        
+
         Ok(dead_agents.len())
     }
 }
@@ -365,13 +382,13 @@ impl IntentMapping {
             active: true,
         }
     }
-    
+
     /// Set priority
     pub fn with_priority(mut self, priority: u8) -> Self {
         self.priority = priority;
         self
     }
-    
+
     /// Set active status
     pub fn with_active(mut self, active: bool) -> Self {
         self.active = active;

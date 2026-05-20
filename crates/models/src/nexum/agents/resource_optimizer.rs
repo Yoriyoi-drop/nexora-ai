@@ -1,15 +1,15 @@
 //! Resource Optimizer Agent
-//! 
+//!
 //! Optimizes resource allocation and utilization across the multi-agent system
 
-use std::collections::HashMap;
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use super::ImplementationComplexity;
+use async_trait::async_trait;
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Resource Optimizer Agent - Optimizes resource allocation and utilization
 #[derive(Debug, Clone)]
@@ -55,7 +55,9 @@ pub enum OptimizationStrategy {
     /// Adaptive optimization
     AdaptiveOptimization,
     /// Multi-objective optimization
-    MultiObjectiveOptimization { objectives: Vec<OptimizationObjective> },
+    MultiObjectiveOptimization {
+        objectives: Vec<OptimizationObjective>,
+    },
     /// Real-time optimization
     RealTimeOptimization,
 }
@@ -151,7 +153,11 @@ impl Default for ResourceConstraints {
                         idle_timeout_ms: 60000,
                     },
                 },
-                supported_protocols: vec!["HTTP".to_string(), "HTTPS".to_string(), "TCP".to_string()],
+                supported_protocols: vec![
+                    "HTTP".to_string(),
+                    "HTTPS".to_string(),
+                    "TCP".to_string(),
+                ],
             },
             storage_constraints: StorageConstraints {
                 max_storage_gb: 1000.0,
@@ -432,7 +438,10 @@ pub enum OptimizationAlgorithm {
     /// Linear programming
     LinearProgramming,
     /// Genetic algorithm
-    GeneticAlgorithm { population_size: u32, generations: u32 },
+    GeneticAlgorithm {
+        population_size: u32,
+        generations: u32,
+    },
     /// Simulated annealing
     SimulatedAnnealing { temperature: f32, cooling_rate: f32 },
     /// Particle swarm optimization
@@ -440,7 +449,10 @@ pub enum OptimizationAlgorithm {
     /// Gradient descent
     GradientDescent { learning_rate: f32, momentum: f32 },
     /// Reinforcement learning
-    ReinforcementLearning { algorithm: String, exploration_rate: f32 },
+    ReinforcementLearning {
+        algorithm: String,
+        exploration_rate: f32,
+    },
 }
 
 /// Optimization Capabilities
@@ -791,7 +803,10 @@ pub enum PredictionModel {
     /// Ensemble model
     EnsembleModel { models: Vec<PredictionModel> },
     /// Custom model
-    CustomModel { name: String, parameters: HashMap<String, f32> },
+    CustomModel {
+        name: String,
+        parameters: HashMap<String, f32>,
+    },
 }
 
 /// Resource Optimization Task Input
@@ -1089,7 +1104,11 @@ impl Default for ResourceOptimizerConfig {
                             idle_timeout_ms: 60000,
                         },
                     },
-                    supported_protocols: vec!["HTTP".to_string(), "HTTPS".to_string(), "TCP".to_string()],
+                    supported_protocols: vec![
+                        "HTTP".to_string(),
+                        "HTTPS".to_string(),
+                        "TCP".to_string(),
+                    ],
                 },
                 storage_constraints: StorageConstraints {
                     max_storage_gb: 1000.0,
@@ -1142,7 +1161,10 @@ impl Default for ResourceOptimizerConfig {
             },
             optimization_algorithms: vec![
                 OptimizationAlgorithm::LinearProgramming,
-                OptimizationAlgorithm::GeneticAlgorithm { population_size: 100, generations: 50 },
+                OptimizationAlgorithm::GeneticAlgorithm {
+                    population_size: 100,
+                    generations: 50,
+                },
             ],
         }
     }
@@ -1188,7 +1210,9 @@ impl Default for ResourceManagement {
                 },
                 preemption_policies: vec![
                     PreemptionPolicy::PriorityPreemption,
-                    PreemptionPolicy::ResourcePreemption { resources: vec![ResourceType::CPU, ResourceType::Memory] },
+                    PreemptionPolicy::ResourcePreemption {
+                        resources: vec![ResourceType::CPU, ResourceType::Memory],
+                    },
                 ],
             },
             resource_monitoring: ResourceMonitoring {
@@ -1227,18 +1251,19 @@ impl Default for PerformanceMonitoring {
             anomaly_detection: AnomalyDetection {
                 algorithms: vec![
                     AnomalyDetectionAlgorithm::StatisticalOutlier,
-                    AnomalyDetectionAlgorithm::MachineLearningBased { model_type: "IsolationForest".to_string() },
+                    AnomalyDetectionAlgorithm::MachineLearningBased {
+                        model_type: "IsolationForest".to_string(),
+                    },
                 ],
                 sensitivity_level: 0.7,
                 false_positive_tolerance: 0.1,
-                alert_mechanisms: vec![
-                    AlertMechanism::DashboardAlert,
-                    AlertMechanism::LogAlert,
-                ],
+                alert_mechanisms: vec![AlertMechanism::DashboardAlert, AlertMechanism::LogAlert],
             },
             performance_prediction: PerformancePrediction {
                 prediction_models: vec![
-                    PredictionModel::TimeSeriesModel { model_type: "ARIMA".to_string() },
+                    PredictionModel::TimeSeriesModel {
+                        model_type: "ARIMA".to_string(),
+                    },
                     PredictionModel::LinearRegression,
                 ],
                 prediction_horizon_hours: 24,
@@ -1276,25 +1301,33 @@ impl BaseAgent for ResourceOptimizerAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze current allocation
         let allocation_analysis = self.analyze_current_allocation(&input).await?;
-        
+
         // Optimize resource allocation
-        let optimization_result = self.optimize_resource_allocation(&input, &allocation_analysis).await?;
-        
+        let optimization_result = self
+            .optimize_resource_allocation(&input, &allocation_analysis)
+            .await?;
+
         // Calculate performance improvements
-        let performance_improvements = self.calculate_performance_improvements(&input, &optimization_result).await?;
-        
+        let performance_improvements = self
+            .calculate_performance_improvements(&input, &optimization_result)
+            .await?;
+
         // Perform cost analysis
-        let cost_analysis = self.perform_cost_analysis(&input, &optimization_result).await?;
-        
+        let cost_analysis = self
+            .perform_cost_analysis(&input, &optimization_result)
+            .await?;
+
         // Generate recommendations
-        let recommendations = self.generate_recommendations(&input, &optimization_result, &performance_improvements).await?;
-        
+        let recommendations = self
+            .generate_recommendations(&input, &optimization_result, &performance_improvements)
+            .await?;
+
         // Build output
         let output = ResourceOptimizationTaskOutput {
             optimized_allocation: optimization_result.optimized_allocation,
@@ -1303,9 +1336,9 @@ impl BaseAgent for ResourceOptimizerAgent {
             cost_analysis,
             recommendations,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -1318,21 +1351,25 @@ impl BaseAgent for ResourceOptimizerAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "resource_optimization".to_string(),
-                description: "Optimizes resource allocation and utilization".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["resource_allocation".to_string(), "resource_demands".to_string()],
-                output_types: vec!["optimized_allocation".to_string(), "performance_improvements".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.90,
-                    avg_latency: 1000.0,
-                    resource_usage: 0.8,
-                    reliability: 0.95,
-                },
+        vec![AgentCapability {
+            name: "resource_optimization".to_string(),
+            description: "Optimizes resource allocation and utilization".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "resource_allocation".to_string(),
+                "resource_demands".to_string(),
+            ],
+            output_types: vec![
+                "optimized_allocation".to_string(),
+                "performance_improvements".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.90,
+                avg_latency: 1000.0,
+                resource_usage: 0.8,
+                reliability: 0.95,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -1374,28 +1411,31 @@ impl ResourceOptimizerAgent {
     fn validate_input(&self, input: &ResourceOptimizationTaskInput) -> AgentResult<()> {
         if input.current_allocation.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Current allocation cannot be empty".to_string()
+                "Current allocation cannot be empty".to_string(),
             ));
         }
-        
+
         if input.resource_demands.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Resource demands cannot be empty".to_string()
+                "Resource demands cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Analyze current resource allocation
-    async fn analyze_current_allocation(&self, input: &ResourceOptimizationTaskInput) -> AgentResult<AllocationAnalysis> {
+    async fn analyze_current_allocation(
+        &self,
+        input: &ResourceOptimizationTaskInput,
+    ) -> AgentResult<AllocationAnalysis> {
         let mut utilization_rates = HashMap::new();
         let mut allocation_efficiency = HashMap::new();
-        
+
         for (agent_id, allocation) in &input.current_allocation {
             let utilization_rate = allocation.utilization_percentage / 100.0;
             utilization_rates.insert(agent_id.clone(), utilization_rate);
-            
+
             // Calculate allocation efficiency based on utilization
             let efficiency = if utilization_rate > 0.8 {
                 0.9 // High utilization is good
@@ -1404,13 +1444,15 @@ impl ResourceOptimizerAgent {
             } else {
                 0.4 // Low utilization is inefficient
             };
-            
+
             allocation_efficiency.insert(agent_id.clone(), efficiency);
         }
-        
-        let overall_utilization = utilization_rates.values().sum::<f32>() / utilization_rates.len() as f32;
-        let overall_efficiency = allocation_efficiency.values().sum::<f32>() / allocation_efficiency.len() as f32;
-        
+
+        let overall_utilization =
+            utilization_rates.values().sum::<f32>() / utilization_rates.len() as f32;
+        let overall_efficiency =
+            allocation_efficiency.values().sum::<f32>() / allocation_efficiency.len() as f32;
+
         Ok(AllocationAnalysis {
             utilization_rates,
             allocation_efficiency,
@@ -1420,125 +1462,162 @@ impl ResourceOptimizerAgent {
     }
 
     /// Optimize resource allocation
-    async fn optimize_resource_allocation(&self, input: &ResourceOptimizationTaskInput,
-                                       allocation_analysis: &AllocationAnalysis) -> AgentResult<OptimizationResult> {
+    async fn optimize_resource_allocation(
+        &self,
+        input: &ResourceOptimizationTaskInput,
+        allocation_analysis: &AllocationAnalysis,
+    ) -> AgentResult<OptimizationResult> {
         let mut optimized_allocation = HashMap::new();
         let mut total_improvement = 0.0;
-        
+
         // Sort demands by priority
         let mut sorted_demands = input.resource_demands.clone();
         sorted_demands.sort_by(|a, b| a.priority_level.cmp(&b.priority_level));
-        
+
         // Allocate resources based on strategy
         match &self.config.optimization_strategy {
             OptimizationStrategy::BalancedOptimization { weights } => {
                 for demand in &sorted_demands {
                     let current_allocation = input.current_allocation.get(&demand.agent_id);
-                    let optimized_amount = self.calculate_balanced_allocation(demand, current_allocation, weights);
-                    
-                    optimized_allocation.insert(demand.agent_id.clone(), ResourceAllocation {
-                        agent_id: demand.agent_id.clone(),
-                        resource_type: demand.resource_type.clone(),
-                        allocated_amount: optimized_amount,
-                        utilization_percentage: 85.0, // Target utilization
-                        allocation_timestamp: chrono::Utc::now(),
-                        expiration_timestamp: Some(chrono::Utc::now() + chrono::Duration::seconds(demand.duration_seconds as i64)),
-                    });
+                    let optimized_amount =
+                        self.calculate_balanced_allocation(demand, current_allocation, weights);
+
+                    optimized_allocation.insert(
+                        demand.agent_id.clone(),
+                        ResourceAllocation {
+                            agent_id: demand.agent_id.clone(),
+                            resource_type: demand.resource_type.clone(),
+                            allocated_amount: optimized_amount,
+                            utilization_percentage: 85.0, // Target utilization
+                            allocation_timestamp: chrono::Utc::now(),
+                            expiration_timestamp: Some(
+                                chrono::Utc::now()
+                                    + chrono::Duration::seconds(demand.duration_seconds as i64),
+                            ),
+                        },
+                    );
                 }
-            },
+            }
             OptimizationStrategy::CostMinimization => {
                 // Implement cost minimization logic
                 for demand in &sorted_demands {
                     let optimized_amount = self.calculate_cost_minimized_allocation(demand);
-                    
-                    optimized_allocation.insert(demand.agent_id.clone(), ResourceAllocation {
-                        agent_id: demand.agent_id.clone(),
-                        resource_type: demand.resource_type.clone(),
-                        allocated_amount: optimized_amount,
-                        utilization_percentage: 90.0, // Higher utilization for cost efficiency
-                        allocation_timestamp: chrono::Utc::now(),
-                        expiration_timestamp: Some(chrono::Utc::now() + chrono::Duration::seconds(demand.duration_seconds as i64)),
-                    });
+
+                    optimized_allocation.insert(
+                        demand.agent_id.clone(),
+                        ResourceAllocation {
+                            agent_id: demand.agent_id.clone(),
+                            resource_type: demand.resource_type.clone(),
+                            allocated_amount: optimized_amount,
+                            utilization_percentage: 90.0, // Higher utilization for cost efficiency
+                            allocation_timestamp: chrono::Utc::now(),
+                            expiration_timestamp: Some(
+                                chrono::Utc::now()
+                                    + chrono::Duration::seconds(demand.duration_seconds as i64),
+                            ),
+                        },
+                    );
                 }
-            },
+            }
             OptimizationStrategy::PerformanceMaximization => {
                 // Implement performance maximization logic
                 for demand in &sorted_demands {
                     let optimized_amount = self.calculate_performance_maximized_allocation(demand);
-                    
-                    optimized_allocation.insert(demand.agent_id.clone(), ResourceAllocation {
-                        agent_id: demand.agent_id.clone(),
-                        resource_type: demand.resource_type.clone(),
-                        allocated_amount: optimized_amount,
-                        utilization_percentage: 70.0, // Lower utilization for better performance
-                        allocation_timestamp: chrono::Utc::now(),
-                        expiration_timestamp: Some(chrono::Utc::now() + chrono::Duration::seconds(demand.duration_seconds as i64)),
-                    });
+
+                    optimized_allocation.insert(
+                        demand.agent_id.clone(),
+                        ResourceAllocation {
+                            agent_id: demand.agent_id.clone(),
+                            resource_type: demand.resource_type.clone(),
+                            allocated_amount: optimized_amount,
+                            utilization_percentage: 70.0, // Lower utilization for better performance
+                            allocation_timestamp: chrono::Utc::now(),
+                            expiration_timestamp: Some(
+                                chrono::Utc::now()
+                                    + chrono::Duration::seconds(demand.duration_seconds as i64),
+                            ),
+                        },
+                    );
                 }
-            },
+            }
             _ => {
                 // Default to current allocation
                 optimized_allocation = input.current_allocation.clone();
             }
         }
-        
+
         // Calculate optimization score
-        let optimization_score = self.calculate_optimization_score(&optimized_allocation, allocation_analysis);
-        
+        let optimization_score =
+            self.calculate_optimization_score(&optimized_allocation, allocation_analysis);
+
         Ok(OptimizationResult {
             optimized_allocation,
             results: OptimizationResults {
                 success: true,
                 optimization_score,
-                resource_utilization_improvement: (optimization_score - allocation_analysis.overall_efficiency) * 100.0,
+                resource_utilization_improvement: (optimization_score
+                    - allocation_analysis.overall_efficiency)
+                    * 100.0,
                 performance_improvement: optimization_score * 15.0, // Simplified calculation
-                cost_savings: optimization_score * 10.0, // Simplified calculation
-                execution_time_ms: 500, // Simplified
+                cost_savings: optimization_score * 10.0,            // Simplified calculation
+                execution_time_ms: 500,                             // Simplified
             },
         })
     }
 
     /// Calculate performance improvements
-    async fn calculate_performance_improvements(&self, _input: &ResourceOptimizationTaskInput,
-                                              optimization_result: &OptimizationResult) -> AgentResult<PerformanceImprovements> {
+    async fn calculate_performance_improvements(
+        &self,
+        _input: &ResourceOptimizationTaskInput,
+        optimization_result: &OptimizationResult,
+    ) -> AgentResult<PerformanceImprovements> {
         let improvement_factor = optimization_result.results.optimization_score;
-        
+
         Ok(PerformanceImprovements {
             latency_improvement: improvement_factor * 20.0, // 20% latency improvement
             throughput_improvement: improvement_factor * 25.0, // 25% throughput improvement
-            resource_efficiency_improvement: optimization_result.results.resource_utilization_improvement,
+            resource_efficiency_improvement: optimization_result
+                .results
+                .resource_utilization_improvement,
             quality_improvement: improvement_factor * 10.0, // 10% quality improvement
             user_experience_improvement: improvement_factor * 15.0, // 15% UX improvement
         })
     }
 
     /// Perform cost analysis
-    async fn perform_cost_analysis(&self, input: &ResourceOptimizationTaskInput,
-                                 optimization_result: &OptimizationResult) -> AgentResult<CostAnalysis> {
+    async fn perform_cost_analysis(
+        &self,
+        input: &ResourceOptimizationTaskInput,
+        optimization_result: &OptimizationResult,
+    ) -> AgentResult<CostAnalysis> {
         // Calculate current cost (simplified)
-        let current_cost_per_hour = input.current_allocation.values()
+        let current_cost_per_hour = input
+            .current_allocation
+            .values()
             .map(|alloc| alloc.allocated_amount * 0.01) // $0.01 per unit
             .sum();
-        
+
         // Calculate optimized cost
-        let optimized_cost_per_hour = optimization_result.optimized_allocation.values()
+        let optimized_cost_per_hour = optimization_result
+            .optimized_allocation
+            .values()
             .map(|alloc| alloc.allocated_amount * 0.01)
             .sum();
-        
+
         let cost_savings = current_cost_per_hour - optimized_cost_per_hour;
         let cost_savings_percentage = if current_cost_per_hour > 0.0 {
             (cost_savings / current_cost_per_hour) * 100.0
         } else {
             0.0
         };
-        
+
         // Create cost breakdown
         let mut cost_breakdown = HashMap::new();
         cost_breakdown.insert("CPU".to_string(), optimized_cost_per_hour * 0.4);
         cost_breakdown.insert("Memory".to_string(), optimized_cost_per_hour * 0.3);
         cost_breakdown.insert("Storage".to_string(), optimized_cost_per_hour * 0.2);
         cost_breakdown.insert("Network".to_string(), optimized_cost_per_hour * 0.1);
-        
+
         // Calculate ROI
         let roi_calculation = RoiCalculation {
             investment_cost: 1000.0, // Implementation cost
@@ -1546,7 +1625,7 @@ impl ResourceOptimizerAgent {
             payback_period_months: 1000.0 / (cost_savings * 24.0 * 30.0),
             annual_roi_percentage: (cost_savings * 24.0 * 365.0 / 1000.0) * 100.0,
         };
-        
+
         Ok(CostAnalysis {
             current_cost_per_hour,
             optimized_cost_per_hour,
@@ -1557,11 +1636,14 @@ impl ResourceOptimizerAgent {
     }
 
     /// Generate optimization recommendations
-    async fn generate_recommendations(&self, input: &ResourceOptimizationTaskInput,
-                                    optimization_result: &OptimizationResult,
-                                    performance_improvements: &PerformanceImprovements) -> AgentResult<Vec<OptimizationRecommendation>> {
+    async fn generate_recommendations(
+        &self,
+        input: &ResourceOptimizationTaskInput,
+        optimization_result: &OptimizationResult,
+        performance_improvements: &PerformanceImprovements,
+    ) -> AgentResult<Vec<OptimizationRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         // Resource scaling recommendation
         if optimization_result.results.resource_utilization_improvement > 10.0 {
             recommendations.push(OptimizationRecommendation {
@@ -1570,16 +1652,16 @@ impl ResourceOptimizerAgent {
                 description: "Scale resources based on demand patterns".to_string(),
                 expected_impact: ExpectedImpact {
                     performance_impact: performance_improvements.throughput_improvement,
-                    cost_impact: -5.0, // 5% cost reduction
+                    cost_impact: -5.0,     // 5% cost reduction
                     resource_impact: 15.0, // 15% resource efficiency
-                    quality_impact: 5.0, // 5% quality improvement
+                    quality_impact: 5.0,   // 5% quality improvement
                     time_to_implement_days: 7,
                 },
                 implementation_complexity: ImplementationComplexity::Medium,
                 priority_level: 1,
             });
         }
-        
+
         // Load balancing recommendation
         if performance_improvements.latency_improvement > 15.0 {
             recommendations.push(OptimizationRecommendation {
@@ -1588,16 +1670,16 @@ impl ResourceOptimizerAgent {
                 description: "Implement intelligent load balancing".to_string(),
                 expected_impact: ExpectedImpact {
                     performance_impact: performance_improvements.latency_improvement,
-                    cost_impact: 2.0, // 2% cost increase
+                    cost_impact: 2.0,      // 2% cost increase
                     resource_impact: 10.0, // 10% resource efficiency
-                    quality_impact: 8.0, // 8% quality improvement
+                    quality_impact: 8.0,   // 8% quality improvement
                     time_to_implement_days: 14,
                 },
                 implementation_complexity: ImplementationComplexity::High,
                 priority_level: 2,
             });
         }
-        
+
         // Cost optimization recommendation
         if optimization_result.results.cost_savings > 50.0 {
             recommendations.push(OptimizationRecommendation {
@@ -1606,31 +1688,36 @@ impl ResourceOptimizerAgent {
                 description: "Optimize resource scheduling for cost efficiency".to_string(),
                 expected_impact: ExpectedImpact {
                     performance_impact: 5.0, // 5% performance impact
-                    cost_impact: -15.0, // 15% cost reduction
-                    resource_impact: 20.0, // 20% resource efficiency
-                    quality_impact: 2.0, // 2% quality impact
+                    cost_impact: -15.0,      // 15% cost reduction
+                    resource_impact: 20.0,   // 20% resource efficiency
+                    quality_impact: 2.0,     // 2% quality impact
                     time_to_implement_days: 3,
                 },
                 implementation_complexity: ImplementationComplexity::Low,
                 priority_level: 3,
             });
         }
-        
+
         Ok(recommendations)
     }
 
     /// Calculate balanced allocation
-    fn calculate_balanced_allocation(&self, demand: &ResourceDemand, 
-                                  current_allocation: Option<&ResourceAllocation>,
-                                  weights: &OptimizationWeights) -> f32 {
+    fn calculate_balanced_allocation(
+        &self,
+        demand: &ResourceDemand,
+        current_allocation: Option<&ResourceAllocation>,
+        weights: &OptimizationWeights,
+    ) -> f32 {
         let base_amount = demand.required_amount;
-        let current_amount = current_allocation.map(|alloc| alloc.allocated_amount).unwrap_or(0.0);
-        
+        let current_amount = current_allocation
+            .map(|alloc| alloc.allocated_amount)
+            .unwrap_or(0.0);
+
         // Calculate weighted score
         let performance_factor = weights.performance_weight;
         let cost_factor = weights.cost_weight;
         let efficiency_factor = weights.efficiency_weight;
-        
+
         // Adjust based on priority
         let priority_multiplier = match demand.priority_level {
             1 => 1.2, // High priority gets 20% more
@@ -1638,12 +1725,16 @@ impl ResourceOptimizerAgent {
             3 => 0.8, // Low priority gets 20% less
             _ => 1.0,
         };
-        
-        let adjusted_amount = base_amount * priority_multiplier * (performance_factor + cost_factor + efficiency_factor);
-        
+
+        let adjusted_amount = base_amount
+            * priority_multiplier
+            * (performance_factor + cost_factor + efficiency_factor);
+
         // Ensure we don't exceed current allocation by too much
         if current_amount > 0.0 {
-            adjusted_amount.min(current_amount * 1.5).max(current_amount * 0.5)
+            adjusted_amount
+                .min(current_amount * 1.5)
+                .max(current_amount * 0.5)
         } else {
             adjusted_amount
         }
@@ -1662,12 +1753,15 @@ impl ResourceOptimizerAgent {
     }
 
     /// Calculate optimization score
-    fn calculate_optimization_score(&self, _optimized_allocation: &HashMap<String, ResourceAllocation>,
-                                   allocation_analysis: &AllocationAnalysis) -> f32 {
+    fn calculate_optimization_score(
+        &self,
+        _optimized_allocation: &HashMap<String, ResourceAllocation>,
+        allocation_analysis: &AllocationAnalysis,
+    ) -> f32 {
         // Simplified optimization score calculation
         let utilization_score = allocation_analysis.overall_utilization;
         let efficiency_score = allocation_analysis.overall_efficiency;
-        
+
         (utilization_score + efficiency_score) / 2.0
     }
 }
@@ -1702,26 +1796,25 @@ mod tests {
     async fn test_resource_optimization_task_processing() {
         let agent = ResourceOptimizerAgent::default();
         let input = ResourceOptimizationTaskInput {
-            current_allocation: HashMap::from([
-                ("agent1".to_string(), ResourceAllocation {
+            current_allocation: HashMap::from([(
+                "agent1".to_string(),
+                ResourceAllocation {
                     agent_id: "agent1".to_string(),
                     resource_type: ResourceType::CPU,
                     allocated_amount: 4.0,
                     utilization_percentage: 60.0,
                     allocation_timestamp: chrono::Utc::now(),
                     expiration_timestamp: None,
-                }),
-            ]),
-            resource_demands: vec![
-                ResourceDemand {
-                    agent_id: "agent1".to_string(),
-                    resource_type: ResourceType::CPU,
-                    required_amount: 6.0,
-                    priority_level: 1,
-                    duration_seconds: 3600,
-                    flexible_allocation: true,
                 },
-            ],
+            )]),
+            resource_demands: vec![ResourceDemand {
+                agent_id: "agent1".to_string(),
+                resource_type: ResourceType::CPU,
+                required_amount: 6.0,
+                priority_level: 1,
+                duration_seconds: 3600,
+                flexible_allocation: true,
+            }],
             performance_metrics: HashMap::new(),
             optimization_constraints: OptimizationConstraints {
                 resource_constraints: ResourceConstraints::default(),
@@ -1743,7 +1836,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.optimized_allocation.is_empty());
         assert!(output.optimization_results.success);
@@ -1760,7 +1853,7 @@ mod tests {
             reliability_weight: 0.05,
             scalability_weight: 0.05,
         };
-        
+
         let demand = ResourceDemand {
             agent_id: "agent1".to_string(),
             resource_type: ResourceType::CPU,
@@ -1769,7 +1862,7 @@ mod tests {
             duration_seconds: 3600,
             flexible_allocation: true,
         };
-        
+
         let allocation = agent.calculate_balanced_allocation(&demand, None, &weights);
         assert!(allocation > 0.0);
         assert!(allocation >= demand.required_amount);
@@ -1782,7 +1875,10 @@ mod tests {
             ..Default::default()
         };
         let agent = ResourceOptimizerAgent::new(config);
-        
-        assert!(matches!(agent.config.optimization_strategy, OptimizationStrategy::CostMinimization));
+
+        assert!(matches!(
+            agent.config.optimization_strategy,
+            OptimizationStrategy::CostMinimization
+        ));
     }
 }

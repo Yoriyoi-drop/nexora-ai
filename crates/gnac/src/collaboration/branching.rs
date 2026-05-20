@@ -1,7 +1,7 @@
 use crate::canvas::NeuralGraph;
 use crate::experiment::diff::GraphDiff;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// Branchable architecture — fork & merge untuk eksperimen paralel
 #[derive(Debug, Clone)]
@@ -29,7 +29,9 @@ pub struct BranchManager {
 
 impl BranchManager {
     pub fn new() -> Self {
-        BranchManager { branches: Vec::new() }
+        BranchManager {
+            branches: Vec::new(),
+        }
     }
 
     /// Fork dari graf existing
@@ -50,9 +52,15 @@ impl BranchManager {
 
     /// Merge dua branch
     pub fn merge(&mut self, source_id: &Uuid, target_id: &Uuid) -> Result<GraphDiff, String> {
-        let source_idx = self.branches.iter().position(|b| b.id == *source_id)
+        let source_idx = self
+            .branches
+            .iter()
+            .position(|b| b.id == *source_id)
             .ok_or("Source branch not found")?;
-        let target_idx = self.branches.iter().position(|b| b.id == *target_id)
+        let target_idx = self
+            .branches
+            .iter()
+            .position(|b| b.id == *target_id)
             .ok_or("Target branch not found")?;
 
         let source = &self.branches[source_idx];

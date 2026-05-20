@@ -1,6 +1,6 @@
-use crate::DLResult;
 use crate::canvas::NeuralGraph;
 use crate::execution::{ExecutionBackend, GraphIR};
+use crate::DLResult;
 
 /// Export hasil distillation ke format deployment
 pub struct ExportManager;
@@ -9,8 +9,11 @@ impl ExportManager {
     /// Export ke format backend target
     pub fn export(graph: &NeuralGraph, backend: ExecutionBackend) -> DLResult<String> {
         let ir = GraphIR::from_graph(graph, backend);
-        let serialized = serde_json::to_string_pretty(&ir.name)
-            .map_err(|e| crate::DeepLearningError::Computation { reason: e.to_string() })?;
+        let serialized = serde_json::to_string_pretty(&ir.name).map_err(|e| {
+            crate::DeepLearningError::Computation {
+                reason: e.to_string(),
+            }
+        })?;
         Ok(serialized)
     }
 
@@ -23,17 +26,26 @@ impl ExportManager {
         match target {
             "edge_tpu" => {
                 if total_params > 10_000_000 {
-                    warnings.push(format!("Model too large for Edge TPU: {} params", total_params));
+                    warnings.push(format!(
+                        "Model too large for Edge TPU: {} params",
+                        total_params
+                    ));
                 }
             }
             "mobile" => {
                 if total_flops > 1_000_000_000 {
-                    warnings.push(format!("Model too compute-intensive for mobile: {} FLOPs", total_flops));
+                    warnings.push(format!(
+                        "Model too compute-intensive for mobile: {} FLOPs",
+                        total_flops
+                    ));
                 }
             }
             "browser" => {
                 if total_params > 50_000_000 {
-                    warnings.push(format!("Model too large for browser: {} params", total_params));
+                    warnings.push(format!(
+                        "Model too large for browser: {} params",
+                        total_params
+                    ));
                 }
             }
             _ => {}

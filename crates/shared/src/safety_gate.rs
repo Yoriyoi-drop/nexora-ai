@@ -6,12 +6,13 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use super::{
-    model_identity::NxrModelId,
-    capability_spec::{CapabilityDomain, CapabilityLevel, CapabilityVector},
     base_model::NxrModelError,
+    capability_spec::{CapabilityDomain, CapabilityLevel, CapabilityVector},
+    model_identity::NxrModelId,
 };
 
-static LOCKED_CAPABILITIES: std::sync::OnceLock<Vec<(CapabilityDomain, CapabilityLevel)>> = std::sync::OnceLock::new();
+static LOCKED_CAPABILITIES: std::sync::OnceLock<Vec<(CapabilityDomain, CapabilityLevel)>> =
+    std::sync::OnceLock::new();
 
 fn locked_capabilities() -> &'static Vec<(CapabilityDomain, CapabilityLevel)> {
     LOCKED_CAPABILITIES.get_or_init(|| {
@@ -59,7 +60,7 @@ impl SafetyGate {
     pub fn check_alignment(&self) -> Result<(), NxrModelError> {
         if !self.alignment_enabled {
             return Err(NxrModelError::Configuration(
-                "SPARO alignment gate is disabled - all models require alignment".to_string()
+                "SPARO alignment gate is disabled - all models require alignment".to_string(),
             ));
         }
         Ok(())
@@ -68,7 +69,7 @@ impl SafetyGate {
     pub fn check_sandbox(&self) -> Result<(), NxrModelError> {
         if !self.sandbox_enabled {
             return Err(NxrModelError::Configuration(
-                "Sandbox isolation is disabled - Cipher and Genesis require sandbox".to_string()
+                "Sandbox isolation is disabled - Cipher and Genesis require sandbox".to_string(),
             ));
         }
         Ok(())
@@ -81,7 +82,7 @@ impl SafetyGate {
         match consent_token {
             Some(token) if !token.is_empty() => Ok(()),
             _ => Err(NxrModelError::Configuration(
-                "Consent token required for psychological profiling".to_string()
+                "Consent token required for psychological profiling".to_string(),
             )),
         }
     }
@@ -89,7 +90,7 @@ impl SafetyGate {
     pub fn check_audit(&self) -> Result<(), NxrModelError> {
         if !self.audit_enabled {
             return Err(NxrModelError::Configuration(
-                "Audit trail is disabled - multi-agent decisions require audit".to_string()
+                "Audit trail is disabled - multi-agent decisions require audit".to_string(),
             ));
         }
         Ok(())
@@ -187,7 +188,8 @@ impl ConsentToken {
     }
 
     pub fn covers_scope(&self, required: &ConsentScope) -> bool {
-        matches!(self.scope, ConsentScope::All) || std::mem::discriminant(&self.scope) == std::mem::discriminant(required)
+        matches!(self.scope, ConsentScope::All)
+            || std::mem::discriminant(&self.scope) == std::mem::discriminant(required)
     }
 }
 
@@ -285,7 +287,11 @@ impl GlobalSafetyGate {
         }
     }
 
-    pub async fn enforce_all(&self, model_id: NxrModelId, capabilities: &mut CapabilityVector) -> Result<(), NxrModelError> {
+    pub async fn enforce_all(
+        &self,
+        model_id: NxrModelId,
+        capabilities: &mut CapabilityVector,
+    ) -> Result<(), NxrModelError> {
         self.gate.check_alignment()?;
 
         if SafetyGate::sandbox_models().contains(&model_id) {
@@ -297,7 +303,11 @@ impl GlobalSafetyGate {
         Ok(())
     }
 
-    pub async fn pre_inference_check(&self, model_id: NxrModelId, consent: Option<&str>) -> Result<(), NxrModelError> {
+    pub async fn pre_inference_check(
+        &self,
+        model_id: NxrModelId,
+        consent: Option<&str>,
+    ) -> Result<(), NxrModelError> {
         self.gate.check_alignment()?;
 
         if SafetyGate::sandbox_models().contains(&model_id) {
@@ -325,5 +335,7 @@ impl Default for GlobalSafetyGate {
 static GLOBAL_SAFETY: std::sync::OnceLock<Arc<GlobalSafetyGate>> = std::sync::OnceLock::new();
 
 pub fn global_safety() -> Arc<GlobalSafetyGate> {
-    GLOBAL_SAFETY.get_or_init(|| Arc::new(GlobalSafetyGate::new())).clone()
+    GLOBAL_SAFETY
+        .get_or_init(|| Arc::new(GlobalSafetyGate::new()))
+        .clone()
 }

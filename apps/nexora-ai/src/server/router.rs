@@ -1,59 +1,48 @@
-use std::sync::Arc;
-use std::collections::HashSet;
 use anyhow::Result;
 use axum::{
-    Router, routing::get, routing::post, Extension,
-    extract::Request,
-    http::{Method, HeaderName, StatusCode},
-    middleware::{self, Next},
-    response::{Response, IntoResponse},
     body::Body,
-    Json,
+    extract::Request,
+    http::{HeaderName, Method, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::get,
+    routing::post,
+    Extension, Json, Router,
 };
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use serde::Serialize;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
-use crate::NexoraAI;
-use crate::config::server::ServerConfig;
 use super::handlers::*;
+use crate::config::server::ServerConfig;
+use crate::NexoraAI;
 
-pub async fn create_router(
-    nexora: Arc<NexoraAI>,
-    config: &ServerConfig,
-) -> Result<Router> {
+pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Result<Router> {
     let _ = init_metrics();
 
-    let valid_keys: Arc<HashSet<String>> = Arc::new(
-        config.api_keys.iter().cloned().collect()
-    );
+    let valid_keys: Arc<HashSet<String>> = Arc::new(config.api_keys.iter().cloned().collect());
     let enable_auth = config.enable_auth;
 
     let mut app = Router::new()
         .route("/health", get(health_check))
         .route("/health/detailed", get(detailed_health_check))
         .route("/metrics", get(metrics_handler))
-
         .route("/info", get(system_info))
         .route("/info/performance", get(performance_metrics))
         .route("/info/memory", get(memory_stats))
-
         .route("/train/metrics", get(get_train_metrics))
         .route("/train/metrics", post(post_train_metrics))
-
         .route("/process", post(process_request))
         .route("/generate", post(generate_text))
         .route("/chat", post(chat))
-
         .route("/code/analyze", post(analyze_code))
         .route("/code/generate", post(generate_code))
-
         .route("/config", get(get_config))
         .route("/config", post(update_config))
-
         .route("/", get(index))
         .route("/static/*path", get(static_files))
-
         .layer(Extension(nexora));
 
     if config.enable_cors {
@@ -87,20 +76,19 @@ async fn auth_middleware_layer(
         return Ok(next.run(req).await);
     }
 
-    let api_key = req.headers()
+    let api_key = req
+        .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .or_else(|| {
-            req.headers()
-                .get("x-api-key")
-                .and_then(|v| v.to_str().ok())
-        });
+        .or_else(|| req.headers().get("x-api-key").and_then(|v| v.to_str().ok()));
 
     match api_key {
         Some(key) if valid_keys.contains(key) => Ok(next.run(req).await),
         _ => {
-            let resp = ErrorResponse { error: "Unauthorized: invalid or missing API key".into() };
+            let resp = ErrorResponse {
+                error: "Unauthorized: invalid or missing API key".into(),
+            };
             Err((StatusCode::UNAUTHORIZED, Json(resp)).into_response())
         }
     }
@@ -129,13 +117,19 @@ fn add_cors_layer(mut app: Router, config: &ServerConfig) -> Result<Router> {
             .allow_methods(tower_http::cors::Any)
             .allow_headers(tower_http::cors::Any)
     } else {
-        let origins: Vec<_> = config.cors_origins.iter()
+        let origins: Vec<_> = config
+            .cors_origins
+            .iter()
             .filter_map(|o| o.parse().ok())
             .collect();
         let methods: Vec<Method> = vec!["GET", "POST", "PUT", "DELETE"]
-            .into_iter().filter_map(|m| m.parse().ok()).collect();
+            .into_iter()
+            .filter_map(|m| m.parse().ok())
+            .collect();
         let headers: Vec<HeaderName> = vec!["Content-Type", "Authorization"]
-            .into_iter().filter_map(|h| h.parse().ok()).collect();
+            .into_iter()
+            .filter_map(|h| h.parse().ok())
+            .collect();
         CorsLayer::new()
             .allow_origin(origins)
             .allow_methods(methods)

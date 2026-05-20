@@ -1,6 +1,4 @@
-use prometheus::{
-    Counter, Gauge, Histogram, HistogramOpts, Registry, TextEncoder, Encoder,
-};
+use prometheus::{Counter, Encoder, Gauge, Histogram, HistogramOpts, Registry, TextEncoder};
 
 pub struct MetricsCollector {
     registry: Registry,
@@ -17,26 +15,28 @@ impl MetricsCollector {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        let request_counter = Counter::new("nexora_requests_total", "Total requests")
-            .expect("metric registered");
+        let request_counter =
+            Counter::new("nexora_requests_total", "Total requests").expect("metric registered");
         let request_failures = Counter::new("nexora_request_failures_total", "Failed requests")
             .expect("metric registered");
         let request_latency = Histogram::with_opts(
-            HistogramOpts::new("nexora_request_latency_seconds", "Request latency (seconds)")
-                .buckets(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            HistogramOpts::new(
+                "nexora_request_latency_seconds",
+                "Request latency (seconds)",
+            )
+            .buckets(vec![
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ]),
         )
         .expect("metric registered");
-        let active_connections =
-            Gauge::new("nexora_active_connections", "Active connections")
-                .expect("metric registered");
-        let memory_usage =
-            Gauge::new("nexora_memory_usage_bytes", "Memory usage in bytes")
-                .expect("metric registered");
-        let cpu_usage = Gauge::new("nexora_cpu_usage_ratio", "CPU usage (0-1)")
+        let active_connections = Gauge::new("nexora_active_connections", "Active connections")
             .expect("metric registered");
+        let memory_usage = Gauge::new("nexora_memory_usage_bytes", "Memory usage in bytes")
+            .expect("metric registered");
+        let cpu_usage =
+            Gauge::new("nexora_cpu_usage_ratio", "CPU usage (0-1)").expect("metric registered");
         let queue_depth =
-            Gauge::new("nexora_queue_depth", "Current queue depth")
-                .expect("metric registered");
+            Gauge::new("nexora_queue_depth", "Current queue depth").expect("metric registered");
 
         registry
             .register(Box::new(request_counter.clone()))

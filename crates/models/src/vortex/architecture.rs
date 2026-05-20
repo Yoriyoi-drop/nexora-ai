@@ -1,10 +1,10 @@
 //! NXR-VORTEX Architecture
-//! 
+//!
 //! Implementation of the Sparse MoE + Code-Specialized architecture
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::_VortexConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-VORTEX Architecture Implementation
 pub struct _VortexArchitecture {
@@ -132,7 +132,11 @@ pub enum TokenizationMethod {
     /// AST-based tokenization
     ASTBased,
     /// Hybrid tokenization
-    Hybrid { byte_weight: f32, subword_weight: f32, ast_weight: f32 },
+    Hybrid {
+        byte_weight: f32,
+        subword_weight: f32,
+        ast_weight: f32,
+    },
 }
 
 /// Special Tokens
@@ -621,87 +625,122 @@ impl _VortexArchitecture {
     /// Create new architecture with configuration
     pub fn new(config: &_VortexConfig) -> Self {
         let mut code_experts = HashMap::new();
-        
+
         // Initialize code expert networks
-        code_experts.insert("code_generation".to_string(), CodeExpertNetwork {
-            id: "code_generation".to_string(),
-            specialization: CodeSpecialization::CodeGeneration,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.972,
-            supported_languages: vec!["rust".to_string(), "python".to_string(), "javascript".to_string()],
-            parameters: ExpertParameters {
-                hidden_size: 2048,
-                num_layers: 24,
-                attention_heads: 32,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
+        code_experts.insert(
+            "code_generation".to_string(),
+            CodeExpertNetwork {
+                id: "code_generation".to_string(),
+                specialization: CodeSpecialization::CodeGeneration,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.972,
+                supported_languages: vec![
+                    "rust".to_string(),
+                    "python".to_string(),
+                    "javascript".to_string(),
+                ],
+                parameters: ExpertParameters {
+                    hidden_size: 2048,
+                    num_layers: 24,
+                    attention_heads: 32,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                },
             },
-        });
-        
-        code_experts.insert("debugging".to_string(), CodeExpertNetwork {
-            id: "debugging".to_string(),
-            specialization: CodeSpecialization::Debugging,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.95,
-            supported_languages: vec!["rust".to_string(), "python".to_string(), "c++".to_string()],
-            parameters: ExpertParameters {
-                hidden_size: 1024,
-                num_layers: 16,
-                attention_heads: 16,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
+        );
+
+        code_experts.insert(
+            "debugging".to_string(),
+            CodeExpertNetwork {
+                id: "debugging".to_string(),
+                specialization: CodeSpecialization::Debugging,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.95,
+                supported_languages: vec![
+                    "rust".to_string(),
+                    "python".to_string(),
+                    "c++".to_string(),
+                ],
+                parameters: ExpertParameters {
+                    hidden_size: 1024,
+                    num_layers: 16,
+                    attention_heads: 16,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                },
             },
-        });
-        
-        code_experts.insert("architecture".to_string(), CodeExpertNetwork {
-            id: "architecture".to_string(),
-            specialization: CodeSpecialization::ArchitectureAnalysis,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.94,
-            supported_languages: vec!["rust".to_string(), "python".to_string(), "java".to_string()],
-            parameters: ExpertParameters {
-                hidden_size: 1536,
-                num_layers: 20,
-                attention_heads: 24,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
+        );
+
+        code_experts.insert(
+            "architecture".to_string(),
+            CodeExpertNetwork {
+                id: "architecture".to_string(),
+                specialization: CodeSpecialization::ArchitectureAnalysis,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.94,
+                supported_languages: vec![
+                    "rust".to_string(),
+                    "python".to_string(),
+                    "java".to_string(),
+                ],
+                parameters: ExpertParameters {
+                    hidden_size: 1536,
+                    num_layers: 20,
+                    attention_heads: 24,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                },
             },
-        });
-        
-        code_experts.insert("optimization".to_string(), CodeExpertNetwork {
-            id: "optimization".to_string(),
-            specialization: CodeSpecialization::PerformanceOptimization,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.91,
-            supported_languages: vec!["rust".to_string(), "c++".to_string(), "python".to_string()],
-            parameters: ExpertParameters {
-                hidden_size: 1280,
-                num_layers: 18,
-                attention_heads: 20,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
+        );
+
+        code_experts.insert(
+            "optimization".to_string(),
+            CodeExpertNetwork {
+                id: "optimization".to_string(),
+                specialization: CodeSpecialization::PerformanceOptimization,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.91,
+                supported_languages: vec![
+                    "rust".to_string(),
+                    "c++".to_string(),
+                    "python".to_string(),
+                ],
+                parameters: ExpertParameters {
+                    hidden_size: 1280,
+                    num_layers: 18,
+                    attention_heads: 20,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                },
             },
-        });
-        
-        code_experts.insert("security".to_string(), CodeExpertNetwork {
-            id: "security".to_string(),
-            specialization: CodeSpecialization::SecurityAnalysis,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.97,
-            supported_languages: vec!["rust".to_string(), "c++".to_string(), "java".to_string()],
-            parameters: ExpertParameters {
-                hidden_size: 1792,
-                num_layers: 22,
-                attention_heads: 28,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
+        );
+
+        code_experts.insert(
+            "security".to_string(),
+            CodeExpertNetwork {
+                id: "security".to_string(),
+                specialization: CodeSpecialization::SecurityAnalysis,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.97,
+                supported_languages: vec![
+                    "rust".to_string(),
+                    "c++".to_string(),
+                    "java".to_string(),
+                ],
+                parameters: ExpertParameters {
+                    hidden_size: 1792,
+                    num_layers: 22,
+                    attention_heads: 28,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                },
             },
-        });
+        );
 
         Self {
             config: config.clone(),
@@ -773,15 +812,9 @@ impl _VortexArchitecture {
                 },
                 fix_generator: FixGenerator {
                     model_type: ModelType::Transformer,
-                    strategies: vec![
-                        FixStrategy::ContextAware,
-                        FixStrategy::MultiOption,
-                    ],
+                    strategies: vec![FixStrategy::ContextAware, FixStrategy::MultiOption],
                     validation: FixValidation {
-                        methods: vec![
-                            ValidationMethod::Static,
-                            ValidationMethod::TestBased,
-                        ],
+                        methods: vec![ValidationMethod::Static, ValidationMethod::TestBased],
                         criteria: Vec::new(),
                     },
                 },
@@ -837,7 +870,8 @@ impl _VortexArchitecture {
         }
 
         // Initialize sparse router
-        self.sparse_router.expert_weights = self.code_experts
+        self.sparse_router.expert_weights = self
+            .code_experts
             .iter()
             .map(|(id, expert)| (id.clone(), expert.performance_score))
             .collect();
@@ -846,7 +880,8 @@ impl _VortexArchitecture {
         self.pattern_engine.pattern_database = self.initialize_pattern_database().await?;
 
         // Initialize error categories
-        self.neural_debugger.error_classifier.error_categories = self.initialize_error_categories().await?;
+        self.neural_debugger.error_classifier.error_categories =
+            self.initialize_error_categories().await?;
 
         // Initialize architecture metrics
         self.arch_analyzer.metrics = self.initialize_architecture_metrics().await?;
@@ -980,20 +1015,18 @@ impl _VortexArchitecture {
             ErrorCategory {
                 name: "Logic Errors".to_string(),
                 description: "Errors in program logic".to_string(),
-                error_types: vec![
-                    ErrorType {
-                        name: "Null Pointer".to_string(),
-                        description: "Dereferencing null pointer".to_string(),
-                        typical_causes: vec![
-                            "Uninitialized variables".to_string(),
-                            "Missing null checks".to_string(),
-                        ],
-                        common_fixes: vec![
-                            "Add null checks".to_string(),
-                            "Initialize variables".to_string(),
-                        ],
-                    },
-                ],
+                error_types: vec![ErrorType {
+                    name: "Null Pointer".to_string(),
+                    description: "Dereferencing null pointer".to_string(),
+                    typical_causes: vec![
+                        "Uninitialized variables".to_string(),
+                        "Missing null checks".to_string(),
+                    ],
+                    common_fixes: vec![
+                        "Add null checks".to_string(),
+                        "Initialize variables".to_string(),
+                    ],
+                }],
             },
         ])
     }
@@ -1040,7 +1073,9 @@ impl _VortexArchitecture {
         }
 
         // Validate pattern engine
-        if self.pattern_engine.confidence_threshold < 0.0 || self.pattern_engine.confidence_threshold > 1.0 {
+        if self.pattern_engine.confidence_threshold < 0.0
+            || self.pattern_engine.confidence_threshold > 1.0
+        {
             return Err("Invalid confidence threshold".into());
         }
 
@@ -1051,56 +1086,54 @@ impl _VortexArchitecture {
     pub async fn select_experts(&self, code: &str, task: &str) -> Vec<String> {
         // Analyze code and task to determine which experts to use
         let mut selected_experts = Vec::new();
-        
+
         // Task-based selection
         if task.contains("generate") || task.contains("write") {
             selected_experts.push("code_generation".to_string());
         }
-        
+
         if task.contains("debug") || task.contains("fix") || task.contains("error") {
             selected_experts.push("debugging".to_string());
         }
-        
+
         if task.contains("architecture") || task.contains("design") || task.contains("pattern") {
             selected_experts.push("architecture".to_string());
         }
-        
+
         if task.contains("optimize") || task.contains("performance") || task.contains("speed") {
             selected_experts.push("optimization".to_string());
         }
-        
+
         if task.contains("security") || task.contains("vulnerability") || task.contains("safe") {
             selected_experts.push("security".to_string());
         }
-        
+
         // Language-based selection
         if code.contains("fn ") || code.contains("let ") {
             selected_experts.push("code_generation".to_string());
         }
-        
+
         if code.contains("error") || code.contains("panic") || code.contains("exception") {
             selected_experts.push("debugging".to_string());
         }
-        
+
         // Limit to top-k experts
         selected_experts.truncate(self.sparse_router.top_k);
-        
+
         selected_experts
     }
 
     /// Analyze code patterns
     pub async fn analyze_patterns(&self, code: &str) -> NxrModelResult<Vec<PatternMatch>> {
         let mut matches = Vec::new();
-        
+
         // Use pattern recognition engine
         for algorithm in &self.pattern_engine.algorithms {
             let algorithm_matches = match algorithm {
                 RecognitionAlgorithm::PatternMatching => {
                     self.pattern_matching_analysis(code).await?
                 }
-                RecognitionAlgorithm::ASTAnalysis => {
-                    self.ast_analysis(code).await?
-                }
+                RecognitionAlgorithm::ASTAnalysis => self.ast_analysis(code).await?,
                 RecognitionAlgorithm::NeuralDetection => {
                     self.neural_pattern_detection(code).await?
                 }
@@ -1111,23 +1144,27 @@ impl _VortexArchitecture {
                     self.hybrid_pattern_analysis(code, weights).await?
                 }
             };
-            
+
             matches.extend(algorithm_matches);
         }
-        
+
         // Filter by confidence threshold
         matches.retain(|m| m.confidence >= self.pattern_engine.confidence_threshold);
-        
+
         // Sort by confidence
-        matches.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
-        
+        matches.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         Ok(matches)
     }
 
     /// Pattern matching analysis
     async fn pattern_matching_analysis(&self, code: &str) -> NxrModelResult<Vec<PatternMatch>> {
         let mut matches = Vec::new();
-        
+
         // Simple pattern matching implementation
         for pattern in &self.pattern_engine.pattern_database.design_patterns {
             for rule in &pattern.detection_rules {
@@ -1142,7 +1179,7 @@ impl _VortexArchitecture {
                 }
             }
         }
-        
+
         Ok(matches)
     }
 
@@ -1150,7 +1187,7 @@ impl _VortexArchitecture {
     async fn ast_analysis(&self, code: &str) -> NxrModelResult<Vec<PatternMatch>> {
         // Simplified AST analysis
         let mut matches = Vec::new();
-        
+
         // Check for class definitions
         if code.contains("class ") {
             matches.push(PatternMatch {
@@ -1161,7 +1198,7 @@ impl _VortexArchitecture {
                 description: "Class structure detected".to_string(),
             });
         }
-        
+
         // Check for function definitions
         if code.contains("def ") || code.contains("fn ") {
             matches.push(PatternMatch {
@@ -1172,7 +1209,7 @@ impl _VortexArchitecture {
                 description: "Function structure detected".to_string(),
             });
         }
-        
+
         Ok(matches)
     }
 
@@ -1180,9 +1217,9 @@ impl _VortexArchitecture {
     async fn neural_pattern_detection(&self, code: &str) -> NxrModelResult<Vec<PatternMatch>> {
         // Simplified neural pattern detection
         let mut matches = Vec::new();
-        
+
         let complexity_score = self.calculate_code_complexity(code);
-        
+
         if complexity_score > 0.8 {
             matches.push(PatternMatch {
                 pattern_name: "High Complexity".to_string(),
@@ -1192,21 +1229,21 @@ impl _VortexArchitecture {
                 description: "High complexity code detected".to_string(),
             });
         }
-        
+
         Ok(matches)
     }
 
     /// Statistical pattern analysis
     async fn statistical_pattern_analysis(&self, code: &str) -> NxrModelResult<Vec<PatternMatch>> {
         let mut matches = Vec::new();
-        
+
         // Statistical analysis of code patterns
         let line_count = code.lines().count();
         let function_count = code.matches("fn ").count() + code.matches("def ").count();
-        
+
         if function_count > 0 {
             let avg_function_size = line_count as f32 / function_count as f32;
-            
+
             if avg_function_size > 50.0 {
                 matches.push(PatternMatch {
                     pattern_name: "Large Functions".to_string(),
@@ -1217,41 +1254,45 @@ impl _VortexArchitecture {
                 });
             }
         }
-        
+
         Ok(matches)
     }
 
     /// Hybrid pattern analysis
-    async fn hybrid_pattern_analysis(&self, code: &str, weights: &AlgorithmWeights) -> NxrModelResult<Vec<PatternMatch>> {
+    async fn hybrid_pattern_analysis(
+        &self,
+        code: &str,
+        weights: &AlgorithmWeights,
+    ) -> NxrModelResult<Vec<PatternMatch>> {
         let mut all_matches = Vec::new();
-        
+
         // Get matches from all algorithms
         let pattern_matches = self.pattern_matching_analysis(code).await?;
         let ast_matches = self.ast_analysis(code).await?;
         let neural_matches = self.neural_pattern_detection(code).await?;
         let statistical_matches = self.statistical_pattern_analysis(code).await?;
-        
+
         // Combine and weight matches
         for mut m in pattern_matches {
             m.confidence *= weights.pattern_matching_weight;
             all_matches.push(m);
         }
-        
+
         for mut m in ast_matches {
             m.confidence *= weights.ast_analysis_weight;
             all_matches.push(m);
         }
-        
+
         for mut m in neural_matches {
             m.confidence *= weights.neural_detection_weight;
             all_matches.push(m);
         }
-        
+
         for mut m in statistical_matches {
             m.confidence *= weights.statistical_analysis_weight;
             all_matches.push(m);
         }
-        
+
         Ok(all_matches)
     }
 
@@ -1268,17 +1309,23 @@ impl _VortexArchitecture {
 
     /// Calculate code complexity
     fn calculate_code_complexity(&self, code: &str) -> f32 {
-        let cyclomatic = code.matches("if ").count() + code.matches("for ").count() + code.matches("while ").count();
+        let cyclomatic = code.matches("if ").count()
+            + code.matches("for ").count()
+            + code.matches("while ").count();
         let nesting = code.matches("    ").count() / 4; // Approximate nesting
-        
+
         let complexity = (cyclomatic + nesting) as f32;
         complexity / (complexity + 10.0) // Normalize to 0-1 range
     }
 
     /// Generate debugging hypotheses
-    pub async fn generate_hypotheses(&self, error_message: &str, code: &str) -> NxrModelResult<Vec<DebugHypothesis>> {
+    pub async fn generate_hypotheses(
+        &self,
+        error_message: &str,
+        code: &str,
+    ) -> NxrModelResult<Vec<DebugHypothesis>> {
         let mut hypotheses = Vec::new();
-        
+
         // Use hypothesis generator
         for hypothesis_type in &self.neural_debugger.hypothesis_generator.hypothesis_types {
             let hypothesis = match hypothesis_type {
@@ -1289,27 +1336,38 @@ impl _VortexArchitecture {
                     self.generate_logic_hypothesis(error_message, code).await?
                 }
                 HypothesisType::RuntimeError => {
-                    self.generate_runtime_hypothesis(error_message, code).await?
+                    self.generate_runtime_hypothesis(error_message, code)
+                        .await?
                 }
                 HypothesisType::PerformanceBug => {
-                    self.generate_performance_hypothesis(error_message, code).await?
+                    self.generate_performance_hypothesis(error_message, code)
+                        .await?
                 }
                 HypothesisType::SecurityVulnerability => {
-                    self.generate_security_hypothesis(error_message, code).await?
+                    self.generate_security_hypothesis(error_message, code)
+                        .await?
                 }
             };
-            
+
             hypotheses.push(hypothesis);
         }
-        
+
         // Sort by confidence
-        hypotheses.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
-        
+        hypotheses.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         Ok(hypotheses)
     }
 
     /// Generate syntax error hypothesis
-    async fn generate_syntax_hypothesis(&self, error_message: &str, code: &str) -> NxrModelResult<DebugHypothesis> {
+    async fn generate_syntax_hypothesis(
+        &self,
+        error_message: &str,
+        code: &str,
+    ) -> NxrModelResult<DebugHypothesis> {
         Ok(DebugHypothesis {
             hypothesis_type: HypothesisType::SyntaxError,
             description: "Syntax error detected in code".to_string(),
@@ -1324,7 +1382,11 @@ impl _VortexArchitecture {
     }
 
     /// Generate logic error hypothesis
-    async fn generate_logic_hypothesis(&self, error_message: &str, code: &str) -> NxrModelResult<DebugHypothesis> {
+    async fn generate_logic_hypothesis(
+        &self,
+        error_message: &str,
+        code: &str,
+    ) -> NxrModelResult<DebugHypothesis> {
         Ok(DebugHypothesis {
             hypothesis_type: HypothesisType::LogicError,
             description: "Logic error detected in code".to_string(),
@@ -1339,7 +1401,11 @@ impl _VortexArchitecture {
     }
 
     /// Generate runtime error hypothesis
-    async fn generate_runtime_hypothesis(&self, error_message: &str, code: &str) -> NxrModelResult<DebugHypothesis> {
+    async fn generate_runtime_hypothesis(
+        &self,
+        error_message: &str,
+        code: &str,
+    ) -> NxrModelResult<DebugHypothesis> {
         Ok(DebugHypothesis {
             hypothesis_type: HypothesisType::RuntimeError,
             description: "Runtime error detected in code".to_string(),
@@ -1354,7 +1420,11 @@ impl _VortexArchitecture {
     }
 
     /// Generate performance bug hypothesis
-    async fn generate_performance_hypothesis(&self, error_message: &str, code: &str) -> NxrModelResult<DebugHypothesis> {
+    async fn generate_performance_hypothesis(
+        &self,
+        error_message: &str,
+        code: &str,
+    ) -> NxrModelResult<DebugHypothesis> {
         Ok(DebugHypothesis {
             hypothesis_type: HypothesisType::PerformanceBug,
             description: "Performance issue detected in code".to_string(),
@@ -1369,7 +1439,11 @@ impl _VortexArchitecture {
     }
 
     /// Generate security vulnerability hypothesis
-    async fn generate_security_hypothesis(&self, error_message: &str, code: &str) -> NxrModelResult<DebugHypothesis> {
+    async fn generate_security_hypothesis(
+        &self,
+        error_message: &str,
+        code: &str,
+    ) -> NxrModelResult<DebugHypothesis> {
         Ok(DebugHypothesis {
             hypothesis_type: HypothesisType::SecurityVulnerability,
             description: "Security vulnerability detected in code".to_string(),
@@ -1384,43 +1458,43 @@ impl _VortexArchitecture {
     }
 
     /// Analyze architecture quality
-    pub async fn analyze_architecture_quality(&self, code: &str) -> NxrModelResult<ArchitectureQualityReport> {
+    pub async fn analyze_architecture_quality(
+        &self,
+        code: &str,
+    ) -> NxrModelResult<ArchitectureQualityReport> {
         let mut report = ArchitectureQualityReport::new();
-        
+
         // Calculate metrics
         for metric in &self.arch_analyzer.metrics {
             let value = match metric.calculation_method {
-                CalculationMethod::Direct => {
-                    self.calculate_metric_direct(code, &metric.name)
-                }
+                CalculationMethod::Direct => self.calculate_metric_direct(code, &metric.name),
                 CalculationMethod::Statistical => {
                     self.calculate_metric_statistical(code, &metric.name)
                 }
-                CalculationMethod::Heuristic => {
-                    self.calculate_metric_heuristic(code, &metric.name)
-                }
-                CalculationMethod::MLBased => {
-                    self.calculate_metric_ml(code, &metric.name).await
-                }
+                CalculationMethod::Heuristic => self.calculate_metric_heuristic(code, &metric.name),
+                CalculationMethod::MLBased => self.calculate_metric_ml(code, &metric.name).await,
             };
-            
-            report.metrics.insert(metric.name.clone(), MetricResult {
-                value,
-                threshold: metric.threshold,
-                status: if value <= metric.threshold {
-                    MetricStatus::Good
-                } else {
-                    MetricStatus::Poor
+
+            report.metrics.insert(
+                metric.name.clone(),
+                MetricResult {
+                    value,
+                    threshold: metric.threshold,
+                    status: if value <= metric.threshold {
+                        MetricStatus::Good
+                    } else {
+                        MetricStatus::Poor
+                    },
                 },
-            });
+            );
         }
-        
+
         // Calculate overall quality score
         report.overall_score = self.calculate_overall_quality_score(&report.metrics);
-        
+
         // Generate recommendations
         report.recommendations = self.generate_quality_recommendations(&report.metrics);
-        
+
         Ok(report)
     }
 
@@ -1453,7 +1527,7 @@ impl _VortexArchitecture {
                 // Estimate cohesion based on related functionality
                 let functions = code.matches("fn ").count() + code.matches("def ").count();
                 let classes = code.matches("class ").count();
-                
+
                 if functions > 0 && classes > 0 {
                     (functions as f32 / classes as f32).min(1.0_f32)
                 } else {
@@ -1469,41 +1543,61 @@ impl _VortexArchitecture {
         // Placeholder for ML-based metric calculation
         // In a real implementation, this would use trained models
         match metric_name {
-            "Cyclomatic Complexity" => {
-                self.calculate_code_complexity(code) * 20.0
-            }
+            "Cyclomatic Complexity" => self.calculate_code_complexity(code) * 20.0,
             _ => 0.0,
         }
     }
 
     /// Calculate overall quality score
-    fn calculate_overall_quality_score(&self, metrics: &std::collections::HashMap<String, MetricResult>) -> f32 {
+    fn calculate_overall_quality_score(
+        &self,
+        metrics: &std::collections::HashMap<String, MetricResult>,
+    ) -> f32 {
         if metrics.is_empty() {
             return 0.0;
         }
-        
-        let total_score: f32 = metrics.values()
-            .map(|m| if m.status == MetricStatus::Good { 1.0 } else { 0.0 })
+
+        let total_score: f32 = metrics
+            .values()
+            .map(|m| {
+                if m.status == MetricStatus::Good {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
             .sum();
-        
+
         total_score / metrics.len() as f32
     }
 
     /// Generate quality recommendations
-    fn generate_quality_recommendations(&self, metrics: &std::collections::HashMap<String, MetricResult>) -> Vec<String> {
+    fn generate_quality_recommendations(
+        &self,
+        metrics: &std::collections::HashMap<String, MetricResult>,
+    ) -> Vec<String> {
         let mut recommendations = Vec::new();
-        
+
         for (name, result) in metrics {
             if result.status == MetricStatus::Poor {
                 match name.as_str() {
                     "Cyclomatic Complexity" => {
-                        recommendations.push("Reduce cyclomatic complexity by breaking down large functions".to_string());
+                        recommendations.push(
+                            "Reduce cyclomatic complexity by breaking down large functions"
+                                .to_string(),
+                        );
                     }
                     "Coupling" => {
-                        recommendations.push("Reduce coupling by minimizing dependencies between modules".to_string());
+                        recommendations.push(
+                            "Reduce coupling by minimizing dependencies between modules"
+                                .to_string(),
+                        );
                     }
                     "Cohesion" => {
-                        recommendations.push("Improve cohesion by grouping related functionality together".to_string());
+                        recommendations.push(
+                            "Improve cohesion by grouping related functionality together"
+                                .to_string(),
+                        );
                     }
                     _ => {
                         recommendations.push(format!("Improve {} to meet quality standards", name));
@@ -1511,7 +1605,7 @@ impl _VortexArchitecture {
                 }
             }
         }
-        
+
         recommendations
     }
 }

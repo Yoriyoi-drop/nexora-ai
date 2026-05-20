@@ -191,7 +191,7 @@ impl Default for ATQSConfig {
                 crossover_rate: 0.8,
             },
         };
-        
+
         let compression = CompressionConfig {
             adaptive_rank: AdaptiveRankConfig {
                 target_compression: 0.5,
@@ -202,13 +202,13 @@ impl Default for ATQSConfig {
             quantum_sparse: QuantumSparseConfig::default(),
             sparse_augmentation: SparseAugmentationConfig::default(),
         };
-        
+
         let profiling = ProfilingConfig {
             entanglement: EntanglementProfilerConfig::default(),
             layer_analysis: LayerAnalyzerConfig::default(),
             sensitivity_mapping: SensitivityMapperConfig::default(),
         };
-        
+
         let core = CoreConfig {
             attention: AttentionConfig {
                 heads: 12,
@@ -231,7 +231,7 @@ impl Default for ATQSConfig {
                 coherence_time: 1e-3,
             },
         };
-        
+
         Self {
             calibration,
             compression,
@@ -330,7 +330,6 @@ impl Default for SparseAugmentationConfig {
         }
     }
 }
-
 
 impl Default for ProfilingConfig {
     fn default() -> Self {

@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-use tracing::{warn, error};
+use tracing::{error, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetSchema {
@@ -19,9 +19,11 @@ pub struct FieldSchema {
 impl DatasetSchema {
     pub fn text() -> Self {
         Self {
-            fields: vec![
-                FieldSchema { name: "text".into(), dtype: "utf8".into(), nullable: false },
-            ],
+            fields: vec![FieldSchema {
+                name: "text".into(),
+                dtype: "utf8".into(),
+                nullable: false,
+            }],
             format: "arrow".into(),
         }
     }
@@ -29,9 +31,21 @@ impl DatasetSchema {
     pub fn tokenized() -> Self {
         Self {
             fields: vec![
-                FieldSchema { name: "text".into(), dtype: "utf8".into(), nullable: false },
-                FieldSchema { name: "tokens".into(), dtype: "list<int32>".into(), nullable: true },
-                FieldSchema { name: "label".into(), dtype: "int64".into(), nullable: true },
+                FieldSchema {
+                    name: "text".into(),
+                    dtype: "utf8".into(),
+                    nullable: false,
+                },
+                FieldSchema {
+                    name: "tokens".into(),
+                    dtype: "list<int32>".into(),
+                    nullable: true,
+                },
+                FieldSchema {
+                    name: "label".into(),
+                    dtype: "int64".into(),
+                    nullable: true,
+                },
             ],
             format: "arrow".into(),
         }
@@ -80,8 +94,14 @@ pub struct SchemaValidation {
 
 #[derive(Debug)]
 pub enum SchemaIssue {
-    MissingColumn { field: String },
-    TypeMismatch { field: String, expected: String, actual: String },
+    MissingColumn {
+        field: String,
+    },
+    TypeMismatch {
+        field: String,
+        expected: String,
+        actual: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,7 +126,12 @@ pub struct CorruptedShardRecovery {
 
 impl CorruptedShardRecovery {
     pub fn new(action: CorruptedShardAction) -> Self {
-        Self { action, max_failures: 5, failures: 0, skipped: Vec::new() }
+        Self {
+            action,
+            max_failures: 5,
+            failures: 0,
+            skipped: Vec::new(),
+        }
     }
 
     pub fn handle_failure(&mut self, path: &Path, error: &str) -> Result<(), ()> {

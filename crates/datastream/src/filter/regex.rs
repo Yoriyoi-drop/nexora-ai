@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct RegexFilter {
@@ -11,10 +11,22 @@ pub struct RegexFilter {
 }
 
 impl RegexFilter {
-    pub fn new(block_patterns: Vec<String>, require_patterns: Vec<String>) -> Result<Self, regex::Error> {
-        let block = block_patterns.iter().map(|p| Regex::new(p)).collect::<Result<Vec<_>, _>>()?;
-        let require = require_patterns.iter().map(|p| Regex::new(p)).collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { block_patterns: block, require_patterns: require })
+    pub fn new(
+        block_patterns: Vec<String>,
+        require_patterns: Vec<String>,
+    ) -> Result<Self, regex::Error> {
+        let block = block_patterns
+            .iter()
+            .map(|p| Regex::new(p))
+            .collect::<Result<Vec<_>, _>>()?;
+        let require = require_patterns
+            .iter()
+            .map(|p| Regex::new(p))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            block_patterns: block,
+            require_patterns: require,
+        })
     }
 }
 
@@ -22,10 +34,13 @@ impl Default for RegexFilter {
     fn default() -> Self {
         Self {
             block_patterns: vec![
-                Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b").expect("valid regex pattern"),
-                Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+").expect("valid regex pattern"),
+                Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b")
+                    .expect("valid regex pattern"),
+                Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+")
+                    .expect("valid regex pattern"),
                 Regex::new(r"(?m)^>{10,}").expect("valid regex pattern"),
-                Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b").expect("valid regex pattern"),
+                Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b")
+                    .expect("valid regex pattern"),
             ],
             require_patterns: vec![],
         }

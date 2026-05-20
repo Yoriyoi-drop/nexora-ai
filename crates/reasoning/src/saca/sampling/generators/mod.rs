@@ -1,10 +1,10 @@
 //! Algorithm Generators for Sampling
-//! 
+//!
 //! This module contains various algorithm generators that create
 //! different implementation approaches for sampled candidates.
 
-use super::super::types::*;
 use super::super::error::*;
+use super::super::types::*;
 
 /// Trait for algorithm generators
 pub trait AlgorithmGenerator: Send + Sync {
@@ -28,15 +28,15 @@ pub enum AlgorithmType {
     Random,
 }
 
-pub mod standard;
-pub mod optimized;
 pub mod alternative;
 pub mod experimental;
 pub mod hybrid;
+pub mod optimized;
+pub mod standard;
 
 // Re-export all generators
-pub use standard::StandardAlgorithmGenerator;
-pub use optimized::OptimizedAlgorithmGenerator;
 pub use alternative::AlternativeAlgorithmGenerator;
 pub use experimental::ExperimentalAlgorithmGenerator;
 pub use hybrid::HybridAlgorithmGenerator;
+pub use optimized::OptimizedAlgorithmGenerator;
+pub use standard::StandardAlgorithmGenerator;

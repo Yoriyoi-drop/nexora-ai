@@ -101,7 +101,11 @@ pub struct GpuQuota {
 
 impl Default for GpuQuota {
     fn default() -> Self {
-        Self { count: 1, memory_mb: 8192, share: false }
+        Self {
+            count: 1,
+            memory_mb: 8192,
+            share: false,
+        }
     }
 }
 
@@ -162,7 +166,12 @@ impl Default for ToolIsolationConfig {
             enabled: true,
             sandbox_per_tool: true,
             tool_gateway_enabled: true,
-            allowed_tools: vec!["python".into(), "browser".into(), "terminal".into(), "filesystem".into()],
+            allowed_tools: vec![
+                "python".into(),
+                "browser".into(),
+                "terminal".into(),
+                "filesystem".into(),
+            ],
             max_tool_execution_seconds: 300,
             tool_network_access: false,
         }
@@ -188,7 +197,9 @@ pub enum SandboxKind {
 }
 
 impl Default for SandboxKind {
-    fn default() -> Self { Self::GVisor }
+    fn default() -> Self {
+        Self::GVisor
+    }
 }
 
 impl Default for RuntimeIsolationConfig {

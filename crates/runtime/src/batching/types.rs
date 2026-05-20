@@ -1,9 +1,9 @@
 //! Types for batching system
 
-use std::collections::HashMap;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Batch item
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ impl BatchItem {
         metadata: HashMap<String, Value>,
     ) -> Self {
         let sequence_length = input_sequence.len();
-        
+
         Self {
             request_id,
             input_sequence,
@@ -45,11 +45,15 @@ impl BatchItem {
             metadata,
         }
     }
-    
+
     /// Get the padded length based on strategy
-    pub fn get_padded_length(&self, max_length: usize, strategy: &super::config::PaddingStrategy) -> usize {
+    pub fn get_padded_length(
+        &self,
+        max_length: usize,
+        strategy: &super::config::PaddingStrategy,
+    ) -> usize {
         use super::config::PaddingStrategy;
-        
+
         match strategy {
             PaddingStrategy::PadToLongest => max_length,
             PaddingStrategy::PadToPowerOf2 => {
@@ -92,22 +96,25 @@ impl Batch {
         if items.is_empty() {
             return Err("Cannot create empty batch".to_string());
         }
-        
+
         if items.len() > config.max_batch_size {
-            return Err(format!("Batch size {} exceeds maximum {}", items.len(), config.max_batch_size));
+            return Err(format!(
+                "Batch size {} exceeds maximum {}",
+                items.len(),
+                config.max_batch_size
+            ));
         }
-        
-        let max_sequence_length = items.iter()
+
+        let max_sequence_length = items
+            .iter()
             .map(|item| item.sequence_length)
             .max()
             .unwrap_or(0);
-        
-        let total_tokens = items.iter()
-            .map(|item| item.sequence_length)
-            .sum();
-        
+
+        let total_tokens = items.iter().map(|item| item.sequence_length).sum();
+
         let batch_id = Uuid::new_v4();
-        
+
         Ok(Batch {
             batch_id,
             items,
@@ -118,17 +125,17 @@ impl Batch {
             processing_ended_at: None,
         })
     }
-    
+
     /// Start processing
     pub fn start_processing(&mut self) {
         self.processing_started_at = Some(Utc::now());
     }
-    
+
     /// End processing
     pub fn end_processing(&mut self) {
         self.processing_ended_at = Some(Utc::now());
     }
-    
+
     /// Get processing duration
     pub fn get_processing_duration(&self) -> Option<chrono::Duration> {
         if let (Some(start), Some(end)) = (self.processing_started_at, self.processing_ended_at) {
@@ -137,12 +144,12 @@ impl Batch {
             None
         }
     }
-    
+
     /// Check if batch is complete
     pub fn is_complete(&self) -> bool {
         self.processing_ended_at.is_some()
     }
-    
+
     /// Get average sequence length
     pub fn get_avg_sequence_length(&self) -> f64 {
         if self.items.is_empty() {
@@ -180,26 +187,27 @@ impl BatchStats {
         self.total_batches += 1;
         self.total_requests += batch.items.len() as u64;
         self.total_tokens_processed += batch.total_tokens as u64;
-        
+
         // Update average batch size
         self.avg_batch_size = self.total_requests as f64 / self.total_batches as f64;
-        
+
         // Update average processing time
         if let Some(duration) = batch.get_processing_duration() {
             let duration_ms = duration.num_milliseconds() as f64;
-            self.avg_processing_time_ms = 
-                (self.avg_processing_time_ms * (self.total_batches - 1) as f64 + duration_ms) / self.total_batches as f64;
+            self.avg_processing_time_ms =
+                (self.avg_processing_time_ms * (self.total_batches - 1) as f64 + duration_ms)
+                    / self.total_batches as f64;
         }
-        
+
         self.last_updated = Utc::now();
     }
-    
+
     /// Increment in-progress batches
     pub fn increment_in_progress(&mut self) {
         self.batches_in_progress += 1;
         self.last_updated = Utc::now();
     }
-    
+
     /// Decrement in-progress batches
     pub fn decrement_in_progress(&mut self) {
         if self.batches_in_progress > 0 {
@@ -207,13 +215,13 @@ impl BatchStats {
         }
         self.last_updated = Utc::now();
     }
-    
+
     /// Increment failed batches
     pub fn increment_failed(&mut self) {
         self.failed_batches += 1;
         self.last_updated = Utc::now();
     }
-    
+
     /// Reset all statistics
     pub fn reset(&mut self) {
         *self = Self::default();

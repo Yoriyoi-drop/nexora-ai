@@ -1,7 +1,7 @@
+use super::gqa::KVCacheEntry;
+use crate::CausalLM;
 use ndarray::Array1;
 use rand::Rng;
-use crate::CausalLM;
-use super::gqa::KVCacheEntry;
 
 #[derive(Debug, Clone)]
 pub struct MTPConfig {
@@ -63,7 +63,12 @@ impl MTPHeads {
             head_biases.push(b);
         }
 
-        Self { config, hidden_norms, head_weights, head_biases }
+        Self {
+            config,
+            hidden_norms,
+            head_weights,
+            head_biases,
+        }
     }
 
     pub fn forward(&self, last_hidden: &[f32], depth: usize) -> Array1<f32> {
@@ -76,7 +81,8 @@ impl MTPHeads {
         let head_hidden_actual = self.hidden_norms[idx].len();
         let proj_len = head_hidden.min(hidden_size);
         for j in 0..proj_len {
-            projected[j] = last_hidden[j % hidden_size] * self.hidden_norms[idx][j % head_hidden_actual];
+            projected[j] =
+                last_hidden[j % hidden_size] * self.hidden_norms[idx][j % head_hidden_actual];
         }
 
         let mut logits = Array1::zeros(self.head_weights[idx].shape()[0]);
@@ -84,7 +90,11 @@ impl MTPHeads {
         for i in 0..vocab_size {
             let mut dot = self.head_biases[idx][i];
             for j in 0..head_hidden_actual.min(head_hidden) {
-                let hv = if j < projected.len() { projected[j] } else { 0.0 };
+                let hv = if j < projected.len() {
+                    projected[j]
+                } else {
+                    0.0
+                };
                 dot += hv * self.head_weights[idx][[i, j]];
             }
             logits[i] = dot;
@@ -98,7 +108,11 @@ impl MTPHeads {
         let exps: Vec<f32> = logits.iter().map(|&x| (x - max_val).exp()).collect();
         let sum: f32 = exps.iter().sum();
         Array1::from_shape_fn(logits.len(), |i| {
-            if sum > 0.0 { exps[i] / sum } else { 1.0 / logits.len() as f32 }
+            if sum > 0.0 {
+                exps[i] / sum
+            } else {
+                1.0 / logits.len() as f32
+            }
         })
     }
 
@@ -107,7 +121,9 @@ impl MTPHeads {
         if t <= 0.0 {
             let mut best = 0;
             for i in 1..logits.len() {
-                if logits[i] > logits[best] { best = i; }
+                if logits[i] > logits[best] {
+                    best = i;
+                }
             }
             return best as u32;
         }
@@ -117,15 +133,23 @@ impl MTPHeads {
         let k = self.config.top_k;
         if k > 0 && k < probs.len() {
             let mut indices: Vec<usize> = (0..probs.len()).collect();
-            indices.sort_by(|&a, &b| probs[b].partial_cmp(&probs[a]).unwrap_or(std::cmp::Ordering::Equal));
+            indices.sort_by(|&a, &b| {
+                probs[b]
+                    .partial_cmp(&probs[a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             let k = k.min(probs.len());
             let sum_k: f32 = indices[..k].iter().map(|&i| probs[i]).sum();
-            if sum_k <= 0.0 { return indices[0] as u32; }
+            if sum_k <= 0.0 {
+                return indices[0] as u32;
+            }
             let r: f32 = rand::random::<f32>() * sum_k;
             let mut cum = 0.0;
             for &i in &indices[..k] {
                 cum += probs[i];
-                if cum >= r { return i as u32; }
+                if cum >= r {
+                    return i as u32;
+                }
             }
             return indices[k - 1] as u32;
         }
@@ -134,7 +158,9 @@ impl MTPHeads {
         let mut cum = 0.0;
         for i in 0..probs.len() {
             cum += probs[i];
-            if cum >= r { return i as u32; }
+            if cum >= r {
+                return i as u32;
+            }
         }
         (probs.len() - 1) as u32
     }
@@ -149,14 +175,14 @@ pub struct MTPInference {
 impl MTPInference {
     pub fn new(model: CausalLM, mtp_heads: MTPHeads) -> Self {
         let config = mtp_heads.config.clone();
-        Self { model, mtp_heads, config }
+        Self {
+            model,
+            mtp_heads,
+            config,
+        }
     }
 
-    pub fn generate(
-        &self,
-        prompt_ids: &[u32],
-        max_tokens: usize,
-    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+    pub fn generate(&self, prompt_ids: &[u32], max_tokens: usize) -> (Vec<u32>, Vec<KVCacheEntry>) {
         let mut cache = self.model.reset_cache();
 
         for &token_id in prompt_ids {
@@ -169,11 +195,7 @@ impl MTPInference {
         let mut i = 0;
         while i < max_tokens {
             let logits = self.model.forward(&[last_id], &mut cache);
-            let main_id = crate::sample_token(
-                &logits,
-                0.0,
-                0,
-            );
+            let main_id = crate::sample_token(&logits, 0.0, 0);
             output.push(main_id);
 
             for d in 0..self.config.num_predictions {
@@ -184,7 +206,11 @@ impl MTPInference {
                         0 if logits.len() > j => logits[j],
                         _ if d > 0 && !output.is_empty() => {
                             let prev = output[output.len().saturating_sub(d + 1)] as usize;
-                            if prev < logits.len() { logits[prev] } else { 0.0 }
+                            if prev < logits.len() {
+                                logits[prev]
+                            } else {
+                                0.0
+                            }
                         }
                         _ => 0.0,
                     };
@@ -195,11 +221,7 @@ impl MTPInference {
                 if draft_id == main_id || self.config.temperature > 0.5 {
                     if i + 1 < max_tokens && d < self.config.num_predictions.saturating_sub(1) {
                         let verified_logits = self.model.forward(&[draft_id], &mut cache);
-                        let verified_id = crate::sample_token(
-                            &verified_logits,
-                            0.0,
-                            0,
-                        );
+                        let verified_id = crate::sample_token(&verified_logits, 0.0, 0);
                         if verified_id == draft_id {
                             output.push(draft_id);
                             i += 1;
@@ -287,7 +309,10 @@ mod tests {
 
     #[test]
     fn test_mtp_generate_does_not_panic() {
-        let config = MTPConfig { temperature: 1.0, ..Default::default() };
+        let config = MTPConfig {
+            temperature: 1.0,
+            ..Default::default()
+        };
         let heads = MTPHeads::new(config.clone(), 1000, 64);
         let model = CausalLM::new(test_config());
         let mtp = MTPInference::new(model, heads);

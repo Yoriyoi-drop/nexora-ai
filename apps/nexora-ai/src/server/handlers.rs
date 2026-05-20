@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use axum::{Json, Extension, response::Html, extract::Path, response::IntoResponse};
-use serde_json::{json, Value};
-use tracing::{info, error};
-use std::sync::OnceLock;
+use axum::{extract::Path, response::Html, response::IntoResponse, Extension, Json};
 use nexora_monitoring::MetricsCollector;
+use serde_json::{json, Value};
+use std::sync::Arc;
+use std::sync::OnceLock;
+use tracing::{error, info};
 
 use crate::NexoraAI;
 
@@ -19,9 +19,7 @@ pub fn metrics_collector() -> Option<&'static Arc<MetricsCollector>> {
     METRICS.get()
 }
 
-pub async fn health_check(
-    Extension(nexora): Extension<Arc<NexoraAI>>
-) -> Json<Value> {
+pub async fn health_check(Extension(nexora): Extension<Arc<NexoraAI>>) -> Json<Value> {
     let start = std::time::Instant::now();
     match nexora.health_check().await {
         Ok(health) => {
@@ -48,9 +46,7 @@ pub async fn health_check(
     }
 }
 
-pub async fn detailed_health_check(
-    Extension(nexora): Extension<Arc<NexoraAI>>
-) -> Json<Value> {
+pub async fn detailed_health_check(Extension(nexora): Extension<Arc<NexoraAI>>) -> Json<Value> {
     match nexora.health_check().await {
         Ok(health) => Json(json!(health)),
         Err(e) => {
@@ -80,9 +76,7 @@ pub async fn metrics_handler() -> axum::response::Response {
     }
 }
 
-pub async fn system_info(
-    Extension(nexora): Extension<Arc<NexoraAI>>
-) -> impl IntoResponse {
+pub async fn system_info(Extension(nexora): Extension<Arc<NexoraAI>>) -> impl IntoResponse {
     match nexora.get_system_info().await {
         Ok(info) => Json(json!(info)),
         Err(e) => {
@@ -96,9 +90,7 @@ pub async fn system_info(
     }
 }
 
-pub async fn performance_metrics(
-    Extension(nexora): Extension<Arc<NexoraAI>>
-) -> impl IntoResponse {
+pub async fn performance_metrics(Extension(nexora): Extension<Arc<NexoraAI>>) -> impl IntoResponse {
     match nexora.get_performance_metrics().await {
         Ok(metrics) => Json(metrics),
         Err(e) => {
@@ -111,9 +103,7 @@ pub async fn performance_metrics(
     }
 }
 
-pub async fn memory_stats(
-    Extension(nexora): Extension<Arc<NexoraAI>>
-) -> impl IntoResponse {
+pub async fn memory_stats(Extension(nexora): Extension<Arc<NexoraAI>>) -> impl IntoResponse {
     match nexora.get_system_info().await {
         Ok(info) => Json(json!({
             "total_memory": info.memory_stats.total_memory,
@@ -138,12 +128,14 @@ pub async fn process_request(
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let start = std::time::Instant::now();
-    let input = payload.get("input")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let input = payload.get("input").and_then(|v| v.as_str()).unwrap_or("");
 
     let truncated = &input[..input.len().min(100)];
-    info!("Processing request: {} [truncated {} chars]", truncated, input.len().min(100));
+    info!(
+        "Processing request: {} [truncated {} chars]",
+        truncated,
+        input.len().min(100)
+    );
 
     match nexora.process_request(input).await {
         Ok(response) => Json(json!({
@@ -170,21 +162,26 @@ pub async fn generate_text(
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let start = std::time::Instant::now();
-    let prompt = payload.get("prompt")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
 
-    let max_tokens = payload.get("max_tokens")
+    let max_tokens = payload
+        .get("max_tokens")
         .and_then(|v| v.as_u64())
         .unwrap_or(100) as usize;
 
-    let temperature = payload.get("temperature")
+    let temperature = payload
+        .get("temperature")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.7) as f32;
 
     let truncated = &prompt[..prompt.len().min(100)];
-    info!("Generating text: prompt='{}' [truncated {} chars], max_tokens={}, temperature={}", 
-          truncated, prompt.len().min(100), max_tokens, temperature);
+    info!(
+        "Generating text: prompt='{}' [truncated {} chars], max_tokens={}, temperature={}",
+        truncated,
+        prompt.len().min(100),
+        max_tokens,
+        temperature
+    );
 
     match nexora.generate_text(prompt, max_tokens, temperature).await {
         Ok(generated) => Json(json!({
@@ -216,16 +213,23 @@ pub async fn chat(
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let start = std::time::Instant::now();
-    let message = payload.get("message")
+    let message = payload
+        .get("message")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let conversation_id = payload.get("conversation_id")
+    let conversation_id = payload
+        .get("conversation_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
     let truncated = &message[..message.len().min(100)];
-    info!("Chat message: {} [truncated {} chars] (conversation_id: {:?})", truncated, message.len().min(100), conversation_id);
+    info!(
+        "Chat message: {} [truncated {} chars] (conversation_id: {:?})",
+        truncated,
+        message.len().min(100),
+        conversation_id
+    );
 
     match nexora.chat(message, conversation_id).await {
         Ok(response) => Json(json!({
@@ -251,15 +255,18 @@ pub async fn analyze_code(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
-    let code = payload.get("code")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let code = payload.get("code").and_then(|v| v.as_str()).unwrap_or("");
 
-    let language = payload.get("language")
+    let language = payload
+        .get("language")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    info!("Analyzing code: {} chars, language: {}", code.len(), language);
+    info!(
+        "Analyzing code: {} chars, language: {}",
+        code.len(),
+        language
+    );
 
     match nexora.analyze_code(code, language).await {
         Ok(analysis) => Json(json!({
@@ -286,15 +293,20 @@ pub async fn generate_code(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
-    let description = payload.get("description")
+    let description = payload
+        .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let language = payload.get("language")
+    let language = payload
+        .get("language")
         .and_then(|v| v.as_str())
         .unwrap_or("rust");
 
-    info!("Generating code: description='{}', language='{}'", description, language);
+    info!(
+        "Generating code: description='{}', language='{}'",
+        description, language
+    );
 
     match nexora.generate_code(description, language).await {
         Ok(code) => Json(json!({
@@ -347,7 +359,7 @@ pub async fn update_config(Json(payload): Json<Value>) -> Json<Value> {
                 "updated_fields": updated_config.updated_fields,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }))
-        },
+        }
         Err(e) => {
             error!("Configuration update failed: {}", e);
             Json(json!({
@@ -377,7 +389,10 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
             }
         }
 
-        if let Some(max_connections) = server_config.get("max_connections").and_then(|v| v.as_u64()) {
+        if let Some(max_connections) = server_config
+            .get("max_connections")
+            .and_then(|v| v.as_u64())
+        {
             if max_connections > 0 && max_connections <= 10000 {
                 updated_fields.push(format!("server.max_connections: {}", max_connections));
             }
@@ -396,9 +411,15 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
                 updated_fields.push(format!("api.rate_limit.enabled: {}", enabled));
             }
 
-            if let Some(requests_per_minute) = rate_limit.get("requests_per_minute").and_then(|v| v.as_u64()) {
+            if let Some(requests_per_minute) = rate_limit
+                .get("requests_per_minute")
+                .and_then(|v| v.as_u64())
+            {
                 if requests_per_minute > 0 && requests_per_minute <= 1000 {
-                    updated_fields.push(format!("api.rate_limit.requests_per_minute: {}", requests_per_minute));
+                    updated_fields.push(format!(
+                        "api.rate_limit.requests_per_minute: {}",
+                        requests_per_minute
+                    ));
                 }
             }
         }
@@ -431,7 +452,7 @@ fn validate_and_process_config(payload: &Value) -> Result<ConfigUpdateResult, an
             match level {
                 "debug" | "info" | "warn" | "error" => {
                     updated_fields.push(format!("logging.level: {}", level));
-                },
+                }
                 _ => {
                     return Err(anyhow::anyhow!("Invalid log level: {}", level));
                 }
@@ -459,9 +480,7 @@ struct ConfigUpdateResult {
     timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-pub async fn get_train_metrics(
-    Extension(nexora): Extension<Arc<NexoraAI>>,
-) -> Json<Value> {
+pub async fn get_train_metrics(Extension(nexora): Extension<Arc<NexoraAI>>) -> Json<Value> {
     match nexora.train_metrics.read() {
         Ok(metrics) => Json(metrics.clone()),
         Err(e) => {
@@ -491,10 +510,15 @@ pub async fn index() -> Html<&'static str> {
     Html(include_str!("../../static/index.html"))
 }
 
-pub async fn static_files(Path(path): Path<String>) -> Result<axum::response::Response, axum::http::StatusCode> {
-    let base_path = std::path::Path::new("static").canonicalize()
+pub async fn static_files(
+    Path(path): Path<String>,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    let base_path = std::path::Path::new("static")
+        .canonicalize()
         .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
-    let file_path = base_path.join(&path).canonicalize()
+    let file_path = base_path
+        .join(&path)
+        .canonicalize()
         .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
 
     if !file_path.starts_with(&base_path) {

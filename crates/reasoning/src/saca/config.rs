@@ -1,7 +1,7 @@
 //! Configuration for SACA framework components
 
-use serde::{Deserialize, Serialize};
 use nexora_core::async_executor::ExecutorConfig;
+use serde::{Deserialize, Serialize};
 
 /// Main SACA configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct SACAConfig {
     pub execute_config: ExecuteConfig,
     pub rerank_config: RerankConfig,
     pub feedback_config: FeedbackConfig,
-    
+
     // Global settings
     pub quality_threshold: f32,
     pub max_feedback_loops: u32,

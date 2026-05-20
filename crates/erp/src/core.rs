@@ -1,5 +1,5 @@
 //! ERP Core - Information Signature dan Resonance Mapping
-//! 
+//!
 //! Implementasi dari Information Resonance Mapping untuk mendeteksi neuron
 //! dengan distribusi informasi yang sangat mirip.
 
@@ -53,39 +53,42 @@ impl ResonanceMapper {
     pub fn map_resonance(&self, weights: &[Array2<f32>]) -> Result<Vec<ResonanceGroup>, ERPError> {
         // Step 1: Extract neuron signatures
         let signatures = self.extract_neuron_signatures(weights)?;
-        
+
         // Step 2: Two-stage filtering untuk resonance detection
         let resonance_pairs = self.two_stage_filtering(&signatures)?;
-        
+
         // Step 3: Build resonance graph
         let graph = self.build_resonance_graph(signatures.len(), &resonance_pairs);
-        
+
         // Step 4: Cluster graph into resonance groups
         let groups = self.cluster_resonance_graph(graph, &signatures)?;
-        
+
         Ok(groups)
     }
 
     /// Extract neuron signatures dari weights
-    fn extract_neuron_signatures(&self, weights: &[Array2<f32>]) -> Result<Vec<NeuronSignature>, ERPError> {
+    fn extract_neuron_signatures(
+        &self,
+        weights: &[Array2<f32>],
+    ) -> Result<Vec<NeuronSignature>, ERPError> {
         let mut signatures = Vec::new();
         let mut neuron_id = 0;
 
         for (_layer_idx, layer_weights) in weights.iter().enumerate() {
             let (output_dim, _input_dim) = layer_weights.dim();
-            
+
             for i in 0..output_dim {
                 // Extract activation distribution untuk neuron i
                 let neuron_weights = layer_weights.row(i).to_owned();
                 let information_dist = self.compute_information_distribution(&neuron_weights);
-                
+
                 // Compute projection
                 let projection = self.compute_projection(&information_dist);
-                
+
                 // Compute importance metrics
                 let fisher_info = self.compute_fisher_information(&neuron_weights);
                 let gradient_norm = neuron_weights.mapv(|x| x * x).sum().sqrt();
-                
+
                 signatures.push(NeuronSignature {
                     neuron_id,
                     information_distribution: information_dist,
@@ -93,7 +96,7 @@ impl ResonanceMapper {
                     fisher_info,
                     gradient_norm,
                 });
-                
+
                 neuron_id += 1;
             }
         }
@@ -106,7 +109,7 @@ impl ResonanceMapper {
         // Normalize weights untuk mendapatkan distribusi probabilitas
         let abs_weights = weights.mapv(|x| x.abs());
         let sum = abs_weights.sum();
-        
+
         if sum > 0.0 {
             abs_weights / sum
         } else {
@@ -120,8 +123,9 @@ impl ResonanceMapper {
             ProjectionMethod::RandomProjection { dim } => {
                 // Random projection matrix
                 let mut rng = rand::thread_rng();
-                let projection_matrix = Array2::from_shape_fn((*dim, distribution.len()), |_| rng.gen());
-                
+                let projection_matrix =
+                    Array2::from_shape_fn((*dim, distribution.len()), |_| rng.gen());
+
                 projection_matrix.dot(distribution)
             }
             ProjectionMethod::PCA { components } => {
@@ -144,7 +148,10 @@ impl ResonanceMapper {
     }
 
     /// Two-stage filtering untuk scalable resonance detection
-    fn two_stage_filtering(&self, signatures: &[NeuronSignature]) -> Result<Vec<(usize, usize, f32)>, ERPError> {
+    fn two_stage_filtering(
+        &self,
+        signatures: &[NeuronSignature],
+    ) -> Result<Vec<(usize, usize, f32)>, ERPError> {
         let mut resonance_pairs = Vec::new();
         let n = signatures.len();
 
@@ -153,7 +160,8 @@ impl ResonanceMapper {
         for i in 0..n {
             for j in (i + 1)..n {
                 let sim = cosine_similarity(&signatures[i].projection, &signatures[j].projection);
-                if sim > 0.7 { // Threshold untuk fast filtering
+                if sim > 0.7 {
+                    // Threshold untuk fast filtering
                     candidates.push((i, j, sim));
                 }
             }
@@ -165,7 +173,7 @@ impl ResonanceMapper {
                 &signatures[i].information_distribution,
                 &signatures[j].information_distribution,
             );
-            
+
             if kl_div < self.config.resonance_threshold {
                 resonance_pairs.push((i, j, kl_div));
             }
@@ -175,9 +183,13 @@ impl ResonanceMapper {
     }
 
     /// Build resonance graph dari resonance pairs
-    fn build_resonance_graph(&self, n_neurons: usize, pairs: &[(usize, usize, f32)]) -> ResonanceGraph {
+    fn build_resonance_graph(
+        &self,
+        n_neurons: usize,
+        pairs: &[(usize, usize, f32)],
+    ) -> ResonanceGraph {
         let mut adjacency = vec![vec![]; n_neurons];
-        
+
         for &(i, j, weight) in pairs {
             adjacency[i].push((j, weight));
             adjacency[j].push((i, weight));
@@ -187,7 +199,11 @@ impl ResonanceMapper {
     }
 
     /// Cluster resonance graph menggunakan Louvain clustering
-    fn cluster_resonance_graph(&self, graph: ResonanceGraph, signatures: &[NeuronSignature]) -> Result<Vec<ResonanceGroup>, ERPError> {
+    fn cluster_resonance_graph(
+        &self,
+        graph: ResonanceGraph,
+        signatures: &[NeuronSignature],
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         // Simplified Louvain clustering - dalam implementasi nyata gunakan proper algorithm
         let mut groups = Vec::new();
         let mut visited = vec![false; signatures.len()];
@@ -199,10 +215,12 @@ impl ResonanceMapper {
 
                 // Find connected neurons dengan stability constraints
                 for &(neighbor, _) in &graph.adjacency[i] {
-                    if !visited[neighbor] && self.check_stability_constraints(&group_neurons, neighbor, signatures) {
+                    if !visited[neighbor]
+                        && self.check_stability_constraints(&group_neurons, neighbor, signatures)
+                    {
                         group_neurons.push(neighbor);
                         visited[neighbor] = true;
-                        
+
                         if group_neurons.len() >= self.config.max_group_size {
                             break;
                         }
@@ -213,7 +231,8 @@ impl ResonanceMapper {
                     let group = ResonanceGroup {
                         neurons: group_neurons.clone(),
                         stability_variance: self.compute_group_variance(&group_neurons, signatures),
-                        importance_scores: group_neurons.iter()
+                        importance_scores: group_neurons
+                            .iter()
                             .map(|&idx| signatures[idx].fisher_info + signatures[idx].gradient_norm)
                             .collect(),
                     };
@@ -226,7 +245,12 @@ impl ResonanceMapper {
     }
 
     /// Check stability constraints untuk clustering
-    fn check_stability_constraints(&self, group: &[usize], new_neuron: usize, signatures: &[NeuronSignature]) -> bool {
+    fn check_stability_constraints(
+        &self,
+        group: &[usize],
+        new_neuron: usize,
+        signatures: &[NeuronSignature],
+    ) -> bool {
         if group.len() >= self.config.max_group_size {
             return false;
         }
@@ -235,7 +259,7 @@ impl ResonanceMapper {
         let mut extended_group = group.to_vec();
         extended_group.push(new_neuron);
         let variance = self.compute_group_variance(&extended_group, signatures);
-        
+
         variance < self.config.stability_variance
     }
 
@@ -282,7 +306,7 @@ fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     let dot_product = a.dot(b);
     let norm_a = a.mapv(|x| x * x).sum().sqrt();
     let norm_b = b.mapv(|x| x * x).sum().sqrt();
-    
+
     if norm_a > 0.0 && norm_b > 0.0 {
         dot_product / (norm_a * norm_b)
     } else {
@@ -293,7 +317,9 @@ fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// Symmetric KL divergence
 fn symmetric_kl_divergence(p: &Array1<f32>, q: &Array1<f32>) -> f32 {
     let eps = 1e-8;
-    let kl_pq: f32 = p.iter().zip(q.iter())
+    let kl_pq: f32 = p
+        .iter()
+        .zip(q.iter())
         .map(|(&pi, &qi)| {
             if pi > eps && qi > eps {
                 pi * ((pi / qi).ln())
@@ -302,8 +328,10 @@ fn symmetric_kl_divergence(p: &Array1<f32>, q: &Array1<f32>) -> f32 {
             }
         })
         .sum();
-    
-    let kl_qp: f32 = q.iter().zip(p.iter())
+
+    let kl_qp: f32 = q
+        .iter()
+        .zip(p.iter())
         .map(|(&qi, &pi)| {
             if qi > eps && pi > eps {
                 qi * ((qi / pi).ln())
@@ -312,6 +340,6 @@ fn symmetric_kl_divergence(p: &Array1<f32>, q: &Array1<f32>) -> f32 {
             }
         })
         .sum();
-    
+
     kl_pq + kl_qp
 }

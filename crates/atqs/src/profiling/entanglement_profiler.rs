@@ -1,9 +1,9 @@
 //! Quantum entanglement profiling for layer sensitivity analysis
 //! Implements iPEPS-TRG based entanglement analysis
 
+use crate::core::{iPEPSNetwork, LatticeType};
 use ndarray::{Array, Array2, ArrayD, ArrayView};
 use std::collections::HashMap;
-use crate::core::{iPEPSNetwork, LatticeType};
 
 /// Entanglement profiling configuration
 #[derive(Debug, Clone)]
@@ -44,25 +44,25 @@ pub fn analyze_layer_entanglement(
 ) -> Result<GlobalEntanglementMap, crate::ATQSError> {
     let layers = model.get_layers();
     let mut layer_profiles = Vec::new();
-    
+
     // Profile each layer
     for (layer_idx, layer) in layers.iter().enumerate() {
         let profile = profile_layer_entanglement(layer, layer_idx, config)?;
         layer_profiles.push(profile);
     }
-    
+
     // Compute cross-layer entanglement
     let cross_layer_entanglement = compute_cross_layer_entanglement(&layer_profiles)?;
-    
+
     // Compute entanglement flow through network
     let entanglement_flow = compute_entanglement_flow(&layer_profiles)?;
-    
+
     // Identify critical layers
     let critical_layers = identify_critical_entanglement_layers(&layer_profiles)?;
-    
+
     // Cluster redundant layers
     let redundancy_clusters = cluster_redundant_layers(&layer_profiles)?;
-    
+
     Ok(GlobalEntanglementMap {
         layer_profiles,
         cross_layer_entanglement,
@@ -79,35 +79,35 @@ pub fn profile_layer_entanglement(
     config: &EntanglementConfig,
 ) -> Result<LayerEntanglementProfile, crate::ATQSError> {
     let weights = layer.get_weights();
-    
+
     // Create iPEPS representation from layer weights
     let ipeps_network = create_ipeps_from_weights(&weights, config.virtual_dim)?;
-    
+
     // Apply TRG coarse-graining
     let coarse_ipeps = apply_trg_coarse_graining(&ipeps_network, config.trg_iterations)?;
-    
+
     // Compute entanglement spectrum
     let entanglement_spectrum = compute_entanglement_spectrum(&coarse_ipeps)?;
-    
+
     // Compute von Neumann entropy
     let von_neumann_entropy = compute_von_neumann_entropy(&entanglement_spectrum)?;
-    
+
     // Compute Rényi entropy (α=2)
     let renyi_entropy = compute_renyi_entropy(&entanglement_spectrum, 2.0)?;
-    
+
     // Compute mutual information for different partitions
     let mutual_information = compute_mutual_information(&coarse_ipeps, &config.partition_sizes)?;
-    
+
     // Estimate correlation length
     let correlation_length = estimate_correlation_length(&coarse_ipeps)?;
-    
+
     // Compute criticality score
     let criticality_score = compute_criticality_score(
         von_neumann_entropy,
         correlation_length,
         &entanglement_spectrum,
     )?;
-    
+
     Ok(LayerEntanglementProfile {
         layer_idx,
         von_neumann_entropy,
@@ -125,7 +125,7 @@ fn create_ipeps_from_weights(
     virtual_dim: usize,
 ) -> Result<iPEPSNetwork, crate::ATQSError> {
     let shape = weights.shape();
-    
+
     // Reshape weights for iPEPS representation
     let ipeps_shape = match shape.len() {
         2 => [virtual_dim, virtual_dim, shape[0], shape[1]],
@@ -134,16 +134,18 @@ fn create_ipeps_from_weights(
             // For other dimensions, use default reshaping
             let mut new_shape = vec![virtual_dim, virtual_dim];
             new_shape.extend_from_slice(&shape[shape.len().saturating_sub(2)..]);
-            new_shape.try_into().unwrap_or([virtual_dim, virtual_dim, 1, 1])
+            new_shape
+                .try_into()
+                .unwrap_or([virtual_dim, virtual_dim, 1, 1])
         }
     };
-    
+
     // Create unit cell with single tensor
     let mut unit_tensor = Array::zeros(ipeps_shape);
     for elem in unit_tensor.iter_mut() {
         *elem = rand::random::<f32>();
     }
-    
+
     Ok(iPEPSNetwork {
         unit_cell: vec![unit_tensor.into_dyn()],
         virtual_dim,
@@ -158,30 +160,28 @@ fn apply_trg_coarse_graining(
     iterations: usize,
 ) -> Result<iPEPSNetwork, crate::ATQSError> {
     let mut current_ipeps = ipeps.clone();
-    
+
     for _ in 0..iterations {
         current_ipeps = trg_iteration(&current_ipeps)?;
     }
-    
+
     Ok(current_ipeps)
 }
 
 /// Single TRG iteration
-fn trg_iteration(
-    ipeps: &iPEPSNetwork,
-) -> Result<iPEPSNetwork, crate::ATQSError> {
+fn trg_iteration(ipeps: &iPEPSNetwork) -> Result<iPEPSNetwork, crate::ATQSError> {
     let mut new_unit_cell = Vec::new();
-    
+
     for tensor in &ipeps.unit_cell {
         // Contract neighboring tensors
         let contracted = contract_trg_neighbors(tensor)?;
-        
+
         // Apply SVD truncation to reduce bond dimension
         let truncated = truncate_trg_bonds(&contracted, ipeps.virtual_dim)?;
-        
+
         new_unit_cell.push(truncated);
     }
-    
+
     Ok(iPEPSNetwork {
         unit_cell: new_unit_cell,
         virtual_dim: ipeps.virtual_dim,
@@ -198,16 +198,16 @@ fn contract_trg_neighbors(tensor: &ArrayD<f32>) -> Result<ArrayD<f32>, crate::AT
             "TRG requires 4D iPEPS tensor".to_string(),
         ));
     }
-    
+
     // Contract along virtual bonds (simplified)
     let contracted_shape = [
         shape[0] * shape[1], // Combined virtual dimension
         shape[2],
         shape[3],
     ];
-    
+
     let mut contracted = Array::zeros(contracted_shape);
-    
+
     // Simplified contraction - in practice would be more complex
     for i in 0..shape[0] {
         for j in 0..shape[1] {
@@ -218,7 +218,7 @@ fn contract_trg_neighbors(tensor: &ArrayD<f32>) -> Result<ArrayD<f32>, crate::AT
             }
         }
     }
-    
+
     Ok(contracted.into_dyn())
 }
 
@@ -228,43 +228,46 @@ fn truncate_trg_bonds(
     max_dim: usize,
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     let shape = tensor.shape();
-    
+
     // Reshape for SVD
     let rows = shape[0];
     let cols = shape[1] * shape[2] * shape[3];
     let reshaped = tensor.clone().into_shape((rows, cols))?;
-    
+
     // Perform SVD
     let (u, s, vt) = compute_truncated_svd(&reshaped.view(), max_dim)?;
-    
+
     // Reconstruct with truncated components
-    let truncated = u.dot(&Array::from_diag(&Array::from_vec(s.clone()))).dot(&vt);
-    
+    let truncated = u
+        .dot(&Array::from_diag(&Array::from_vec(s.clone())))
+        .dot(&vt);
+
     // Reshape back to iPEPS format
     let new_shape = [max_dim, shape[1], shape[2], shape[3]];
-    Ok(truncated.into_shape(new_shape).map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape iPEPS result".to_string()))?.into_dyn())
+    Ok(truncated
+        .into_shape(new_shape)
+        .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape iPEPS result".to_string()))?
+        .into_dyn())
 }
 
 /// Compute entanglement spectrum from iPEPS
-fn compute_entanglement_spectrum(
-    ipeps: &iPEPSNetwork,
-) -> Result<Vec<f32>, crate::ATQSError> {
+fn compute_entanglement_spectrum(ipeps: &iPEPSNetwork) -> Result<Vec<f32>, crate::ATQSError> {
     if ipeps.unit_cell.is_empty() {
         return Ok(Vec::new());
     }
-    
+
     let tensor = &ipeps.unit_cell[0];
     let shape = tensor.shape();
-    
+
     // Reshape to matrix for SVD
     let rows = shape[0] * shape[1]; // Virtual dimensions
     let cols = shape[2] * shape[3]; // Physical dimensions
-    
+
     let reshaped = tensor.clone().into_shape((rows, cols))?;
-    
+
     // Compute SVD to get singular values (entanglement spectrum)
     let (_u, s, _vt) = compute_truncated_svd(&reshaped.view(), rows.min(cols))?;
-    
+
     Ok(s)
 }
 
@@ -274,7 +277,7 @@ fn compute_von_neumann_entropy(spectrum: &[f32]) -> Result<f32, crate::ATQSError
     if total <= 0.0 {
         return Ok(0.0);
     }
-    
+
     let mut entropy = 0.0;
     for &s in spectrum {
         if s > 1e-12 {
@@ -282,7 +285,7 @@ fn compute_von_neumann_entropy(spectrum: &[f32]) -> Result<f32, crate::ATQSError
             entropy -= p * p.ln();
         }
     }
-    
+
     Ok(entropy)
 }
 
@@ -292,14 +295,15 @@ fn compute_renyi_entropy(spectrum: &[f32], alpha: f32) -> Result<f32, crate::ATQ
     if total <= 0.0 {
         return Ok(0.0);
     }
-    
-    let sum_p_alpha: f32 = spectrum.iter()
+
+    let sum_p_alpha: f32 = spectrum
+        .iter()
         .map(|&s| {
             let p = s / total;
             p.powf(alpha)
         })
         .sum();
-    
+
     Ok((1.0 / (1.0 - alpha)) * sum_p_alpha.ln())
 }
 
@@ -309,7 +313,7 @@ fn compute_mutual_information(
     partition_sizes: &[usize],
 ) -> Result<HashMap<(usize, usize), f32>, crate::ATQSError> {
     let mut mutual_info = HashMap::new();
-    
+
     for (i, &size1) in partition_sizes.iter().enumerate() {
         for (j, &size2) in partition_sizes.iter().enumerate() {
             if i != j {
@@ -319,7 +323,7 @@ fn compute_mutual_information(
             }
         }
     }
-    
+
     Ok(mutual_info)
 }
 
@@ -331,36 +335,34 @@ fn compute_partition_mutual_info(
 ) -> Result<f32, crate::ATQSError> {
     // Simplified mutual information computation
     // In practice, would need proper partition tracing
-    
+
     let spectrum = compute_entanglement_spectrum(ipeps)?;
     let total_entropy = compute_von_neumann_entropy(&spectrum)?;
-    
+
     // Partition the spectrum
     let partition1_entropy = total_entropy * (size1 as f32 / (size1 + size2) as f32);
     let partition2_entropy = total_entropy * (size2 as f32 / (size1 + size2) as f32);
-    
+
     // Mutual information: I(A:B) = S(A) + S(B) - S(AB)
     Ok(partition1_entropy + partition2_entropy - total_entropy)
 }
 
 /// Estimate correlation length from iPEPS
-fn estimate_correlation_length(
-    ipeps: &iPEPSNetwork,
-) -> Result<f32, crate::ATQSError> {
+fn estimate_correlation_length(ipeps: &iPEPSNetwork) -> Result<f32, crate::ATQSError> {
     // Estimate correlation length from transfer matrix spectrum
     let spectrum = compute_entanglement_spectrum(ipeps)?;
-    
+
     if spectrum.len() < 2 {
         return Ok(1.0);
     }
-    
+
     // Correlation length related to gap in spectrum
     let gap = if spectrum.len() > 1 {
         spectrum[0] - spectrum[1]
     } else {
         0.0
     };
-    
+
     if gap > 1e-12 {
         Ok(-1.0 / gap.ln())
     } else {
@@ -381,11 +383,11 @@ fn compute_criticality_score(
     } else {
         1.0 // Infinite correlation length = maximally critical
     };
-    
+
     // Spectrum uniformity (critical systems have more uniform spectra)
     let spectrum_variance = compute_spectrum_variance(spectrum);
     let uniformity_factor = 1.0 / (1.0 + spectrum_variance);
-    
+
     Ok(0.4 * entropy_factor + 0.4 * correlation_factor + 0.2 * uniformity_factor)
 }
 
@@ -394,12 +396,11 @@ fn compute_spectrum_variance(spectrum: &[f32]) -> f32 {
     if spectrum.is_empty() {
         return 0.0;
     }
-    
+
     let mean = spectrum.iter().sum::<f32>() / spectrum.len() as f32;
-    let variance = spectrum.iter()
-        .map(|&s| (s - mean).powi(2))
-        .sum::<f32>() / spectrum.len() as f32;
-    
+    let variance =
+        spectrum.iter().map(|&s| (s - mean).powi(2)).sum::<f32>() / spectrum.len() as f32;
+
     variance
 }
 
@@ -408,23 +409,24 @@ fn compute_cross_layer_entanglement(
     profiles: &[LayerEntanglementProfile],
 ) -> Result<HashMap<(usize, usize), f32>, crate::ATQSError> {
     let mut cross_entanglement = HashMap::new();
-    
+
     for i in 0..profiles.len() {
-        for j in i+1..profiles.len() {
+        for j in i + 1..profiles.len() {
             let profile1 = &profiles[i];
             let profile2 = &profiles[j];
-            
+
             // Compute entanglement similarity
             let entropy_diff = (profile1.von_neumann_entropy - profile2.von_neumann_entropy).abs();
-            let correlation_diff = (profile1.correlation_length - profile2.correlation_length).abs();
-            
+            let correlation_diff =
+                (profile1.correlation_length - profile2.correlation_length).abs();
+
             // Cross-entanglement strength (inverse of differences)
             let strength = 1.0 / (1.0 + entropy_diff + correlation_diff);
-            
+
             cross_entanglement.insert((i, j), strength);
         }
     }
-    
+
     Ok(cross_entanglement)
 }
 
@@ -433,16 +435,16 @@ fn compute_entanglement_flow(
     profiles: &[LayerEntanglementProfile],
 ) -> Result<Vec<Vec<f32>>, crate::ATQSError> {
     let mut flow_matrix = vec![vec![0.0; profiles.len()]; profiles.len()];
-    
+
     for i in 0..profiles.len() {
-        for j in i+1..profiles.len() {
+        for j in i + 1..profiles.len() {
             // Flow based on entropy gradient
             let entropy_flow = profiles[j].von_neumann_entropy - profiles[i].von_neumann_entropy;
             flow_matrix[i][j] = entropy_flow.max(0.0);
             flow_matrix[j][i] = (-entropy_flow).max(0.0);
         }
     }
-    
+
     Ok(flow_matrix)
 }
 
@@ -452,13 +454,13 @@ fn identify_critical_entanglement_layers(
 ) -> Result<Vec<usize>, crate::ATQSError> {
     let mut critical_layers = Vec::new();
     let threshold = 0.7; // Criticality threshold
-    
+
     for profile in profiles {
         if profile.criticality_score >= threshold {
             critical_layers.push(profile.layer_idx);
         }
     }
-    
+
     Ok(critical_layers)
 }
 
@@ -468,29 +470,30 @@ fn cluster_redundant_layers(
 ) -> Result<Vec<Vec<usize>>, crate::ATQSError> {
     let mut clusters = Vec::new();
     let mut visited = vec![false; profiles.len()];
-    
+
     for i in 0..profiles.len() {
         if !visited[i] {
             let mut cluster = vec![i];
             visited[i] = true;
-            
+
             // Find similar layers
-            for j in i+1..profiles.len() {
+            for j in i + 1..profiles.len() {
                 if !visited[j] {
                     let similarity = compute_entanglement_similarity(&profiles[i], &profiles[j])?;
-                    if similarity > 0.8 { // High similarity threshold
+                    if similarity > 0.8 {
+                        // High similarity threshold
                         cluster.push(j);
                         visited[j] = true;
                     }
                 }
             }
-            
+
             if cluster.len() > 1 {
                 clusters.push(cluster);
             }
         }
     }
-    
+
     Ok(clusters)
 }
 
@@ -499,9 +502,11 @@ fn compute_entanglement_similarity(
     profile1: &LayerEntanglementProfile,
     profile2: &LayerEntanglementProfile,
 ) -> Result<f32, crate::ATQSError> {
-    let entropy_similarity = 1.0 - (profile1.von_neumann_entropy - profile2.von_neumann_entropy).abs();
-    let correlation_similarity = 1.0 - (profile1.correlation_length - profile2.correlation_length).abs() / 10.0;
-    
+    let entropy_similarity =
+        1.0 - (profile1.von_neumann_entropy - profile2.von_neumann_entropy).abs();
+    let correlation_similarity =
+        1.0 - (profile1.correlation_length - profile2.correlation_length).abs() / 10.0;
+
     Ok(0.6 * entropy_similarity + 0.4 * correlation_similarity)
 }
 
@@ -513,9 +518,11 @@ fn compute_truncated_svd(
 ) -> Result<(Array<f32, ndarray::Ix2>, Vec<f32>, Array<f32, ndarray::Ix2>), crate::ATQSError> {
     let (m, n) = matrix.dim();
     let actual_rank = rank.min(m.min(n));
-    
+
     if actual_rank == 0 {
-        return Err(crate::ATQSError::ProfilingError("SVD rank cannot be zero".to_string()));
+        return Err(crate::ATQSError::ProfilingError(
+            "SVD rank cannot be zero".to_string(),
+        ));
     }
 
     // Randomized SVD: oversample by 10
@@ -554,23 +561,23 @@ fn qr_decomposition(
 ) -> Result<(Array2<f32>, Array2<f32>), crate::ATQSError> {
     let (m, n) = matrix.dim();
     let rank = k.min(m.min(n));
-    
+
     let mut q = Array::zeros((m, rank));
     let mut r = Array::zeros((rank, n));
-    
+
     for i in 0..rank {
         let mut v = if i < n {
             matrix.column(i).to_owned()
         } else {
             Array::zeros(m)
         };
-        
+
         for j in 0..i {
             let r_ji = q.column(j).dot(&v);
             r[[j, i]] = r_ji;
             v = v - &q.column(j).mapv(|x| x * r_ji);
         }
-        
+
         let norm = v.mapv(|x| x * x).sum().sqrt();
         if norm > 1e-10 {
             r[[i, i]] = norm;
@@ -579,7 +586,7 @@ fn qr_decomposition(
             }
         }
     }
-    
+
     Ok((q, r))
 }
 
@@ -590,24 +597,22 @@ fn thin_svd(
 ) -> Result<(Array2<f32>, Vec<f32>, Array2<f32>), crate::ATQSError> {
     let (m, n) = matrix.dim();
     let actual_rank = rank.min(m.min(n));
-    
+
     // Compute A·Aᵀ (m × m) for eigenvalues
     let aat = matrix.dot(&matrix.t());
-    
+
     // Power iteration for top-k eigenvalues/eigenvectors
     let mut u = Array::zeros((m, actual_rank));
     let mut s = Vec::with_capacity(actual_rank);
-    
+
     for k in 0..actual_rank {
         // Random initialization
-        let mut vec = Array::from_iter(
-            (0..m).map(|_| rand::random::<f32>() * 2.0 - 1.0)
-        );
+        let mut vec = Array::from_iter((0..m).map(|_| rand::random::<f32>() * 2.0 - 1.0));
         let vec_norm = vec.mapv(|x| x * x).sum().sqrt();
         if vec_norm > 1e-10 {
             vec = vec / vec_norm;
         }
-        
+
         // Power iteration (20 iterations)
         for _ in 0..20 {
             vec = aat.dot(&vec);
@@ -616,11 +621,11 @@ fn thin_svd(
                 vec = vec / norm;
             }
         }
-        
+
         // Eigenvalue = Rayleigh quotient
         let rayleigh = vec.dot(&aat.dot(&vec));
         let sigma = rayleigh.abs().sqrt();
-        
+
         // Orthogonalize against previous eigenvectors (Gram-Schmidt)
         for j in 0..k {
             let proj = u.column(j).dot(&vec);
@@ -630,19 +635,21 @@ fn thin_svd(
         if vec_norm > 1e-10 {
             vec = vec / vec_norm;
         }
-        
+
         for (idx, val) in u.column_mut(k).iter_mut().enumerate() {
             *val = vec[idx];
         }
         s.push(sigma);
     }
-    
+
     // Compute V = Aᵀ·U·Σ⁻¹
     let sigma_inv = Array2::from_diag(&Array::from_vec(
-        s.iter().map(|&v| if v > 1e-10 { 1.0 / v } else { 0.0 }).collect()
+        s.iter()
+            .map(|&v| if v > 1e-10 { 1.0 / v } else { 0.0 })
+            .collect(),
     ));
     let ut = u.t();
     let vt = sigma_inv.dot(&ut.dot(matrix));
-    
+
     Ok((u, s, vt))
 }

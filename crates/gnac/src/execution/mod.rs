@@ -6,16 +6,15 @@
 //!
 //! Pipeline: User-built graph → IR → Graph Optimizer → Backend Runtime
 
-pub mod ir;
-pub mod eager;
 pub mod compiled;
+pub mod eager;
+pub mod ir;
 pub mod optimizer;
 
-pub use ir::*;
-pub use eager::*;
 pub use compiled::*;
+pub use eager::*;
+pub use ir::*;
 pub use optimizer::*;
-
 
 /// Backend target untuk eksekusi
 #[derive(Debug, Clone, Copy, PartialEq)]

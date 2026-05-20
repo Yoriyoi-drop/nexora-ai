@@ -7,15 +7,15 @@
 //! - context: Context management and evolution
 //! - reasoning: High-level reasoning capabilities
 
-pub mod planning;
-pub mod reflection;
 pub mod context;
+pub mod planning;
 pub mod reasoning;
+pub mod reflection;
 
-pub use planning::*;
-pub use reflection::*;
 pub use context::*;
+pub use planning::*;
 pub use reasoning::*;
+pub use reflection::*;
 
 #[cfg(test)]
 mod tests {
@@ -47,7 +47,7 @@ mod tests {
             content: "test entry".into(),
             entry_type: ContextType::UserInput,
             importance: 0.8,
-                timestamp: chrono::Utc::now().timestamp(),
+            timestamp: chrono::Utc::now().timestamp(),
             embeddings: None,
         };
         let window = ContextWindow {
@@ -92,7 +92,7 @@ mod tests {
             learning_insights: vec![],
             metadata: ReflectionMetadata {
                 reflection_type: ReflectionType::Performance,
-            timestamp: chrono::Utc::now().timestamp(),
+                timestamp: chrono::Utc::now().timestamp(),
                 context: "test".into(),
             },
         };

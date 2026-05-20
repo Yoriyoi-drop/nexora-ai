@@ -1,4 +1,4 @@
-use crate::gpu::{GpuContext, GpuTensor, GpuError};
+use crate::gpu::{GpuContext, GpuError, GpuTensor};
 
 // ─── GpuStagingPool ────────────────────────────────────────────────────────────
 
@@ -87,17 +87,23 @@ pub fn tensor_from_cpu_async(
     });
 
     let staging = pool.acquire_write(ctx, byte_size);
-    ctx.queue.write_buffer(&staging, 0, bytemuck::cast_slice(data));
+    ctx.queue
+        .write_buffer(&staging, 0, bytemuck::cast_slice(data));
 
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("async_write_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("async_write_encoder"),
+        });
     encoder.copy_buffer_to_buffer(&staging, 0, &storage, 0, byte_size);
     ctx.queue.submit(Some(encoder.finish()));
 
     pool.release_write(staging);
 
-    Ok(GpuTensor { shape, buffer: storage })
+    Ok(GpuTensor {
+        shape,
+        buffer: storage,
+    })
 }
 
 /// Read GPU tensor back to CPU asynchronously.
@@ -111,9 +117,11 @@ pub fn tensor_to_cpu_async<'a>(
     let byte_size = (tensor.numel() * 4) as u64;
     let staging = pool.acquire_read(ctx, byte_size);
 
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("async_read_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("async_read_encoder"),
+        });
     encoder.copy_buffer_to_buffer(tensor.buffer(), 0, &staging, 0, byte_size);
     let submission = ctx.queue.submit(Some(encoder.finish()));
 
@@ -145,7 +153,8 @@ impl CpuReadback {
             submission_index: Some(self.submission),
             timeout: None,
         });
-        let _ = rx.recv().expect("channel closed").expect("mapping failed");        let mapped = slice.get_mapped_range();
+        let _ = rx.recv().expect("channel closed").expect("mapping failed");
+        let mapped = slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&*mapped).to_vec();
         drop(mapped);
         self.staging.unmap();
@@ -167,7 +176,11 @@ pub struct GpuBatchBuffer {
 }
 
 impl GpuBatchBuffer {
-    pub fn new(ctx: &GpuContext, batch_shape: &[usize], target_shape: &[usize]) -> Result<Self, GpuError> {
+    pub fn new(
+        ctx: &GpuContext,
+        batch_shape: &[usize],
+        target_shape: &[usize],
+    ) -> Result<Self, GpuError> {
         Ok(Self {
             input: GpuTensor::zeros(batch_shape)?,
             target: GpuTensor::zeros(target_shape)?,
@@ -185,15 +198,19 @@ impl GpuBatchBuffer {
     ) {
         let input_bytes = (input_data.len() * 4) as u64;
         let staging_in = pool.acquire_write(ctx, input_bytes);
-        ctx.queue.write_buffer(&staging_in, 0, bytemuck::cast_slice(input_data));
+        ctx.queue
+            .write_buffer(&staging_in, 0, bytemuck::cast_slice(input_data));
 
         let target_bytes = (target_data.len() * 4) as u64;
         let staging_tgt = pool.acquire_write(ctx, target_bytes);
-        ctx.queue.write_buffer(&staging_tgt, 0, bytemuck::cast_slice(target_data));
+        ctx.queue
+            .write_buffer(&staging_tgt, 0, bytemuck::cast_slice(target_data));
 
-        let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("batch_upload"),
-        });
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("batch_upload"),
+            });
         encoder.copy_buffer_to_buffer(&staging_in, 0, self.input.buffer(), 0, input_bytes);
         encoder.copy_buffer_to_buffer(&staging_tgt, 0, self.target.buffer(), 0, target_bytes);
         ctx.queue.submit(Some(encoder.finish()));
@@ -244,12 +261,7 @@ impl AsyncDataPipeline {
     }
 
     /// Upload data to the *other* buffer (the one not being computed on).
-    pub fn upload_next(
-        &mut self,
-        ctx: &GpuContext,
-        input_data: &[f32],
-        target_data: &[f32],
-    ) {
+    pub fn upload_next(&mut self, ctx: &GpuContext, input_data: &[f32], target_data: &[f32]) {
         let next = self.current ^ 1;
         self.buffers[next].upload(ctx, &mut self.staging_pool, input_data, target_data);
     }

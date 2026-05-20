@@ -1,12 +1,12 @@
 //! Performance monitoring utilities untuk Nexora
 
-use std::time::{Duration, Instant};
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use anyhow::Result;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::debug;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug)]
 pub struct PerformanceMonitor {
@@ -95,8 +95,8 @@ pub struct PerformanceReport {
 pub struct OperationStats {
     pub count: u64,
     pub average_time_ms: u64, // Changed from Duration to u64 for serializability
-    pub min_time_ms: u64, // Changed from Duration to u64 for serializability
-    pub max_time_ms: u64, // Changed from Duration to u64 for serializability
+    pub min_time_ms: u64,     // Changed from Duration to u64 for serializability
+    pub max_time_ms: u64,     // Changed from Duration to u64 for serializability
     pub error_count: u64,
     pub error_rate: f64,
 }
@@ -107,89 +107,105 @@ impl PerformanceMonitor {
             max_samples: cache_size,
             ..Default::default()
         };
-        
+
         Self {
             metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
             config,
         }
     }
-    
+
     pub fn with_config(config: PerformanceConfig) -> Self {
         Self {
             metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
             config,
         }
     }
-    
+
     /// Start timing an operation
     pub async fn start_timer(&self, operation: &str) -> OperationTimer {
-        OperationTimer::new(operation.to_string(), self.metrics.clone(), self.config.enable_detailed_tracking)
+        OperationTimer::new(
+            operation.to_string(),
+            self.metrics.clone(),
+            self.config.enable_detailed_tracking,
+        )
     }
-    
+
     /// Record operation completion
     pub async fn record_operation(&self, operation: &str, duration: Duration, success: bool) {
         let mut metrics = self.metrics.write().await;
-        
+
         // Record operation time
-        let times = metrics.operation_times.entry(operation.to_string()).or_insert_with(VecDeque::new);
+        let times = metrics
+            .operation_times
+            .entry(operation.to_string())
+            .or_insert_with(VecDeque::new);
         times.push_back(duration);
-        
+
         // Keep only recent samples
         while times.len() > self.config.max_samples {
             times.pop_front();
         }
-        
+
         // Record operation count
-        *metrics.operation_counts.entry(operation.to_string()).or_insert(0) += 1;
-        
+        *metrics
+            .operation_counts
+            .entry(operation.to_string())
+            .or_insert(0) += 1;
+
         // Record error if applicable
         if !success {
-            *metrics.error_counts.entry(operation.to_string()).or_insert(0) += 1;
+            *metrics
+                .error_counts
+                .entry(operation.to_string())
+                .or_insert(0) += 1;
         }
     }
-    
+
     /// Record custom metric
     pub async fn record_metric(&self, metric_name: &str, value: f64) {
         let mut metrics = self.metrics.write().await;
-        let values = metrics.custom_metrics.entry(metric_name.to_string()).or_insert_with(VecDeque::new);
+        let values = metrics
+            .custom_metrics
+            .entry(metric_name.to_string())
+            .or_insert_with(VecDeque::new);
         values.push_back(value);
-        
+
         // Keep only recent samples
         while values.len() > self.config.max_samples {
             values.pop_front();
         }
     }
-    
+
     /// Record memory usage
     pub async fn record_memory_usage(&self, memory_mb: f64) {
         if !self.config.enable_memory_tracking {
             return;
         }
-        
+
         let mut metrics = self.metrics.write().await;
         let snapshot = MemorySnapshot {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system time after epoch")
                 .as_secs(),
-            memory_usage_mb : memory_mb,
+            memory_usage_mb: memory_mb,
             memory_usage_bytes: (memory_mb * 1024.0 * 1024.0) as u64,
         };
-        
+
         metrics.memory_usage.push_back(snapshot);
-        
+
         // Keep only recent samples
         while metrics.memory_usage.len() > self.config.max_samples {
             metrics.memory_usage.pop_front();
         }
     }
-    
+
     /// Record CPU usage
     pub async fn record_cpu_usage(&self, cpu_percent: f64) {
         if !self.config.enable_cpu_tracking {
             return;
         }
-        
+
         let mut metrics = self.metrics.write().await;
         let snapshot = CpuSnapshot {
             timestamp: std::time::SystemTime::now()
@@ -198,45 +214,47 @@ impl PerformanceMonitor {
                 .as_secs(),
             cpu_usage_percent: cpu_percent,
         };
-        
+
         metrics.cpu_usage.push_back(snapshot);
-        
+
         // Keep only recent samples
         while metrics.cpu_usage.len() > self.config.max_samples {
             metrics.cpu_usage.pop_front();
         }
     }
-    
+
     /// Get current memory usage in MB
     pub async fn get_memory_usage() -> Result<f64> {
         #[cfg(target_os = "linux")]
         {
             use std::fs;
             use std::io::Read;
-            
+
             // Read memory info from /proc/self/status
             let mut status_file = fs::File::open("/proc/self/status")
                 .map_err(|e| anyhow::anyhow!("Failed to open /proc/self/status: {}", e))?;
-            
+
             let mut contents = String::new();
-            status_file.read_to_string(&mut contents)
+            status_file
+                .read_to_string(&mut contents)
                 .map_err(|e| anyhow::anyhow!("Failed to read /proc/self/status: {}", e))?;
-            
+
             // Parse VmRSS (Resident Set Size) from status
             for line in contents.lines() {
                 if line.starts_with("VmRSS:") {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 2 {
-                        let kb_usage: f64 = parts[1].parse()
+                        let kb_usage: f64 = parts[1]
+                            .parse()
                             .map_err(|e| anyhow::anyhow!("Failed to parse memory usage: {}", e))?;
                         return Ok(kb_usage / 1024.0); // Convert KB to MB
                     }
                 }
             }
-            
+
             Err(anyhow::anyhow!("VmRSS not found in /proc/self/status"))
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
             // Fallback for non-Linux systems - use a simple estimation
@@ -246,7 +264,7 @@ impl PerformanceMonitor {
             Ok(64.0) // Default 64MB fallback
         }
     }
-    
+
     /// Get current CPU usage as percentage (0-100)
     pub async fn get_cpu_usage() -> Result<f64> {
         #[cfg(target_os = "linux")]
@@ -274,58 +292,69 @@ impl PerformanceMonitor {
             Ok(5.0)
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     fn parse_cpu_times(stat_contents: &str) -> Result<CpuTimes> {
-        let first_line = stat_contents.lines().next()
+        let first_line = stat_contents
+            .lines()
+            .next()
             .ok_or_else(|| anyhow::anyhow!("No CPU stats found"))?;
-        
+
         let parts: Vec<&str> = first_line.split_whitespace().collect();
         if parts.len() < 5 || !parts[0].starts_with("cpu") {
             return Err(anyhow::anyhow!("Invalid CPU stats format"));
         }
-        
-        let user: u64 = parts[1].parse()
+
+        let user: u64 = parts[1]
+            .parse()
             .map_err(|e| anyhow::anyhow!("Failed to parse user time: {}", e))?;
-        let nice: u64 = parts[2].parse()
+        let nice: u64 = parts[2]
+            .parse()
             .map_err(|e| anyhow::anyhow!("Failed to parse nice time: {}", e))?;
-        let system: u64 = parts[3].parse()
+        let system: u64 = parts[3]
+            .parse()
             .map_err(|e| anyhow::anyhow!("Failed to parse system time: {}", e))?;
-        let idle: u64 = parts[4].parse()
+        let idle: u64 = parts[4]
+            .parse()
             .map_err(|e| anyhow::anyhow!("Failed to parse idle time: {}", e))?;
-        
+
         // Sum all fields for accurate total (includes iowait, irq, softirq, steal)
-        let total: u64 = parts[1..].iter()
+        let total: u64 = parts[1..]
+            .iter()
             .filter_map(|s| s.parse::<u64>().ok())
             .sum();
-        
-        Ok(CpuTimes { user, nice, system, idle, total })
+
+        Ok(CpuTimes {
+            user,
+            nice,
+            system,
+            idle,
+            total,
+        })
     }
-    
+
     /// Generate performance report
     pub async fn generate_report(&self) -> PerformanceReport {
         let metrics = self.metrics.read().await;
         let uptime = metrics.start_time.elapsed();
-        
+
         // Calculate total operations
         let total_operations: u64 = metrics.operation_counts.values().sum();
-        
+
         // Calculate average operation time
-        let total_time: Duration = metrics.operation_times.values()
-            .flatten()
-            .sum();
+        let total_time: Duration = metrics.operation_times.values().flatten().sum();
         let average_operation_time = if total_operations > 0 {
             total_time / total_operations as u32
         } else {
             Duration::ZERO
         };
-        
+
         // Calculate operation breakdown
         let mut operation_breakdown = HashMap::new();
         for (operation, times) in &metrics.operation_times {
             let count = *metrics.operation_counts.get(operation).unwrap_or(&0);
             let error_count = *metrics.error_counts.get(operation).unwrap_or(&0);
-            
+
             if !times.is_empty() {
                 let total_time: Duration = times.iter().sum();
                 let avg_time = total_time / times.len() as u32;
@@ -336,18 +365,21 @@ impl PerformanceMonitor {
                 } else {
                     0.0
                 };
-                
-                operation_breakdown.insert(operation.clone(), OperationStats {
-                    count,
-                    average_time_ms: avg_time.as_millis() as u64,
-                    min_time_ms: min_time.as_millis() as u64,
-                    max_time_ms: max_time.as_millis() as u64,
-                    error_count,
-                    error_rate,
-                });
+
+                operation_breakdown.insert(
+                    operation.clone(),
+                    OperationStats {
+                        count,
+                        average_time_ms: avg_time.as_millis() as u64,
+                        min_time_ms: min_time.as_millis() as u64,
+                        max_time_ms: max_time.as_millis() as u64,
+                        error_count,
+                        error_rate,
+                    },
+                );
             }
         }
-        
+
         // Calculate overall error rate
         let total_errors: u64 = metrics.error_counts.values().sum();
         let error_rate = if total_operations > 0 {
@@ -355,7 +387,7 @@ impl PerformanceMonitor {
         } else {
             0.0
         };
-        
+
         PerformanceReport {
             total_operations,
             average_operation_time_ms: average_operation_time.as_millis() as u64,
@@ -366,19 +398,19 @@ impl PerformanceMonitor {
             uptime_ms: uptime.as_millis() as u64,
         }
     }
-    
+
     /// Get operation statistics
     pub async fn get_operation_stats(&self, operation: &str) -> Option<OperationStats> {
         let metrics = self.metrics.read().await;
-        
+
         let times = metrics.operation_times.get(operation)?;
         let count = *metrics.operation_counts.get(operation).unwrap_or(&0);
         let error_count = *metrics.error_counts.get(operation).unwrap_or(&0);
-        
+
         if times.is_empty() {
             return None;
         }
-        
+
         let total_time: Duration = times.iter().sum();
         let avg_time = total_time / times.len() as u32;
         let min_time = *times.iter().min().expect("times is non-empty");
@@ -388,7 +420,7 @@ impl PerformanceMonitor {
         } else {
             0.0
         };
-        
+
         Some(OperationStats {
             count,
             average_time_ms: avg_time.as_millis() as u64,
@@ -398,31 +430,34 @@ impl PerformanceMonitor {
             error_rate,
         })
     }
-    
+
     /// Get custom metric values
     pub async fn get_metric_values(&self, metric_name: &str) -> Option<Vec<f64>> {
         let metrics = self.metrics.read().await;
-        metrics.custom_metrics.get(metric_name).map(|values| values.iter().copied().collect())
+        metrics
+            .custom_metrics
+            .get(metric_name)
+            .map(|values| values.iter().copied().collect())
     }
-    
+
     /// Get all operation names
     pub async fn get_operation_names(&self) -> Vec<String> {
         let metrics = self.metrics.read().await;
         metrics.operation_counts.keys().cloned().collect()
     }
-    
+
     /// Get all custom metric names
     pub async fn get_metric_names(&self) -> Vec<String> {
         let metrics = self.metrics.read().await;
         metrics.custom_metrics.keys().cloned().collect()
     }
-    
+
     /// Clear all metrics
     pub async fn clear_metrics(&self) {
         let mut metrics = self.metrics.write().await;
         *metrics = PerformanceMetrics::default();
     }
-    
+
     /// Clear metrics for specific operation
     pub async fn clear_operation_metrics(&self, operation: &str) {
         let mut metrics = self.metrics.write().await;
@@ -430,51 +465,51 @@ impl PerformanceMonitor {
         metrics.operation_counts.remove(operation);
         metrics.error_counts.remove(operation);
     }
-    
+
     /// Clear custom metric
     pub async fn clear_custom_metric(&self, metric_name: &str) {
         let mut metrics = self.metrics.write().await;
         metrics.custom_metrics.remove(metric_name);
     }
-    
+
     /// Export metrics to JSON
     pub async fn export_metrics(&self) -> Result<String> {
         let report = self.generate_report().await;
         serde_json::to_string_pretty(&report)
             .map_err(|e| anyhow::anyhow!("Failed to export metrics: {}", e))
     }
-    
+
     /// Check if performance is healthy
     pub async fn is_healthy(&self) -> bool {
         let report = self.generate_report().await;
-        
+
         // Simple health check logic
         if report.error_rate > 0.1 {
             return false; // Error rate too high
         }
-        
+
         if report.average_operation_time_ms > 10000 {
             return false; // Operations too slow (more than 10 seconds)
         }
-        
+
         true
     }
-    
+
     /// Get performance score (0-100)
     pub async fn get_performance_score(&self) -> f64 {
         let report = self.generate_report().await;
-        
+
         let mut score = 100.0;
-        
+
         // Penalize high error rate
         score -= report.error_rate * 100.0;
-        
+
         // Penalize slow operations
         let avg_seconds = report.average_operation_time_ms as f64 / 1000.0;
         if avg_seconds > 1.0 {
             score -= (avg_seconds - 1.0) * 10.0;
         }
-        
+
         score.max(0.0).min(100.0)
     }
 }
@@ -488,7 +523,11 @@ pub struct OperationTimer {
 }
 
 impl OperationTimer {
-    fn new(operation: String, metrics: Arc<RwLock<PerformanceMetrics>>, enable_detailed_tracking: bool) -> Self {
+    fn new(
+        operation: String,
+        metrics: Arc<RwLock<PerformanceMetrics>>,
+        enable_detailed_tracking: bool,
+    ) -> Self {
         Self {
             operation,
             start_time: Instant::now(),
@@ -496,37 +535,49 @@ impl OperationTimer {
             enable_detailed_tracking,
         }
     }
-    
+
     /// Finish timing and record the operation
     pub async fn finish(self, success: bool) -> Duration {
         let duration = self.start_time.elapsed();
-        
+
         let mut metrics = self.metrics.write().await;
-        
+
         // Record operation time
-        let times = metrics.operation_times.entry(self.operation.clone()).or_insert_with(VecDeque::new);
+        let times = metrics
+            .operation_times
+            .entry(self.operation.clone())
+            .or_insert_with(VecDeque::new);
         times.push_back(duration);
-        
+
         // Record operation count
-        *metrics.operation_counts.entry(self.operation.clone()).or_insert(0) += 1;
-        
+        *metrics
+            .operation_counts
+            .entry(self.operation.clone())
+            .or_insert(0) += 1;
+
         // Record error if applicable
         if !success {
-            *metrics.error_counts.entry(self.operation.clone()).or_insert(0) += 1;
+            *metrics
+                .error_counts
+                .entry(self.operation.clone())
+                .or_insert(0) += 1;
         }
-        
+
         if self.enable_detailed_tracking {
-            debug!("Operation '{}' completed in {:?} (success: {})", self.operation, duration, success);
+            debug!(
+                "Operation '{}' completed in {:?} (success: {})",
+                self.operation, duration, success
+            );
         }
-        
+
         duration
     }
-    
+
     /// Finish timing with success
     pub async fn finish_success(self) -> Duration {
         self.finish(true).await
     }
-    
+
     /// Finish timing with failure
     pub async fn finish_failure(self) -> Duration {
         self.finish(false).await
@@ -537,11 +588,14 @@ impl Drop for OperationTimer {
     fn drop(&mut self) {
         // Auto-finish with success if not explicitly finished
         let duration = self.start_time.elapsed();
-        
+
         if self.enable_detailed_tracking {
-            debug!("Operation '{}' auto-finished in {:?} (assumed success)", self.operation, duration);
+            debug!(
+                "Operation '{}' auto-finished in {:?} (assumed success)",
+                self.operation, duration
+            );
         }
-        
+
         // Note: This is a simplified approach. In production, you might want to handle this differently
         // since we can't easily use async in Drop.
     }
@@ -559,31 +613,33 @@ impl BenchmarkUtils {
     {
         let mut durations = Vec::with_capacity(iterations);
         let mut results = Vec::with_capacity(iterations);
-        
+
         for _ in 0..iterations {
             let start = Instant::now();
             let result = function().await;
             let duration = start.elapsed();
-            
+
             durations.push(duration);
             results.push(result);
         }
-        
+
         let total_time: Duration = durations.iter().sum();
         let average_time = total_time / iterations as u32;
         let min_time = *durations.iter().min().expect("durations is non-empty");
         let max_time = *durations.iter().max().expect("durations is non-empty");
-        
+
         // Calculate standard deviation
         let mean = average_time.as_secs_f64();
-        let variance: f64 = durations.iter()
+        let variance: f64 = durations
+            .iter()
             .map(|d| {
                 let diff = d.as_secs_f64() - mean;
                 diff * diff
             })
-            .sum::<f64>() / iterations as f64;
+            .sum::<f64>()
+            / iterations as f64;
         let std_dev = variance.sqrt();
-        
+
         BenchmarkResult {
             name: name.to_string(),
             iterations,
@@ -595,7 +651,7 @@ impl BenchmarkUtils {
             throughput: iterations as f64 / total_time.as_secs_f64(),
         }
     }
-    
+
     /// Compare two functions
     pub async fn compare<F1, Fut1, T1, F2, Fut2, T2>(
         name1: &str,
@@ -612,14 +668,18 @@ impl BenchmarkUtils {
     {
         let result1 = Self::benchmark(name1, iterations, function1).await;
         let result2 = Self::benchmark(name2, iterations, function2).await;
-        
+
         let speedup = result1.average_time.as_secs_f64() / result2.average_time.as_secs_f64();
-        
+
         ComparisonResult {
             result1,
             result2,
             speedup,
-            winner: if speedup > 1.0 { name2.to_string() } else { name1.to_string() },
+            winner: if speedup > 1.0 {
+                name2.to_string()
+            } else {
+                name1.to_string()
+            },
         }
     }
 }
@@ -648,69 +708,70 @@ pub struct ComparisonResult {
 mod tests {
     use super::*;
     use tokio::time::sleep;
-    
+
     #[tokio::test]
     async fn test_performance_monitor() {
         let monitor = PerformanceMonitor::new(100);
-        
+
         // Test operation timing
         let timer = monitor.start_timer("test_operation").await;
         sleep(Duration::from_millis(10)).await;
         timer.finish_success().await;
-        
+
         // Test custom metrics
         monitor.record_metric("test_metric", 42.0).await;
-        
+
         // Test operation stats
         let stats = monitor.get_operation_stats("test_operation").await;
         assert!(stats.is_some());
         assert_eq!(stats.unwrap().count, 1);
-        
+
         // Test metric values
         let values = monitor.get_metric_values("test_metric").await;
         assert!(values.is_some());
         assert_eq!(values.unwrap()[0], 42.0);
-        
+
         // Test report generation
         let report = monitor.generate_report().await;
         assert_eq!(report.total_operations, 1);
         assert!(report.operation_breakdown.contains_key("test_operation"));
-        
+
         // Test health check
         assert!(monitor.is_healthy().await);
-        
+
         // Test performance score
         let score = monitor.get_performance_score().await;
         assert!(score > 0.0 && score <= 100.0);
     }
-    
+
     #[tokio::test]
     async fn test_benchmark() {
         async fn test_function() -> String {
             sleep(Duration::from_millis(1)).await;
             "result".to_string()
         }
-        
+
         let result = BenchmarkUtils::benchmark("test", 5, test_function).await;
         assert_eq!(result.name, "test");
         assert_eq!(result.iterations, 5);
         assert!(result.average_time > Duration::ZERO);
         assert!(result.throughput > 0.0);
     }
-    
+
     #[tokio::test]
     async fn test_comparison() {
         async fn fast_function() -> String {
             sleep(Duration::from_millis(1)).await;
             "fast".to_string()
         }
-        
+
         async fn slow_function() -> String {
             sleep(Duration::from_millis(2)).await;
             "slow".to_string()
         }
-        
-        let comparison = BenchmarkUtils::compare("fast", "slow", 3, fast_function, slow_function).await;
+
+        let comparison =
+            BenchmarkUtils::compare("fast", "slow", 3, fast_function, slow_function).await;
         assert_eq!(comparison.result1.name, "fast");
         assert_eq!(comparison.result2.name, "slow");
         assert!(comparison.speedup > 1.0);

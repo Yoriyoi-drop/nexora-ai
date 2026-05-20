@@ -1,10 +1,8 @@
 //! NXR-NEXUM Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-NEXUM
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-NEXUM Identity Manager
 pub struct _NexumIdentity {

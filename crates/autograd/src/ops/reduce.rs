@@ -2,9 +2,9 @@ use ndarray::ArrayD;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
-use crate::{Storage, tensor::next_tensor_id};
-#[cfg(feature = "gpu")]
 use crate::gpu::{GpuContext, GpuTensor, ReduceOp};
+#[cfg(feature = "gpu")]
+use crate::{tensor::next_tensor_id, Storage};
 
 pub fn sum(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
@@ -22,7 +22,8 @@ pub fn sum(input: &Tensor) -> Tensor {
                         let shape_saved = ArrayD::from_shape_vec(
                             vec![orig_shape.len()],
                             orig_shape.iter().map(|&x| x as f32).collect(),
-                        ).unwrap();
+                        )
+                        .unwrap();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -30,7 +31,8 @@ pub fn sum(input: &Tensor) -> Tensor {
                             vec![],
                             Box::new(|grad, saved| {
                                 let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-                                let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                                let orig_shape: Vec<usize> =
+                                    shape_data.iter().map(|&x| x as usize).collect();
                                 let grad_val = grad.iter().copied().next().unwrap_or(1.0);
                                 vec![ArrayD::from_elem(orig_shape, grad_val)]
                             }),
@@ -51,7 +53,8 @@ pub fn sum(input: &Tensor) -> Tensor {
     let shape_saved = ArrayD::from_shape_vec(
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
-    ).expect("shape data fits vector");
+    )
+    .expect("shape data fits vector");
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
@@ -74,7 +77,8 @@ pub fn mean(input: &Tensor) -> Tensor {
                 match ctx.reduce(gpu_input, ReduceOp::Sum) {
                     Ok(gpu_sum) => {
                         let numel = input.numel() as f32;
-                        let numel_tensor = GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], numel)).unwrap();
+                        let numel_tensor =
+                            GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], numel)).unwrap();
                         if let Ok(gpu_result) = ctx.div(&gpu_sum, &numel_tensor) {
                             if !input.requires_grad() {
                                 let id = next_tensor_id();
@@ -84,7 +88,8 @@ pub fn mean(input: &Tensor) -> Tensor {
                             let shape_saved = ArrayD::from_shape_vec(
                                 vec![orig_shape.len()],
                                 orig_shape.iter().map(|&x| x as f32).collect(),
-                            ).unwrap();
+                            )
+                            .unwrap();
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![input.clone()],
@@ -92,7 +97,8 @@ pub fn mean(input: &Tensor) -> Tensor {
                                 vec![],
                                 Box::new(|grad, saved| {
                                     let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-                                    let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                                    let orig_shape: Vec<usize> =
+                                        shape_data.iter().map(|&x| x as usize).collect();
                                     let n = saved[1].iter().copied().next().unwrap_or(1.0);
                                     let grad_val = grad.iter().copied().next().unwrap_or(1.0);
                                     vec![ArrayD::from_elem(orig_shape, grad_val / n)]
@@ -116,7 +122,8 @@ pub fn mean(input: &Tensor) -> Tensor {
     let shape_saved = ArrayD::from_shape_vec(
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
-    ).expect("shape data fits vector");
+    )
+    .expect("shape data fits vector");
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],

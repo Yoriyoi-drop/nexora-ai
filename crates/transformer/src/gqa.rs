@@ -22,6 +22,7 @@ pub struct GQA {
     pub num_kv_heads: usize,
     pub head_dim: usize,
     pub num_groups: usize,
+    pub head_dim_rs: f32,
     pub wq: Array2<f32>,
     pub wk: Array2<f32>,
     pub wv: Array2<f32>,
@@ -57,6 +58,7 @@ impl GQA {
             num_kv_heads,
             head_dim,
             num_groups: num_heads / num_kv_heads,
+            head_dim_rs: 1.0 / (head_dim as f32).sqrt(),
             wq,
             wk,
             wv,
@@ -78,11 +80,14 @@ impl GQA {
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let mut q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+        let mut q = q_proj
+            .into_shape((batch_size, self.num_heads, self.head_dim))
             .expect("GQA: q shape mismatch");
-        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let mut k = k_proj
+            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA: k shape mismatch");
-        let v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let v = v_proj
+            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA: v shape mismatch");
 
         for b in 0..batch_size {
@@ -107,36 +112,39 @@ impl GQA {
             }
         }
 
-        let (k_cached, v_cached, total_seq): (Cow<Array2<f32>>, Cow<Array2<f32>>, usize) = match cache {
-            Some(cache) if layer_idx < cache.len() => {
-                let entry = &cache[layer_idx];
-                let seq = entry.k.shape()[0] / batch_size;
-                (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
-            }
-            _ => {
-                let kf = k.into_shape((batch_size, self.num_kv_heads * self.head_dim))
-                    .expect("GQA: k flat");
-                let vf = v.into_shape((batch_size, self.num_kv_heads * self.head_dim))
-                    .expect("GQA: v flat");
-                (Cow::Owned(kf), Cow::Owned(vf), 1)
-            }
-        };
+        let (k_cached, v_cached, total_seq): (Cow<Array2<f32>>, Cow<Array2<f32>>, usize) =
+            match cache {
+                Some(cache) if layer_idx < cache.len() => {
+                    let entry = &cache[layer_idx];
+                    let seq = entry.k.shape()[0] / batch_size;
+                    (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
+                }
+                _ => {
+                    let kf = k
+                        .into_shape((batch_size, self.num_kv_heads * self.head_dim))
+                        .expect("GQA: k flat");
+                    let vf = v
+                        .into_shape((batch_size, self.num_kv_heads * self.head_dim))
+                        .expect("GQA: v flat");
+                    (Cow::Owned(kf), Cow::Owned(vf), 1)
+                }
+            };
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
         for b in 0..batch_size {
             for h in 0..self.num_heads {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
+                let kv_off = kv_h * self.head_dim;
 
                 let mut scores = Vec::with_capacity(total_seq);
                 let mut max_score = f32::NEG_INFINITY;
-
                 for t in 0..total_seq {
                     let mut score = 0.0;
                     for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_cached[[b * total_seq + t, kv_h * self.head_dim + d]];
+                        score += q[[b, h, d]] * k_cached[[b * total_seq + t, kv_off + d]];
                     }
-                    score /= (self.head_dim as f32).sqrt();
+                    score *= self.head_dim_rs;
                     if score > max_score {
                         max_score = score;
                     }
@@ -149,13 +157,15 @@ impl GQA {
                     exp_sum += *s;
                 }
 
+                let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
+                let out_base = h * self.head_dim;
                 for d in 0..self.head_dim {
                     let mut weighted = 0.0;
                     for t in 0..total_seq {
-                        let attn = scores[t] / exp_sum;
-                        weighted += attn * v_cached[[b * total_seq + t, kv_h * self.head_dim + d]];
+                        weighted +=
+                            scores[t] * inv_exp_sum * v_cached[[b * total_seq + t, kv_off + d]];
                     }
-                    output[[b, h * self.head_dim + d]] = weighted;
+                    output[[b, out_base + d]] = weighted;
                 }
             }
         }
@@ -177,11 +187,14 @@ impl GQA {
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let mut q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+        let mut q = q_proj
+            .into_shape((batch_size, self.num_heads, self.head_dim))
             .expect("GQA forward_with_kv: q shape");
-        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let mut k = k_proj
+            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA forward_with_kv: k shape");
-        let v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let v = v_proj
+            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA forward_with_kv: v shape");
 
         for b in 0..batch_size {
@@ -215,18 +228,22 @@ impl GQA {
 
         if layer_idx < cache.len() {
             let entry = &mut cache[layer_idx];
-            let k_flat = k.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+            let k_flat = k
+                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
                 .expect("GQA: k_flat");
-            let v_flat = v.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+            let v_flat = v
+                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
                 .expect("GQA: v_flat");
             let new_k = ndarray::concatenate![Axis(0), entry.k.view(), k_flat.insert_axis(Axis(0))];
             let new_v = ndarray::concatenate![Axis(0), entry.v.view(), v_flat.insert_axis(Axis(0))];
             entry.k = new_k;
             entry.v = new_v;
         } else {
-            let k_flat = k.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+            let k_flat = k
+                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
                 .expect("GQA: k_flat new entry");
-            let v_flat = v.into_shape(batch_size * self.num_kv_heads * self.head_dim)
+            let v_flat = v
+                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
                 .expect("GQA: v_flat new entry");
             cache.push(KVCacheEntry {
                 k: k_flat.insert_axis(Axis(0)).to_owned(),
@@ -240,25 +257,25 @@ impl GQA {
         let total_seq = k_cached.shape()[0];
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
-        let mut scores = Vec::with_capacity(total_seq);
 
         for b in 0..batch_size {
             for h in 0..self.num_heads {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
+                let kv_off = kv_h * self.head_dim;
 
-                scores.clear();
+                let mut scores = vec![0.0; total_seq];
                 let mut max_score = f32::NEG_INFINITY;
-
                 for t in 0..total_seq {
+                    let k_row = k_cached.row(t);
                     let mut score = 0.0;
                     for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_cached[[t, kv_h * self.head_dim + d]];
+                        score += q[[b, h, d]] * k_row[kv_off + d];
                     }
-                    score /= (self.head_dim as f32).sqrt();
+                    score *= self.head_dim_rs;
                     if score > max_score {
                         max_score = score;
                     }
-                    scores.push(score);
+                    scores[t] = score;
                 }
 
                 let mut exp_sum = 0.0;
@@ -267,13 +284,14 @@ impl GQA {
                     exp_sum += *s;
                 }
 
+                let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
+                let out_base = h * self.head_dim;
                 for d in 0..self.head_dim {
                     let mut weighted = 0.0;
                     for t in 0..total_seq {
-                        let attn = scores[t] / exp_sum;
-                        weighted += attn * v_cached[[t, kv_h * self.head_dim + d]];
+                        weighted += scores[t] * inv_exp_sum * v_cached[[t, kv_off + d]];
                     }
-                    output[[b, h * self.head_dim + d]] = weighted;
+                    output[[b, out_base + d]] = weighted;
                 }
             }
         }
@@ -294,17 +312,23 @@ impl GQA {
         sin: &Array1<f32>,
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
-        debug_assert_eq!(batch_size, 1, "forward_with_paged only supports batch_size=1");
+        debug_assert_eq!(
+            batch_size, 1,
+            "forward_with_paged only supports batch_size=1"
+        );
 
         let q_proj = x.dot(&self.wq.t());
         let k_proj = x.dot(&self.wk.t());
         let v_proj = x.dot(&self.wv.t());
 
-        let mut q = q_proj.into_shape((batch_size, self.num_heads, self.head_dim))
+        let mut q = q_proj
+            .into_shape((batch_size, self.num_heads, self.head_dim))
             .expect("GQA paged: q shape");
-        let mut k = k_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let mut k = k_proj
+            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA paged: k shape");
-        let v = v_proj.into_shape((batch_size, self.num_kv_heads, self.head_dim))
+        let v = v_proj
+            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .expect("GQA paged: v shape");
 
         // RoPE for K
@@ -332,12 +356,16 @@ impl GQA {
         }
 
         // Append this token's K/V to the paged cache
-        let k_flat: Vec<f32> = k.view().into_shape((batch_size * self.num_kv_heads * self.head_dim,))
+        let k_flat: Vec<f32> = k
+            .view()
+            .into_shape((batch_size * self.num_kv_heads * self.head_dim,))
             .expect("GQA paged: k flat")
             .iter()
             .copied()
             .collect();
-        let v_flat: Vec<f32> = v.view().into_shape((batch_size * self.num_kv_heads * self.head_dim,))
+        let v_flat: Vec<f32> = v
+            .view()
+            .into_shape((batch_size * self.num_kv_heads * self.head_dim,))
             .expect("GQA paged: v flat")
             .iter()
             .copied()
@@ -351,16 +379,14 @@ impl GQA {
         }
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
-        let mut scores = Vec::with_capacity(num_tokens);
 
         for b in 0..batch_size {
             for h in 0..self.num_heads {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
-                let kv_offset = kv_h * self.head_dim;
+                let kv_off = kv_h * self.head_dim;
 
-                scores.clear();
                 let mut max_score = f32::NEG_INFINITY;
-
+                let mut scores = Vec::with_capacity(num_tokens);
                 for t in 0..num_tokens {
                     let (k_row, _) = match cache.read(seq_id, layer_idx, t) {
                         Some(r) => r,
@@ -368,9 +394,9 @@ impl GQA {
                     };
                     let mut score = 0.0;
                     for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_row[kv_offset + d];
+                        score += q[[b, h, d]] * k_row[kv_off + d];
                     }
-                    score /= (self.head_dim as f32).sqrt();
+                    score *= self.head_dim_rs;
                     if score > max_score {
                         max_score = score;
                     }
@@ -387,6 +413,8 @@ impl GQA {
                     exp_sum += *s;
                 }
 
+                let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
+                let out_base = h * self.head_dim;
                 for d in 0..self.head_dim {
                     let mut weighted = 0.0;
                     for (t, &s) in scores.iter().enumerate() {
@@ -394,10 +422,9 @@ impl GQA {
                             Some(r) => r,
                             None => continue,
                         };
-                        let attn = s / exp_sum;
-                        weighted += attn * v_row[kv_offset + d];
+                        weighted += s * inv_exp_sum * v_row[kv_off + d];
                     }
-                    output[[b, h * self.head_dim + d]] = weighted;
+                    output[[b, out_base + d]] = weighted;
                 }
             }
         }

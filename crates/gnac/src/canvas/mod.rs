@@ -6,18 +6,17 @@
 //! Mendukung skip connection, dense routing, recurrent loop, cross-modal fusion,
 //! conditional execution, dan hierarchical branching.
 
-pub mod node;
-pub mod port;
 pub mod edge;
 pub mod graph;
 pub mod metanode;
+pub mod node;
+pub mod port;
 
-
-pub use node::*;
-pub use port::*;
 pub use edge::*;
 pub use graph::*;
 pub use metanode::*;
+pub use node::*;
+pub use port::*;
 
 /// Posisi node pada kanvas 2D
 #[derive(Debug, Clone, Copy)]

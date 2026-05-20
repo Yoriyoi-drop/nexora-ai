@@ -1,10 +1,10 @@
 //! NXR-AXIOM Architecture
-//! 
+//!
 //! Implementation of RL + World Simulation Engine architecture for NXR-AXIOM
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::AxiomConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-AXIOM Architecture Implementation
 pub struct AxiomArchitecture {
@@ -51,7 +51,10 @@ pub enum ReasoningMode {
     /// Bidirectional reasoning
     Bidirectional,
     /// Mixed reasoning
-    Mixed { forward_weight: f32, backward_weight: f32 },
+    Mixed {
+        forward_weight: f32,
+        backward_weight: f32,
+    },
     /// Adaptive reasoning
     Adaptive,
 }
@@ -780,16 +783,10 @@ impl AxiomArchitecture {
                 symbolic_computation: SymbolicComputation {
                     symbolic_engine: SymbolicEngine::ComputerAlgebraSystem,
                     simplification_level: SimplificationLevel::Aggressive,
-                    normalization_methods: vec![
-                        "cnf".to_string(),
-                        "dnf".to_string(),
-                    ],
+                    normalization_methods: vec!["cnf".to_string(), "dnf".to_string()],
                 },
                 numerical_computation: NumericalComputation {
-                    numerical_methods: vec![
-                        "newton".to_string(),
-                        "bisection".to_string(),
-                    ],
+                    numerical_methods: vec!["newton".to_string(), "bisection".to_string()],
                     precision_level: PrecisionLevel::Double,
                     error_tolerance: 1e-10,
                 },
@@ -827,10 +824,7 @@ impl AxiomArchitecture {
                     VerificationMethod::Automated,
                     VerificationMethod::TheoremProving,
                 ],
-                verification_systems: vec![
-                    "coq".to_string(),
-                    "isabelle".to_string(),
-                ],
+                verification_systems: vec!["coq".to_string(), "isabelle".to_string()],
                 verification_depth: VerificationDepth::Deep,
             },
             inference_engine: InferenceEngine {
@@ -886,7 +880,10 @@ impl AxiomArchitecture {
         self.logical_reasoning_engine.knowledge_base.rules.clear();
 
         // Initialize mathematical reasoning engine
-        self.mathematical_reasoning_engine.theorem_database.theorems.clear();
+        self.mathematical_reasoning_engine
+            .theorem_database
+            .theorems
+            .clear();
 
         Ok(())
     }
@@ -899,7 +896,11 @@ impl AxiomArchitecture {
         }
 
         // Validate mathematical reasoning engine
-        if self.mathematical_reasoning_engine.mathematical_domains.is_empty() {
+        if self
+            .mathematical_reasoning_engine
+            .mathematical_domains
+            .is_empty()
+        {
             return Err("At least one mathematical domain required".into());
         }
 
@@ -956,7 +957,11 @@ impl AxiomArchitecture {
     }
 
     /// Simulate state evolution using physics-like dynamics
-    pub async fn simulate_state_evolution(&self, initial_state: HashMap<String, f64>, steps: u32) -> NxrModelResult<Vec<HashMap<String, f64>>> {
+    pub async fn simulate_state_evolution(
+        &self,
+        initial_state: HashMap<String, f64>,
+        steps: u32,
+    ) -> NxrModelResult<Vec<HashMap<String, f64>>> {
         let mut states = Vec::new();
         let mut current_state = initial_state;
         let dt = 0.1;
@@ -1005,7 +1010,8 @@ impl AxiomArchitecture {
                 let action = if rng.gen::<f32>() < epsilon {
                     rng.gen_range(0..num_actions)
                 } else {
-                    q_table[state].iter()
+                    q_table[state]
+                        .iter()
                         .enumerate()
                         .max_by(|(_, a), (_, b)| a.total_cmp(b))
                         .map(|(idx, _)| idx)
@@ -1013,9 +1019,14 @@ impl AxiomArchitecture {
                 };
 
                 let next_state = rng.gen_range(0..num_states);
-                let reward = if next_state == num_states - 1 { 1.0 } else { -0.01 };
+                let reward = if next_state == num_states - 1 {
+                    1.0
+                } else {
+                    -0.01
+                };
 
-                let max_next_q = q_table[next_state].iter()
+                let max_next_q = q_table[next_state]
+                    .iter()
                     .cloned()
                     .max_by(|a, b| a.total_cmp(b))
                     .unwrap_or(0.0);

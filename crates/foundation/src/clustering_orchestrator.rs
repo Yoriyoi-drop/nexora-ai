@@ -10,7 +10,6 @@
 //! Quality Scorer: silhouette, davies-bouldin, cluster stability
 //! Cross-Level Mapper: hubungkan cluster neuron ↔ cluster layer → strategi kompresi
 
-
 /// Unified clustering request — semua komponen pakai format ini
 #[derive(Debug, Clone)]
 pub struct ClusterRequest<T> {
@@ -22,12 +21,12 @@ pub struct ClusterRequest<T> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClusterGranularity {
-    Neuron,     // → ERP resonance clustering
-    Layer,      // → ATQS sensitivity/entanglement
-    Embedding,  // → VQ-VAE / FSQ
-    Document,   // → MinHash LSH
-    Memory,     // → Neural Attention Memory
-    Token,      // → Speculative decoding / Beam search
+    Neuron,    // → ERP resonance clustering
+    Layer,     // → ATQS sensitivity/entanglement
+    Embedding, // → VQ-VAE / FSQ
+    Document,  // → MinHash LSH
+    Memory,    // → Neural Attention Memory
+    Token,     // → Speculative decoding / Beam search
 }
 
 #[derive(Debug, Clone)]
@@ -105,10 +104,7 @@ impl ClusteringOrchestrator {
     }
 
     /// Main entry point: pilih dan jalankan algoritma terbaik
-    pub fn cluster(
-        &mut self,
-        request: ClusterRequest<Vec<f32>>,
-    ) -> ClusterResult {
+    pub fn cluster(&mut self, request: ClusterRequest<Vec<f32>>) -> ClusterResult {
         let algorithm = self.select_algorithm(&request);
         let granularity = request.granularity.clone();
         let start = std::time::Instant::now();
@@ -168,12 +164,8 @@ impl ClusteringOrchestrator {
                     "exact_dedup".to_string()
                 }
             }
-            ClusterGranularity::Memory => {
-                "neural_attention".to_string()
-            }
-            ClusterGranularity::Token => {
-                "speculative_decoding".to_string()
-            }
+            ClusterGranularity::Memory => "neural_attention".to_string(),
+            ClusterGranularity::Token => "speculative_decoding".to_string(),
         }
     }
 
@@ -238,7 +230,11 @@ impl ClusteringOrchestrator {
                 count += 1;
             }
         }
-        if count > 0 { sum / count as f32 } else { 0.0 }
+        if count > 0 {
+            sum / count as f32
+        } else {
+            0.0
+        }
     }
 
     fn mean_nearest_cluster_distance(&self, data: &[Vec<f32>], labels: &[usize], i: usize) -> f32 {
@@ -247,7 +243,9 @@ impl ClusteringOrchestrator {
 
         let unique: std::collections::HashSet<&usize> = labels.iter().collect();
         for &other in &unique {
-            if *other == my_cluster { continue; }
+            if *other == my_cluster {
+                continue;
+            }
 
             let mut sum = 0.0;
             let mut count = 0;
@@ -259,7 +257,9 @@ impl ClusteringOrchestrator {
             }
             if count > 0 {
                 let mean = sum / count as f32;
-                if mean < best_min { best_min = mean; }
+                if mean < best_min {
+                    best_min = mean;
+                }
             }
         }
 
@@ -269,11 +269,15 @@ impl ClusteringOrchestrator {
     /// Davies-Bouldin index (lower = better)
     pub fn davies_bouldin_index(&self, data: &[Vec<f32>], labels: &[usize]) -> f32 {
         let n = data.len();
-        if n < 2 { return 0.0; }
+        if n < 2 {
+            return 0.0;
+        }
 
         let unique: std::collections::HashSet<&usize> = labels.iter().collect();
         let k = unique.len();
-        if k < 2 { return 0.0; }
+        if k < 2 {
+            return 0.0;
+        }
 
         let mut cluster_indices: Vec<usize> = unique.into_iter().copied().collect();
         cluster_indices.sort();
@@ -283,27 +287,36 @@ impl ClusteringOrchestrator {
         let mut within_dists = Vec::new();
 
         for &c in &cluster_indices {
-            let members: Vec<f32> = data.iter().enumerate()
+            let members: Vec<f32> = data
+                .iter()
+                .enumerate()
                 .filter(|(j, _)| labels[*j] == c)
                 .map(|(_, v)| v.iter().sum::<f32>() / v.len() as f32)
                 .collect();
 
             let centroid: Vec<f32> = if !members.is_empty() {
                 let n_members = members.len() as f32;
-                (0..data[0].len()).map(|d| {
-                    data.iter().enumerate()
-                        .filter(|(j, _)| labels[*j] == c)
-                        .map(|(_, v)| v[d])
-                        .sum::<f32>() / n_members
-                }).collect()
+                (0..data[0].len())
+                    .map(|d| {
+                        data.iter()
+                            .enumerate()
+                            .filter(|(j, _)| labels[*j] == c)
+                            .map(|(_, v)| v[d])
+                            .sum::<f32>()
+                            / n_members
+                    })
+                    .collect()
             } else {
                 vec![0.0; data[0].len()]
             };
 
-            let intra: f32 = data.iter().enumerate()
+            let intra: f32 = data
+                .iter()
+                .enumerate()
                 .filter(|(j, _)| labels[*j] == c)
                 .map(|(_, v)| self.euclidean(v, &centroid))
-                .sum::<f32>() / members.len().max(1) as f32;
+                .sum::<f32>()
+                / members.len().max(1) as f32;
 
             centroids.push(centroid);
             within_dists.push(intra);
@@ -314,10 +327,14 @@ impl ClusteringOrchestrator {
         for i in 0..k {
             let mut max_ratio = 0.0;
             for j in 0..k {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let dist = self.euclidean(&centroids[i], &centroids[j]);
                 let ratio = (within_dists[i] + within_dists[j]) / dist.max(1e-10);
-                if ratio > max_ratio { max_ratio = ratio; }
+                if ratio > max_ratio {
+                    max_ratio = ratio;
+                }
             }
             db_sum += max_ratio;
         }
@@ -326,7 +343,11 @@ impl ClusteringOrchestrator {
     }
 
     fn euclidean(&self, a: &[f32], b: &[f32]) -> f32 {
-        a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum::<f32>().sqrt()
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f32>()
+            .sqrt()
     }
 }
 
@@ -365,12 +386,17 @@ mod tests {
     fn test_silhouette_score_perfect_separation() {
         let o = ClusteringOrchestrator::new();
         let data = vec![
-            vec![0.0, 0.0], vec![0.1, 0.1],
-            vec![10.0, 10.0], vec![10.1, 10.1],
+            vec![0.0, 0.0],
+            vec![0.1, 0.1],
+            vec![10.0, 10.0],
+            vec![10.1, 10.1],
         ];
         let labels = vec![0, 0, 1, 1];
         let score = o.silhouette_score(&data, &labels);
-        assert!(score > 0.5, "Well-separated clusters should have high silhouette");
+        assert!(
+            score > 0.5,
+            "Well-separated clusters should have high silhouette"
+        );
     }
 
     #[test]
@@ -409,7 +435,10 @@ mod tests {
             constraints: ClusterConstraints::default(),
         };
         let result = o.cluster(request);
-        assert_eq!(result.algorithm_used, "erp_spectral", "Small neuron data should use spectral");
+        assert_eq!(
+            result.algorithm_used, "erp_spectral",
+            "Small neuron data should use spectral"
+        );
     }
 
     #[test]

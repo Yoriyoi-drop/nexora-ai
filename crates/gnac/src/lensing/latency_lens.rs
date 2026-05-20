@@ -1,5 +1,5 @@
 use crate::canvas::NeuralGraph;
-use crate::lensing::{NeuralLens, LensType, LensObservation, ObservationSeverity};
+use crate::lensing::{LensObservation, LensType, NeuralLens, ObservationSeverity};
 
 /// Latency Lens — menyorot bottleneck latensi
 pub struct LatencyLens;
@@ -33,7 +33,10 @@ impl NeuralLens for LatencyLens {
                 high_latency_nodes.len()
             )
         } else {
-            format!("Total graph FLOPs: {}. No latency bottlenecks detected.", total_flops)
+            format!(
+                "Total graph FLOPs: {}. No latency bottlenecks detected.",
+                total_flops
+            )
         };
 
         LensObservation {

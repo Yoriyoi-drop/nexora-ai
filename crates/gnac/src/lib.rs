@@ -1,39 +1,42 @@
 pub mod canvas;
-pub mod smart_tensor;
-pub mod lensing;
-pub mod rce;
-pub mod swarm;
-pub mod execution;
-pub mod scheduler;
-pub mod logic;
-pub mod intervention;
-pub mod elastic;
-pub mod distillation;
-pub mod experiment;
 pub mod collaboration;
+pub mod distillation;
+pub mod elastic;
+pub mod execution;
+pub mod experiment;
+pub mod intervention;
+pub mod lensing;
+pub mod logic;
+pub mod rce;
 pub mod sandbox;
+pub mod scheduler;
+pub mod smart_tensor;
+pub mod swarm;
 
 pub use canvas::*;
-pub use smart_tensor::*;
-pub use lensing::*;
-pub use rce::*;
-pub use swarm::*;
-pub use execution::*;
-pub use scheduler::*;
-pub use logic::*;
-pub use intervention::*;
-pub use elastic::*;
-pub use distillation::*;
-pub use experiment::*;
 pub use collaboration::*;
+pub use distillation::*;
+pub use elastic::*;
+pub use execution::*;
+pub use experiment::*;
+pub use intervention::*;
+pub use lensing::*;
+pub use logic::*;
+pub use rce::*;
 pub use sandbox::*;
+pub use scheduler::*;
+pub use smart_tensor::*;
+pub use swarm::*;
 
 pub type DLResult<T> = std::result::Result<T, DeepLearningError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeepLearningError {
     #[error("Tensor shape mismatch: expected {expected:?}, got {actual:?}")]
-    ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
+    ShapeMismatch {
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
     #[error("Invalid input dimension: {dim}")]
     InvalidDimension { dim: usize },
     #[error("Memory allocation failed: {reason}")]
@@ -46,7 +49,10 @@ pub enum DeepLearningError {
 
 impl From<ndarray::ShapeError> for DeepLearningError {
     fn from(_err: ndarray::ShapeError) -> Self {
-        DeepLearningError::ShapeMismatch { expected: vec![], actual: vec![] }
+        DeepLearningError::ShapeMismatch {
+            expected: vec![],
+            actual: vec![],
+        }
     }
 }
 
@@ -87,7 +93,12 @@ impl TensorDesc {
             .collect();
 
         let numel = shape.iter().product();
-        TensorDesc { shape, dtype, strides, numel }
+        TensorDesc {
+            shape,
+            dtype,
+            strides,
+            numel,
+        }
     }
 
     pub fn ndim(&self) -> usize {

@@ -1,14 +1,14 @@
 //! Comprehensive Error Handling and Recovery System
-//! 
+//!
 //! Implementasi error handling yang proper dengan recovery mechanisms
 
-use std::fmt;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
-use anyhow::Result;
-use tracing::{error, warn, info, debug};
+use tracing::{debug, error, info, warn};
 
 /// Custom error types for Nexora AI system
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +20,7 @@ pub enum NexoraError {
         component: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    
+
     /// Network-related errors
     NetworkError {
         code: NetworkErrorCode,
@@ -28,7 +28,7 @@ pub enum NexoraError {
         endpoint: String,
         retry_count: u32,
     },
-    
+
     /// Database errors
     DatabaseError {
         code: DatabaseErrorCode,
@@ -36,7 +36,7 @@ pub enum NexoraError {
         query: Option<String>,
         table: Option<String>,
     },
-    
+
     /// Model/Inference errors
     ModelError {
         code: ModelErrorCode,
@@ -44,7 +44,7 @@ pub enum NexoraError {
         model_id: String,
         inference_id: Option<String>,
     },
-    
+
     /// Configuration errors
     ConfigurationError {
         code: ConfigurationErrorCode,
@@ -52,7 +52,7 @@ pub enum NexoraError {
         config_file: Option<String>,
         field: Option<String>,
     },
-    
+
     /// Resource errors (memory, CPU, etc.)
     ResourceError {
         code: ResourceErrorCode,
@@ -61,7 +61,7 @@ pub enum NexoraError {
         current_usage: Option<f64>,
         limit: Option<f64>,
     },
-    
+
     /// Security errors
     SecurityError {
         code: SecurityErrorCode,
@@ -181,7 +181,7 @@ impl NexoraError {
             NexoraError::ConfigurationError { .. } => ErrorSeverity::Medium,
         }
     }
-    
+
     /// Check if error is retryable
     pub fn is_retryable(&self) -> bool {
         match self {
@@ -207,13 +207,13 @@ impl NexoraError {
             _ => false,
         }
     }
-    
+
     /// Get suggested retry delay
     pub fn retry_delay(&self, attempt: u32) -> Duration {
         if !self.is_retryable() {
             return Duration::ZERO;
         }
-        
+
         // Exponential backoff with jitter
         let base_delay = match self {
             NexoraError::NetworkError { .. } => Duration::from_millis(100),
@@ -222,13 +222,13 @@ impl NexoraError {
             NexoraError::ResourceError { .. } => Duration::from_secs(1),
             _ => Duration::from_millis(100),
         };
-        
+
         let exponential_delay = base_delay * 2_u32.pow(attempt.min(6));
         let jitter = (rand::random::<f64>() * 0.1) * exponential_delay.as_millis() as f64;
-        
+
         Duration::from_millis((exponential_delay.as_millis() as f64 + jitter) as u64)
     }
-    
+
     /// Get error category for monitoring
     pub fn category(&self) -> ErrorCategory {
         match self {
@@ -246,31 +246,69 @@ impl NexoraError {
 impl fmt::Display for NexoraError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NexoraError::SystemError { code, message, component, .. } => {
+            NexoraError::SystemError {
+                code,
+                message,
+                component,
+                ..
+            } => {
                 write!(f, "System error in {}: [{}] {}", component, code, message)
             }
-            NexoraError::NetworkError { code, message, endpoint, .. } => {
+            NexoraError::NetworkError {
+                code,
+                message,
+                endpoint,
+                ..
+            } => {
                 write!(f, "Network error for {}: [{}] {}", endpoint, code, message)
             }
-            NexoraError::DatabaseError { code, message, table, .. } => {
+            NexoraError::DatabaseError {
+                code,
+                message,
+                table,
+                ..
+            } => {
                 if let Some(table) = table {
-                    write!(f, "Database error in table {}: [{}] {}", table, code, message)
+                    write!(
+                        f,
+                        "Database error in table {}: [{}] {}",
+                        table, code, message
+                    )
                 } else {
                     write!(f, "Database error: [{}] {}", code, message)
                 }
             }
-            NexoraError::ModelError { code, message, model_id, .. } => {
+            NexoraError::ModelError {
+                code,
+                message,
+                model_id,
+                ..
+            } => {
                 write!(f, "Model error for {}: [{}] {}", model_id, code, message)
             }
-            NexoraError::ConfigurationError { code, message, config_file, .. } => {
+            NexoraError::ConfigurationError {
+                code,
+                message,
+                config_file,
+                ..
+            } => {
                 if let Some(file) = config_file {
                     write!(f, "Configuration error in {}: [{}] {}", file, code, message)
                 } else {
                     write!(f, "Configuration error: [{}] {}", code, message)
                 }
             }
-            NexoraError::ResourceError { code, message, resource_type, .. } => {
-                write!(f, "Resource error for {}: [{}] {}", resource_type, code, message)
+            NexoraError::ResourceError {
+                code,
+                message,
+                resource_type,
+                ..
+            } => {
+                write!(
+                    f,
+                    "Resource error for {}: [{}] {}",
+                    resource_type, code, message
+                )
             }
             NexoraError::SecurityError { code, message, .. } => {
                 write!(f, "Security error: [{}] {}", code, message)
@@ -403,9 +441,15 @@ pub enum RecoveryStrategy {
     /// No recovery needed
     None,
     /// Retry with exponential backoff
-    Retry { max_attempts: u32, base_delay: Duration },
+    Retry {
+        max_attempts: u32,
+        base_delay: Duration,
+    },
     /// Circuit breaker pattern
-    CircuitBreaker { timeout: Duration, failure_threshold: u32 },
+    CircuitBreaker {
+        timeout: Duration,
+        failure_threshold: u32,
+    },
     /// Fallback to alternative implementation
     Fallback { alternative: String },
     /// Graceful degradation
@@ -472,37 +516,46 @@ impl ErrorRecoveryManager {
             max_history: 1000,
         }
     }
-    
+
     /// Add recovery strategy for a component
     pub fn add_strategy(&mut self, component: &str, strategy: RecoveryStrategy) {
         self.strategies.insert(component.to_string(), strategy);
     }
-    
+
     /// Handle error with recovery
-    pub async fn handle_error(&mut self, error: &NexoraError, component: &str) -> Result<RecoveryAction> {
+    pub async fn handle_error(
+        &mut self,
+        error: &NexoraError,
+        component: &str,
+    ) -> Result<RecoveryAction> {
         // Record error
         self.record_error(error, component);
-        
+
         // Check circuit breaker
         if let Some(circuit_breaker) = self.circuit_breakers.get_mut(component) {
             if circuit_breaker.is_open() {
                 return Ok(RecoveryAction::CircuitBreakerOpen);
             }
         }
-        
+
         // Get recovery strategy
-        let strategy = self.strategies.get(component).cloned()
+        let strategy = self
+            .strategies
+            .get(component)
+            .cloned()
             .unwrap_or_else(|| self.default_strategy(error));
-        
+
         // Execute recovery strategy
-        let action = self.execute_recovery_strategy(&strategy, error, component).await?;
-        
+        let action = self
+            .execute_recovery_strategy(&strategy, error, component)
+            .await?;
+
         // Update circuit breaker if needed
         self.update_circuit_breaker(component, error, &action);
-        
+
         Ok(action)
     }
-    
+
     /// Record error for analytics
     fn record_error(&mut self, error: &NexoraError, component: &str) {
         let record = ErrorRecord {
@@ -512,14 +565,14 @@ impl ErrorRecoveryManager {
             recovery_attempted: false,
             recovery_successful: false,
         };
-        
+
         self.error_history.push(record);
-        
+
         // Trim history if needed
         if self.error_history.len() > self.max_history {
             self.error_history.remove(0);
         }
-        
+
         // Log error
         match error.severity() {
             ErrorSeverity::Critical => error!("Critical error in {}: {:?}", component, error),
@@ -528,7 +581,7 @@ impl ErrorRecoveryManager {
             ErrorSeverity::Low => debug!("Low error in {}: {:?}", component, error),
         }
     }
-    
+
     /// Get default recovery strategy for error
     fn default_strategy(&self, error: &NexoraError) -> RecoveryStrategy {
         if error.is_retryable() {
@@ -549,7 +602,7 @@ impl ErrorRecoveryManager {
             }
         }
     }
-    
+
     /// Execute recovery strategy
     async fn execute_recovery_strategy(
         &mut self,
@@ -559,14 +612,17 @@ impl ErrorRecoveryManager {
     ) -> Result<RecoveryAction> {
         match strategy {
             RecoveryStrategy::None => Ok(RecoveryAction::NoAction),
-            
-            RecoveryStrategy::Retry { max_attempts, base_delay: _ } => {
+
+            RecoveryStrategy::Retry {
+                max_attempts,
+                base_delay: _,
+            } => {
                 for attempt in 1..=*max_attempts {
                     let delay = error.retry_delay(attempt - 1);
                     tokio::time::sleep(delay).await;
-                    
+
                     info!("Retry attempt {} for component {}", attempt, component);
-                    
+
                     // In a real implementation, this would retry the actual operation
                     // For now, we'll simulate success after a few attempts
                     if attempt >= 2 {
@@ -575,31 +631,42 @@ impl ErrorRecoveryManager {
                 }
                 Ok(RecoveryAction::RetryExhausted)
             }
-            
-            RecoveryStrategy::CircuitBreaker { timeout, failure_threshold } => {
+
+            RecoveryStrategy::CircuitBreaker {
+                timeout,
+                failure_threshold,
+            } => {
                 self.ensure_circuit_breaker(component, *timeout, *failure_threshold);
                 Ok(RecoveryAction::CircuitBreakerTripped)
             }
-            
+
             RecoveryStrategy::Fallback { alternative } => {
-                info!("Using fallback '{}' for component '{}'", alternative, component);
+                info!(
+                    "Using fallback '{}' for component '{}'",
+                    alternative, component
+                );
                 Ok(RecoveryAction::FallbackUsed(alternative.clone()))
             }
-            
+
             RecoveryStrategy::Degradation { level } => {
                 warn!("Degrading service '{}' to level: {:?}", component, level);
                 Ok(RecoveryAction::Degraded(level.clone()))
             }
-            
+
             RecoveryStrategy::EmergencyShutdown => {
                 error!("Emergency shutdown triggered by component '{}'", component);
                 Ok(RecoveryAction::EmergencyShutdown)
             }
         }
     }
-    
+
     /// Ensure circuit breaker exists for component
-    fn ensure_circuit_breaker(&mut self, component: &str, timeout: Duration, failure_threshold: u32) {
+    fn ensure_circuit_breaker(
+        &mut self,
+        component: &str,
+        timeout: Duration,
+        failure_threshold: u32,
+    ) {
         if !self.circuit_breakers.contains_key(component) {
             self.circuit_breakers.insert(
                 component.to_string(),
@@ -613,9 +680,14 @@ impl ErrorRecoveryManager {
             );
         }
     }
-    
+
     /// Update circuit breaker state
-    fn update_circuit_breaker(&mut self, component: &str, _error: &NexoraError, action: &RecoveryAction) {
+    fn update_circuit_breaker(
+        &mut self,
+        component: &str,
+        _error: &NexoraError,
+        action: &RecoveryAction,
+    ) {
         if let Some(circuit_breaker) = self.circuit_breakers.get_mut(component) {
             match action {
                 RecoveryAction::RetrySuccess | RecoveryAction::FallbackUsed(_) => {
@@ -627,7 +699,7 @@ impl ErrorRecoveryManager {
                     // Failure - increment count
                     circuit_breaker.failure_count += 1;
                     circuit_breaker.last_failure = Instant::now();
-                    
+
                     if circuit_breaker.failure_count >= circuit_breaker.failure_threshold {
                         circuit_breaker.state = CircuitBreakerStateType::Open;
                     }
@@ -636,18 +708,18 @@ impl ErrorRecoveryManager {
             }
         }
     }
-    
+
     /// Get error statistics
     pub fn get_error_stats(&self) -> ErrorStatistics {
         let mut stats = ErrorStatistics::new();
-        
+
         for record in &self.error_history {
             stats.add_error(&record.error, &record.component);
         }
-        
+
         stats
     }
-    
+
     /// Check if circuit breaker is open
     pub fn is_circuit_breaker_open(&self, component: &str) -> bool {
         self.circuit_breakers
@@ -702,14 +774,17 @@ impl ErrorStatistics {
             recent_errors: Vec::new(),
         }
     }
-    
+
     pub fn add_error(&mut self, error: &NexoraError, component: &str) {
         self.total_errors += 1;
-        
+
         *self.errors_by_category.entry(error.category()).or_insert(0) += 1;
         *self.errors_by_severity.entry(error.severity()).or_insert(0) += 1;
-        *self.errors_by_component.entry(component.to_string()).or_insert(0) += 1;
-        
+        *self
+            .errors_by_component
+            .entry(component.to_string())
+            .or_insert(0) += 1;
+
         // Keep only recent errors (last 100)
         self.recent_errors.push(error.clone());
         if self.recent_errors.len() > 100 {
@@ -725,22 +800,31 @@ static ERROR_HANDLER: OnceLock<tokio::sync::Mutex<ErrorRecoveryManager>> = OnceL
 pub fn init_error_handler() {
     ERROR_HANDLER.get_or_init(|| {
         let mut handler = ErrorRecoveryManager::new();
-        
-        handler.add_strategy("database", RecoveryStrategy::Retry {
-            max_attempts: 3,
-            base_delay: Duration::from_millis(200),
-        });
-        
-        handler.add_strategy("inference", RecoveryStrategy::CircuitBreaker {
-            timeout: Duration::from_secs(30),
-            failure_threshold: 5,
-        });
-        
-        handler.add_strategy("api", RecoveryStrategy::Retry {
-            max_attempts: 2,
-            base_delay: Duration::from_millis(100),
-        });
-        
+
+        handler.add_strategy(
+            "database",
+            RecoveryStrategy::Retry {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(200),
+            },
+        );
+
+        handler.add_strategy(
+            "inference",
+            RecoveryStrategy::CircuitBreaker {
+                timeout: Duration::from_secs(30),
+                failure_threshold: 5,
+            },
+        );
+
+        handler.add_strategy(
+            "api",
+            RecoveryStrategy::Retry {
+                max_attempts: 2,
+                base_delay: Duration::from_millis(100),
+            },
+        );
+
         tokio::sync::Mutex::new(handler)
     });
 }
@@ -764,7 +848,7 @@ macro_rules! handle_error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_error_severity() {
         let system_error = NexoraError::SystemError {
@@ -773,10 +857,10 @@ mod tests {
             component: "test".to_string(),
             timestamp: chrono::Utc::now(),
         };
-        
+
         assert_eq!(system_error.severity(), ErrorSeverity::Critical);
     }
-    
+
     #[test]
     fn test_retryable_errors() {
         let network_error = NexoraError::NetworkError {
@@ -785,21 +869,24 @@ mod tests {
             endpoint: "test.com".to_string(),
             retry_count: 0,
         };
-        
+
         assert!(network_error.is_retryable());
     }
-    
+
     #[test]
     fn test_error_recovery_manager() {
         let mut manager = ErrorRecoveryManager::new();
-        manager.add_strategy("test", RecoveryStrategy::Retry {
-            max_attempts: 3,
-            base_delay: Duration::from_millis(100),
-        });
-        
+        manager.add_strategy(
+            "test",
+            RecoveryStrategy::Retry {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(100),
+            },
+        );
+
         assert!(manager.strategies.contains_key("test"));
     }
-    
+
     #[test]
     fn test_circuit_breaker() {
         let mut cb = CircuitBreakerState {
@@ -809,9 +896,9 @@ mod tests {
             timeout: Duration::from_secs(60),
             failure_threshold: 5,
         };
-        
+
         assert!(!cb.is_open());
-        
+
         cb.failure_count = 5;
         cb.state = CircuitBreakerStateType::Open;
         // Circuit breaker in Open state returns false until timeout passes

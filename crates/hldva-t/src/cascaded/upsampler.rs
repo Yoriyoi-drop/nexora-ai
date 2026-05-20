@@ -13,7 +13,7 @@ impl Upsampler {
     pub fn new(config: UpsamplerConfig) -> HLDVAResult<Self> {
         Ok(Self { _config: config })
     }
-    
+
     /// Upsample input tensor
     pub fn upsample(&self, input: Tensor, factor: usize) -> HLDVAResult<Tensor> {
         // Simplified upsampling - just duplicate pixels
@@ -21,24 +21,24 @@ impl Upsampler {
         let (_, h, w, c) = self.get_input_shape(&input)?;
         let new_h = h * factor;
         let new_w = w * factor;
-        
+
         let mut output_data = Vec::with_capacity(new_h * new_w * c);
-        
+
         for y in 0..new_h {
             for x in 0..new_w {
                 let src_y = y / factor;
                 let src_x = x / factor;
-                
+
                 for ch in 0..c {
                     let idx = (src_y * w + src_x) * c + ch;
                     output_data.push(input_data[idx]);
                 }
             }
         }
-        
+
         Ok(Tensor::new(output_data, vec![1, new_h, new_w, c]))
     }
-    
+
     fn get_input_shape(&self, tensor: &Tensor) -> HLDVAResult<(usize, usize, usize, usize)> {
         let shape = tensor.shape();
         if shape.len() != 4 {

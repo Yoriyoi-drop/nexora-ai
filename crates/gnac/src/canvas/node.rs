@@ -1,5 +1,5 @@
-use crate::{NodeType, TensorDesc, DType, HealthStatus};
-use crate::canvas::{CanvasPosition, ZoomLevel, PortDescriptor, PortDirection};
+use crate::canvas::{CanvasPosition, PortDescriptor, PortDirection, ZoomLevel};
+use crate::{DType, HealthStatus, NodeType, TensorDesc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -42,7 +42,8 @@ impl NodeParams {
     }
 
     pub fn with_param(mut self, key: &str, value: &str) -> Self {
-        self.string_params.insert(key.to_string(), value.to_string());
+        self.string_params
+            .insert(key.to_string(), value.to_string());
         self
     }
 }
@@ -94,30 +95,60 @@ fn create_default_inputs(node_type: &NodeType) -> Vec<PortDescriptor> {
     match node_type {
         NodeType::Conv2D | NodeType::Conv1D | NodeType::Conv3D => {
             vec![
-                PortDescriptor::new("input", PortDirection::Input, TensorDesc::new(vec![1, 3, 224, 224], DType::F32)),
-                PortDescriptor::new("weight", PortDirection::Input, TensorDesc::new(vec![64, 3, 3, 3], DType::F32)),
+                PortDescriptor::new(
+                    "input",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![1, 3, 224, 224], DType::F32),
+                ),
+                PortDescriptor::new(
+                    "weight",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![64, 3, 3, 3], DType::F32),
+                ),
             ]
         }
         NodeType::SelfAttention | NodeType::MultiHeadAttention => {
             vec![
-                PortDescriptor::new("query", PortDirection::Input, TensorDesc::new(vec![1, 128, 768], DType::F32)),
-                PortDescriptor::new("key", PortDirection::Input, TensorDesc::new(vec![1, 128, 768], DType::F32)),
-                PortDescriptor::new("value", PortDirection::Input, TensorDesc::new(vec![1, 128, 768], DType::F32)),
+                PortDescriptor::new(
+                    "query",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![1, 128, 768], DType::F32),
+                ),
+                PortDescriptor::new(
+                    "key",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![1, 128, 768], DType::F32),
+                ),
+                PortDescriptor::new(
+                    "value",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![1, 128, 768], DType::F32),
+                ),
             ]
         }
         NodeType::Linear => {
             vec![
-                PortDescriptor::new("input", PortDirection::Input, TensorDesc::new(vec![1, 768], DType::F32)),
-                PortDescriptor::new("weight", PortDirection::Input, TensorDesc::new(vec![768, 3072], DType::F32)),
+                PortDescriptor::new(
+                    "input",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![1, 768], DType::F32),
+                ),
+                PortDescriptor::new(
+                    "weight",
+                    PortDirection::Input,
+                    TensorDesc::new(vec![768, 3072], DType::F32),
+                ),
             ]
         }
         NodeType::Input => {
             vec![]
         }
         _ => {
-            vec![
-                PortDescriptor::new("input", PortDirection::Input, TensorDesc::new(vec![1, 64], DType::F32)),
-            ]
+            vec![PortDescriptor::new(
+                "input",
+                PortDirection::Input,
+                TensorDesc::new(vec![1, 64], DType::F32),
+            )]
         }
     }
 }
@@ -125,28 +156,42 @@ fn create_default_inputs(node_type: &NodeType) -> Vec<PortDescriptor> {
 fn create_default_outputs(node_type: &NodeType) -> Vec<PortDescriptor> {
     match node_type {
         NodeType::Conv2D => {
-            vec![
-                PortDescriptor::new("output", PortDirection::Output, TensorDesc::new(vec![1, 64, 224, 224], DType::F32)),
-            ]
+            vec![PortDescriptor::new(
+                "output",
+                PortDirection::Output,
+                TensorDesc::new(vec![1, 64, 224, 224], DType::F32),
+            )]
         }
         NodeType::SelfAttention | NodeType::MultiHeadAttention => {
             vec![
-                PortDescriptor::new("output", PortDirection::Output, TensorDesc::new(vec![1, 128, 768], DType::F32)),
-                PortDescriptor::new("attention_weights", PortDirection::Output, TensorDesc::new(vec![1, 12, 128, 128], DType::F32)),
+                PortDescriptor::new(
+                    "output",
+                    PortDirection::Output,
+                    TensorDesc::new(vec![1, 128, 768], DType::F32),
+                ),
+                PortDescriptor::new(
+                    "attention_weights",
+                    PortDirection::Output,
+                    TensorDesc::new(vec![1, 12, 128, 128], DType::F32),
+                ),
             ]
         }
         NodeType::Linear => {
-            vec![
-                PortDescriptor::new("output", PortDirection::Output, TensorDesc::new(vec![1, 3072], DType::F32)),
-            ]
+            vec![PortDescriptor::new(
+                "output",
+                PortDirection::Output,
+                TensorDesc::new(vec![1, 3072], DType::F32),
+            )]
         }
         NodeType::Output => {
             vec![]
         }
         _ => {
-            vec![
-                PortDescriptor::new("output", PortDirection::Output, TensorDesc::new(vec![1, 64], DType::F32)),
-            ]
+            vec![PortDescriptor::new(
+                "output",
+                PortDirection::Output,
+                TensorDesc::new(vec![1, 64], DType::F32),
+            )]
         }
     }
 }

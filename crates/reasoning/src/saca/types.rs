@@ -127,7 +127,7 @@ impl Default for RepositoryContext {
 /// Naming conventions detected in repository
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NamingConventions {
-    pub variable_case: String,  // snake_case, camelCase, etc.
+    pub variable_case: String, // snake_case, camelCase, etc.
     pub function_case: String,
     pub class_case: String,
     pub constant_case: String,
@@ -333,9 +333,9 @@ pub struct FeedbackConfig {
 /// Error analysis depth
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErrorAnalysisDepth {
-    Shallow,    // Basic error detection
-    Medium,     // Pattern analysis
-    Deep,       // Root cause analysis
+    Shallow,       // Basic error detection
+    Medium,        // Pattern analysis
+    Deep,          // Root cause analysis
     Comprehensive, // Full contextual analysis
 }
 

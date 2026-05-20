@@ -2,18 +2,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
-use crate::types::{DataSample, SourceInfo, SourceCategory};
-use crate::arrow_reader;
-use super::scanner::{ShardPath, ShardScanner};
-use super::compression::Compression;
-use super::progress::{ProgressTracker, ResumeState, ResumeError, StreamingStats};
-use super::manifest::{DatasetManifest, ManifestError};
-use super::schema::{DatasetSchema, SchemaValidation, CorruptedShardRecovery, CorruptedShardAction};
 use super::cache::{DatasetCache, TokenizerCache};
+use super::compression::Compression;
 use super::iterator::BatchIterator;
+use super::manifest::{DatasetManifest, ManifestError};
+use super::progress::{ProgressTracker, ResumeError, ResumeState, StreamingStats};
+use super::scanner::{ShardPath, ShardScanner};
+use super::schema::{
+    CorruptedShardAction, CorruptedShardRecovery, DatasetSchema, SchemaValidation,
+};
 use super::shuffle::shuffle_shards;
+use crate::arrow_reader;
+use crate::types::{DataSample, SourceCategory, SourceInfo};
 
 #[derive(Debug, Clone)]
 pub struct StreamingConfig {
@@ -72,8 +74,10 @@ impl StreamingLoader {
         // --- 1. Load manifest if exists ---
         let (manifest, base_path) = match DatasetManifest::from_path(&path.join("manifest.json")) {
             Ok(m) => {
-                info!("Manifest loaded: {} v{} ({} samples, {} shards)",
-                    m.name, m.version, m.total_samples, m.total_shards);
+                info!(
+                    "Manifest loaded: {} v{} ({} samples, {} shards)",
+                    m.name, m.version, m.total_samples, m.total_shards
+                );
                 (Some(m), path.to_path_buf())
             }
             Err(ManifestError::NotFound(_)) | Err(ManifestError::Io(_)) => {
@@ -90,21 +94,32 @@ impl StreamingLoader {
         let scanner = ShardScanner::new();
         let mut shard_paths = scanner.scan(&base_path);
         if shard_paths.is_empty() {
-            return Err(LoaderError::NoShards(base_path.to_string_lossy().to_string()));
+            return Err(LoaderError::NoShards(
+                base_path.to_string_lossy().to_string(),
+            ));
         }
-        info!("Scanned {} shards from {}", shard_paths.len(), base_path.display());
+        info!(
+            "Scanned {} shards from {}",
+            shard_paths.len(),
+            base_path.display()
+        );
 
         // --- 3. Estimate total samples ---
         let total_samples: u64 = if let Some(ref m) = manifest {
             m.total_for_split("train").max(1)
         } else {
-            shard_paths.iter().map(|s| estimate_samples(&s.path).unwrap_or(0)).sum::<u64>().max(1)
+            shard_paths
+                .iter()
+                .map(|s| estimate_samples(&s.path).unwrap_or(0))
+                .sum::<u64>()
+                .max(1)
         };
 
         // --- 4. Initialize cache ---
-        let cache = config.cache_dir.as_ref().map(|d| {
-            Arc::new(DatasetCache::new(d.join("dataset_cache")))
-        });
+        let cache = config
+            .cache_dir
+            .as_ref()
+            .map(|d| Arc::new(DatasetCache::new(d.join("dataset_cache"))));
         if let Some(ref c) = cache {
             info!("Dataset cache enabled: {}", c.cache_dir().display());
         }
@@ -120,8 +135,10 @@ impl StreamingLoader {
         let (start_epoch, start_shard, start_offset) = if let Some(ref rsp) = resume_state_path {
             match ResumeState::load(rsp) {
                 Ok(state) => {
-                    info!("Resuming from epoch {}, shard {}, offset {}",
-                        state.epoch, state.shard_index, state.sample_offset);
+                    info!(
+                        "Resuming from epoch {}, shard {}, offset {}",
+                        state.epoch, state.shard_index, state.sample_offset
+                    );
                     progress.start_epoch(state.epoch);
                     (state.epoch, state.shard_index, state.sample_offset)
                 }
@@ -144,16 +161,24 @@ impl StreamingLoader {
         // --- 7. Validate schema on first shard if configured ---
         if let Some(ref schema) = config.schema {
             if let Some(first_compatible) = shard_paths.iter().find(|s| is_arrow_file(&s.path)) {
-                debug!("Validating schema against: {}", first_compatible.path.display());
+                debug!(
+                    "Validating schema against: {}",
+                    first_compatible.path.display()
+                );
                 let validation = validate_shard_schema(schema, &first_compatible.path);
                 if let Ok(validation) = validation {
                     if !validation.valid {
                         for issue in &validation.issues {
-                            warn!("Schema issue on {}: {:?}", first_compatible.path.display(), issue);
+                            warn!(
+                                "Schema issue on {}: {:?}",
+                                first_compatible.path.display(),
+                                issue
+                            );
                         }
                     }
                 } else if let Err(e) = validation {
-                    if let Err(e2) = recovery.handle_failure(&first_compatible.path, &e.to_string()) {
+                    if let Err(e2) = recovery.handle_failure(&first_compatible.path, &e.to_string())
+                    {
                         warn!("Failure handler itself failed: {:?}", e2);
                     }
                 }
@@ -203,7 +228,11 @@ impl StreamingLoader {
         // When start_shard > 0 (resume mid-epoch), we keep the original order
         // and skip by index, which correctly maps to the already-processed subset.
 
-        let skip_shards = if start_shard > 0 { start_shard.min(shards.len()) } else { 0 };
+        let skip_shards = if start_shard > 0 {
+            start_shard.min(shards.len())
+        } else {
+            0
+        };
         let mut handles = Vec::with_capacity(shards.len().saturating_sub(skip_shards));
 
         for (idx, shard) in shards.into_iter().enumerate().skip(skip_shards) {
@@ -217,7 +246,11 @@ impl StreamingLoader {
                 let _permit = match sem.acquire_owned().await {
                     Ok(permit) => permit,
                     Err(_) => {
-                        warn!("Worker {}: semaphore closed, skipping shard {}", idx, shard.path.display());
+                        warn!(
+                            "Worker {}: semaphore closed, skipping shard {}",
+                            idx,
+                            shard.path.display()
+                        );
                         return;
                     }
                 };
@@ -227,7 +260,12 @@ impl StreamingLoader {
                 let mut recovery = CorruptedShardRecovery::new(recovery_config);
                 match load_shard_integrated(&shard, bs, cache_path.as_deref()).await {
                     Ok(samples) => {
-                        info!("Worker {}: {} samples from {}", idx, samples.len(), shard.path.display());
+                        info!(
+                            "Worker {}: {} samples from {}",
+                            idx,
+                            samples.len(),
+                            shard.path.display()
+                        );
                         for chunk in samples.chunks(bs) {
                             if tx.send(chunk.to_vec()).await.is_err() {
                                 break;
@@ -235,10 +273,23 @@ impl StreamingLoader {
                         }
                     }
                     Err(e) => {
-                        if recovery.handle_failure(&shard.path, &e.to_string()).is_err() {
-                            error!("Worker {}: shard {} failed fatally: {}", idx, shard.path.display(), e);
+                        if recovery
+                            .handle_failure(&shard.path, &e.to_string())
+                            .is_err()
+                        {
+                            error!(
+                                "Worker {}: shard {} failed fatally: {}",
+                                idx,
+                                shard.path.display(),
+                                e
+                            );
                         } else {
-                            warn!("Worker {}: shard {} skipped: {}", idx, shard.path.display(), e);
+                            warn!(
+                                "Worker {}: shard {} skipped: {}",
+                                idx,
+                                shard.path.display(),
+                                e
+                            );
                         }
                     }
                 }
@@ -274,8 +325,8 @@ impl StreamingLoader {
                         best_val_loss: None,
                     };
                     if let Err(e) = state.save(rsp) {
-                warn!("Failed to save streaming state: {:?}", e);
-            }
+                        warn!("Failed to save streaming state: {:?}", e);
+                    }
                 }
             }
 
@@ -283,7 +334,9 @@ impl StreamingLoader {
             let elapsed = self.progress.elapsed().as_secs_f64();
             if elapsed > 0.0 {
                 self.stats.read_speed = self.progress.speed();
-                self.stats.memory_mb = (std::mem::size_of::<DataSample>() * self.config.shuffle_buffer) as u64 / (1024 * 1024);
+                self.stats.memory_mb = (std::mem::size_of::<DataSample>()
+                    * self.config.shuffle_buffer) as u64
+                    / (1024 * 1024);
             }
         }
         batch
@@ -345,7 +398,9 @@ async fn load_shard_integrated(
     cache_dir: Option<&Path>,
 ) -> Result<Vec<DataSample>, LoaderError> {
     let source = SourceInfo {
-        name: shard.path.file_stem()
+        name: shard
+            .path
+            .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".into()),
         url: None,
@@ -360,11 +415,19 @@ async fn load_shard_integrated(
         {
             match super::cache::read_arrow_mmap(&shard.path, source.clone()) {
                 Ok(samples) => {
-                    debug!("mmap'd {} samples from {}", samples.len(), shard.path.display());
+                    debug!(
+                        "mmap'd {} samples from {}",
+                        samples.len(),
+                        shard.path.display()
+                    );
                     return Ok(samples);
                 }
                 Err(e) => {
-                    debug!("mmap failed for {} (falling back): {}", shard.path.display(), e);
+                    debug!(
+                        "mmap failed for {} (falling back): {}",
+                        shard.path.display(),
+                        e
+                    );
                 }
             }
         }
@@ -380,17 +443,19 @@ async fn load_shard_integrated(
         move || -> Result<Vec<u8>, LoaderError> {
             std::fs::read(&path).map_err(|e| LoaderError::Io(e.to_string()))
         }
-    }).await.map_err(|e| LoaderError::Join(e.to_string()))??;
+    })
+    .await
+    .map_err(|e| LoaderError::Join(e.to_string()))??;
 
-    let decompressed = shard.compression.decompress(&raw)
+    let decompressed = shard
+        .compression
+        .decompress(&raw)
         .map_err(|e| LoaderError::Compression(e.to_string()))?;
 
     // Write to arrow file for parsing
-    let tmpdir = tempfile::TempDir::new()
-        .map_err(|e| LoaderError::Io(e.to_string()))?;
+    let tmpdir = tempfile::TempDir::new().map_err(|e| LoaderError::Io(e.to_string()))?;
     let arrow_path = tmpdir.path().join("shard.arrow");
-    std::fs::write(&arrow_path, &decompressed)
-        .map_err(|e| LoaderError::Io(e.to_string()))?;
+    std::fs::write(&arrow_path, &decompressed).map_err(|e| LoaderError::Io(e.to_string()))?;
 
     let mut samples = arrow_reader::read_arrow_file(&arrow_path, source)
         .map_err(|e| LoaderError::Arrow(e.to_string()))?;
@@ -399,7 +464,11 @@ async fn load_shard_integrated(
     if let Some(cache_dir) = cache_dir {
         let token_cache_dir = cache_dir.join("tokens");
         if let Err(e) = std::fs::create_dir_all(&token_cache_dir) {
-            warn!("Failed to create token cache dir {}: {}", token_cache_dir.display(), e);
+            warn!(
+                "Failed to create token cache dir {}: {}",
+                token_cache_dir.display(),
+                e
+            );
         }
         let mut token_cache = TokenizerCache::new(token_cache_dir);
         for sample in &mut samples {
@@ -414,20 +483,25 @@ async fn load_shard_integrated(
     Ok(samples)
 }
 
-fn validate_shard_schema(schema: &DatasetSchema, path: &Path) -> Result<SchemaValidation, LoaderError> {
+fn validate_shard_schema(
+    schema: &DatasetSchema,
+    path: &Path,
+) -> Result<SchemaValidation, LoaderError> {
     #[cfg(feature = "arrow")]
     {
-        let file = std::fs::File::open(path)
-            .map_err(|e| LoaderError::Io(e.to_string()))?;
+        let file = std::fs::File::open(path).map_err(|e| LoaderError::Io(e.to_string()))?;
         use arrow::ipc::reader::FileReader;
-        let reader = FileReader::try_new(file, None)
-            .map_err(|e| LoaderError::Arrow(e.to_string()))?;
+        let reader =
+            FileReader::try_new(file, None).map_err(|e| LoaderError::Arrow(e.to_string()))?;
         Ok(schema.validate_arrow(reader.schema().as_ref()))
     }
     #[cfg(not(feature = "arrow"))]
     {
         // Without arrow feature, skip validation
-        Ok(SchemaValidation { valid: true, issues: vec![] })
+        Ok(SchemaValidation {
+            valid: true,
+            issues: vec![],
+        })
     }
 }
 

@@ -5,12 +5,11 @@
 //! dan menghasilkan optimized inference graph untuk target deployment:
 //! Edge TPU, mobile, browser runtime, embedded system, cloud inference cluster.
 
-pub mod teacher_student;
 pub mod export;
+pub mod teacher_student;
 
-pub use teacher_student::*;
 pub use export::*;
-
+pub use teacher_student::*;
 
 /// Konfigurasi knowledge distillation
 #[derive(Debug, Clone)]

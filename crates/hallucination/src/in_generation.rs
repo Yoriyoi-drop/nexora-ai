@@ -47,7 +47,9 @@ impl InGenerationGuard {
                     score += 0.3;
                 }
             }
-            let specific = self.specific_claim_patterns.iter()
+            let specific = self
+                .specific_claim_patterns
+                .iter()
                 .filter(|p| p.is_match(input))
                 .count();
             score += specific as f32 * 0.15;
@@ -62,7 +64,10 @@ impl InGenerationGuard {
                 uncertainty, text
             )
         } else if uncertainty > 0.4 {
-            format!("{} [perlu verifikasi — please verify specific claims]", text)
+            format!(
+                "{} [perlu verifikasi — please verify specific claims]",
+                text
+            )
         } else {
             text.to_string()
         }
@@ -72,8 +77,14 @@ impl InGenerationGuard {
         let mut claims = Vec::new();
         for sentence in text.split(|c: char| c == '.' || c == '!' || c == '?') {
             let trimmed = sentence.trim();
-            if trimmed.len() < 20 { continue; }
-            if self.specific_claim_patterns.iter().any(|p| p.is_match(trimmed)) {
+            if trimmed.len() < 20 {
+                continue;
+            }
+            if self
+                .specific_claim_patterns
+                .iter()
+                .any(|p| p.is_match(trimmed))
+            {
                 claims.push(trimmed.to_string());
             }
         }
@@ -81,7 +92,8 @@ impl InGenerationGuard {
     }
 
     pub fn count_specific_claims(&self, text: &str) -> usize {
-        self.specific_claim_patterns.iter()
+        self.specific_claim_patterns
+            .iter()
             .map(|p| p.find_iter(text).count())
             .sum()
     }

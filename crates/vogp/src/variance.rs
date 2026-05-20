@@ -7,9 +7,9 @@ use ndarray::{Array1, Array2, ArrayView1};
 use serde::{Deserialize, Serialize};
 
 /// Variance Stabilization Component
-/// 
+///
 /// Formula: σ_eff = α·Var(f_θ(x)) + (1-α)·H(f_θ(x))
-/// 
+///
 /// Menggabungkan variance prediksi dengan entropy untuk
 /// uncertainty-aware regularization.
 #[derive(Debug, Clone)]
@@ -75,44 +75,44 @@ impl VarianceStabilizer {
     pub fn compute_effective_variance(&mut self, predictions: &Array2<f32>) -> f32 {
         let variance = self.compute_prediction_variance(predictions);
         let entropy = self.compute_prediction_entropy(predictions);
-        
+
         // Update histories
         self.update_histories(variance, entropy);
-        
+
         // Adaptive alpha jika dienable
         let current_alpha = if self.config.enable_adaptive_alpha {
             self.compute_adaptive_alpha(variance, entropy)
         } else {
             self.config.alpha_variance
         };
-        
+
         // Hitung effective variance
         let effective_variance = current_alpha * variance + (1.0 - current_alpha) * entropy;
-        
+
         // Apply clipping jika dienable
         let clipped_variance = if self.config.enable_variance_clipping {
             effective_variance.clamp(self.config.min_variance, self.config.max_variance)
         } else {
             effective_variance
         };
-        
+
         // Update running average
         self.update_running_average(clipped_variance);
-        
+
         clipped_variance
     }
 
     /// Compute prediction variance
     fn compute_prediction_variance(&self, predictions: &Array2<f32>) -> f32 {
         let (batch_size, num_classes) = predictions.dim();
-        
+
         // Hitung mean per class
         let mut class_means = Array1::zeros(num_classes);
         for i in 0..batch_size {
             class_means += &predictions.row(i);
         }
         class_means /= batch_size as f32;
-        
+
         // Hitung variance per class lalu rata-rata
         let mut total_variance = 0.0;
         for i in 0..batch_size {
@@ -120,7 +120,7 @@ impl VarianceStabilizer {
             let class_variance = diff.iter().map(|x| x * x).sum::<f32>();
             total_variance += class_variance;
         }
-        
+
         total_variance / (batch_size * num_classes) as f32
     }
 
@@ -128,13 +128,13 @@ impl VarianceStabilizer {
     fn compute_prediction_entropy(&self, predictions: &Array2<f32>) -> f32 {
         let batch_size = predictions.dim().0;
         let mut total_entropy = 0.0;
-        
+
         for i in 0..batch_size {
             let pred = predictions.row(i);
             let entropy = self.compute_sample_entropy(&pred);
             total_entropy += entropy;
         }
-        
+
         total_entropy / batch_size as f32
     }
 
@@ -143,10 +143,10 @@ impl VarianceStabilizer {
         // Normalize ke probabilities
         let exp_preds = predictions.mapv(|x| x.exp());
         let sum_exp = exp_preds.sum();
-        
+
         if sum_exp > 0.0 {
             let probs = &exp_preds / sum_exp;
-            
+
             let mut entropy = 0.0;
             for &p in probs.iter() {
                 if p > 1e-12 {
@@ -163,7 +163,7 @@ impl VarianceStabilizer {
     fn update_histories(&mut self, variance: f32, entropy: f32) {
         self.variance_history.push(variance);
         self.entropy_history.push(entropy);
-        
+
         // Keep history size manageable
         let max_history = 1000;
         if self.variance_history.len() > max_history {
@@ -179,24 +179,24 @@ impl VarianceStabilizer {
         if self.variance_history.len() < 10 {
             return self.config.alpha_variance;
         }
-        
+
         // Analyze recent trends
         let recent_variance_trend = self.compute_trend(&self.variance_history, 10);
         let recent_entropy_trend = self.compute_trend(&self.entropy_history, 10);
-        
+
         // Adjust alpha based on trends
         let mut alpha = self.config.alpha_variance;
-        
+
         // If variance increasing, increase alpha weight
         if recent_variance_trend > 0.1 {
             alpha += self.config.alpha_adaptation_rate;
         }
-        
+
         // If entropy increasing, decrease alpha weight (more entropy focus)
         if recent_entropy_trend > 0.1 {
             alpha -= self.config.alpha_adaptation_rate;
         }
-        
+
         alpha.clamp(0.0, 1.0)
     }
 
@@ -205,10 +205,10 @@ impl VarianceStabilizer {
         if history.len() < window + 1 {
             return 0.0;
         }
-        
+
         let recent_sum: f32 = history.iter().rev().take(window).sum();
         let older_sum: f32 = history.iter().rev().skip(window).take(window).sum();
-        
+
         (recent_sum - older_sum) / window as f32
     }
 
@@ -220,7 +220,9 @@ impl VarianceStabilizer {
 
     /// Get smoothed variance jika dienable
     pub fn get_smoothed_variance(&self) -> f32 {
-        if self.config.enable_variance_smoothing && self.variance_history.len() >= self.config.variance_smoothing_window {
+        if self.config.enable_variance_smoothing
+            && self.variance_history.len() >= self.config.variance_smoothing_window
+        {
             let window = self.config.variance_smoothing_window;
             let recent_sum: f32 = self.variance_history.iter().rev().take(window).sum();
             recent_sum / window as f32
@@ -284,24 +286,26 @@ impl UncertaintyQuantifier {
 
     /// Quantify uncertainty untuk predictions
     pub fn quantify_uncertainty(&mut self, predictions: &Array2<f32>) -> UncertaintyMetrics {
-        let effective_variance = self.variance_stabilizer.compute_effective_variance(predictions);
-        
+        let effective_variance = self
+            .variance_stabilizer
+            .compute_effective_variance(predictions);
+
         // Compute aleatoric uncertainty (data uncertainty)
         let aleatoric_uncertainty = self.compute_aleatoric_uncertainty(predictions);
-        
+
         // Compute epistemic uncertainty (model uncertainty) jika dienable
         let epistemic_uncertainty = if self.enable_epistemic {
             self.compute_epistemic_uncertainty(predictions)
         } else {
             0.0
         };
-        
+
         // Total uncertainty
         let total_uncertainty = aleatoric_uncertainty + epistemic_uncertainty;
-        
+
         // Confidence score
         let confidence = self.compute_confidence_score(predictions, total_uncertainty);
-        
+
         UncertaintyMetrics {
             effective_variance,
             aleatoric_uncertainty,
@@ -315,14 +319,16 @@ impl UncertaintyQuantifier {
     /// Compute aleatoric uncertainty (intrinsic data noise)
     fn compute_aleatoric_uncertainty(&self, predictions: &Array2<f32>) -> f32 {
         // Aleatoric uncertainty = prediction variance
-        self.variance_stabilizer.compute_prediction_variance(predictions)
+        self.variance_stabilizer
+            .compute_prediction_variance(predictions)
     }
 
     /// Compute epistemic uncertainty (model uncertainty)
     fn compute_epistemic_uncertainty(&self, predictions: &Array2<f32>) -> f32 {
         // Epistemic uncertainty = disagreement between predictions
         // Simplified: use entropy as proxy
-        self.variance_stabilizer.compute_prediction_entropy(predictions)
+        self.variance_stabilizer
+            .compute_prediction_entropy(predictions)
     }
 
     /// Compute confidence score
@@ -330,7 +336,7 @@ impl UncertaintyQuantifier {
         // Higher uncertainty = lower confidence
         let base_confidence = self.compute_prediction_confidence(predictions);
         let uncertainty_penalty = uncertainty / (uncertainty + 1.0);
-        
+
         base_confidence * (1.0 - uncertainty_penalty)
     }
 
@@ -338,47 +344,78 @@ impl UncertaintyQuantifier {
     fn compute_prediction_confidence(&self, predictions: &Array2<f32>) -> f32 {
         let batch_size = predictions.dim().0;
         let mut total_confidence = 0.0;
-        
+
         for i in 0..batch_size {
             let pred = predictions.row(i);
             let max_prob = pred.iter().fold(0.0f32, |a, &b| a.max(b));
             total_confidence += max_prob;
         }
-        
+
         total_confidence / batch_size as f32
     }
 
     /// Get uncertainty statistics
     pub fn get_statistics(&self) -> VarianceStatistics {
-        let current_variance = self.variance_stabilizer.variance_history.last().copied().unwrap_or(0.0);
-        let current_entropy = self.variance_stabilizer.entropy_history.last().copied().unwrap_or(0.0);
-        
+        let current_variance = self
+            .variance_stabilizer
+            .variance_history
+            .last()
+            .copied()
+            .unwrap_or(0.0);
+        let current_entropy = self
+            .variance_stabilizer
+            .entropy_history
+            .last()
+            .copied()
+            .unwrap_or(0.0);
+
         // Calculate smoothed variance if enabled
-        let smoothed_variance = if self.variance_stabilizer.config.enable_variance_smoothing && 
-                                 self.variance_stabilizer.variance_history.len() >= self.variance_stabilizer.config.variance_smoothing_window {
+        let smoothed_variance = if self.variance_stabilizer.config.enable_variance_smoothing
+            && self.variance_stabilizer.variance_history.len()
+                >= self.variance_stabilizer.config.variance_smoothing_window
+        {
             let window_size = self.variance_stabilizer.config.variance_smoothing_window;
-            let start_idx = self.variance_stabilizer.variance_history.len().saturating_sub(window_size);
-            let window_sum: f32 = self.variance_stabilizer.variance_history[start_idx..].iter().sum();
+            let start_idx = self
+                .variance_stabilizer
+                .variance_history
+                .len()
+                .saturating_sub(window_size);
+            let window_sum: f32 = self.variance_stabilizer.variance_history[start_idx..]
+                .iter()
+                .sum();
             window_sum / window_size as f32
         } else {
             current_variance
         };
-        
+
         // Calculate trends (rate of change)
-        let (variance_trend, entropy_trend) = if self.variance_stabilizer.variance_history.len() >= 2 {
-            let recent_variance = self.variance_stabilizer.variance_history.last().copied().unwrap_or(0.0);
-            let prev_variance = self.variance_stabilizer.variance_history[self.variance_stabilizer.variance_history.len() - 2];
-            let variance_trend = recent_variance - prev_variance;
-            
-            let recent_entropy = self.variance_stabilizer.entropy_history.last().copied().unwrap_or(0.0);
-            let prev_entropy = self.variance_stabilizer.entropy_history[self.variance_stabilizer.entropy_history.len() - 2];
-            let entropy_trend = recent_entropy - prev_entropy;
-            
-            (variance_trend, entropy_trend)
-        } else {
-            (0.0, 0.0)
-        };
-        
+        let (variance_trend, entropy_trend) =
+            if self.variance_stabilizer.variance_history.len() >= 2 {
+                let recent_variance = self
+                    .variance_stabilizer
+                    .variance_history
+                    .last()
+                    .copied()
+                    .unwrap_or(0.0);
+                let prev_variance = self.variance_stabilizer.variance_history
+                    [self.variance_stabilizer.variance_history.len() - 2];
+                let variance_trend = recent_variance - prev_variance;
+
+                let recent_entropy = self
+                    .variance_stabilizer
+                    .entropy_history
+                    .last()
+                    .copied()
+                    .unwrap_or(0.0);
+                let prev_entropy = self.variance_stabilizer.entropy_history
+                    [self.variance_stabilizer.entropy_history.len() - 2];
+                let entropy_trend = recent_entropy - prev_entropy;
+
+                (variance_trend, entropy_trend)
+            } else {
+                (0.0, 0.0)
+            };
+
         VarianceStatistics {
             current_variance,
             current_entropy,
@@ -430,9 +467,11 @@ impl AdaptiveVarianceThreshold {
 
     /// Update threshold berdasarkan variance patterns
     pub fn update_threshold(&mut self, predictions: &Array2<f32>) -> bool {
-        let effective_variance = self.variance_stabilizer.compute_effective_variance(predictions);
+        let effective_variance = self
+            .variance_stabilizer
+            .compute_effective_variance(predictions);
         let stats = self.variance_stabilizer.get_statistics();
-        
+
         // Adapt threshold based on variance trend
         if stats.variance_trend > 0.1 {
             // Variance increasing - increase threshold
@@ -441,10 +480,12 @@ impl AdaptiveVarianceThreshold {
             // Variance decreasing - decrease threshold
             self.current_threshold -= self.adaptation_rate;
         }
-        
+
         // Clamp threshold
-        self.current_threshold = self.current_threshold.clamp(self.min_threshold, self.max_threshold);
-        
+        self.current_threshold = self
+            .current_threshold
+            .clamp(self.min_threshold, self.max_threshold);
+
         // Return true if variance exceeds threshold
         effective_variance > self.current_threshold
     }
@@ -464,10 +505,10 @@ mod tests {
     fn test_variance_stabilizer() {
         let config = VarianceConfig::default();
         let mut stabilizer = VarianceStabilizer::new(config);
-        
+
         let predictions = Array::from_elem((2, 3), 0.5);
         let effective_variance = stabilizer.compute_effective_variance(&predictions);
-        
+
         assert!(effective_variance > 0.0);
     }
 
@@ -475,12 +516,12 @@ mod tests {
     fn test_entropy_computation() {
         let config = VarianceConfig::default();
         let stabilizer = VarianceStabilizer::new(config);
-        
+
         // Very confident predictions (low entropy)
         let confident = Array::from_vec(vec![10.0, 0.0, 0.0]);
         let entropy = stabilizer.compute_sample_entropy(&confident.view());
         assert!(entropy < 0.1);
-        
+
         // Uniform predictions (high entropy)
         let uniform = Array::from_vec(vec![0.33, 0.33, 0.34]);
         let entropy = stabilizer.compute_sample_entropy(&uniform.view());
@@ -491,10 +532,10 @@ mod tests {
     fn test_uncertainty_quantification() {
         let config = VarianceConfig::default();
         let mut quantifier = UncertaintyQuantifier::new(config, 0.7);
-        
+
         let predictions = Array::from_elem((2, 3), 0.5);
         let metrics = quantifier.quantify_uncertainty(&predictions);
-        
+
         assert!(metrics.total_uncertainty >= 0.0);
         assert!(metrics.confidence_score >= 0.0 && metrics.confidence_score <= 1.0);
     }
@@ -503,10 +544,10 @@ mod tests {
     fn test_adaptive_variance_threshold() {
         let config = VarianceConfig::default();
         let mut threshold = AdaptiveVarianceThreshold::new(config, 1.0);
-        
+
         let predictions = Array::from_elem((2, 3), 0.5);
         let exceeds = threshold.update_threshold(&predictions);
-        
+
         assert!(threshold.get_threshold() > 0.0);
     }
 
@@ -515,14 +556,14 @@ mod tests {
         let mut config = VarianceConfig::default();
         config.enable_adaptive_alpha = true;
         let mut stabilizer = VarianceStabilizer::new(config);
-        
+
         let predictions = Array::from_elem((2, 3), 0.5);
-        
+
         // Multiple updates to trigger adaptation
         for _ in 0..20 {
             stabilizer.compute_effective_variance(&predictions);
         }
-        
+
         let stats = stabilizer.get_statistics();
         assert!(stats.history_length > 0);
     }

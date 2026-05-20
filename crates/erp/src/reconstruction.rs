@@ -1,9 +1,9 @@
 //! ERP Context-Gated Partial Reconstruction
-//! 
+//!
 //! Implementasi dari context-gated partial reconstruction untuk
 //! efficient runtime inference dengan sparse activation objectives.
 
-use crate::{ERPConfig, ERPError, CompressedLayer};
+use crate::{CompressedLayer, ERPConfig, ERPError};
 use ndarray::{Array1, Array2};
 use rand::Rng;
 
@@ -25,8 +25,12 @@ impl ContextReconstructor {
     pub fn new(config: ERPConfig) -> Self {
         let reconstruction_method = match config.compression_mode {
             crate::CompressionMode::Conservative => ReconstructionMethod::FullDecompression,
-            crate::CompressionMode::Balanced => ReconstructionMethod::SparseGated { target_sparsity: 0.3 },
-            crate::CompressionMode::Aggressive => ReconstructionMethod::AdaptiveReconstruction { budget: 64 },
+            crate::CompressionMode::Balanced => ReconstructionMethod::SparseGated {
+                target_sparsity: 0.3,
+            },
+            crate::CompressionMode::Aggressive => {
+                ReconstructionMethod::AdaptiveReconstruction { budget: 64 }
+            }
         };
 
         Self {
@@ -37,7 +41,11 @@ impl ContextReconstructor {
     }
 
     /// Compute gates untuk input konteks
-    pub fn compute_gates(&self, compressed_layers: &[CompressedLayer], input: &Array1<f32>) -> Result<Vec<GatePattern>, ERPError> {
+    pub fn compute_gates(
+        &self,
+        compressed_layers: &[CompressedLayer],
+        input: &Array1<f32>,
+    ) -> Result<Vec<GatePattern>, ERPError> {
         let mut all_gates = Vec::new();
 
         for layer in compressed_layers {
@@ -49,7 +57,11 @@ impl ContextReconstructor {
     }
 
     /// Compute gates untuk individual layer
-    fn compute_layer_gates(&self, layer: &CompressedLayer, input: &Array1<f32>) -> Result<GatePattern, ERPError> {
+    fn compute_layer_gates(
+        &self,
+        layer: &CompressedLayer,
+        input: &Array1<f32>,
+    ) -> Result<GatePattern, ERPError> {
         let mut gates = Array1::zeros(layer.original_weights.nrows());
         let mut active_neurons = Vec::new();
 
@@ -58,11 +70,14 @@ impl ContextReconstructor {
 
         // Compute gate scores untuk setiap neuron/resonance group
         for (_i, resonance_rep) in layer.resonance_representations.iter().enumerate() {
-            let gate_score = self.gate_network.compute_gate_score(&context_embedding, resonance_rep);
-            
+            let gate_score = self
+                .gate_network
+                .compute_gate_score(&context_embedding, resonance_rep);
+
             // Apply sparsity constraints
-            let is_active = self.apply_sparsity_constraint(gate_score, &resonance_rep.importance_coeffs);
-            
+            let is_active =
+                self.apply_sparsity_constraint(gate_score, &resonance_rep.importance_coeffs);
+
             for &neuron_idx in &resonance_rep.group_neurons {
                 gates[neuron_idx] = if is_active { gate_score } else { 0.0 };
                 if is_active {
@@ -88,9 +103,14 @@ impl ContextReconstructor {
     }
 
     /// Reconstruct output dengan pre-computed gates
-    pub fn reconstruct_with_gates(&self, compressed_layers: &[CompressedLayer], input: &Array1<f32>, gates: &[GatePattern]) -> Result<Array1<f32>, ERPError> {
+    pub fn reconstruct_with_gates(
+        &self,
+        compressed_layers: &[CompressedLayer],
+        input: &Array1<f32>,
+        gates: &[GatePattern],
+    ) -> Result<Array1<f32>, ERPError> {
         let mut current_input = input.clone();
-        
+
         for (layer, layer_gates) in compressed_layers.iter().zip(gates.iter()) {
             current_input = self.reconstruct_layer_output(layer, &current_input, layer_gates)?;
         }
@@ -99,11 +119,14 @@ impl ContextReconstructor {
     }
 
     /// Reconstruct output untuk individual layer
-    fn reconstruct_layer_output(&self, layer: &CompressedLayer, input: &Array1<f32>, gates: &GatePattern) -> Result<Array1<f32>, ERPError> {
+    fn reconstruct_layer_output(
+        &self,
+        layer: &CompressedLayer,
+        input: &Array1<f32>,
+        gates: &GatePattern,
+    ) -> Result<Array1<f32>, ERPError> {
         match &self.reconstruction_method {
-            ReconstructionMethod::FullDecompression => {
-                self.full_decompression(layer, input)
-            }
+            ReconstructionMethod::FullDecompression => self.full_decompression(layer, input),
             ReconstructionMethod::SparseGated { target_sparsity } => {
                 self.sparse_gated_reconstruction(layer, input, gates, *target_sparsity)
             }
@@ -114,16 +137,26 @@ impl ContextReconstructor {
     }
 
     /// Full decompression reconstruction
-    fn full_decompression(&self, layer: &CompressedLayer, input: &Array1<f32>) -> Result<Array1<f32>, ERPError> {
+    fn full_decompression(
+        &self,
+        layer: &CompressedLayer,
+        input: &Array1<f32>,
+    ) -> Result<Array1<f32>, ERPError> {
         // Gunakan compressed weights langsung
         let output = layer.compressed_weights.dot(input);
         Ok(output)
     }
 
     /// Sparse gated reconstruction
-    fn sparse_gated_reconstruction(&self, layer: &CompressedLayer, input: &Array1<f32>, gates: &GatePattern, target_sparsity: f32) -> Result<Array1<f32>, ERPError> {
+    fn sparse_gated_reconstruction(
+        &self,
+        layer: &CompressedLayer,
+        input: &Array1<f32>,
+        gates: &GatePattern,
+        target_sparsity: f32,
+    ) -> Result<Array1<f32>, ERPError> {
         let mut output = Array1::zeros(layer.compressed_weights.nrows());
-        
+
         // Hanya proses active neurons
         for &neuron_idx in &gates.active_neurons {
             let neuron_output = layer.compressed_weights.row(neuron_idx).dot(input);
@@ -137,18 +170,27 @@ impl ContextReconstructor {
     }
 
     /// Adaptive reconstruction dengan compute budget
-    fn adaptive_reconstruction(&self, layer: &CompressedLayer, input: &Array1<f32>, gates: &GatePattern, budget: usize) -> Result<Array1<f32>, ERPError> {
+    fn adaptive_reconstruction(
+        &self,
+        layer: &CompressedLayer,
+        input: &Array1<f32>,
+        gates: &GatePattern,
+        budget: usize,
+    ) -> Result<Array1<f32>, ERPError> {
         let mut output = Array1::zeros(layer.compressed_weights.nrows());
-        
+
         // Prioritize neurons berdasarkan importance scores
-        let mut prioritized_neurons: Vec<_> = gates.active_neurons.iter()
+        let mut prioritized_neurons: Vec<_> = gates
+            .active_neurons
+            .iter()
             .map(|&neuron_idx| {
                 let importance = self.compute_neuron_importance(neuron_idx, layer);
                 (neuron_idx, importance)
             })
             .collect();
-        
-        prioritized_neurons.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        prioritized_neurons
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Proses top-k neurons sesuai budget
         let num_active = std::cmp::min(budget, prioritized_neurons.len());
@@ -164,16 +206,16 @@ impl ContextReconstructor {
     fn compute_context_embedding(&self, input: &Array1<f32>, layer_idx: usize) -> Array1<f32> {
         // Simplified context embedding - dalam implementasi nyata gunakan learned embedding
         let mut embedding = Array1::zeros(64); // Fixed embedding size
-        
+
         // Hash input ke embedding space
         for (_i, &value) in input.iter().enumerate() {
             let hash_idx = (value.abs() * 1000.0) as usize % embedding.len();
             embedding[hash_idx] += value;
         }
-        
+
         // Add layer information
         embedding[0] = layer_idx as f32;
-        
+
         embedding
     }
 
@@ -182,7 +224,7 @@ impl ContextReconstructor {
         // Combine gate score dengan importance
         let avg_importance = importance_coeffs.mean().unwrap_or(0.0);
         let combined_score = gate_score * (1.0 + avg_importance);
-        
+
         // Threshold untuk activation
         combined_score > 0.5
     }
@@ -191,7 +233,7 @@ impl ContextReconstructor {
     fn compute_sparsity_ratio(&self, gates: &Array1<f32>) -> f32 {
         let active_count = gates.iter().filter(|&&x| x > 0.0).count();
         let total_count = gates.len();
-        
+
         if total_count > 0 {
             1.0 - (active_count as f32 / total_count as f32)
         } else {
@@ -203,7 +245,7 @@ impl ContextReconstructor {
     fn apply_sparse_regularization(&self, output: &mut Array1<f32>, target_sparsity: f32) {
         // L1 regularization untuk sparsity
         let l1_penalty = self.config.sparse_regularization;
-        
+
         for i in 0..output.len() {
             if output[i].abs() < l1_penalty {
                 output[i] = 0.0;
@@ -231,7 +273,7 @@ impl ContextReconstructor {
     fn compute_output_sparsity(&self, output: &Array1<f32>) -> f32 {
         let zero_count = output.iter().filter(|&&x| x == 0.0).count();
         let total_count = output.len();
-        
+
         zero_count as f32 / total_count as f32
     }
 
@@ -239,7 +281,7 @@ impl ContextReconstructor {
     fn compute_sparsity_threshold(&self, output: &Array1<f32>, target_sparsity: f32) -> f32 {
         let mut sorted_values: Vec<f32> = output.iter().map(|&x| x.abs()).collect();
         sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         let target_zeros = (target_sparsity * output.len() as f32) as usize;
         if target_zeros < sorted_values.len() {
             sorted_values[target_zeros]
@@ -252,11 +294,15 @@ impl ContextReconstructor {
     fn compute_neuron_importance(&self, neuron_idx: usize, layer: &CompressedLayer) -> f32 {
         // Cari neuron dalam resonance representations
         for resonance_rep in &layer.resonance_representations {
-            if let Some(pos) = resonance_rep.group_neurons.iter().position(|&x| x == neuron_idx) {
+            if let Some(pos) = resonance_rep
+                .group_neurons
+                .iter()
+                .position(|&x| x == neuron_idx)
+            {
                 return resonance_rep.importance_coeffs[pos];
             }
         }
-        
+
         // Default importance untuk original neurons
         1.0
     }
@@ -285,33 +331,37 @@ impl GateNetwork {
     }
 
     /// Compute gate score untuk resonance group
-    pub fn compute_gate_score(&self, context_embedding: &Array1<f32>, resonance_rep: &crate::compression::ResonanceRepresentation) -> f32 {
+    pub fn compute_gate_score(
+        &self,
+        context_embedding: &Array1<f32>,
+        resonance_rep: &crate::compression::ResonanceRepresentation,
+    ) -> f32 {
         // Compute weighted context signal
         let context_signal = context_embedding.dot(&self.gate_weights) + self.gate_bias[0];
-        
+
         // Apply sigmoid activation
         let gate_score = 1.0 / (1.0 + (-context_signal).mapv(|x| x.exp()).sum());
-        
+
         // Modulate dengan importance coefficients
         let avg_importance = resonance_rep.importance_coeffs.mean().unwrap_or(0.0);
-        
+
         gate_score * (1.0 + avg_importance * 0.5) // Importance modulation
     }
 
     /// Update gate weights (training)
     pub fn update_weights(&mut self, gradient: &Array2<f32>, learning_rate: f32) {
         self.gate_weights -= &(gradient * learning_rate);
-        
+
         // Apply weight decay untuk prevent overfitting
         let weight_decay = 1e-4;
         self.gate_weights *= 1.0 - weight_decay;
     }
-    
+
     /// Get current gate weights
     pub fn get_weights(&self) -> &Array2<f32> {
         &self.gate_weights
     }
-    
+
     /// Get current gate bias
     pub fn get_bias(&self) -> &Array1<f32> {
         &self.gate_bias
@@ -345,28 +395,29 @@ impl SparseActivationObjective {
     pub fn compute_loss(&self, gates: &Array1<f32>) -> f32 {
         // L1 penalty
         let l1_loss = self.lambda_l1 * gates.iter().map(|x| x.abs()).sum::<f32>();
-        
+
         // Sparsity penalty
-        let current_sparsity = gates.iter().filter(|&&x| x == 0.0).count() as f32 / gates.len() as f32;
+        let current_sparsity =
+            gates.iter().filter(|&&x| x == 0.0).count() as f32 / gates.len() as f32;
         let sparsity_loss = (current_sparsity - self.target_sparsity).powi(2);
-        
+
         l1_loss + sparsity_loss
     }
 
     /// Compute gradient untuk sparse activation
     pub fn compute_gradient(&self, gates: &Array1<f32>) -> Array1<f32> {
         let mut gradient = Array1::zeros(gates.len());
-        
+
         for i in 0..gates.len() {
             // L1 gradient
             gradient[i] = self.lambda_l1 * if gates[i] > 0.0 { 1.0 } else { -1.0 };
-            
+
             // Add small epsilon untuk avoid zero gradient
             if gates[i].abs() < 1e-8 {
                 gradient[i] = 0.0;
             }
         }
-        
+
         gradient
     }
 }

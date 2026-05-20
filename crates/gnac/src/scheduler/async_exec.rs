@@ -1,5 +1,5 @@
-use crate::DLResult;
 use crate::canvas::NeuralGraph;
+use crate::DLResult;
 
 /// Asynchronous Execution — overlapping compute & memory transfer
 pub struct AsyncExecutor;

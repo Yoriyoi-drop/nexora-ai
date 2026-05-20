@@ -173,9 +173,21 @@ fn load_tsv(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
 
 fn find_text_column(headers: &[String]) -> Option<usize> {
     // Common column names for text data
-    let text_names = ["text", "content", "body", "sentence", "document",
-                       "input", "prompt", "instruction", "code", "title",
-                       "teks", "konten", "kalimat"];
+    let text_names = [
+        "text",
+        "content",
+        "body",
+        "sentence",
+        "document",
+        "input",
+        "prompt",
+        "instruction",
+        "code",
+        "title",
+        "teks",
+        "konten",
+        "kalimat",
+    ];
     headers.iter().position(|h| {
         let h_lower = h.to_lowercase().trim().to_string();
         text_names.contains(&h_lower.as_str())
@@ -186,11 +198,10 @@ fn find_text_column(headers: &[String]) -> Option<usize> {
 
 #[cfg(feature = "json")]
 fn load_json(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("JSON read error: {}", e))?;
+    let content = std::fs::read_to_string(path).map_err(|e| format!("JSON read error: {}", e))?;
 
-    let value: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("JSON parse error: {}", e))?;
+    let value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("JSON parse error: {}", e))?;
 
     let mut samples = Vec::new();
 
@@ -222,8 +233,7 @@ fn load_json(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String>
 
 #[cfg(feature = "json")]
 fn load_jsonl(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("JSONL read error: {}", e))?;
+    let content = std::fs::read_to_string(path).map_err(|e| format!("JSONL read error: {}", e))?;
 
     let mut samples = Vec::new();
 
@@ -260,17 +270,32 @@ fn load_jsonl(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
 /// Extract text field from a JSON value, checking common field names.
 fn extract_text(value: &serde_json::Value) -> Option<String> {
     let obj = value.as_object()?;
-    let text_names = ["text", "content", "body", "sentence", "document",
-                       "input", "prompt", "instruction", "code", "title",
-                       "teks", "konten", "kalimat",
-                       "messages", "chat", "conversation"];
+    let text_names = [
+        "text",
+        "content",
+        "body",
+        "sentence",
+        "document",
+        "input",
+        "prompt",
+        "instruction",
+        "code",
+        "title",
+        "teks",
+        "konten",
+        "kalimat",
+        "messages",
+        "chat",
+        "conversation",
+    ];
     for name in &text_names {
         if let Some(v) = obj.get(*name) {
             match v {
                 serde_json::Value::String(s) => return Some(s.clone()),
                 serde_json::Value::Array(arr) => {
                     // messages/chat array: concatenate content fields
-                    let parts: Vec<String> = arr.iter()
+                    let parts: Vec<String> = arr
+                        .iter()
                         .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
                         .map(|s| s.to_string())
                         .collect();
@@ -292,11 +317,10 @@ fn load_parquet(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, Stri
     use parquet::file::reader::{FileReader, SerializedFileReader};
     use parquet::record::Row;
 
-    let file = std::fs::File::open(path)
-        .map_err(|e| format!("Parquet open error: {}", e))?;
+    let file = std::fs::File::open(path).map_err(|e| format!("Parquet open error: {}", e))?;
 
-    let reader = SerializedFileReader::new(file)
-        .map_err(|e| format!("Parquet reader error: {}", e))?;
+    let reader =
+        SerializedFileReader::new(file).map_err(|e| format!("Parquet reader error: {}", e))?;
 
     let metadata = reader.metadata();
     let file_metadata = metadata.file_metadata();
@@ -304,7 +328,8 @@ fn load_parquet(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, Stri
 
     let mut samples = Vec::with_capacity(num_rows);
 
-    let iter = reader.get_row_iter(None)
+    let iter = reader
+        .get_row_iter(None)
         .map_err(|e| format!("Parquet row iterator error: {}", e))?;
 
     for result in iter {
@@ -329,9 +354,21 @@ fn load_parquet(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, Stri
 
 #[cfg(feature = "parquet")]
 fn extract_text_from_parquet_row(row: &parquet::record::Row) -> Option<String> {
-    let text_names = ["text", "content", "body", "sentence", "document",
-                       "input", "prompt", "instruction", "code", "title",
-                       "teks", "konten", "kalimat"];
+    let text_names = [
+        "text",
+        "content",
+        "body",
+        "sentence",
+        "document",
+        "input",
+        "prompt",
+        "instruction",
+        "code",
+        "title",
+        "teks",
+        "konten",
+        "kalimat",
+    ];
 
     for (name, field) in row.get_column_iter() {
         if text_names.contains(&name.as_str()) {
@@ -389,8 +426,11 @@ mod tests {
         let path = dir.path().join("test.csv");
         std::fs::write(&path, "text,score\nHello world,0.9\nFoo bar,0.8\n").unwrap();
         let src = SourceInfo {
-            name: "test".into(), url: None, trust_score: 1.0,
-            category: crate::types::SourceCategory::Other, fetch_timestamp: 0,
+            name: "test".into(),
+            url: None,
+            trust_score: 1.0,
+            category: crate::types::SourceCategory::Other,
+            fetch_timestamp: 0,
         };
         let samples = load_csv(&path, src).unwrap();
         assert_eq!(samples.len(), 2);
@@ -404,8 +444,11 @@ mod tests {
         let path = dir.path().join("test.json");
         std::fs::write(&path, r#"[{"text":"Hello"},{"text":"World"}]"#).unwrap();
         let src = SourceInfo {
-            name: "test".into(), url: None, trust_score: 1.0,
-            category: crate::types::SourceCategory::Other, fetch_timestamp: 0,
+            name: "test".into(),
+            url: None,
+            trust_score: 1.0,
+            category: crate::types::SourceCategory::Other,
+            fetch_timestamp: 0,
         };
         let samples = load_json(&path, src).unwrap();
         assert_eq!(samples.len(), 2);
@@ -417,12 +460,19 @@ mod tests {
     fn test_load_jsonl() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.jsonl");
-        std::fs::write(&path, r#"{"text":"Line1"}
+        std::fs::write(
+            &path,
+            r#"{"text":"Line1"}
 {"text":"Line2"}
-{"text":"Line3"}"#).unwrap();
+{"text":"Line3"}"#,
+        )
+        .unwrap();
         let src = SourceInfo {
-            name: "test".into(), url: None, trust_score: 1.0,
-            category: crate::types::SourceCategory::Other, fetch_timestamp: 0,
+            name: "test".into(),
+            url: None,
+            trust_score: 1.0,
+            category: crate::types::SourceCategory::Other,
+            fetch_timestamp: 0,
         };
         let samples = load_jsonl(&path, src).unwrap();
         assert_eq!(samples.len(), 3);
@@ -436,8 +486,11 @@ mod tests {
         let path = dir.path().join("test.tsv");
         std::fs::write(&path, "text\tscore\nHello\t0.9\nWorld\t0.8\n").unwrap();
         let src = SourceInfo {
-            name: "test".into(), url: None, trust_score: 1.0,
-            category: crate::types::SourceCategory::Other, fetch_timestamp: 0,
+            name: "test".into(),
+            url: None,
+            trust_score: 1.0,
+            category: crate::types::SourceCategory::Other,
+            fetch_timestamp: 0,
         };
         let samples = load_tsv(&path, src).unwrap();
         assert_eq!(samples.len(), 2);
@@ -460,7 +513,8 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(r#"{"text":"hello"}"#).unwrap();
         assert_eq!(extract_text(&v), Some("hello".into()));
 
-        let v: serde_json::Value = serde_json::from_str(r#"{"instruction":"do X","output":"Y"}"#).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"instruction":"do X","output":"Y"}"#).unwrap();
         assert_eq!(extract_text(&v), Some("do X".into()));
 
         let v: serde_json::Value = serde_json::from_str(r#"{"nope":123}"#).unwrap();
@@ -483,8 +537,11 @@ mod tests {
         let csv = dir.path().join("data.csv");
         std::fs::write(&csv, "text\nHello\n").unwrap();
         let src = SourceInfo {
-            name: "test".into(), url: None, trust_score: 1.0,
-            category: crate::types::SourceCategory::Other, fetch_timestamp: 0,
+            name: "test".into(),
+            url: None,
+            trust_score: 1.0,
+            category: crate::types::SourceCategory::Other,
+            fetch_timestamp: 0,
         };
         assert!(load_dataset(&csv, src.clone()).is_ok());
 

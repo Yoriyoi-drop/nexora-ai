@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use std::collections::VecDeque;
+use uuid::Uuid;
 
 /// Context Memory Node — memori jangka panjang untuk konteks
 #[derive(Debug, Clone)]
@@ -38,10 +38,12 @@ impl ContextMemoryNode {
             return vec![0.0; self.state_dim];
         }
 
-        let mut scores: Vec<f64> = self.memory_buffer
+        let mut scores: Vec<f64> = self
+            .memory_buffer
             .iter()
             .map(|mem| {
-                query.iter()
+                query
+                    .iter()
                     .zip(mem.iter())
                     .map(|(q, m)| (q - m).powi(2))
                     .sum::<f64>()
@@ -60,7 +62,8 @@ impl ContextMemoryNode {
             }
         }
 
-        scores.iter()
+        scores
+            .iter()
             .zip(self.memory_buffer.iter())
             .map(|(&w, mem)| mem.iter().map(|&v| v * w).collect::<Vec<_>>())
             .reduce(|a, b| a.iter().zip(b.iter()).map(|(x, y)| x + y).collect())

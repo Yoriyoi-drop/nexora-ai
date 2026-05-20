@@ -1,8 +1,8 @@
 //! Planning Module - Task planning and execution strategies
 
 use async_trait::async_trait;
-use uuid::Uuid;
 use nexora_foundation::FoundationResult;
+use uuid::Uuid;
 
 /// Plan for executing a complex task
 #[derive(Debug, Clone)]
@@ -27,13 +27,13 @@ pub struct PlanStep {
 pub trait PlanningStrategy: Send + Sync {
     /// Create a plan for the given goal
     async fn create_plan(&self, goal: &str, context: serde_json::Value) -> FoundationResult<Plan>;
-    
+
     /// Optimize an existing plan
     async fn optimize_plan(&self, plan: &mut Plan) -> FoundationResult<()>;
-    
+
     /// Validate a plan
     async fn validate_plan(&self, plan: &Plan) -> FoundationResult<bool>;
-    
+
     /// Get strategy name
     fn strategy_name(&self) -> &str;
 }
@@ -44,27 +44,24 @@ pub struct HierarchicalPlanner;
 #[async_trait]
 impl PlanningStrategy for HierarchicalPlanner {
     async fn create_plan(&self, goal: &str, _context: serde_json::Value) -> FoundationResult<Plan> {
-        let sentences: Vec<&str> = goal.split(|c: char| c == '.' || c == '!' || c == '?')
+        let sentences: Vec<&str> = goal
+            .split(|c: char| c == '.' || c == '!' || c == '?')
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect();
-        
+
         let mut steps = Vec::with_capacity(sentences.len());
         let mut step_ids = Vec::with_capacity(sentences.len());
         let mut total_duration = 0u64;
-        
+
         for (i, sentence) in sentences.iter().enumerate() {
             let step_id = Uuid::new_v4();
-            let deps = if i > 0 {
-                vec![step_ids[i - 1]]
-            } else {
-                vec![]
-            };
-            
+            let deps = if i > 0 { vec![step_ids[i - 1]] } else { vec![] };
+
             let action = sentence.to_string();
             let est_duration = (action.len() as u64).max(100) * 10;
             total_duration += est_duration;
-            
+
             step_ids.push(step_id);
             steps.push(PlanStep {
                 id: step_id,
@@ -74,7 +71,7 @@ impl PlanningStrategy for HierarchicalPlanner {
                 estimated_duration_ms: est_duration,
             });
         }
-        
+
         if steps.is_empty() {
             let step_id = Uuid::new_v4();
             total_duration = 1000;
@@ -87,7 +84,7 @@ impl PlanningStrategy for HierarchicalPlanner {
             });
             step_ids.push(step_id);
         }
-        
+
         Ok(Plan {
             id: Uuid::new_v4(),
             steps,
@@ -95,14 +92,15 @@ impl PlanningStrategy for HierarchicalPlanner {
             estimated_duration_ms: total_duration,
         })
     }
-    
+
     async fn optimize_plan(&self, plan: &mut Plan) -> FoundationResult<()> {
-        plan.steps.sort_by(|a, b| a.estimated_duration_ms.cmp(&b.estimated_duration_ms));
+        plan.steps
+            .sort_by(|a, b| a.estimated_duration_ms.cmp(&b.estimated_duration_ms));
         plan.dependencies = plan.steps.iter().map(|s| s.id).collect();
         plan.estimated_duration_ms = plan.steps.iter().map(|s| s.estimated_duration_ms).sum();
         Ok(())
     }
-    
+
     async fn validate_plan(&self, plan: &Plan) -> FoundationResult<bool> {
         if plan.steps.is_empty() {
             return Ok(false);
@@ -112,7 +110,7 @@ impl PlanningStrategy for HierarchicalPlanner {
         }
         Ok(true)
     }
-    
+
     fn strategy_name(&self) -> &str {
         "hierarchical"
     }

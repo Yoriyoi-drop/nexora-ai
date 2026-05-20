@@ -17,17 +17,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::instrument;
 
-use nexora_transformer::{CausalLM, TransformerConfig};
 use nexora_shared::{
     base_model::{
-        FinishReason, GenerationMetadata, NxrInput, NxrModel, NxrModelError, NxrOutput,
-        NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData,
-        ValidationResult, ModelStatistics, TokenOutput, InputData,
+        FinishReason, GenerationMetadata, InputData, ModelStatistics, NxrInput, NxrModel,
+        NxrModelError, NxrOutput, NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage,
+        StreamChunkData, TokenOutput, ValidationResult,
     },
     capability_spec::CapabilityVector,
     model_identity::{ModelMeta, ModelTier, NxrModelId},
     tokenizer_integration::NxrTokenizerRef,
 };
+use nexora_transformer::{CausalLM, TransformerConfig};
 
 fn transformer_config_for(model_id: NxrModelId) -> TransformerConfig {
     let base = TransformerConfig {
@@ -87,18 +87,27 @@ fn byte_encode(text: &str) -> Vec<u32> {
 }
 
 fn byte_decode(ids: &[u32]) -> String {
-    let bytes: Vec<u8> = ids.iter().map(|&id| if id < 256 { id as u8 } else { b'?' }).collect();
+    let bytes: Vec<u8> = ids
+        .iter()
+        .map(|&id| if id < 256 { id as u8 } else { b'?' })
+        .collect();
     String::from_utf8_lossy(&bytes).to_string()
 }
 
 fn extract_params(input: &NxrInput) -> (usize, f32, usize) {
-    let max_tokens = input.parameters.get("max_tokens")
+    let max_tokens = input
+        .parameters
+        .get("max_tokens")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    let temperature = input.parameters.get("temperature")
+    let temperature = input
+        .parameters
+        .get("temperature")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.7) as f32;
-    let top_k = input.parameters.get("top_k")
+    let top_k = input
+        .parameters
+        .get("top_k")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
     (max_tokens, temperature, top_k)

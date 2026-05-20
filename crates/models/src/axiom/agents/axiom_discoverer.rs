@@ -1,14 +1,14 @@
 //! Axiom Discoverer Agent
-//! 
+//!
 //! Axiom discovery and fundamental principle identification
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Axiom Discoverer Agent - Axiom discovery and fundamental principle identification
 #[derive(Debug, Clone)]
@@ -149,7 +149,9 @@ impl BaseAgent for AxiomDiscovererAgent {
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let discovered_axioms = self.discover_axioms(&input).await?;
         let fundamental_principles = self.identify_fundamental_principles(&input).await?;
-        let confidence_scores = self.calculate_confidence_scores(&input, &discovered_axioms).await?;
+        let confidence_scores = self
+            .calculate_confidence_scores(&input, &discovered_axioms)
+            .await?;
         let discovery_method = self.determine_discovery_method(&input).await?;
 
         Ok(AxiomDiscovererTaskOutput {
@@ -169,21 +171,22 @@ impl BaseAgent for AxiomDiscovererAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "axiom_discovery".to_string(),
-                description: "Axiom discovery and fundamental principle identification".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["domain_knowledge".to_string(), "observations".to_string()],
-                output_types: vec!["discovered_axioms".to_string(), "fundamental_principles".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.89,
-                    avg_latency: 3200.0,
-                    resource_usage: 0.65,
-                    reliability: 0.91,
-                },
+        vec![AgentCapability {
+            name: "axiom_discovery".to_string(),
+            description: "Axiom discovery and fundamental principle identification".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["domain_knowledge".to_string(), "observations".to_string()],
+            output_types: vec![
+                "discovered_axioms".to_string(),
+                "fundamental_principles".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.89,
+                avg_latency: 3200.0,
+                resource_usage: 0.65,
+                reliability: 0.91,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -221,32 +224,55 @@ impl AxiomDiscovererAgent {
 
     async fn discover_axioms(&self, input: &AxiomDiscovererTaskInput) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Axiom 1: From domain '{}', fundamental patterns emerge", input.domain_knowledge),
-            format!("Axiom 2: Observations '{}' reveal consistent principles", input.observations.join(", ")),
+            format!(
+                "Axiom 1: From domain '{}', fundamental patterns emerge",
+                input.domain_knowledge
+            ),
+            format!(
+                "Axiom 2: Observations '{}' reveal consistent principles",
+                input.observations.join(", ")
+            ),
             "Axiom 3: Fundamental truths are universal across the domain".to_string(),
         ])
     }
 
-    async fn identify_fundamental_principles(&self, input: &AxiomDiscovererTaskInput) -> AgentResult<Vec<String>> {
+    async fn identify_fundamental_principles(
+        &self,
+        input: &AxiomDiscovererTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Principle 1: {} operates on consistent patterns", input.domain_knowledge),
+            format!(
+                "Principle 1: {} operates on consistent patterns",
+                input.domain_knowledge
+            ),
             "Principle 2: Causality governs domain relationships".to_string(),
             "Principle 3: Conservation principles apply universally".to_string(),
         ])
     }
 
-    async fn calculate_confidence_scores(&self, _input: &AxiomDiscovererTaskInput, axioms: &[String]) -> AgentResult<Vec<f32>> {
+    async fn calculate_confidence_scores(
+        &self,
+        _input: &AxiomDiscovererTaskInput,
+        axioms: &[String],
+    ) -> AgentResult<Vec<f32>> {
         let base_score = 0.75;
         let variation = 0.15;
-        
-        Ok(axioms.iter().enumerate().map(|(i, _)| {
-            base_score + (i as f32 * variation / axioms.len() as f32)
-        }).collect())
+
+        Ok(axioms
+            .iter()
+            .enumerate()
+            .map(|(i, _)| base_score + (i as f32 * variation / axioms.len() as f32))
+            .collect())
     }
 
-    async fn determine_discovery_method(&self, input: &AxiomDiscovererTaskInput) -> AgentResult<String> {
+    async fn determine_discovery_method(
+        &self,
+        input: &AxiomDiscovererTaskInput,
+    ) -> AgentResult<String> {
         match input.analysis_scope.as_str() {
-            "mathematical" => Ok("Mathematical pattern recognition and statistical analysis".to_string()),
+            "mathematical" => {
+                Ok("Mathematical pattern recognition and statistical analysis".to_string())
+            }
             "logical" => Ok("Logical deduction and formal reasoning".to_string()),
             "empirical" => Ok("Empirical observation and inductive reasoning".to_string()),
             _ => Ok("Hybrid approach combining multiple discovery methods".to_string()),
@@ -279,11 +305,14 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.discovered_axioms.is_empty());
         assert!(!output.fundamental_principles.is_empty());
-        assert_eq!(output.discovered_axioms.len(), output.confidence_scores.len());
+        assert_eq!(
+            output.discovered_axioms.len(),
+            output.confidence_scores.len()
+        );
         assert!(!output.discovery_method.is_empty());
     }
 }

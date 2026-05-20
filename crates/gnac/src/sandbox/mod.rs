@@ -10,7 +10,6 @@ pub mod verification;
 pub use security::*;
 pub use verification::*;
 
-
 /// Policy akses dataset
 #[derive(Debug, Clone)]
 pub struct DataAccessPolicy {

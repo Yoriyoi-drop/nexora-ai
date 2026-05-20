@@ -8,10 +8,10 @@ pub use metrics::MetricsCollector;
 pub use profiling::{Profiler, ProfilingConfig};
 pub use tracing::{init_tracing, TracingConfig, TracingFormat, TracingLevel};
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoringConfig {
@@ -97,8 +97,14 @@ impl MonitoringSystem {
     }
 
     pub async fn get_system_status(&self) -> SystemStatus {
-        let metrics_status = self.metrics.as_ref().map_or("disabled".to_string(), |_| "running".to_string());
-        let health_status = self.health.as_ref().map_or("disabled".to_string(), |_| "running".to_string());
+        let metrics_status = self
+            .metrics
+            .as_ref()
+            .map_or("disabled".to_string(), |_| "running".to_string());
+        let health_status = self
+            .health
+            .as_ref()
+            .map_or("disabled".to_string(), |_| "running".to_string());
 
         SystemStatus {
             metrics: metrics_status,

@@ -4,16 +4,16 @@
 pub use nexora_shared::*;
 
 // Model series modules
-pub mod omnis;
-pub mod vortex;
 pub mod aether;
-pub mod spectra;
-pub mod nexum;
 pub mod axiom;
 pub mod cipher;
-pub mod swift;
-pub mod kronos;
 pub mod genesis;
+pub mod kronos;
+pub mod nexum;
+pub mod omnis;
+pub mod spectra;
+pub mod swift;
+pub mod vortex;
 
 // Foundation module (CausalLM-based primary models)
 pub mod foundation;

@@ -1,5 +1,5 @@
 //! NXR Base Model Trait
-//! 
+//!
 //! Core trait that all NXR models must implement
 
 use async_trait::async_trait;
@@ -8,20 +8,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::{
-    model_identity::ModelMeta,
-    capability_spec::CapabilityVector,
-};
+use super::{capability_spec::CapabilityVector, model_identity::ModelMeta};
 
 /// Base trait for all NXR models
 #[async_trait]
 pub trait NxrModel: Send + Sync {
     /// Model configuration type
     type Config: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>;
-    
+
     /// Model metrics type
     type Metrics: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>;
-    
+
     /// Model state type
     type State: Clone + Send + Sync;
 
@@ -181,7 +178,10 @@ where
     }
 
     /// Update statistics
-    pub async fn update_statistics(&self, updater: impl FnOnce(&mut ModelStatistics)) -> Result<(), NxrModelError> {
+    pub async fn update_statistics(
+        &self,
+        updater: impl FnOnce(&mut ModelStatistics),
+    ) -> Result<(), NxrModelError> {
         let mut stats = self.statistics.write().await;
         updater(&mut stats);
         Ok(())
@@ -193,28 +193,28 @@ where
 pub enum NxrModelError {
     #[error("Model not initialized: {0}")]
     NotInitialized(String),
-    
+
     #[error("Configuration error: {0}")]
     Configuration(String),
-    
+
     #[error("Inference error: {0}")]
     Inference(String),
-    
+
     #[error("Resource error: {0}")]
     Resource(String),
-    
+
     #[error("State error: {0}")]
     State(String),
-    
+
     #[error("Validation error: {0}")]
     Validation(String),
-    
+
     #[error("Capability not supported: {0}")]
     UnsupportedCapability(String),
-    
+
     #[error("Internal error: {0}")]
     Internal(String),
-    
+
     #[error("Timeout error: {0}")]
     Timeout(String),
 }

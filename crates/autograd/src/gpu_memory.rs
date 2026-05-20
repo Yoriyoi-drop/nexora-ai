@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 const SIZE_BUCKETS: &[u64] = &[
-    1 << 10,  // 1KB
-    1 << 12,  // 4KB
-    1 << 14,  // 16KB
-    1 << 16,  // 64KB
-    1 << 18,  // 256KB
-    1 << 20,  // 1MB
-    1 << 22,  // 4MB
-    1 << 24,  // 16MB
-    1 << 26,  // 64MB
-    1 << 28,  // 256MB
+    1 << 10, // 1KB
+    1 << 12, // 4KB
+    1 << 14, // 16KB
+    1 << 16, // 64KB
+    1 << 18, // 256KB
+    1 << 20, // 1MB
+    1 << 22, // 4MB
+    1 << 24, // 16MB
+    1 << 26, // 64MB
+    1 << 28, // 256MB
 ];
 
 fn bucket_for(size: u64) -> usize {
@@ -109,10 +109,7 @@ impl GpuMemoryPool {
     pub fn dealloc(&mut self, buf: PooledBuffer) {
         self.stats.deallocs += 1;
         if let Some(key) = buf.pool_key {
-            self.free_buffers
-                .entry(key)
-                .or_default()
-                .push(buf.buffer);
+            self.free_buffers.entry(key).or_default().push(buf.buffer);
         }
     }
 

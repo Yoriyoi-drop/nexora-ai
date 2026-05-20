@@ -1,10 +1,10 @@
 //! NXR-KRONOS Architecture
-//! 
+//!
 //! Implementation of Distributed Indexing + Semantic Search architecture for NXR-KRONOS
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::KronosConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-KRONOS Architecture Implementation
 pub struct KronosArchitecture {
@@ -391,7 +391,9 @@ impl KronosArchitecture {
                     update_strategy: UpdateStrategy::Batch,
                     update_frequency: match config.agents.index_builder.update_frequency {
                         super::config::UpdateFrequency::Manual => UpdateFrequency::Manual,
-                        super::config::UpdateFrequency::Periodic { interval_hours } => UpdateFrequency::Periodic { interval_hours },
+                        super::config::UpdateFrequency::Periodic { interval_hours } => {
+                            UpdateFrequency::Periodic { interval_hours }
+                        }
                         super::config::UpdateFrequency::EventDriven => UpdateFrequency::EventDriven,
                     },
                     batch_size: config.agents.index_builder.batch_size,
@@ -402,7 +404,11 @@ impl KronosArchitecture {
                     model_architecture: match &config.semantic_search.embedding_model {
                         super::config::EmbeddingModel::BERT => ModelArchitecture::BERT,
                         super::config::EmbeddingModel::RoBERTa => ModelArchitecture::RoBERTa,
-                        super::config::EmbeddingModel::Custom { model_name } => ModelArchitecture::Custom { name: model_name.clone() },
+                        super::config::EmbeddingModel::Custom { model_name } => {
+                            ModelArchitecture::Custom {
+                                name: model_name.clone(),
+                            }
+                        }
                     },
                     embedding_dimensions: 768,
                     accuracy: 0.92,
@@ -429,13 +435,26 @@ impl KronosArchitecture {
                 },
                 storage_backend: StorageBackend::Distributed,
                 query_engine: QueryEngine {
-                    query_language: match &config.agents.knowledge_graph.graph_querying.query_language {
+                    query_language: match &config
+                        .agents
+                        .knowledge_graph
+                        .graph_querying
+                        .query_language
+                    {
                         super::config::QueryLanguage::SPARQL => QueryLanguage::SPARQL,
                         super::config::QueryLanguage::Cypher => QueryLanguage::Cypher,
                         super::config::QueryLanguage::Gremlin => QueryLanguage::Gremlin,
-                        super::config::QueryLanguage::Custom { language } => QueryLanguage::Custom { language: language.clone() },
+                        super::config::QueryLanguage::Custom { language } => {
+                            QueryLanguage::Custom {
+                                language: language.clone(),
+                            }
+                        }
                     },
-                    query_optimization: config.agents.knowledge_graph.graph_querying.query_optimization,
+                    query_optimization: config
+                        .agents
+                        .knowledge_graph
+                        .graph_querying
+                        .query_optimization,
                 },
             },
             information_extraction_pipeline: InformationExtractionPipeline {
@@ -463,11 +482,19 @@ impl KronosArchitecture {
                 ],
                 entity_recognition: EntityRecognition {
                     recognition_method: RecognitionMethod::Hybrid,
-                    entity_types: config.knowledge_graph.entity_extraction.entity_types.clone(),
+                    entity_types: config
+                        .knowledge_graph
+                        .entity_extraction
+                        .entity_types
+                        .clone(),
                 },
                 relation_extraction: RelationExtraction {
                     extraction_method: ExtractionMethod::Hybrid,
-                    relation_types: config.knowledge_graph.relation_extraction.relation_types.clone(),
+                    relation_types: config
+                        .knowledge_graph
+                        .relation_extraction
+                        .relation_types
+                        .clone(),
                 },
             },
             knowledge_synthesis_engine: KnowledgeSynthesisEngine {
@@ -512,12 +539,22 @@ impl KronosArchitecture {
         }
 
         // Validate semantic search
-        if self.semantic_search_engine.embedding_model.embedding_dimensions == 0 {
+        if self
+            .semantic_search_engine
+            .embedding_model
+            .embedding_dimensions
+            == 0
+        {
             return Err("Embedding dimensions must be > 0".into());
         }
 
         // Validate knowledge graph
-        if self.information_extraction_pipeline.entity_recognition.entity_types.is_empty() {
+        if self
+            .information_extraction_pipeline
+            .entity_recognition
+            .entity_types
+            .is_empty()
+        {
             return Err("At least one entity type required".into());
         }
 
@@ -534,14 +571,16 @@ impl KronosArchitecture {
     }
 
     /// Semantic search
-    pub async fn semantic_search(&self, query: &str, limit: u32) -> NxrModelResult<Vec<SearchResult>> {
-        Ok(vec![
-            SearchResult {
-                document_id: uuid::Uuid::new_v4(),
-                score: 0.92,
-                content: "Sample result".to_string(),
-            },
-        ])
+    pub async fn semantic_search(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> NxrModelResult<Vec<SearchResult>> {
+        Ok(vec![SearchResult {
+            document_id: uuid::Uuid::new_v4(),
+            score: 0.92,
+            content: "Sample result".to_string(),
+        }])
     }
 
     /// Query knowledge graph
@@ -563,7 +602,10 @@ impl KronosArchitecture {
     }
 
     /// Synthesize knowledge
-    pub async fn synthesize_knowledge(&self, sources: Vec<String>) -> NxrModelResult<SynthesisResult> {
+    pub async fn synthesize_knowledge(
+        &self,
+        sources: Vec<String>,
+    ) -> NxrModelResult<SynthesisResult> {
         Ok(SynthesisResult {
             synthesized_content: "Synthesized knowledge".to_string(),
             source_count: sources.len(),

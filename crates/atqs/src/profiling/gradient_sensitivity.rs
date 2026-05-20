@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2, s};
+use ndarray::{s, Array1, Array2};
 
 /// AWQ-style gradient-norm sensitivity estimator
 /// Mengganti cosine similarity heuristic dengan mathematical sensitivity score
@@ -141,7 +141,9 @@ pub fn compute_hessian_trace_approximation(
         return Array1::ones(input_dim);
     }
 
-    let n = calibration_activations.len().min(config.calibration_samples);
+    let n = calibration_activations
+        .len()
+        .min(config.calibration_samples);
     let mut hessian_diag: Array1<f32> = Array1::zeros(input_dim);
 
     for act in calibration_activations.iter().take(n) {
@@ -189,8 +191,8 @@ pub fn compute_per_channel_scale(
             .map(|x| x.abs())
             .fold(f32::NEG_INFINITY, f32::max)
             .max(1e-8);
-        let mean_abs = channel_acts.iter().map(|x| x.abs()).sum::<f32>()
-            / channel_acts.len() as f32;
+        let mean_abs =
+            channel_acts.iter().map(|x| x.abs()).sum::<f32>() / channel_acts.len() as f32;
 
         // s = max(|x|)^α / mean(|x|)
         let scale = max_abs.powf(alpha) / mean_abs.max(1e-8);
@@ -230,10 +232,7 @@ pub fn apply_per_channel_quantization(
 }
 
 /// Protect routing layers (W_g in MoE) from aggressive quantization
-pub fn protect_routing_layer(
-    weights: &Array2<f32>,
-    min_bits: usize,
-) -> Vec<f32> {
+pub fn protect_routing_layer(weights: &Array2<f32>, min_bits: usize) -> Vec<f32> {
     let (output_channels, _input_dim) = weights.dim();
 
     // Routing layers get uniform high-precision treatment
@@ -241,7 +240,11 @@ pub fn protect_routing_layer(
 
     for c in 0..output_channels {
         let row = weights.row(c);
-        let max_abs = row.iter().map(|x| x.abs()).fold(f32::NEG_INFINITY, f32::max).max(1e-8);
+        let max_abs = row
+            .iter()
+            .map(|x| x.abs())
+            .fold(f32::NEG_INFINITY, f32::max)
+            .max(1e-8);
         let scale = max_abs / ((1 << (min_bits - 1)) as f32);
         scales.push(scale);
     }
@@ -250,10 +253,7 @@ pub fn protect_routing_layer(
 }
 
 /// Compute quantization error bound for a layer
-pub fn compute_quantization_error_bound(
-    sensitivity: &GradientSensitivity,
-    bits: usize,
-) -> f32 {
+pub fn compute_quantization_error_bound(sensitivity: &GradientSensitivity, bits: usize) -> f32 {
     let avg_sensitivity = sensitivity.overall_sensitivity;
     let step_size = 2.0_f32.powf(-(bits as f32));
     // Error ∝ sensitivity * step_size² (second-order)
@@ -290,8 +290,8 @@ fn compute_awq_scale_factor(activation_magnitudes: &[f32], _channel: usize) -> f
         .cloned()
         .fold(f32::NEG_INFINITY, f32::max)
         .max(1e-8);
-    let mean_val = activation_magnitudes.iter().sum::<f32>()
-        / activation_magnitudes.len().max(1) as f32;
+    let mean_val =
+        activation_magnitudes.iter().sum::<f32>() / activation_magnitudes.len().max(1) as f32;
 
     if mean_val < 1e-8 {
         return 1.0;

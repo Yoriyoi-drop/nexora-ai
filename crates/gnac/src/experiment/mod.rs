@@ -4,11 +4,11 @@
 //! dataset fingerprint, optimizer state, seed random, runtime environment,
 //! dan compiler configuration. Dilengkapi Graph Diff Viewer.
 
-pub mod snapshot;
 pub mod diff;
+pub mod snapshot;
 
-pub use snapshot::*;
 pub use diff::*;
+pub use snapshot::*;
 
 use crate::canvas::NeuralGraph;
 use chrono::{DateTime, Utc};

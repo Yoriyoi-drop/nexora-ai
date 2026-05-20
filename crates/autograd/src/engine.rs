@@ -38,8 +38,6 @@ pub(crate) fn backward_engine(output: &Tensor) {
         }
     }
 
-
-
     let mut grads: HashMap<usize, ArrayD<f32>> = HashMap::new();
     if let Some(g) = output.grad() {
         grads.insert(output.id(), g);
@@ -66,11 +64,13 @@ pub(crate) fn backward_engine(output: &Tensor) {
                             if let Some(backward_gpu) = gpu_backward {
                                 match crate::gpu::GpuTensor::from_cpu(&grad_out) {
                                     Ok(grad_gpu) => {
-                                        let grad_inputs_gpu = backward_gpu(&saved_gpu, &grad_gpu, ctx);
+                                        let grad_inputs_gpu =
+                                            backward_gpu(&saved_gpu, &grad_gpu, ctx);
                                         for (i, inp) in inputs.iter().enumerate() {
                                             if i < grad_inputs_gpu.len() && inp.requires_grad() {
                                                 let g = grad_inputs_gpu[i].to_cpu();
-                                                grads.entry(inp.id())
+                                                grads
+                                                    .entry(inp.id())
                                                     .and_modify(|existing| {
                                                         if existing.shape() == g.shape() {
                                                             *existing += &g;
@@ -106,7 +106,8 @@ pub(crate) fn backward_engine(output: &Tensor) {
                         for (i, inp) in inputs.iter().enumerate() {
                             if i < grad_inputs.len() && inp.requires_grad() {
                                 let g = grad_inputs[i].clone();
-                                grads.entry(inp.id())
+                                grads
+                                    .entry(inp.id())
                                     .and_modify(|existing| {
                                         if existing.shape() == g.shape() {
                                             *existing += &g;

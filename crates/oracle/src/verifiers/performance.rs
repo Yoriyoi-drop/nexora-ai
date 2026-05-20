@@ -7,13 +7,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
-use crate::verifiers::{
-    CodeIssue,
-    CodeVerifier,
-    IssueSeverity,
-    VerificationResult,
-    VerifierType,
-};
+use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
 
 /// Performance thresholds configuration
 #[derive(Debug, Clone)]
@@ -69,19 +63,15 @@ struct PerformancePattern {
 
 /// Regex patterns with proper error handling
 static NESTED_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(")
-        .expect("Invalid nested loop regex pattern")
+    Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(").expect("Invalid nested loop regex pattern")
 });
 
 static PYTHON_STRING_CONCAT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\w+\s*\+=\s*["']"#)
-        .expect("Invalid Python string concat regex pattern")
+    Regex::new(r#"\w+\s*\+=\s*["']"#).expect("Invalid Python string concat regex pattern")
 });
 
-static C_MALLOC_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\bmalloc\s*\(")
-        .expect("Invalid malloc regex pattern")
-});
+static C_MALLOC_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\bmalloc\s*\(").expect("Invalid malloc regex pattern"));
 
 static BLOCKING_IO_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(")
@@ -89,8 +79,7 @@ static BLOCKING_IO_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
 });
 
 static INEFFICIENT_SORT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(bubble_sort|selection_sort)\b")
-        .expect("Invalid inefficient sort regex pattern")
+    Regex::new(r"\b(bubble_sort|selection_sort)\b").expect("Invalid inefficient sort regex pattern")
 });
 
 /// Performance verifier
@@ -163,11 +152,7 @@ impl PerformanceVerifier {
     }
 
     /// Add issue with deduplication
-    fn add_issue(
-        issues: &mut Vec<CodeIssue>,
-        seen: &mut HashSet<String>,
-        issue: CodeIssue,
-    ) {
+    fn add_issue(issues: &mut Vec<CodeIssue>, seen: &mut HashSet<String>, issue: CodeIssue) {
         let key = format!(
             "{}:{}:{:?}",
             issue.rule_id,
@@ -185,14 +170,13 @@ impl CodeVerifier for PerformanceVerifier {
     fn verify(&self, code: &str, language: &str) -> Result<VerificationResult> {
         // Validate input
         Self::validate_input(code)?;
-        
+
         let mut issues = Vec::new();
         let mut seen = HashSet::new();
         let mut score: f32 = 1.0;
 
         // Language-specific checks
-        let language_issues =
-            self.check_language_specific_performance(code, language)?;
+        let language_issues = self.check_language_specific_performance(code, language)?;
 
         for issue in language_issues {
             Self::add_issue(&mut issues, &mut seen, issue);
@@ -205,10 +189,7 @@ impl CodeVerifier for PerformanceVerifier {
             }
 
             for mat in pattern.pattern.find_iter(code) {
-                let line_number = code[..mat.start()]
-                    .lines()
-                    .count()
-                    .max(1);
+                let line_number = code[..mat.start()].lines().count().max(1);
 
                 Self::add_issue(
                     &mut issues,
@@ -216,11 +197,7 @@ impl CodeVerifier for PerformanceVerifier {
                     CodeIssue {
                         severity: pattern.severity.clone(),
                         category: "Performance".to_string(),
-                        message: format!(
-                            "{}: {}",
-                            pattern.name,
-                            pattern.description
-                        ),
+                        message: format!("{}: {}", pattern.name, pattern.description),
                         line_number: Some(line_number),
                         column_number: None,
                         rule_id: pattern.rule_id.to_string(),
@@ -233,15 +210,11 @@ impl CodeVerifier for PerformanceVerifier {
 
         score = score.clamp(0.0, 1.0);
 
-        let suggestions =
-            self.generate_performance_suggestions(&issues);
+        let suggestions = self.generate_performance_suggestions(&issues);
 
         let mut metrics = HashMap::new();
         metrics.insert("performance_score".to_string(), score);
-        metrics.insert(
-            "performance_issue_count".to_string(),
-            issues.len() as f32,
-        );
+        metrics.insert("performance_issue_count".to_string(), issues.len() as f32);
         metrics.insert(
             "high_impact_count".to_string(),
             issues
@@ -280,7 +253,7 @@ impl CodeVerifier for PerformanceVerifier {
             "rust" => {
                 // More sophisticated clone detection
                 let clone_count = self.count_clones_efficiently(code);
-                
+
                 if clone_count > 5 {
                     issues.push(CodeIssue {
                         severity: IssueSeverity::Warning,
@@ -306,7 +279,7 @@ impl CodeVerifier for PerformanceVerifier {
                         rule_id: "rust_intermediate_alloc".to_string(),
                     });
                 }
-                
+
                 // Check for inefficient string operations
                 if self.has_inefficient_string_ops(code) {
                     issues.push(CodeIssue {
@@ -332,7 +305,7 @@ impl CodeVerifier for PerformanceVerifier {
                         rule_id: "py_range_len".to_string(),
                     });
                 }
-                
+
                 // Check for inefficient list operations
                 if self.has_inefficient_python_lists(code) {
                     issues.push(CodeIssue {
@@ -358,7 +331,7 @@ impl CodeVerifier for PerformanceVerifier {
                         rule_id: "js_dom_query_loop".to_string(),
                     });
                 }
-                
+
                 // Check for memory leaks
                 if self.has_potential_memory_leaks(code) {
                     issues.push(CodeIssue {
@@ -377,78 +350,69 @@ impl CodeVerifier for PerformanceVerifier {
 
         Ok(issues)
     }
-    
+
     /// Count clones efficiently using regex
     fn count_clones_efficiently(&self, code: &str) -> usize {
-        let Ok(clone_regex) = regex::Regex::new(r"\.clone\(\)") else { return 0 };
+        let Ok(clone_regex) = regex::Regex::new(r"\.clone\(\)") else {
+            return 0;
+        };
         clone_regex.find_iter(code).count()
     }
-    
+
     /// Check for intermediate allocations
     fn has_intermediate_allocation(&self, code: &str) -> bool {
         code.contains(".collect::<Vec<_>>())") && code.contains(".iter()")
     }
-    
+
     /// Check for inefficient string operations
     fn has_inefficient_string_ops(&self, code: &str) -> bool {
         code.contains("String::new()") && code.contains(".push_str(")
     }
-    
+
     /// Check for inefficient Python list operations
     fn has_inefficient_python_lists(&self, code: &str) -> bool {
         code.contains("for i in range(len(") || code.contains("list.append(")
     }
-    
+
     /// Check for DOM queries in loops
     fn has_dom_query_in_loop(&self, code: &str) -> bool {
-        let dom_methods = ["getElementById", "querySelector", "querySelectorAll", "getElementsByClassName"];
+        let dom_methods = [
+            "getElementById",
+            "querySelector",
+            "querySelectorAll",
+            "getElementsByClassName",
+        ];
         dom_methods.iter().any(|method| code.contains(method)) && code.contains("for")
     }
-    
+
     /// Check for potential memory leaks
     fn has_potential_memory_leaks(&self, code: &str) -> bool {
         code.contains("addEventListener") && !code.contains("removeEventListener")
     }
 
-    fn generate_performance_suggestions(
-        &self,
-        issues: &[CodeIssue],
-    ) -> Vec<String> {
+    fn generate_performance_suggestions(&self, issues: &[CodeIssue]) -> Vec<String> {
         let mut suggestions = Vec::new();
 
         if issues.iter().any(|i| i.rule_id == "nested_loops") {
             suggestions.push(
-                "Consider hash maps, indexing, or caching to reduce nested iteration"
-                    .to_string(),
+                "Consider hash maps, indexing, or caching to reduce nested iteration".to_string(),
             );
         }
 
         if issues.iter().any(|i| i.rule_id == "string_concat") {
-            suggestions.push(
-                "Use buffered string builders or join operations"
-                    .to_string(),
-            );
+            suggestions.push("Use buffered string builders or join operations".to_string());
         }
 
         if issues.iter().any(|i| i.rule_id == "memory_leak") {
-            suggestions.push(
-                "Ensure allocated memory is properly freed"
-                    .to_string(),
-            );
+            suggestions.push("Ensure allocated memory is properly freed".to_string());
         }
 
         if issues.iter().any(|i| i.rule_id == "blocking_io_loop") {
-            suggestions.push(
-                "Move blocking I/O outside loops or batch operations"
-                    .to_string(),
-            );
+            suggestions.push("Move blocking I/O outside loops or batch operations".to_string());
         }
 
         if issues.iter().any(|i| i.rule_id == "rust_excessive_clone") {
-            suggestions.push(
-                "Use borrowing (&T) instead of cloning where possible"
-                    .to_string(),
-            );
+            suggestions.push("Use borrowing (&T) instead of cloning where possible".to_string());
         }
 
         suggestions

@@ -187,7 +187,10 @@ impl MultiClusterSystem {
             capacity_pct: 100.0,
         };
         self.regions.insert(name.to_string(), cluster);
-        self.regions.get(name).expect("region was just inserted").clone()
+        self.regions
+            .get(name)
+            .expect("region was just inserted")
+            .clone()
     }
 
     pub fn add_mode_to_region(
@@ -196,11 +199,15 @@ impl MultiClusterSystem {
         mode_id: ModeId,
         kind: ModeKind,
     ) -> Result<ModeCluster, MultiClusterError> {
-        let region = self.regions.get_mut(region_name)
+        let region = self
+            .regions
+            .get_mut(region_name)
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
 
         if region.mode_clusters.len() as u32 >= self.global_config.max_mode_clusters_per_region {
-            return Err(MultiClusterError::MaxModeClustersReached(region_name.to_string()));
+            return Err(MultiClusterError::MaxModeClustersReached(
+                region_name.to_string(),
+            ));
         }
 
         let cluster = ModeCluster {
@@ -212,7 +219,11 @@ impl MultiClusterSystem {
             isolation_policy: format!("strict-{}", mode_id.0),
         };
         region.mode_clusters.insert(mode_id.0.clone(), cluster);
-        Ok(region.mode_clusters.get(&mode_id.0).expect("mode cluster was just inserted").clone())
+        Ok(region
+            .mode_clusters
+            .get(&mode_id.0)
+            .expect("mode cluster was just inserted")
+            .clone())
     }
 
     pub fn spawn_agent_cluster(
@@ -222,9 +233,13 @@ impl MultiClusterSystem {
         name: &str,
         scaling: ScalingPolicy,
     ) -> Result<AgentCluster, MultiClusterError> {
-        let region = self.regions.get_mut(region_name)
+        let region = self
+            .regions
+            .get_mut(region_name)
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
-        let mode = region.mode_clusters.get_mut(&mode_id.0)
+        let mode = region
+            .mode_clusters
+            .get_mut(&mode_id.0)
             .ok_or(MultiClusterError::ModeClusterNotFound(mode_id.clone()))?;
 
         if mode.agent_clusters.len() as u32 >= self.global_config.max_agent_clusters_per_mode {
@@ -239,7 +254,11 @@ impl MultiClusterSystem {
             scaling_policy: scaling,
         };
         mode.agent_clusters.insert(name.to_string(), cluster);
-        let cluster = mode.agent_clusters.get(name).expect("agent cluster was just inserted").clone();
+        let cluster = mode
+            .agent_clusters
+            .get(name)
+            .expect("agent cluster was just inserted")
+            .clone();
         Ok(cluster)
     }
 
@@ -251,12 +270,17 @@ impl MultiClusterSystem {
         agent_id: Uuid,
         tool_type: &str,
     ) -> Result<MicroVm, MultiClusterError> {
-        let region = self.regions.get_mut(region_name)
+        let region = self
+            .regions
+            .get_mut(region_name)
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
-        let mode = region.mode_clusters.get_mut(&mode_id.0)
+        let mode = region
+            .mode_clusters
+            .get_mut(&mode_id.0)
             .ok_or(MultiClusterError::ModeClusterNotFound(mode_id.clone()))?;
-        let cluster = mode.agent_clusters.get_mut(cluster_name)
-            .ok_or(MultiClusterError::AgentClusterNotFound(cluster_name.to_string()))?;
+        let cluster = mode.agent_clusters.get_mut(cluster_name).ok_or(
+            MultiClusterError::AgentClusterNotFound(cluster_name.to_string()),
+        )?;
 
         let vm = MicroVm {
             id: Uuid::new_v4(),
@@ -276,7 +300,11 @@ impl MultiClusterSystem {
             },
         };
         cluster.micro_vms.push(vm);
-        Ok(cluster.micro_vms.last().expect("micro vm was just added").clone())
+        Ok(cluster
+            .micro_vms
+            .last()
+            .expect("micro vm was just added")
+            .clone())
     }
 
     pub fn spawn_execution_thread(
@@ -287,14 +315,21 @@ impl MultiClusterSystem {
         vm_index: usize,
         task_id: &str,
     ) -> Result<ExecutionThread, MultiClusterError> {
-        let region = self.regions.get_mut(region_name)
+        let region = self
+            .regions
+            .get_mut(region_name)
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
-        let mode = region.mode_clusters.get_mut(&mode_id.0)
+        let mode = region
+            .mode_clusters
+            .get_mut(&mode_id.0)
             .ok_or(MultiClusterError::ModeClusterNotFound(mode_id.clone()))?;
-        let cluster = mode.agent_clusters.get_mut(cluster_name)
-            .ok_or(MultiClusterError::AgentClusterNotFound(cluster_name.to_string()))?;
+        let cluster = mode.agent_clusters.get_mut(cluster_name).ok_or(
+            MultiClusterError::AgentClusterNotFound(cluster_name.to_string()),
+        )?;
 
-        let vm = cluster.micro_vms.get_mut(vm_index)
+        let vm = cluster
+            .micro_vms
+            .get_mut(vm_index)
             .ok_or(MultiClusterError::MicroVmNotFound(vm_index))?;
 
         let thread = ExecutionThread {
@@ -311,7 +346,11 @@ impl MultiClusterSystem {
         }
 
         vm.execution_threads.push(thread);
-        Ok(vm.execution_threads.last().expect("execution thread was just added").clone())
+        Ok(vm
+            .execution_threads
+            .last()
+            .expect("execution thread was just added")
+            .clone())
     }
 
     pub fn get_region(&self, name: &str) -> Option<&RegionalCluster> {
@@ -382,21 +421,44 @@ mod tests {
         system.add_region("eu-west", "eu-west-1");
 
         let mode_id = ModeId::new("research");
-        system.add_mode_to_region("us-east", mode_id.clone(), ModeKind::Research).unwrap();
+        system
+            .add_mode_to_region("us-east", mode_id.clone(), ModeKind::Research)
+            .unwrap();
 
-        let cluster = system.spawn_agent_cluster("us-east", &mode_id, "oracle-group", ScalingPolicy::Static { replicas: 3 }).unwrap();
+        let cluster = system
+            .spawn_agent_cluster(
+                "us-east",
+                &mode_id,
+                "oracle-group",
+                ScalingPolicy::Static { replicas: 3 },
+            )
+            .unwrap();
         assert_eq!(cluster.name, "oracle-group");
 
-        let vm = system.spawn_micro_vm("us-east", &mode_id, "oracle-group", Uuid::new_v4(), "python").unwrap();
+        let vm = system
+            .spawn_micro_vm(
+                "us-east",
+                &mode_id,
+                "oracle-group",
+                Uuid::new_v4(),
+                "python",
+            )
+            .unwrap();
         assert_eq!(vm.tool_runtime.tool_type, "python");
 
-        let thread = system.spawn_execution_thread("us-east", &mode_id, "oracle-group", 0, "task-1").unwrap();
+        let thread = system
+            .spawn_execution_thread("us-east", &mode_id, "oracle-group", 0, "task-1")
+            .unwrap();
         assert_eq!(thread.task_id, "task-1");
     }
 
     #[test]
     fn test_scaling_policy() {
-        let auto = ScalingPolicy::AutoCpu { min: 2, max: 10, target_pct: 70.0 };
+        let auto = ScalingPolicy::AutoCpu {
+            min: 2,
+            max: 10,
+            target_pct: 70.0,
+        };
         match auto {
             ScalingPolicy::AutoCpu { min, max, .. } => {
                 assert_eq!(min, 2);

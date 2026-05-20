@@ -86,9 +86,16 @@ impl BatchCollector {
     }
 
     /// Add a request to the pending pool. Returns the batch key it was grouped into.
-    pub fn add_request(&mut self, request: crate::InferenceRequest, response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>) -> BatchKey {
+    pub fn add_request(
+        &mut self,
+        request: crate::InferenceRequest,
+        response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
+    ) -> BatchKey {
         let key = BatchKey::from_request(&request);
-        let entry = self.pending.entry(key.clone()).or_insert_with(|| Batch::new(key.clone()));
+        let entry = self
+            .pending
+            .entry(key.clone())
+            .or_insert_with(|| Batch::new(key.clone()));
         entry.add_request(BatchRequest {
             request_id: request.request_id,
             prompt: request.prompt,
@@ -111,7 +118,10 @@ impl BatchCollector {
         let mut to_retain: Vec<BatchKey> = Vec::with_capacity(pending_len);
         let mut to_drain: Vec<BatchKey> = Vec::with_capacity(pending_len);
         for (key, batch) in &self.pending {
-            if batch.is_full(self.max_batch_size) || now.duration_since(batch.created_at).as_millis() as u64 >= self.max_collect_time_ms {
+            if batch.is_full(self.max_batch_size)
+                || now.duration_since(batch.created_at).as_millis() as u64
+                    >= self.max_collect_time_ms
+            {
                 to_drain.push(key.clone());
             } else {
                 to_retain.push(key.clone());
@@ -152,7 +162,12 @@ mod tests {
     use super::*;
     use tokio::sync::mpsc;
 
-    fn make_request(model_id: &str, temperature: f32, top_k: u32, top_p: f32) -> crate::InferenceRequest {
+    fn make_request(
+        model_id: &str,
+        temperature: f32,
+        top_k: u32,
+        top_p: f32,
+    ) -> crate::InferenceRequest {
         crate::InferenceRequest {
             request_id: Uuid::new_v4(),
             model_id: model_id.to_string(),

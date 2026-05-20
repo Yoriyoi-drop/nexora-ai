@@ -46,23 +46,40 @@ impl ModelVerifier {
     }
 
     fn check_adversarial(graph: &NeuralGraph) -> VerificationCheck {
-        let has_dropout = graph.nodes.values().any(|n| n.node_type == crate::NodeType::Dropout);
+        let has_dropout = graph
+            .nodes
+            .values()
+            .any(|n| n.node_type == crate::NodeType::Dropout);
         VerificationCheck {
             name: "Adversarial Vulnerability".to_string(),
-            status: if has_dropout { CheckStatus::Passed } else { CheckStatus::Warning },
+            status: if has_dropout {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Warning
+            },
             details: if has_dropout {
                 "Dropout layers present, improving robustness".to_string()
             } else {
-                "No dropout layers found; model may be vulnerable to adversarial attacks".to_string()
+                "No dropout layers found; model may be vulnerable to adversarial attacks"
+                    .to_string()
             },
         }
     }
 
     fn check_activation_stability(graph: &NeuralGraph) -> VerificationCheck {
-        let has_norm = graph.nodes.values().any(|n| matches!(n.node_type, crate::NodeType::LayerNorm | crate::NodeType::BatchNorm | crate::NodeType::RMSNorm));
+        let has_norm = graph.nodes.values().any(|n| {
+            matches!(
+                n.node_type,
+                crate::NodeType::LayerNorm | crate::NodeType::BatchNorm | crate::NodeType::RMSNorm
+            )
+        });
         VerificationCheck {
             name: "Activation Stability".to_string(),
-            status: if has_norm { CheckStatus::Passed } else { CheckStatus::Failed },
+            status: if has_norm {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Failed
+            },
             details: if has_norm {
                 "Normalization layers present".to_string()
             } else {
@@ -72,10 +89,17 @@ impl ModelVerifier {
     }
 
     fn check_calibration(graph: &NeuralGraph) -> VerificationCheck {
-        let has_softmax = graph.nodes.values().any(|n| n.node_type == crate::NodeType::Softmax);
+        let has_softmax = graph
+            .nodes
+            .values()
+            .any(|n| n.node_type == crate::NodeType::Softmax);
         VerificationCheck {
             name: "Calibration Reliability".to_string(),
-            status: if has_softmax { CheckStatus::Passed } else { CheckStatus::Warning },
+            status: if has_softmax {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Warning
+            },
             details: if has_softmax {
                 "Output calibrated with Softmax".to_string()
             } else {

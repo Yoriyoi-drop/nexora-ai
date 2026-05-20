@@ -16,16 +16,21 @@ impl crate::cli::commands::Cli {
         history_file: &Option<PathBuf>,
     ) -> Result<()> {
         if let Some(msg) = message {
-            let truncated = if msg.len() > 100 { format!("{} [truncated {} chars]", &msg[..100], msg.len()) } else { msg.clone() };
+            let truncated = if msg.len() > 100 {
+                format!("{} [truncated {} chars]", &msg[..100], msg.len())
+            } else {
+                msg.clone()
+            };
             info!("Chat message: {}", truncated);
             let response = nexora.chat(msg, conversation_id.clone()).await?;
             println!("{}", response);
             Ok(())
         } else {
-            self.run_interactive_chat(nexora, conversation_id, history_file).await
+            self.run_interactive_chat(nexora, conversation_id, history_file)
+                .await
         }
     }
-    
+
     /// Run interactive chat
     async fn run_interactive_chat(
         &self,
@@ -34,20 +39,20 @@ impl crate::cli::commands::Cli {
         history_file: &Option<PathBuf>,
     ) -> Result<()> {
         use std::io::{self, Write};
-        
+
         println!("Nexora AI Interactive Chat");
         println!("Type 'exit' to quit, 'help' for commands");
-        
+
         let mut history = Vec::new();
-        
+
         loop {
             print!("> ");
             io::stdout().flush()?;
-            
+
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
             let input = input.trim();
-            
+
             match input {
                 "exit" | "quit" => break,
                 "help" => {
@@ -75,13 +80,13 @@ impl crate::cli::commands::Cli {
                 }
             }
         }
-        
+
         // Save history if file provided
         if let Some(file) = history_file {
             let history_json = serde_json::to_string_pretty(&history)?;
             std::fs::write(file, history_json)?;
         }
-        
+
         Ok(())
     }
 }

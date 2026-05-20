@@ -1,5 +1,5 @@
 use crate::canvas::NeuralGraph;
-use crate::lensing::{NeuralLens, LensType, LensObservation, ObservationSeverity};
+use crate::lensing::{LensObservation, LensType, NeuralLens, ObservationSeverity};
 
 /// Activation Entropy Lens — menyorot entropi aktivasi
 pub struct ActivationEntropyLens;
@@ -10,7 +10,7 @@ impl NeuralLens for ActivationEntropyLens {
     }
 
     fn observe(&self, graph: &NeuralGraph) -> LensObservation {
-        let mut low_entropy_nodes = Vec::new();  // aktivasi mati/saturasi
+        let mut low_entropy_nodes = Vec::new(); // aktivasi mati/saturasi
         let mut high_entropy_nodes = Vec::new(); // aktivasi terlalu acak
 
         for (id, edge) in &graph.edges {
@@ -32,10 +32,16 @@ impl NeuralLens for ActivationEntropyLens {
 
         let mut summaries = Vec::new();
         if !low_entropy_nodes.is_empty() {
-            summaries.push(format!("{} edge(s) with low entropy (dead/saturated activations)", low_entropy_nodes.len()));
+            summaries.push(format!(
+                "{} edge(s) with low entropy (dead/saturated activations)",
+                low_entropy_nodes.len()
+            ));
         }
         if !high_entropy_nodes.is_empty() {
-            summaries.push(format!("{} edge(s) with high entropy (uncertain predictions)", high_entropy_nodes.len()));
+            summaries.push(format!(
+                "{} edge(s) with high entropy (uncertain predictions)",
+                high_entropy_nodes.len()
+            ));
         }
         if summaries.is_empty() {
             summaries.push("Activation entropy within normal range.".to_string());
@@ -44,7 +50,10 @@ impl NeuralLens for ActivationEntropyLens {
         LensObservation {
             lens_type: LensType::ActivationEntropy,
             highlighted_nodes: vec![],
-            highlighted_edges: low_entropy_nodes.into_iter().chain(high_entropy_nodes).collect(),
+            highlighted_edges: low_entropy_nodes
+                .into_iter()
+                .chain(high_entropy_nodes)
+                .collect(),
             summary: summaries.join(". "),
             severity,
         }

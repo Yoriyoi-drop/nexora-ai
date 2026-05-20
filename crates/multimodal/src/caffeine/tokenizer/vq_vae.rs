@@ -1,5 +1,5 @@
 //! Vector Quantized VAE + FSQ (Finite Scalar Quantization) untuk CAFFEINE
-//! 
+//!
 //! VQ-VAE: EMA-based codebook (existing)
 //! FSQ: Lookup-free quantization (SOTA — tidak ada codebook collapse)
 
@@ -51,13 +51,13 @@ impl FSQuantizer {
         for book in 0..self.num_codebooks {
             let offset = book * codebook_dim;
             let (codes, ids, error) = self.quantize_single_codebook(input, offset)?;
-            
+
             for (i, &val) in codes.iter().enumerate() {
                 if i < quantized_output.len() {
                     quantized_output[i] += val / self.num_codebooks as f32;
                 }
             }
-            
+
             token_ids.push(ids);
             total_rounding_error += error;
         }
@@ -66,7 +66,11 @@ impl FSQuantizer {
     }
 
     /// Single codebook FSQ quantization
-    fn quantize_single_codebook(&self, input: &[f32], offset: usize) -> Result<(Vec<f32>, usize, f32)> {
+    fn quantize_single_codebook(
+        &self,
+        input: &[f32],
+        offset: usize,
+    ) -> Result<(Vec<f32>, usize, f32)> {
         let codebook_dim = self.levels.len();
         let mut codes = vec![0.0f32; codebook_dim];
         let mut rounding_error = 0.0f32;
@@ -75,22 +79,26 @@ impl FSQuantizer {
 
         for d in 0..codebook_dim {
             let input_idx = (offset + d) % self.input_dim.max(1);
-            let val = if input_idx < input.len() { input[input_idx] } else { 0.0 };
-            
+            let val = if input_idx < input.len() {
+                input[input_idx]
+            } else {
+                0.0
+            };
+
             // tanh untuk bounded range dalam [-scale, scale]
             let bounded = (val * self.scale * 0.1).tanh() * self.scale;
             let level = self.levels[d];
             let half_levels = (level - 1) as f32 / 2.0;
-            
+
             // Map ke [0, level-1]
-            let normalized = (bounded / self.scale * half_levels + half_levels)
-                .clamp(0.0, (level - 1) as f32);
+            let normalized =
+                (bounded / self.scale * half_levels + half_levels).clamp(0.0, (level - 1) as f32);
             let rounded = normalized.round();
             let rounded_idx = rounded as usize;
-            
+
             codes[d] = (rounded - half_levels) / half_levels * self.scale;
             rounding_error += (normalized - rounded).powi(2);
-            
+
             // Encode ke single integer ID (base-level encoding)
             id = id * level + rounded_idx.min(level - 1);
             _stride *= level;
@@ -112,7 +120,7 @@ impl FSQuantizer {
                 let level = self.levels[d];
                 let idx = id % level;
                 id /= level;
-                
+
                 let half_levels = (level - 1) as f32 / 2.0;
                 // Reverse the mapping
                 codes[d] = (idx as f32 - half_levels) / half_levels * self.scale;
@@ -160,16 +168,21 @@ pub struct VectorQuantizedVAE {
 
 impl VectorQuantizedVAE {
     /// Create new VQ-VAE
-    pub fn new(token_dim: usize, codebook_size: usize, num_codebooks: usize, commitment_weight: f32) -> Result<Self> {
+    pub fn new(
+        token_dim: usize,
+        codebook_size: usize,
+        num_codebooks: usize,
+        commitment_weight: f32,
+    ) -> Result<Self> {
         let mut codebooks = Vec::new();
         let mut usage_counts = Vec::new();
-        
+
         for _ in 0..num_codebooks {
             let codebook = Self::initialize_codebook(token_dim, codebook_size)?;
             codebooks.push(codebook);
             usage_counts.push(vec![0; codebook_size]);
         }
-        
+
         Ok(Self {
             token_dim,
             codebook_size,
@@ -179,108 +192,111 @@ impl VectorQuantizedVAE {
             usage_counts,
         })
     }
-    
+
     /// Quantize input embeddings
     pub fn quantize(&mut self, input: &[f32]) -> Result<(Vec<f32>, Vec<usize>, f32)> {
         if input.len() != self.token_dim {
             return Err(crate::caffeine::error::CaffeineError::tokenizer(
-                "Input dimension doesn't match token dimension"
+                "Input dimension doesn't match token dimension",
             ));
         }
-        
+
         let mut quantized_output = vec![0.0f32; input.len()];
         let mut token_ids = Vec::new();
         let mut total_loss = 0.0f32;
-        
+
         // Quantize using each codebook
         for book_idx in 0..self.num_codebooks {
             let (best_code, token_id, loss) = self.find_closest_code(input, book_idx)?;
-            
+
             // Add to quantized output
             for i in 0..self.token_dim {
                 quantized_output[i] += best_code[i] / self.num_codebooks as f32;
             }
-            
+
             token_ids.push(token_id);
             total_loss += loss;
-            
+
             // Update usage count
             self.usage_counts[book_idx][token_id] += 1;
         }
-        
+
         Ok((quantized_output, token_ids, total_loss))
     }
-    
+
     /// Dequantize token IDs back to embeddings
     pub fn dequantize(&self, token_ids: &[usize]) -> Result<Vec<f32>> {
         if token_ids.len() != self.num_codebooks {
             return Err(crate::caffeine::error::CaffeineError::tokenizer(
-                "Number of token IDs doesn't match number of codebooks"
+                "Number of token IDs doesn't match number of codebooks",
             ));
         }
-        
+
         let mut output = vec![0.0f32; self.token_dim];
-        
+
         for (book_idx, &token_id) in token_ids.iter().enumerate() {
             if token_id >= self.codebook_size {
                 return Err(crate::caffeine::error::CaffeineError::tokenizer(
-                    "Token ID exceeds codebook size"
+                    "Token ID exceeds codebook size",
                 ));
             }
-            
-            if book_idx < self.codebooks.len() && token_id < self.codebooks[book_idx].len() / self.token_dim {
+
+            if book_idx < self.codebooks.len()
+                && token_id < self.codebooks[book_idx].len() / self.token_dim
+            {
                 let code_start = token_id * self.token_dim;
                 let code_end = code_start + self.token_dim;
-                
+
                 if code_end <= self.codebooks[book_idx].len() {
                     for i in 0..self.token_dim {
-                        output[i] += self.codebooks[book_idx][code_start + i] / self.num_codebooks as f32;
+                        output[i] +=
+                            self.codebooks[book_idx][code_start + i] / self.num_codebooks as f32;
                     }
                 }
             }
         }
-        
+
         Ok(output)
     }
-    
+
     /// Find closest code in codebook
     fn find_closest_code(&self, input: &[f32], book_idx: usize) -> Result<(Vec<f32>, usize, f32)> {
         if book_idx >= self.codebooks.len() {
             return Err(crate::caffeine::error::CaffeineError::tokenizer(
-                "Codebook index out of bounds"
+                "Codebook index out of bounds",
             ));
         }
-        
+
         let codebook = &self.codebooks[book_idx];
         let mut best_distance = f32::INFINITY;
         let mut best_code_idx = 0;
         let mut best_code = vec![0.0f32; self.token_dim];
-        
+
         // Search through codebook
         for code_idx in 0..self.codebook_size {
             let code_start = code_idx * self.token_dim;
             let code_end = code_start + self.token_dim;
-            
+
             if code_end > codebook.len() {
                 continue;
             }
-            
+
             let code = &codebook[code_start..code_end];
             let distance = Self::compute_euclidean_distance(input, code);
-            
+
             if distance < best_distance {
                 best_distance = distance;
                 best_code_idx = code_idx;
                 best_code = code.to_vec();
             }
         }
-        
+
         // Compute commitment loss
         let commitment_loss = best_distance * self.commitment_weight;
-        
+
         Ok((best_code, best_code_idx, commitment_loss))
     }
-    
+
     /// Compute Euclidean distance
     fn compute_euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
         let mut sum = 0.0f32;
@@ -290,11 +306,11 @@ impl VectorQuantizedVAE {
         }
         sum.sqrt()
     }
-    
+
     /// Initialize codebook with random values
     fn initialize_codebook(token_dim: usize, codebook_size: usize) -> Result<Vec<f32>> {
         let mut codebook = vec![0.0f32; token_dim * codebook_size];
-        
+
         for i in 0..codebook_size {
             for d in 0..token_dim {
                 let idx = i * token_dim + d;
@@ -302,30 +318,35 @@ impl VectorQuantizedVAE {
                 codebook[idx] = ((i * d) as f32 * 0.01).sin() * 0.1;
             }
         }
-        
+
         Ok(codebook)
     }
-    
+
     /// Update codebook using exponential moving average
-    pub fn update_codebook(&mut self, input: &[f32], token_ids: &[usize], learning_rate: f32) -> Result<()> {
+    pub fn update_codebook(
+        &mut self,
+        input: &[f32],
+        token_ids: &[usize],
+        learning_rate: f32,
+    ) -> Result<()> {
         if token_ids.len() != self.num_codebooks {
             return Err(crate::caffeine::error::CaffeineError::tokenizer(
-                "Number of token IDs doesn't match number of codebooks"
+                "Number of token IDs doesn't match number of codebooks",
             ));
         }
-        
+
         for (book_idx, &token_id) in token_ids.iter().enumerate() {
             if book_idx >= self.codebooks.len() || token_id >= self.codebook_size {
                 continue;
             }
-            
+
             let code_start = token_id * self.token_dim;
             let code_end = code_start + self.token_dim;
-            
+
             if code_end > self.codebooks[book_idx].len() {
                 continue;
             }
-            
+
             // Update code using EMA
             for d in 0..self.token_dim {
                 let idx = code_start + d;
@@ -333,10 +354,10 @@ impl VectorQuantizedVAE {
                 self.codebooks[book_idx][idx] += learning_rate * error;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Get compression ratio
     pub fn get_compression_ratio(&self) -> f32 {
         // Compression ratio = original_size / compressed_size
@@ -344,29 +365,29 @@ impl VectorQuantizedVAE {
         let compressed_size = self.num_codebooks as f32 * (self.codebook_size as f32).log2() / 8.0; // bits to bytes
         original_size / compressed_size
     }
-    
+
     /// Get codebook usage statistics
     pub fn get_usage_stats(&self) -> Vec<Vec<usize>> {
         self.usage_counts.clone()
     }
-    
+
     /// Reset usage counts
     pub fn reset_usage_counts(&mut self) {
         for counts in &mut self.usage_counts {
             counts.fill(0);
         }
     }
-    
+
     /// Get codebook entropy (measure of usage diversity)
     pub fn get_codebook_entropy(&self) -> f32 {
         let mut total_entropy = 0.0f32;
-        
+
         for book_usage in &self.usage_counts {
             let total_usage: usize = book_usage.iter().sum();
             if total_usage == 0 {
                 continue;
             }
-            
+
             let mut entropy = 0.0f32;
             for &count in book_usage {
                 if count > 0 {
@@ -374,10 +395,10 @@ impl VectorQuantizedVAE {
                     entropy -= probability * probability.log2();
                 }
             }
-            
+
             total_entropy += entropy;
         }
-        
+
         total_entropy / self.num_codebooks as f32
     }
 }
@@ -396,7 +417,7 @@ impl VQVAETrainer {
             _decay,
         }
     }
-    
+
     /// Train VQ-VAE on batch of inputs
     pub fn train_batch(
         &mut self,
@@ -406,22 +427,22 @@ impl VQVAETrainer {
         let mut total_loss = 0.0f32;
         let mut total_reconstruction_error = 0.0f32;
         let mut total_commitment_loss = 0.0f32;
-        
+
         for input in inputs {
             // Quantize input
             let (quantized, token_ids, commitment_loss) = vq_vae.quantize(input)?;
-            
+
             // Compute reconstruction error
             let reconstruction_error = Self::compute_reconstruction_error(input, &quantized);
-            
+
             // Update codebook
             vq_vae.update_codebook(input, &token_ids, self.learning_rate)?;
-            
+
             total_loss += reconstruction_error + commitment_loss;
             total_reconstruction_error += reconstruction_error;
             total_commitment_loss += commitment_loss;
         }
-        
+
         let batch_size = inputs.len() as f32;
         Ok(TrainingMetrics {
             total_loss: total_loss / batch_size,
@@ -430,7 +451,7 @@ impl VQVAETrainer {
             codebook_entropy: vq_vae.get_codebook_entropy(),
         })
     }
-    
+
     /// Compute reconstruction error
     fn compute_reconstruction_error(original: &[f32], reconstructed: &[f32]) -> f32 {
         let mut sum = 0.0f32;

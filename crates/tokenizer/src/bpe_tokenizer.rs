@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,9 +64,7 @@ impl BpeTokenizer {
         let mut byte_to_unicode = HashMap::with_capacity(256);
         for byte in 0..=255u8 {
             let ch = match byte {
-                0 | 32 | 127..=160 => {
-                    char::from_u32(256 + byte as u32).unwrap_or('\u{FFFD}')
-                }
+                0 | 32 | 127..=160 => char::from_u32(256 + byte as u32).unwrap_or('\u{FFFD}'),
                 _ => char::from(byte),
             };
             unicode_to_byte.insert(ch, byte);
@@ -77,10 +75,14 @@ impl BpeTokenizer {
     }
 
     pub fn train(&mut self, corpus: &str) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting BPE training with vocab size: {}", self.config.vocab_size);
+        info!(
+            "Starting BPE training with vocab size: {}",
+            self.config.vocab_size
+        );
 
         let mut vocab_set: HashSet<String> = HashSet::with_capacity(self.config.vocab_size);
-        let mut word_freqs: HashMap<Vec<String>, u32> = HashMap::with_capacity(self.config.vocab_size);
+        let mut word_freqs: HashMap<Vec<String>, u32> =
+            HashMap::with_capacity(self.config.vocab_size);
 
         for line in corpus.lines() {
             let processed = self.preprocess_line(line);
@@ -99,13 +101,13 @@ impl BpeTokenizer {
             vocab_set.insert(token.clone());
         }
 
-        let mut vocab: HashMap<String, u32> = vocab_set.iter()
+        let mut vocab: HashMap<String, u32> = vocab_set
+            .iter()
             .enumerate()
             .map(|(i, s)| (s.clone(), i as u32))
             .collect();
-        let mut rev_vocab: HashMap<u32, String> = vocab.iter()
-            .map(|(k, v)| (*v, k.clone()))
-            .collect();
+        let mut rev_vocab: HashMap<u32, String> =
+            vocab.iter().map(|(k, v)| (*v, k.clone())).collect();
         let mut next_id = vocab.len() as u32;
         let mut merges = Vec::with_capacity(self.config.vocab_size);
 
@@ -132,7 +134,10 @@ impl BpeTokenizer {
 
             update_word_freqs(&mut word_freqs, &s1, &s2, &new_token);
 
-            debug!("Added merge: {} + {} -> {} (freq: {})", s1, s2, new_token, freq);
+            debug!(
+                "Added merge: {} + {} -> {} (freq: {})",
+                s1, s2, new_token, freq
+            );
         }
 
         self.vocab.clear();
@@ -143,7 +148,10 @@ impl BpeTokenizer {
         }
         self.merges = merges;
 
-        info!("BPE training completed. Final vocabulary size: {}", self.vocab.len());
+        info!(
+            "BPE training completed. Final vocabulary size: {}",
+            self.vocab.len()
+        );
         info!("Total merges learned: {}", self.merges.len());
         Ok(())
     }
@@ -190,9 +198,14 @@ impl BpeTokenizer {
                 None => break,
             }
         }
-        let unk_id = self.config.special_tokens.get(&self.config.unknown_token)
-            .copied().unwrap_or(0);
-        tokens.into_iter()
+        let unk_id = self
+            .config
+            .special_tokens
+            .get(&self.config.unknown_token)
+            .copied()
+            .unwrap_or(0);
+        tokens
+            .into_iter()
             .map(|t| self.vocab.get(&t).copied().unwrap_or(unk_id))
             .collect()
     }
@@ -296,7 +309,11 @@ impl BpeTokenizer {
         }
     }
 
-    pub fn add_word(&mut self, word: &str, _frequency: u32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn add_word(
+        &mut self,
+        word: &str,
+        _frequency: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.vocab.len() >= self.config.vocab_size {
             return Err("Vocabulary size limit reached".into());
         }
@@ -308,10 +325,18 @@ impl BpeTokenizer {
         Ok(())
     }
 
-    pub fn unknown_token(&self) -> &str { &self.config.unknown_token }
-    pub fn pad_token(&self) -> &str { &self.config.pad_token }
-    pub fn bos_token(&self) -> &str { &self.config.bos_token }
-    pub fn eos_token(&self) -> &str { &self.config.eos_token }
+    pub fn unknown_token(&self) -> &str {
+        &self.config.unknown_token
+    }
+    pub fn pad_token(&self) -> &str {
+        &self.config.pad_token
+    }
+    pub fn bos_token(&self) -> &str {
+        &self.config.bos_token
+    }
+    pub fn eos_token(&self) -> &str {
+        &self.config.eos_token
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -349,8 +374,7 @@ fn find_most_frequent_pair(
         }
     }
 
-    let ((id1, id2), freq) = pair_freqs.into_iter()
-        .max_by_key(|&(_, f)| f)?;
+    let ((id1, id2), freq) = pair_freqs.into_iter().max_by_key(|&(_, f)| f)?;
 
     let s1 = rev_vocab.get(&id1)?.clone();
     let s2 = rev_vocab.get(&id2)?.clone();

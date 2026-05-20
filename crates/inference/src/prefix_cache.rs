@@ -113,30 +113,30 @@ impl PrefixCache {
 
         for &token in tokens {
             let child_id = {
-                let current = nodes.get(&current_id)
-                    .expect("invariant: node must exist");
+                let current = nodes.get(&current_id).expect("invariant: node must exist");
                 current.children.get(&(token as u64)).copied()
             };
 
             match child_id {
                 Some(cid) => {
                     current_id = cid;
-                    let child = nodes.get_mut(&current_id)
+                    let child = nodes
+                        .get_mut(&current_id)
                         .expect("invariant: child must exist");
                     child.access_count += 1;
                     child.last_access = Instant::now();
                 }
                 None => {
                     let new_id = Self::alloc_id();
-                    let depth = nodes.get(&current_id)
-                        .map(|n| n.depth + 1)
-                        .unwrap_or(1);
-                    let mut new_node = RadixNode::new(new_id, Some(current_id), Some(vec![token]), depth);
+                    let depth = nodes.get(&current_id).map(|n| n.depth + 1).unwrap_or(1);
+                    let mut new_node =
+                        RadixNode::new(new_id, Some(current_id), Some(vec![token]), depth);
                     if tokens.last().map_or(false, |t| token == *t) {
                         new_node.value = Some(value.clone());
                     }
                     {
-                        let parent = nodes.get_mut(&current_id)
+                        let parent = nodes
+                            .get_mut(&current_id)
                             .expect("invariant: parent must exist");
                         parent.children.insert(token as u64, new_id);
                     }
@@ -188,7 +188,8 @@ impl PrefixCache {
 
         let cached_value = if last_cached_id != self.root_id {
             self.hits.fetch_add(1, Ordering::Relaxed);
-            nodes.get(&last_cached_id)
+            nodes
+                .get(&last_cached_id)
                 .and_then(|n| n.value.clone())
                 .unwrap_or_default()
         } else {
@@ -210,7 +211,8 @@ impl PrefixCache {
         let mut nodes = self.nodes.write().await;
         let ttl = self.config.ttl;
         let before = nodes.len();
-        let expired_ids: Vec<u64> = nodes.iter()
+        let expired_ids: Vec<u64> = nodes
+            .iter()
             .filter(|(_, n)| n.id != self.root_id && n.created_at.elapsed() > ttl)
             .map(|(id, _)| *id)
             .collect();
@@ -218,7 +220,8 @@ impl PrefixCache {
         for id in expired_ids {
             if let Some(node) = nodes.remove(&id) {
                 if let Some(v) = node.value {
-                    self.total_memory.fetch_sub(v.len() * std::mem::size_of::<f32>(), Ordering::Relaxed);
+                    self.total_memory
+                        .fetch_sub(v.len() * std::mem::size_of::<f32>(), Ordering::Relaxed);
                 }
                 if let Some(parent_id) = node.parent {
                     if let Some(parent) = nodes.get_mut(&parent_id) {
@@ -237,14 +240,16 @@ impl PrefixCache {
         let current_mem = self.total_memory.load(Ordering::Relaxed);
 
         if current_mem + new_entry_size <= self.config.max_cache_size
-            && nodes.len() <= self.config.max_prefix_nodes {
+            && nodes.len() <= self.config.max_prefix_nodes
+        {
             return;
         }
 
         let target_mem = self.config.max_cache_size.saturating_sub(new_entry_size);
         let mut evicted = 0usize;
 
-        let mut leaf_ids: Vec<(u64, Instant)> = nodes.iter()
+        let mut leaf_ids: Vec<(u64, Instant)> = nodes
+            .iter()
             .filter(|(_, n)| n.children.is_empty() && n.id != self.root_id)
             .map(|(id, n)| (*id, n.last_access))
             .collect();
@@ -253,12 +258,14 @@ impl PrefixCache {
 
         for (id, _) in leaf_ids {
             if self.total_memory.load(Ordering::Relaxed) <= target_mem
-                && nodes.len() <= self.config.max_prefix_nodes {
+                && nodes.len() <= self.config.max_prefix_nodes
+            {
                 break;
             }
             if let Some(node) = nodes.remove(&id) {
                 if let Some(v) = node.value {
-                    self.total_memory.fetch_sub(v.len() * std::mem::size_of::<f32>(), Ordering::Relaxed);
+                    self.total_memory
+                        .fetch_sub(v.len() * std::mem::size_of::<f32>(), Ordering::Relaxed);
                 }
                 if let Some(parent_id) = node.parent {
                     if let Some(parent) = nodes.get_mut(&parent_id) {
@@ -285,7 +292,11 @@ impl PrefixCache {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        if total == 0 { 0.0 } else { hits as f32 / total as f32 }
+        if total == 0 {
+            0.0
+        } else {
+            hits as f32 / total as f32
+        }
     }
 
     pub fn stats(&self) -> serde_json::Value {

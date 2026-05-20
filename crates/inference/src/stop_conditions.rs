@@ -1,5 +1,5 @@
 //! Stop Conditions
-//! 
+//!
 //! Stop conditions untuk inference generation.
 
 use std::collections::HashSet;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::debug;
 
-use crate::{Result, InferenceError, GeneratedToken};
+use crate::{GeneratedToken, InferenceError, Result};
 
 /// Stop condition untuk inference
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ pub enum StopCondition {
 pub trait CustomStopCondition: Send + Sync + std::fmt::Debug {
     /// Check if generation should stop
     fn should_stop(&self, tokens: &[GeneratedToken], context: &StopContext) -> bool;
-    
+
     /// Condition name
     fn name(&self) -> &str;
 }
@@ -95,11 +95,11 @@ impl StopConditions {
             stats: Arc::new(RwLock::new(StopStats::default())),
         }
     }
-    
+
     /// Add stop condition
     pub async fn add_condition(&self, condition: StopCondition) {
         let mut inner = self.inner.write().await;
-        
+
         // Update caches based on condition type
         match &condition {
             StopCondition::StopSequence(seq) => {
@@ -110,17 +110,17 @@ impl StopConditions {
             }
             _ => {}
         }
-        
+
         inner.conditions.push(condition);
     }
-    
+
     /// Remove stop condition
     pub async fn remove_condition(&self, index: usize) -> Result<()> {
         let mut inner = self.inner.write().await;
-        
+
         if index < inner.conditions.len() {
             let removed = inner.conditions.remove(index);
-            
+
             // Update caches
             match removed {
                 StopCondition::StopSequence(seq) => {
@@ -131,13 +131,15 @@ impl StopConditions {
                 }
                 _ => {}
             }
-            
+
             Ok(())
         } else {
-            Err(InferenceError::InternalError("Invalid condition index".to_string()))
+            Err(InferenceError::InternalError(
+                "Invalid condition index".to_string(),
+            ))
         }
     }
-    
+
     /// Clear all conditions
     pub async fn clear(&self) {
         let mut inner = self.inner.write().await;
@@ -145,13 +147,17 @@ impl StopConditions {
         inner.stop_sequences.clear();
         inner.eos_tokens.clear();
     }
-    
+
     /// Check if generation should stop
-    pub async fn should_stop(&self, tokens: &[GeneratedToken], context: &StopContext) -> Option<String> {
+    pub async fn should_stop(
+        &self,
+        tokens: &[GeneratedToken],
+        context: &StopContext,
+    ) -> Option<String> {
         let start_time = std::time::Instant::now();
-        
+
         let inner = self.inner.read().await;
-        
+
         for condition in inner.conditions.iter() {
             if let Some(reason) = self.check_condition(condition, tokens, context) {
                 // Update statistics
@@ -159,30 +165,33 @@ impl StopConditions {
                     let mut stats = self.stats.write().await;
                     stats.total_checks += 1;
                     let condition_name = self.get_condition_name(condition);
-                    *stats.conditions_triggered.entry(condition_name).or_insert(0) += 1;
-                    
+                    *stats
+                        .conditions_triggered
+                        .entry(condition_name)
+                        .or_insert(0) += 1;
+
                     let check_time_us = start_time.elapsed().as_micros() as f64;
-                    stats.avg_check_time_us = 
-                        (stats.avg_check_time_us * (stats.total_checks - 1) as f64 + check_time_us) / 
-                        stats.total_checks as f64;
+                    stats.avg_check_time_us =
+                        (stats.avg_check_time_us * (stats.total_checks - 1) as f64 + check_time_us)
+                            / stats.total_checks as f64;
                     stats.last_updated = chrono::Utc::now();
                 }
-                
+
                 debug!("Stop condition triggered: {}", reason);
                 return Some(reason);
             }
         }
-        
+
         // Update statistics (no condition triggered)
         {
             let mut stats = self.stats.write().await;
             stats.total_checks += 1;
             stats.last_updated = chrono::Utc::now();
         }
-        
+
         None
     }
-    
+
     /// Check individual condition
     fn check_condition(
         &self,
@@ -198,7 +207,7 @@ impl StopConditions {
                     None
                 }
             }
-            
+
             StopCondition::StopSequence(seq) => {
                 if self.check_stop_sequence(tokens, seq) {
                     Some(format!("Stop sequence '{}' encountered", seq))
@@ -206,15 +215,19 @@ impl StopConditions {
                     None
                 }
             }
-            
+
             StopCondition::EndOfSequence(eos_token) => {
-                if tokens.last().map(|t| t.token_id == *eos_token).unwrap_or(false) {
+                if tokens
+                    .last()
+                    .map(|t| t.token_id == *eos_token)
+                    .unwrap_or(false)
+                {
                     Some("End of sequence token encountered".to_string())
                 } else {
                     None
                 }
             }
-            
+
             StopCondition::TimeLimit(max_seconds) => {
                 let elapsed = (context.current_time - context.start_time).num_seconds() as u64;
                 if elapsed >= *max_seconds {
@@ -223,15 +236,21 @@ impl StopConditions {
                     None
                 }
             }
-            
-            StopCondition::Repetition { ngram_size, max_repetitions } => {
+
+            StopCondition::Repetition {
+                ngram_size,
+                max_repetitions,
+            } => {
                 if self.check_repetition(tokens, *ngram_size, *max_repetitions) {
-                    Some(format!("Repetition detected ({}-gram repeated {} times)", ngram_size, max_repetitions))
+                    Some(format!(
+                        "Repetition detected ({}-gram repeated {} times)",
+                        ngram_size, max_repetitions
+                    ))
                 } else {
                     None
                 }
             }
-            
+
             StopCondition::ProbabilityThreshold(threshold) => {
                 if let Some(last_token) = tokens.last() {
                     if last_token.log_prob < *threshold {
@@ -243,7 +262,7 @@ impl StopConditions {
                     None
                 }
             }
-            
+
             StopCondition::Custom(custom) => {
                 if custom.should_stop(tokens, context) {
                     Some(format!("Custom condition '{}' triggered", custom.name()))
@@ -253,33 +272,47 @@ impl StopConditions {
             }
         }
     }
-    
+
     /// Check if stop sequence is encountered
     fn check_stop_sequence(&self, tokens: &[GeneratedToken], sequence: &str) -> bool {
         if tokens.is_empty() || sequence.is_empty() {
             return false;
         }
-        
-        let generated_text: String = tokens.iter().map(|t| (&*t.token_text).to_string()).collect();
+
+        let generated_text: String = tokens
+            .iter()
+            .map(|t| (&*t.token_text).to_string())
+            .collect();
         generated_text.contains(sequence)
     }
-    
+
     /// Check for repetition
-    fn check_repetition(&self, tokens: &[GeneratedToken], ngram_size: usize, max_repetitions: u32) -> bool {
+    fn check_repetition(
+        &self,
+        tokens: &[GeneratedToken],
+        ngram_size: usize,
+        max_repetitions: u32,
+    ) -> bool {
         if tokens.len() < ngram_size * max_repetitions as usize {
             return false;
         }
-        
+
         // Extract n-grams from tokens
-        let ngrams: Vec<String> = tokens.windows(ngram_size)
-            .map(|window| window.iter().map(|t| (&*t.token_text).to_string()).collect::<String>())
+        let ngrams: Vec<String> = tokens
+            .windows(ngram_size)
+            .map(|window| {
+                window
+                    .iter()
+                    .map(|t| (&*t.token_text).to_string())
+                    .collect::<String>()
+            })
             .collect();
-        
+
         // Check for consecutive repetitions
         for i in 0..=(ngrams.len() - max_repetitions as usize) {
             let first_ngram = &ngrams[i];
             let mut consecutive_count = 1;
-            
+
             for j in (i + 1)..ngrams.len() {
                 if ngrams[j] == *first_ngram {
                     consecutive_count += 1;
@@ -287,15 +320,15 @@ impl StopConditions {
                     break;
                 }
             }
-            
+
             if consecutive_count >= max_repetitions {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Get condition name for statistics
     fn get_condition_name(&self, condition: &StopCondition) -> String {
         match condition {
@@ -308,12 +341,12 @@ impl StopConditions {
             StopCondition::Custom(custom) => custom.name().to_string(),
         }
     }
-    
+
     /// Get statistics
     pub async fn get_stats(&self) -> StopStats {
         self.stats.read().await.clone()
     }
-    
+
     /// Get active conditions count
     pub async fn get_conditions_count(&self) -> usize {
         self.inner.read().await.conditions.len()
@@ -323,97 +356,100 @@ impl StopConditions {
 /// Predefined custom stop conditions
 pub mod custom_conditions {
     use super::*;
-    
+
     /// Length-based stop condition
     #[derive(Debug)]
     pub struct LengthStopCondition {
         _min_length: usize,
         max_length: usize,
     }
-    
+
     impl LengthStopCondition {
         pub fn new(min_length: usize, max_length: usize) -> Self {
-            Self { _min_length: min_length, max_length }
+            Self {
+                _min_length: min_length,
+                max_length,
+            }
         }
     }
-    
+
     impl CustomStopCondition for LengthStopCondition {
         fn should_stop(&self, tokens: &[GeneratedToken], _context: &StopContext) -> bool {
             let total_length: usize = tokens.iter().map(|t| t.token_text.len()).sum();
             total_length >= self.max_length
         }
-        
+
         fn name(&self) -> &str {
             "length_stop"
         }
     }
-    
+
     /// Coherence-based stop condition
     #[derive(Debug)]
     pub struct CoherenceStopCondition {
         coherence_threshold: f32,
     }
-    
+
     impl CoherenceStopCondition {
         pub fn new(threshold: f32) -> Self {
-            Self { coherence_threshold: threshold }
+            Self {
+                coherence_threshold: threshold,
+            }
         }
     }
-    
+
     impl CustomStopCondition for CoherenceStopCondition {
         fn should_stop(&self, tokens: &[GeneratedToken], _context: &StopContext) -> bool {
             if tokens.len() < 2 {
                 return false;
             }
-            
+
             // Simple coherence check based on token probability variance
             let probs: Vec<f32> = tokens.iter().map(|t| t.log_prob.exp()).collect();
             let mean_prob = probs.iter().sum::<f32>() / probs.len() as f32;
-            let variance: f32 = probs.iter()
-                .map(|p| (p - mean_prob).powi(2))
-                .sum::<f32>() / probs.len() as f32;
-            
+            let variance: f32 =
+                probs.iter().map(|p| (p - mean_prob).powi(2)).sum::<f32>() / probs.len() as f32;
+
             // Low variance might indicate incoherence
             variance < self.coherence_threshold
         }
-        
+
         fn name(&self) -> &str {
             "coherence_stop"
         }
     }
-    
+
     /// Diversity-based stop condition
     #[derive(Debug)]
     pub struct DiversityStopCondition {
         diversity_threshold: f32,
         window_size: usize,
     }
-    
+
     impl DiversityStopCondition {
         pub fn new(threshold: f32, window_size: usize) -> Self {
-            Self { 
+            Self {
                 diversity_threshold: threshold,
                 window_size,
             }
         }
     }
-    
+
     impl CustomStopCondition for DiversityStopCondition {
         fn should_stop(&self, tokens: &[GeneratedToken], _context: &StopContext) -> bool {
             if tokens.len() < self.window_size {
                 return false;
             }
-            
+
             // Calculate token diversity in the last window
             let window = &tokens[tokens.len() - self.window_size..];
-            let unique_tokens: std::collections::HashSet<_> = window.iter()
-                .map(|t| &t.token_text)
-                .collect();
-            
+            let unique_tokens: std::collections::HashSet<_> =
+                window.iter().map(|t| &t.token_text).collect();
+
             let diversity = unique_tokens.len() as f32 / window.len() as f32;
             diversity < self.diversity_threshold
         }
-        
+
         fn name(&self) -> &str {
             "diversity_stop"
         }
@@ -423,7 +459,7 @@ pub mod custom_conditions {
 /// Utility functions for creating common stop conditions
 pub mod builders {
     use super::*;
-    
+
     /// Create stop conditions for typical use cases
     pub async fn create_standard_conditions(
         max_tokens: u32,
@@ -431,47 +467,61 @@ pub mod builders {
         eos_token: Option<u32>,
     ) -> StopConditions {
         let conditions = StopConditions::new();
-        
+
         // Add max tokens condition
-        conditions.add_condition(StopCondition::MaxTokens(max_tokens)).await;
-        
+        conditions
+            .add_condition(StopCondition::MaxTokens(max_tokens))
+            .await;
+
         // Add stop sequences
         for seq in stop_sequences {
-            conditions.add_condition(StopCondition::StopSequence(seq)).await;
+            conditions
+                .add_condition(StopCondition::StopSequence(seq))
+                .await;
         }
-        
+
         // Add EOS token if provided
         if let Some(eos) = eos_token {
-            conditions.add_condition(StopCondition::EndOfSequence(eos)).await;
+            conditions
+                .add_condition(StopCondition::EndOfSequence(eos))
+                .await;
         }
-        
+
         conditions
     }
-    
+
     /// Create conditions for creative writing
     pub async fn create_creative_conditions(max_tokens: u32) -> StopConditions {
         let conditions = StopConditions::new();
-        
-        conditions.add_condition(StopCondition::MaxTokens(max_tokens)).await;
-        
+
+        conditions
+            .add_condition(StopCondition::MaxTokens(max_tokens))
+            .await;
+
         // Add repetition detection
-        conditions.add_condition(StopCondition::Repetition {
-            ngram_size: 3,
-            max_repetitions: 2,
-        }).await;
-        
+        conditions
+            .add_condition(StopCondition::Repetition {
+                ngram_size: 3,
+                max_repetitions: 2,
+            })
+            .await;
+
         // Add probability threshold
-        conditions.add_condition(StopCondition::ProbabilityThreshold(-5.0)).await;
-        
+        conditions
+            .add_condition(StopCondition::ProbabilityThreshold(-5.0))
+            .await;
+
         conditions
     }
-    
+
     /// Create conditions for code generation
     pub async fn create_code_conditions(max_tokens: u32) -> StopConditions {
         let conditions = StopConditions::new();
-        
-        conditions.add_condition(StopCondition::MaxTokens(max_tokens)).await;
-        
+
+        conditions
+            .add_condition(StopCondition::MaxTokens(max_tokens))
+            .await;
+
         // Add common code stop sequences
         let code_stops = vec![
             "```".to_string(),
@@ -479,21 +529,30 @@ pub mod builders {
             "class ".to_string(),
             "function ".to_string(),
         ];
-        
+
         for stop in code_stops {
-            conditions.add_condition(StopCondition::StopSequence(stop)).await;
+            conditions
+                .add_condition(StopCondition::StopSequence(stop))
+                .await;
         }
-        
+
         conditions
     }
-    
+
     /// Create conditions with time limit
-    pub async fn create_time_limited_conditions(max_tokens: u32, time_limit_seconds: u64) -> StopConditions {
+    pub async fn create_time_limited_conditions(
+        max_tokens: u32,
+        time_limit_seconds: u64,
+    ) -> StopConditions {
         let conditions = StopConditions::new();
-        
-        conditions.add_condition(StopCondition::MaxTokens(max_tokens)).await;
-        conditions.add_condition(StopCondition::TimeLimit(time_limit_seconds)).await;
-        
+
+        conditions
+            .add_condition(StopCondition::MaxTokens(max_tokens))
+            .await;
+        conditions
+            .add_condition(StopCondition::TimeLimit(time_limit_seconds))
+            .await;
+
         conditions
     }
 }

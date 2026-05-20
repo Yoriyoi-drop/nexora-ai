@@ -5,8 +5,8 @@
 //! Menjelaskan masalah dalam bahasa natural dan menawarkan auto-fix, guided tuning,
 //! atau kontrol manual penuh.
 
-pub mod detector;
 pub mod assistant;
+pub mod detector;
 
-pub use detector::*;
 pub use assistant::*;
+pub use detector::*;

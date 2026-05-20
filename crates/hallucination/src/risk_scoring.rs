@@ -1,7 +1,4 @@
-use crate::types::{
-    PreGenCheckResult, InGenCheckResult, PostGenCheckResult,
-    RiskLevel, RiskScore,
-};
+use crate::types::{InGenCheckResult, PostGenCheckResult, PreGenCheckResult, RiskLevel, RiskScore};
 use crate::GuardAction;
 
 #[derive(Debug, Clone)]
@@ -78,7 +75,12 @@ impl RiskScorer {
         }
     }
 
-    pub fn breakdown(&self, pre: &PreGenCheckResult, _in: &InGenCheckResult, post: &PostGenCheckResult) -> RiskScore {
+    pub fn breakdown(
+        &self,
+        pre: &PreGenCheckResult,
+        _in: &InGenCheckResult,
+        post: &PostGenCheckResult,
+    ) -> RiskScore {
         RiskScore {
             total: self.compute(pre, _in, post),
             specificity_score: self.compute_specificity(post),

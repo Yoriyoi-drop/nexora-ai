@@ -1,10 +1,10 @@
-use std::collections::{HashMap, VecDeque, HashSet};
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::filter::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction, PipelineMetrics, FilterMetric};
+use crate::types::{DataSample, FilterAction, FilterMetric, FilterResult, PipelineMetrics};
 
 type FilterArc = Arc<dyn Filter>;
 
@@ -38,7 +38,14 @@ impl ExecutionGraph {
         }
     }
 
-    pub fn add_node(&mut self, id: &str, filter: FilterArc, depends_on: Vec<String>, concurrent: bool, priority: u8) {
+    pub fn add_node(
+        &mut self,
+        id: &str,
+        filter: FilterArc,
+        depends_on: Vec<String>,
+        concurrent: bool,
+        priority: u8,
+    ) {
         let children = Vec::new();
         let node = GraphNode {
             id: id.to_string(),
@@ -72,14 +79,19 @@ impl ExecutionGraph {
             }
         }
 
-        self.entry_points = self.nodes.keys()
+        self.entry_points = self
+            .nodes
+            .keys()
             .filter(|k| !has_deps.contains(k.as_str()) || is_entry.contains(k.as_str()))
             .cloned()
             .collect();
 
-        self.exit_points = self.nodes.keys()
+        self.exit_points = self
+            .nodes
+            .keys()
             .filter(|k| {
-                self.nodes.get(k.as_str())
+                self.nodes
+                    .get(k.as_str())
                     .map(|n| n.children.is_empty())
                     .unwrap_or(true)
             })
@@ -98,11 +110,14 @@ impl ExecutionGraph {
     }
 
     fn topological_order_inner(&self) -> Vec<String> {
-        let mut in_degree: HashMap<String, usize> = self.nodes.keys()
+        let mut in_degree: HashMap<String, usize> = self
+            .nodes
+            .keys()
             .map(|k| (k.clone(), self.nodes[k].depends_on.len()))
             .collect();
 
-        let mut queue: VecDeque<String> = in_degree.iter()
+        let mut queue: VecDeque<String> = in_degree
+            .iter()
             .filter(|(_, &deg)| deg == 0)
             .map(|(id, _)| id.clone())
             .collect();
@@ -125,7 +140,10 @@ impl ExecutionGraph {
     }
 
     pub fn topological_order(&self) -> Vec<String> {
-        self.cached_order.read().clone().unwrap_or_else(|| self.topological_order_inner())
+        self.cached_order
+            .read()
+            .clone()
+            .unwrap_or_else(|| self.topological_order_inner())
     }
 
     pub async fn execute(
@@ -140,13 +158,18 @@ impl ExecutionGraph {
         // Group nodes by topological depth for parallel execution
         let mut node_depths: HashMap<String, usize> = HashMap::new();
         for node_id in order.iter() {
-            let node = self.nodes.get(node_id.as_str())
+            let node = self
+                .nodes
+                .get(node_id.as_str())
                 .expect("topological order node must exist in node map");
-            let depth = node.depends_on.iter()
+            let depth = node
+                .depends_on
+                .iter()
                 .filter_map(|dep| node_depths.get(dep.as_str()))
                 .max()
                 .copied()
-                .unwrap_or(0) + 1;
+                .unwrap_or(0)
+                + 1;
             node_depths.insert(node_id.clone(), depth);
         }
 
@@ -157,7 +180,8 @@ impl ExecutionGraph {
                 return ExecutionResult::Cancelled;
             }
 
-            let level_nodes: Vec<String> = node_depths.iter()
+            let level_nodes: Vec<String> = node_depths
+                .iter()
                 .filter(|(_, &d)| d == depth)
                 .map(|(id, _)| id.clone())
                 .collect();
@@ -167,10 +191,14 @@ impl ExecutionGraph {
             }
 
             let sample_ref = sample.take().unwrap_or_else(|| {
-                panic!("Sample unexpectedly None at depth {} (execution logic error)", depth)
+                panic!(
+                    "Sample unexpectedly None at depth {} (execution logic error)",
+                    depth
+                )
             });
             let sample_arc = std::sync::Arc::new(sample_ref);
-            let mut filter_results: Vec<(String, FilterResult)> = Vec::with_capacity(level_nodes.len());
+            let mut filter_results: Vec<(String, FilterResult)> =
+                Vec::with_capacity(level_nodes.len());
 
             if level_nodes.len() > 1 {
                 let mut handles = Vec::with_capacity(level_nodes.len());
@@ -188,7 +216,7 @@ impl ExecutionGraph {
                         Err(e) => {
                             warn!("Filter task join error: {:?}, cancelling execution", e);
                             return ExecutionResult::Cancelled;
-                        },
+                        }
                     }
                 }
             } else {
@@ -198,8 +226,8 @@ impl ExecutionGraph {
                 filter_results.push((node_id.clone(), filter_result));
             }
 
-            sample = Some(std::sync::Arc::try_unwrap(sample_arc)
-                .unwrap_or_else(|arc| (*arc).clone()));
+            sample =
+                Some(std::sync::Arc::try_unwrap(sample_arc).unwrap_or_else(|arc| (*arc).clone()));
 
             for (node_id, filter_result) in &filter_results {
                 debug!("Filter '{}': passed={}", node_id, filter_result.passed);
@@ -207,9 +235,14 @@ impl ExecutionGraph {
                 {
                     let mut metrics = self.metrics.write();
                     metrics.samples_in += 1;
-                    let entry = metrics.filter_breakdown.entry(node_id.clone())
+                    let entry = metrics
+                        .filter_breakdown
+                        .entry(node_id.clone())
                         .or_insert_with(|| FilterMetric {
-                            processed: 0, passed: 0, rejected: 0, avg_latency_us: 0.0,
+                            processed: 0,
+                            passed: 0,
+                            rejected: 0,
+                            avg_latency_us: 0.0,
                         });
                     entry.processed += 1;
                     if filter_result.passed {
@@ -224,7 +257,8 @@ impl ExecutionGraph {
                 results.push(filter_result.clone());
 
                 if !passed {
-                    let sample = sample.take()
+                    let sample = sample
+                        .take()
                         .expect("sample must exist after iteration (set at end of depth loop)");
                     let node = &self.nodes[node_id.as_str()];
                     let action = node.filter.action();
@@ -259,7 +293,9 @@ impl ExecutionGraph {
         }
 
         ExecutionResult::Accepted {
-            sample: sample.take().expect("sample must be Some at end of execution"),
+            sample: sample
+                .take()
+                .expect("sample must be Some at end of execution"),
             results,
         }
     }
@@ -269,7 +305,8 @@ impl ExecutionGraph {
 
         let (cancel_tx, _) = tokio::sync::watch::channel(false);
 
-        let tasks: Vec<_> = samples.into_iter()
+        let tasks: Vec<_> = samples
+            .into_iter()
             .map(|sample| {
                 let cancel = cancel_tx.subscribe();
                 async move { self.execute(sample, cancel).await }
@@ -284,7 +321,8 @@ impl ExecutionGraph {
         Self: Sync,
     {
         let (cancel_tx, _) = tokio::sync::watch::channel(false);
-        let results: Vec<ExecutionResult> = samples.into_iter()
+        let results: Vec<ExecutionResult> = samples
+            .into_iter()
             .map(|sample| {
                 let cancel = cancel_tx.subscribe();
                 let rt = tokio::runtime::Handle::current();

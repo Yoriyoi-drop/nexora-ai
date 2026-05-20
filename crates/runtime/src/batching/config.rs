@@ -55,27 +55,30 @@ impl BatchConfig {
             ..Default::default()
         }
     }
-    
+
     /// Validate configuration
     pub fn validate(&self) -> Result<(), String> {
         if self.max_batch_size == 0 {
             return Err("max_batch_size must be > 0".to_string());
         }
-        
+
         if self.max_wait_time_ms == 0 {
             return Err("max_wait_time_ms must be > 0".to_string());
         }
-        
+
         if self.enable_dynamic_batching && self.min_batch_size >= self.max_batch_size {
-            return Err("min_batch_size must be < max_batch_size when dynamic batching is enabled".to_string());
+            return Err(
+                "min_batch_size must be < max_batch_size when dynamic batching is enabled"
+                    .to_string(),
+            );
         }
-        
+
         if let PaddingStrategy::PadToMultiple(multiple) = &self.padding_strategy {
             if *multiple == 0 {
                 return Err("PadToMultiple must be > 0".to_string());
             }
         }
-        
+
         Ok(())
     }
 }

@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::Utc;
+use std::collections::HashMap;
 use tracing::info;
 
-use crate::types::{SourceInfo, SourceCategory, DataSample, SampleStats};
+use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
 use uuid::Uuid;
 
 #[async_trait]
@@ -28,17 +28,20 @@ pub trait SourceProvider: Send + Sync {
 
     async fn fetch_samples(&self) -> Vec<DataSample> {
         let source = self.source_info();
-        self.sample_data().into_iter().map(|text| DataSample {
-            id: Uuid::new_v4(),
-            text,
-            token_ids: None,
-            metadata: HashMap::new(),
-            source: source.clone(),
-            stats: SampleStats::default(),
-            domains: vec![],
-            score: None,
-            curriculum_level: None,
-        }).collect()
+        self.sample_data()
+            .into_iter()
+            .map(|text| DataSample {
+                id: Uuid::new_v4(),
+                text,
+                token_ids: None,
+                metadata: HashMap::new(),
+                source: source.clone(),
+                stats: SampleStats::default(),
+                domains: vec![],
+                score: None,
+                curriculum_level: None,
+            })
+            .collect()
     }
 }
 
@@ -50,7 +53,9 @@ pub struct SourceRegistry {
 
 impl SourceRegistry {
     pub fn new() -> Self {
-        Self { providers: HashMap::new() }
+        Self {
+            providers: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, provider: Box<dyn SourceProvider>) {
@@ -70,12 +75,14 @@ impl SourceRegistry {
     }
 
     pub fn resolve(&self, names: &[String]) -> Vec<&dyn SourceProvider> {
-        names.iter()
-            .filter_map(|n| self.get(n))
-            .collect()
+        names.iter().filter_map(|n| self.get(n)).collect()
     }
 
-    pub async fn collect_all(&self, names: &[String], max_samples: Option<usize>) -> Vec<DataSample> {
+    pub async fn collect_all(
+        &self,
+        names: &[String],
+        max_samples: Option<usize>,
+    ) -> Vec<DataSample> {
         let providers = if names.is_empty() {
             self.all()
         } else {

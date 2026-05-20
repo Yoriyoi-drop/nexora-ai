@@ -85,28 +85,30 @@ pub type TensorResult<T> = Result<T, TensorError>;
 
 impl std::ops::Add for &Tensor {
     type Output = TensorResult<Tensor>;
-    
+
     fn add(self, rhs: &Tensor) -> Self::Output {
         if self.shape != rhs.shape {
             return Err(TensorError::InvalidShape);
         }
-        
+
         if self.data.len() != rhs.data.len() {
             return Err(TensorError::DataSizeMismatch);
         }
-        
-        let result_data: Vec<f32> = self.data.iter()
+
+        let result_data: Vec<f32> = self
+            .data
+            .iter()
             .zip(rhs.data.iter())
             .map(|(a, b)| a + b)
             .collect();
-        
+
         Ok(Tensor::new(result_data, self.shape.clone()))
     }
 }
 
 impl std::ops::Add for Tensor {
     type Output = TensorResult<Tensor>;
-    
+
     fn add(self, rhs: Tensor) -> Self::Output {
         &self + &rhs
     }

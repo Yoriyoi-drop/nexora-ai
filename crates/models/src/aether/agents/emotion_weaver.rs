@@ -1,14 +1,14 @@
 //! Emotion Weaver Agent
-//! 
+//!
 //! Emotional processing agent for NXR-ÆTHER
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Emotion Weaver Agent - Emotional processing
 #[derive(Debug, Clone)]
@@ -450,22 +450,27 @@ impl BaseAgent for EmotionWeaverAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Process emotions
         let processed_emotions = self.process_emotions(&input).await?;
-        
+
         // Analyze emotional patterns
-        let emotional_analysis = self.analyze_emotional_patterns(&input, &processed_emotions).await?;
-        
+        let emotional_analysis = self
+            .analyze_emotional_patterns(&input, &processed_emotions)
+            .await?;
+
         // Synthesize emotional response
-        let emotional_response = self.synthesize_emotional_response(&input, &processed_emotions, &emotional_analysis).await?;
-        
+        let emotional_response = self
+            .synthesize_emotional_response(&input, &processed_emotions, &emotional_analysis)
+            .await?;
+
         // Assess processing quality
-        let processing_quality = self.assess_processing_quality(&input, &processed_emotions, &emotional_analysis);
-        
+        let processing_quality =
+            self.assess_processing_quality(&input, &processed_emotions, &emotional_analysis);
+
         // Build output
         let output = EmotionalTaskOutput {
             processed_emotions,
@@ -474,9 +479,9 @@ impl BaseAgent for EmotionWeaverAgent {
             processing_quality,
             metadata: HashMap::new(),
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -489,21 +494,19 @@ impl BaseAgent for EmotionWeaverAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "emotional_processing".to_string(),
-                description: "Advanced emotional processing and synthesis".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["emotional_task".to_string()],
-                output_types: vec!["emotional_response".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.88,
-                    avg_latency: 500.0,
-                    resource_usage: 0.6,
-                    reliability: 0.92,
-                },
+        vec![AgentCapability {
+            name: "emotional_processing".to_string(),
+            description: "Advanced emotional processing and synthesis".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["emotional_task".to_string()],
+            output_types: vec!["emotional_response".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.88,
+                avg_latency: 500.0,
+                resource_usage: 0.6,
+                reliability: 0.92,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -545,10 +548,10 @@ impl EmotionWeaverAgent {
     fn validate_input(&self, input: &EmotionalTaskInput) -> AgentResult<()> {
         if input.text.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Input text cannot be empty".to_string()
+                "Input text cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
@@ -556,16 +559,17 @@ impl EmotionWeaverAgent {
     async fn process_emotions(&self, input: &EmotionalTaskInput) -> AgentResult<ProcessedEmotions> {
         // Detect primary emotions
         let primary_emotions = self.detect_primary_emotions(&input.text);
-        
+
         // Detect secondary emotions
         let secondary_emotions = self.detect_secondary_emotions(&input.text, &primary_emotions);
-        
+
         // Create emotional blend
         let emotional_blend = self.create_emotional_blend(&primary_emotions, &secondary_emotions);
-        
+
         // Calculate emotional intensity
-        let emotional_intensity = self.calculate_emotional_intensity(&primary_emotions, &secondary_emotions);
-        
+        let emotional_intensity =
+            self.calculate_emotional_intensity(&primary_emotions, &secondary_emotions);
+
         Ok(ProcessedEmotions {
             primary_emotions,
             secondary_emotions,
@@ -575,20 +579,24 @@ impl EmotionWeaverAgent {
     }
 
     /// Analyze emotional patterns
-    async fn analyze_emotional_patterns(&self, input: &EmotionalTaskInput, 
-                                      processed_emotions: &ProcessedEmotions) -> AgentResult<EmotionalAnalysis> {
+    async fn analyze_emotional_patterns(
+        &self,
+        input: &EmotionalTaskInput,
+        processed_emotions: &ProcessedEmotions,
+    ) -> AgentResult<EmotionalAnalysis> {
         // Identify emotional patterns
         let emotional_patterns = self.identify_emotional_patterns(processed_emotions);
-        
+
         // Identify emotional triggers
         let emotional_triggers = self.identify_emotional_triggers(&input.text);
-        
+
         // Suggest regulation strategies
         let regulation_strategies = self.suggest_regulation_strategies(processed_emotions);
-        
+
         // Generate emotional insights
-        let emotional_insights = self.generate_emotional_insights(processed_emotions, &emotional_patterns);
-        
+        let emotional_insights =
+            self.generate_emotional_insights(processed_emotions, &emotional_patterns);
+
         Ok(EmotionalAnalysis {
             emotional_patterns,
             emotional_triggers,
@@ -598,18 +606,23 @@ impl EmotionWeaverAgent {
     }
 
     /// Synthesize emotional response
-    async fn synthesize_emotional_response(&self, input: &EmotionalTaskInput,
-                                          processed_emotions: &ProcessedEmotions,
-                                          emotional_analysis: &EmotionalAnalysis) -> AgentResult<String> {
+    async fn synthesize_emotional_response(
+        &self,
+        input: &EmotionalTaskInput,
+        processed_emotions: &ProcessedEmotions,
+        emotional_analysis: &EmotionalAnalysis,
+    ) -> AgentResult<String> {
         let warmth = self.emotional_synthesis.parameters.response_warmth;
         let validation = self.emotional_synthesis.parameters.validation_level;
         let support = self.emotional_synthesis.parameters.support_level;
-        
+
         // Generate empathetic response based on processed emotions
-        let primary_emotion_names: Vec<String> = processed_emotions.primary_emotions.iter()
+        let primary_emotion_names: Vec<String> = processed_emotions
+            .primary_emotions
+            .iter()
             .map(|e| e.name.clone())
             .collect();
-        
+
         let emotional_summary = if primary_emotion_names.len() > 1 {
             format!("a mix of {}", primary_emotion_names.join(" and "))
         } else if !primary_emotion_names.is_empty() {
@@ -617,44 +630,47 @@ impl EmotionWeaverAgent {
         } else {
             "complex emotions".to_string()
         };
-        
+
         let response = match input.processing_requirements.output_format {
             OutputFormat::Simple => {
                 format!("I understand you're feeling {}.", emotional_summary)
-            },
+            }
             OutputFormat::Detailed => {
                 format!("I can sense you're experiencing {}. Your emotional intensity appears to be {:.1}, which is quite significant. It's completely valid to feel this way.", 
                        emotional_summary, processed_emotions.emotional_intensity)
-            },
+            }
             OutputFormat::Structured => {
                 format!("Emotional Analysis:\n- Primary emotions: {}\n- Intensity: {:.1}\n- Response: Your feelings are valid and important.", 
                        primary_emotion_names.join(", "), processed_emotions.emotional_intensity)
-            },
+            }
             OutputFormat::Narrative => {
                 format!("As I listen to your words, I can feel the weight of {} in your expression. This emotional landscape you're navigating is real and meaningful. Your experience matters, and it's okay to feel exactly what you're feeling right now.", 
                        emotional_summary)
-            },
+            }
         };
-        
+
         // Apply emotional synthesis parameters
         let final_response = if warmth > 0.7 {
             format!("💝 {}", response)
         } else {
             response
         };
-        
+
         Ok(final_response)
     }
 
     /// Assess processing quality
-    fn assess_processing_quality(&self, input: &EmotionalTaskInput,
-                               processed_emotions: &ProcessedEmotions,
-                               emotional_analysis: &EmotionalAnalysis) -> ProcessingQuality {
+    fn assess_processing_quality(
+        &self,
+        input: &EmotionalTaskInput,
+        processed_emotions: &ProcessedEmotions,
+        emotional_analysis: &EmotionalAnalysis,
+    ) -> ProcessingQuality {
         let accuracy_score = self.emotional_capabilities.processing_accuracy;
         let confidence_score = self.calculate_confidence_score(processed_emotions);
         let consistency_score = self.calculate_consistency_score(processed_emotions);
         let completeness_score = self.calculate_completeness_score(input, processed_emotions);
-        
+
         ProcessingQuality {
             accuracy_score,
             confidence_score,
@@ -666,11 +682,14 @@ impl EmotionWeaverAgent {
     /// Detect primary emotions
     fn detect_primary_emotions(&self, text: &str) -> Vec<Emotion> {
         let mut emotions = Vec::new();
-        
+
         // Simplified primary emotion detection
         let text_lower = text.to_lowercase();
-        
-        if text_lower.contains("happy") || text_lower.contains("joy") || text_lower.contains("excited") {
+
+        if text_lower.contains("happy")
+            || text_lower.contains("joy")
+            || text_lower.contains("excited")
+        {
             emotions.push(Emotion {
                 name: "joy".to_string(),
                 category: "positive".to_string(),
@@ -681,8 +700,11 @@ impl EmotionWeaverAgent {
                 triggers: vec!["text_content".to_string()],
             });
         }
-        
-        if text_lower.contains("sad") || text_lower.contains("unhappy") || text_lower.contains("depressed") {
+
+        if text_lower.contains("sad")
+            || text_lower.contains("unhappy")
+            || text_lower.contains("depressed")
+        {
             emotions.push(Emotion {
                 name: "sadness".to_string(),
                 category: "negative".to_string(),
@@ -693,8 +715,11 @@ impl EmotionWeaverAgent {
                 triggers: vec!["text_content".to_string()],
             });
         }
-        
-        if text_lower.contains("angry") || text_lower.contains("frustrated") || text_lower.contains("mad") {
+
+        if text_lower.contains("angry")
+            || text_lower.contains("frustrated")
+            || text_lower.contains("mad")
+        {
             emotions.push(Emotion {
                 name: "anger".to_string(),
                 category: "negative".to_string(),
@@ -705,8 +730,11 @@ impl EmotionWeaverAgent {
                 triggers: vec!["text_content".to_string()],
             });
         }
-        
-        if text_lower.contains("fear") || text_lower.contains("scared") || text_lower.contains("anxious") {
+
+        if text_lower.contains("fear")
+            || text_lower.contains("scared")
+            || text_lower.contains("anxious")
+        {
             emotions.push(Emotion {
                 name: "fear".to_string(),
                 category: "negative".to_string(),
@@ -717,7 +745,7 @@ impl EmotionWeaverAgent {
                 triggers: vec!["text_content".to_string()],
             });
         }
-        
+
         if emotions.is_empty() {
             emotions.push(Emotion {
                 name: "neutral".to_string(),
@@ -729,14 +757,14 @@ impl EmotionWeaverAgent {
                 triggers: vec!["default".to_string()],
             });
         }
-        
+
         emotions
     }
 
     /// Detect secondary emotions
     fn detect_secondary_emotions(&self, text: &str, primary_emotions: &[Emotion]) -> Vec<Emotion> {
         let mut secondary_emotions = Vec::new();
-        
+
         // Generate secondary emotions based on primary emotions
         for primary in primary_emotions {
             match primary.name.as_str() {
@@ -750,7 +778,7 @@ impl EmotionWeaverAgent {
                         duration: None,
                         triggers: vec!["sadness_derived".to_string()],
                     });
-                },
+                }
                 "anger" => {
                     secondary_emotions.push(Emotion {
                         name: "irritation".to_string(),
@@ -761,40 +789,48 @@ impl EmotionWeaverAgent {
                         duration: None,
                         triggers: vec!["anger_derived".to_string()],
                     });
-                },
+                }
                 _ => {}
             }
         }
-        
+
         secondary_emotions
     }
 
     /// Create emotional blend
-    fn create_emotional_blend(&self, primary_emotions: &[Emotion], secondary_emotions: &[Emotion]) -> EmotionalBlend {
-        let all_emotions: Vec<&Emotion> = primary_emotions.iter().chain(secondary_emotions).collect();
-        
-        let component_emotions: Vec<EmotionComponent> = all_emotions.iter()
+    fn create_emotional_blend(
+        &self,
+        primary_emotions: &[Emotion],
+        secondary_emotions: &[Emotion],
+    ) -> EmotionalBlend {
+        let all_emotions: Vec<&Emotion> =
+            primary_emotions.iter().chain(secondary_emotions).collect();
+
+        let component_emotions: Vec<EmotionComponent> = all_emotions
+            .iter()
             .map(|e| EmotionComponent {
                 emotion: e.name.clone(),
                 weight: e.intensity,
                 contribution: format!("{}% of emotional state", (e.intensity * 100.0) as i32),
             })
             .collect();
-        
+
         let blend_harmony = if all_emotions.len() > 1 {
             // Calculate harmony based on valence similarity
             let valences: Vec<f32> = all_emotions.iter().map(|e| e.valence).collect();
             let avg_valence = valences.iter().sum::<f32>() / valences.len() as f32;
-            let variance = valences.iter()
+            let variance = valences
+                .iter()
                 .map(|v| (v - avg_valence).powi(2))
-                .sum::<f32>() / valences.len() as f32;
+                .sum::<f32>()
+                / valences.len() as f32;
             (1.0 - variance).max(0.0)
         } else {
             1.0
         };
-        
+
         let blend_complexity = (all_emotions.len() as f32 / 5.0).min(1.0);
-        
+
         EmotionalBlend {
             name: if all_emotions.len() > 1 {
                 format!("complex_emotional_blend")
@@ -808,24 +844,32 @@ impl EmotionWeaverAgent {
     }
 
     /// Calculate emotional intensity
-    fn calculate_emotional_intensity(&self, primary_emotions: &[Emotion], secondary_emotions: &[Emotion]) -> f32 {
-        let all_emotions: Vec<&Emotion> = primary_emotions.iter().chain(secondary_emotions).collect();
-        
+    fn calculate_emotional_intensity(
+        &self,
+        primary_emotions: &[Emotion],
+        secondary_emotions: &[Emotion],
+    ) -> f32 {
+        let all_emotions: Vec<&Emotion> =
+            primary_emotions.iter().chain(secondary_emotions).collect();
+
         if all_emotions.is_empty() {
             return 0.0;
         }
-        
+
         let total_intensity: f32 = all_emotions.iter().map(|e| e.intensity).sum();
         let avg_intensity = total_intensity / all_emotions.len() as f32;
-        
+
         // Apply processing sensitivity
         avg_intensity * self.config.processing_sensitivity
     }
 
     /// Identify emotional patterns
-    fn identify_emotional_patterns(&self, processed_emotions: &ProcessedEmotions) -> Vec<EmotionalPattern> {
+    fn identify_emotional_patterns(
+        &self,
+        processed_emotions: &ProcessedEmotions,
+    ) -> Vec<EmotionalPattern> {
         let mut patterns = Vec::new();
-        
+
         // Pattern based on emotional blend
         if processed_emotions.emotional_blend.blend_complexity > 0.5 {
             patterns.push(EmotionalPattern {
@@ -835,7 +879,7 @@ impl EmotionWeaverAgent {
                 contexts: vec!["general".to_string()],
             });
         }
-        
+
         // Pattern based on intensity
         if processed_emotions.emotional_intensity > 0.7 {
             patterns.push(EmotionalPattern {
@@ -845,77 +889,83 @@ impl EmotionWeaverAgent {
                 contexts: vec!["stressful_situations".to_string()],
             });
         }
-        
+
         patterns
     }
 
     /// Identify emotional triggers
     fn identify_emotional_triggers(&self, text: &str) -> Vec<String> {
         let mut triggers = Vec::new();
-        
+
         // Simplified trigger identification
         if text.to_lowercase().contains("work") || text.to_lowercase().contains("job") {
             triggers.push("work_related_stress".to_string());
         }
-        
+
         if text.to_lowercase().contains("relationship") || text.to_lowercase().contains("family") {
             triggers.push("relationship_dynamics".to_string());
         }
-        
+
         if text.to_lowercase().contains("health") || text.to_lowercase().contains("body") {
             triggers.push("health_concerns".to_string());
         }
-        
+
         triggers
     }
 
     /// Suggest regulation strategies
     fn suggest_regulation_strategies(&self, processed_emotions: &ProcessedEmotions) -> Vec<String> {
         let mut strategies = Vec::new();
-        
+
         // Strategies based on emotional intensity
         if processed_emotions.emotional_intensity > 0.7 {
             strategies.push("deep_breathing_exercises".to_string());
             strategies.push("mindfulness_meditation".to_string());
         }
-        
+
         // Strategies based on primary emotions
         for emotion in &processed_emotions.primary_emotions {
             match emotion.category.as_str() {
                 "negative" => {
                     strategies.push("cognitive_reframing".to_string());
                     strategies.push("physical_activity".to_string());
-                },
+                }
                 "positive" => {
                     strategies.push("gratitude_practice".to_string());
                     strategies.push("sharing_with_others".to_string());
-                },
+                }
                 _ => {}
             }
         }
-        
+
         strategies
     }
 
     /// Generate emotional insights
-    fn generate_emotional_insights(&self, processed_emotions: &ProcessedEmotions,
-                                  emotional_patterns: &[EmotionalPattern]) -> Vec<String> {
+    fn generate_emotional_insights(
+        &self,
+        processed_emotions: &ProcessedEmotions,
+        emotional_patterns: &[EmotionalPattern],
+    ) -> Vec<String> {
         let mut insights = Vec::new();
-        
+
         // Insight based on emotional blend
         if processed_emotions.emotional_blend.blend_harmony > 0.7 {
             insights.push("Your emotions show good internal harmony".to_string());
         } else if processed_emotions.emotional_blend.blend_harmony < 0.3 {
             insights.push("You may be experiencing emotional conflict".to_string());
         }
-        
+
         // Insight based on patterns
         for pattern in emotional_patterns {
             if pattern.frequency > 0.6 {
-                insights.push(format!("{} appears to be a recurring pattern", pattern.name));
+                insights.push(format!(
+                    "{} appears to be a recurring pattern",
+                    pattern.name
+                ));
             }
         }
-        
+
         insights
     }
 
@@ -924,11 +974,14 @@ impl EmotionWeaverAgent {
         if processed_emotions.primary_emotions.is_empty() {
             return 0.0;
         }
-        
-        let avg_intensity = processed_emotions.primary_emotions.iter()
+
+        let avg_intensity = processed_emotions
+            .primary_emotions
+            .iter()
             .map(|e| e.intensity)
-            .sum::<f32>() / processed_emotions.primary_emotions.len() as f32;
-        
+            .sum::<f32>()
+            / processed_emotions.primary_emotions.len() as f32;
+
         avg_intensity * self.emotion_processing.parameters.confidence_threshold
     }
 
@@ -938,12 +991,19 @@ impl EmotionWeaverAgent {
     }
 
     /// Calculate completeness score
-    fn calculate_completeness_score(&self, input: &EmotionalTaskInput,
-                                   processed_emotions: &ProcessedEmotions) -> f32 {
+    fn calculate_completeness_score(
+        &self,
+        input: &EmotionalTaskInput,
+        processed_emotions: &ProcessedEmotions,
+    ) -> f32 {
         let text_completeness = if input.text.len() > 50 { 0.9 } else { 0.6 };
-        let emotion_completeness = if processed_emotions.primary_emotions.len() > 0 { 0.9 } else { 0.3 };
+        let emotion_completeness = if processed_emotions.primary_emotions.len() > 0 {
+            0.9
+        } else {
+            0.3
+        };
         let context_completeness = if input.context.is_some() { 0.8 } else { 0.5 };
-        
+
         (text_completeness + emotion_completeness + context_completeness) / 3.0
     }
 }
@@ -963,7 +1023,8 @@ mod tests {
     async fn test_emotional_task_processing() {
         let agent = EmotionWeaverAgent::default();
         let input = EmotionalTaskInput {
-            text: "I'm feeling really happy and excited about my new job, but also a bit nervous".to_string(),
+            text: "I'm feeling really happy and excited about my new job, but also a bit nervous"
+                .to_string(),
             context: Some("career_transition".to_string()),
             emotional_cues: vec!["mixed_emotions".to_string()],
             processing_requirements: ProcessingRequirements {
@@ -976,7 +1037,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.processed_emotions.primary_emotions.is_empty());
         assert!(!output.emotional_response.is_empty());
@@ -986,10 +1047,10 @@ mod tests {
     #[test]
     fn test_emotion_detection() {
         let agent = EmotionWeaverAgent::default();
-        
+
         let emotions = agent.detect_primary_emotions("I'm feeling very happy and joyful today!");
         assert!(!emotions.is_empty());
-        
+
         let joy_emotion = emotions.iter().find(|e| e.name == "joy");
         assert!(joy_emotion.is_some());
         assert!(joy_emotion.unwrap().intensity > 0.0);
@@ -1002,7 +1063,10 @@ mod tests {
             ..Default::default()
         };
         let agent = EmotionWeaverAgent::new(config);
-        
-        assert!(matches!(agent.config.emotional_depth, EmotionalDepth::Complex));
+
+        assert!(matches!(
+            agent.config.emotional_depth,
+            EmotionalDepth::Complex
+        ));
     }
 }

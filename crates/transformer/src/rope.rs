@@ -10,10 +10,13 @@ pub struct RoPE {
 impl RoPE {
     pub fn new(head_dim: usize, max_seq_len: usize, theta: f32) -> Self {
         let half = head_dim / 2;
-        let inv_freq: Array1<f32> = Array1::from_shape_fn(half, |i| {
-            1.0 / theta.powf(2.0 * i as f32 / head_dim as f32)
-        });
-        Self { inv_freq, max_seq_len, head_dim }
+        let inv_freq: Array1<f32> =
+            Array1::from_shape_fn(half, |i| 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32));
+        Self {
+            inv_freq,
+            max_seq_len,
+            head_dim,
+        }
     }
 
     pub fn precompute_freqs_cis(&self) -> (Array2<f32>, Array2<f32>) {

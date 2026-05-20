@@ -1,10 +1,10 @@
 //! NXR-GENESIS Architecture
-//! 
+//!
 //! Implementation of Generative Neural Network + Evolutionary Algorithm architecture for NXR-GENESIS
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::GenesisConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-GENESIS Architecture Implementation
 pub struct GenesisArchitecture {
@@ -318,10 +318,18 @@ impl GenesisArchitecture {
             },
             evolutionary_algorithm: EvolutionaryAlgorithm {
                 evolution_strategy: match config.evolutionary.evolution_strategy {
-                    super::config::EvolutionStrategy::GeneticAlgorithm => EvolutionStrategy::GeneticAlgorithm,
-                    super::config::EvolutionStrategy::EvolutionaryStrategy => EvolutionStrategy::EvolutionaryStrategy,
-                    super::config::EvolutionStrategy::DifferentialEvolution => EvolutionStrategy::DifferentialEvolution,
-                    super::config::EvolutionStrategy::Custom { .. } => EvolutionStrategy::GeneticAlgorithm,
+                    super::config::EvolutionStrategy::GeneticAlgorithm => {
+                        EvolutionStrategy::GeneticAlgorithm
+                    }
+                    super::config::EvolutionStrategy::EvolutionaryStrategy => {
+                        EvolutionStrategy::EvolutionaryStrategy
+                    }
+                    super::config::EvolutionStrategy::DifferentialEvolution => {
+                        EvolutionStrategy::DifferentialEvolution
+                    }
+                    super::config::EvolutionStrategy::Custom { .. } => {
+                        EvolutionStrategy::GeneticAlgorithm
+                    }
                 },
                 population_management: PopulationManagement {
                     population_size: 100,
@@ -362,7 +370,11 @@ impl GenesisArchitecture {
             },
             cross_domain_integration: CrossDomainIntegration {
                 domain_mapping: DomainMapping {
-                    source_domains: vec!["text".to_string(), "image".to_string(), "audio".to_string()],
+                    source_domains: vec![
+                        "text".to_string(),
+                        "image".to_string(),
+                        "audio".to_string(),
+                    ],
                     target_domains: vec!["creative".to_string()],
                     mapping_weights: HashMap::new(),
                 },
@@ -378,10 +390,14 @@ impl GenesisArchitecture {
     /// Initialize architecture
     pub async fn initialize(&mut self, config: &GenesisConfig) -> NxrModelResult<()> {
         // Initialize generative network
-        self.generative_neural_network.generation_parameters.temperature = config.generative.diversity_control.temperature;
+        self.generative_neural_network
+            .generation_parameters
+            .temperature = config.generative.diversity_control.temperature;
 
         // Initialize evolutionary algorithm
-        self.evolutionary_algorithm.population_management.mutation_rate = config.evolutionary.mutation_rate;
+        self.evolutionary_algorithm
+            .population_management
+            .mutation_rate = config.evolutionary.mutation_rate;
 
         Ok(())
     }
@@ -389,19 +405,39 @@ impl GenesisArchitecture {
     /// Validate architecture
     pub async fn validate(&self) -> NxrModelResult<()> {
         // Validate generative network
-        if self.generative_neural_network.generation_parameters.temperature < 0.0 || 
-           self.generative_neural_network.generation_parameters.temperature > 2.0 {
+        if self
+            .generative_neural_network
+            .generation_parameters
+            .temperature
+            < 0.0
+            || self
+                .generative_neural_network
+                .generation_parameters
+                .temperature
+                > 2.0
+        {
             return Err("Temperature must be between 0.0 and 2.0".into());
         }
 
         // Validate evolutionary algorithm
-        if self.evolutionary_algorithm.population_management.mutation_rate < 0.0 || 
-           self.evolutionary_algorithm.population_management.mutation_rate > 1.0 {
+        if self
+            .evolutionary_algorithm
+            .population_management
+            .mutation_rate
+            < 0.0
+            || self
+                .evolutionary_algorithm
+                .population_management
+                .mutation_rate
+                > 1.0
+        {
             return Err("Mutation rate must be between 0.0 and 1.0".into());
         }
 
         // Validate novelty detection
-        if self.novelty_detection_system.threshold < 0.0 || self.novelty_detection_system.threshold > 1.0 {
+        if self.novelty_detection_system.threshold < 0.0
+            || self.novelty_detection_system.threshold > 1.0
+        {
             return Err("Novelty threshold must be between 0.0 and 1.0".into());
         }
 
@@ -419,7 +455,11 @@ impl GenesisArchitecture {
     }
 
     /// Evolve solution
-    pub async fn evolve_solution(&self, initial_solution: &str, generations: u32) -> NxrModelResult<EvolutionResult> {
+    pub async fn evolve_solution(
+        &self,
+        initial_solution: &str,
+        generations: u32,
+    ) -> NxrModelResult<EvolutionResult> {
         Ok(EvolutionResult {
             final_solution: "Evolved solution".to_string(),
             generations_completed: generations,
@@ -440,7 +480,10 @@ impl GenesisArchitecture {
     }
 
     /// Synthesize across domains
-    pub async fn synthesize_cross_domain(&self, inputs: Vec<String>) -> NxrModelResult<SynthesisResult> {
+    pub async fn synthesize_cross_domain(
+        &self,
+        inputs: Vec<String>,
+    ) -> NxrModelResult<SynthesisResult> {
         Ok(SynthesisResult {
             synthesized_output: "Cross-domain synthesis result".to_string(),
             integration_score: 0.83,

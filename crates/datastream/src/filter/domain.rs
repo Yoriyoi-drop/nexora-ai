@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction, Domain};
+use crate::types::{DataSample, Domain, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct DomainClassifier {
@@ -115,7 +115,10 @@ impl Filter for DomainClassifier {
             passed: true,
             sample_id: sample.id,
             filter_name: self.name().to_string(),
-            reason: Some(format!("domains: {:?}", domains.iter().map(|(d, s)| (d, s)).collect::<Vec<_>>())),
+            reason: Some(format!(
+                "domains: {:?}",
+                domains.iter().map(|(d, s)| (d, s)).collect::<Vec<_>>()
+            )),
             score_delta: domains.first().map(|(_, s)| s / 2.0).unwrap_or(0.0),
         }
     }

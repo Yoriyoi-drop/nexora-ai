@@ -1,9 +1,9 @@
 //! Shared Agent Types
-//! 
+//!
 //! Common types and enums used across all NXR models
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Agent Status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

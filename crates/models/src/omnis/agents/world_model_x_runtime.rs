@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct WorldModelRuntimeAgent;
@@ -21,11 +21,23 @@ impl WorldModelRuntimeAgent {
         ))
     }
 
-    pub async fn process_input(&self, input: &str) -> NxrModelResult<HashMap<String, serde_json::Value>> {
+    pub async fn process_input(
+        &self,
+        input: &str,
+    ) -> NxrModelResult<HashMap<String, serde_json::Value>> {
         let mut update = HashMap::new();
-        update.insert("last_input".to_string(), serde_json::Value::String(input.to_string()));
-        update.insert("input_length".to_string(), serde_json::Value::Number(serde_json::Number::from(input.len() as u64)));
-        update.insert("world_model_version".to_string(), serde_json::Value::String("omnis-x-v1".to_string()));
+        update.insert(
+            "last_input".to_string(),
+            serde_json::Value::String(input.to_string()),
+        );
+        update.insert(
+            "input_length".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(input.len() as u64)),
+        );
+        update.insert(
+            "world_model_version".to_string(),
+            serde_json::Value::String("omnis-x-v1".to_string()),
+        );
         Ok(update)
     }
 }

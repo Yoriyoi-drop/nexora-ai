@@ -1,14 +1,14 @@
 //! Swift Prime Agent
-//! 
+//!
 //! Rapid processing and high-speed execution
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Swift Prime Agent - Rapid processing and high-speed execution
 #[derive(Debug, Clone)]
@@ -144,9 +144,15 @@ impl BaseAgent for SwiftPrimeAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let processed_results = self.process_data_stream(&input).await?;
-        let processing_metrics = self.calculate_processing_metrics(&input, &processed_results).await?;
-        let performance_analysis = self.analyze_performance(&input, &processing_metrics).await?;
-        let speed_score = self.calculate_speed_score(&input, &processing_metrics).await?;
+        let processing_metrics = self
+            .calculate_processing_metrics(&input, &processed_results)
+            .await?;
+        let performance_analysis = self
+            .analyze_performance(&input, &processing_metrics)
+            .await?;
+        let speed_score = self
+            .calculate_speed_score(&input, &processing_metrics)
+            .await?;
 
         Ok(SwiftPrimeTaskOutput {
             processed_results,
@@ -165,21 +171,22 @@ impl BaseAgent for SwiftPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "swift_prime".to_string(),
-                description: "Rapid processing and high-speed execution".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["processing_request".to_string(), "data_stream".to_string()],
-                output_types: vec!["processed_results".to_string(), "processing_metrics".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.95,
-                    avg_latency: 1000.0,
-                    resource_usage: 0.7,
-                    reliability: 0.97,
-                },
+        vec![AgentCapability {
+            name: "swift_prime".to_string(),
+            description: "Rapid processing and high-speed execution".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["processing_request".to_string(), "data_stream".to_string()],
+            output_types: vec![
+                "processed_results".to_string(),
+                "processing_metrics".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.95,
+                avg_latency: 1000.0,
+                resource_usage: 0.7,
+                reliability: 0.97,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -217,37 +224,58 @@ impl SwiftPrimeAgent {
 
     async fn process_data_stream(&self, input: &SwiftPrimeTaskInput) -> AgentResult<Vec<f32>> {
         match input.processing_request.as_str() {
-            "filter" => self.filter_stream(&input.data_stream, &input.performance_requirements).await,
-            "transform" => self.transform_stream(&input.data_stream, &input.performance_requirements).await,
-            "aggregate" => self.aggregate_stream(&input.data_stream, &input.performance_requirements).await,
+            "filter" => {
+                self.filter_stream(&input.data_stream, &input.performance_requirements)
+                    .await
+            }
+            "transform" => {
+                self.transform_stream(&input.data_stream, &input.performance_requirements)
+                    .await
+            }
+            "aggregate" => {
+                self.aggregate_stream(&input.data_stream, &input.performance_requirements)
+                    .await
+            }
             _ => Ok(input.data_stream.clone()),
         }
     }
 
-    async fn filter_stream(&self, data: &[f32], _params: &HashMap<String, f32>) -> AgentResult<Vec<f32>> {
+    async fn filter_stream(
+        &self,
+        data: &[f32],
+        _params: &HashMap<String, f32>,
+    ) -> AgentResult<Vec<f32>> {
         // Simple high-pass filter
         let threshold = 0.5;
         Ok(data.iter().filter(|&&x| x > threshold).cloned().collect())
     }
 
-    async fn transform_stream(&self, data: &[f32], _params: &HashMap<String, f32>) -> AgentResult<Vec<f32>> {
+    async fn transform_stream(
+        &self,
+        data: &[f32],
+        _params: &HashMap<String, f32>,
+    ) -> AgentResult<Vec<f32>> {
         // Simple normalization
         if data.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let min = data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
         let max = data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let range = max - min;
-        
+
         if range == 0.0 {
             return Ok(vec![0.5; data.len()]);
         }
-        
+
         Ok(data.iter().map(|&x| (x - min) / range).collect())
     }
 
-    async fn aggregate_stream(&self, data: &[f32], _params: &HashMap<String, f32>) -> AgentResult<Vec<f32>> {
+    async fn aggregate_stream(
+        &self,
+        data: &[f32],
+        _params: &HashMap<String, f32>,
+    ) -> AgentResult<Vec<f32>> {
         // Simple moving average with window size 3
         let mut result = Vec::new();
         for i in 0..data.len() {
@@ -260,13 +288,17 @@ impl SwiftPrimeAgent {
         Ok(result)
     }
 
-    async fn calculate_processing_metrics(&self, input: &SwiftPrimeTaskInput, results: &[f32]) -> AgentResult<HashMap<String, f32>> {
+    async fn calculate_processing_metrics(
+        &self,
+        input: &SwiftPrimeTaskInput,
+        results: &[f32],
+    ) -> AgentResult<HashMap<String, f32>> {
         let mut metrics = HashMap::new();
-        
+
         // Calculate throughput (items per second)
         let throughput = results.len() as f32 / 1000.0; // Assuming 1 second processing
         metrics.insert("throughput".to_string(), throughput);
-        
+
         // Calculate efficiency
         let efficiency = if input.data_stream.is_empty() {
             0.0
@@ -274,19 +306,26 @@ impl SwiftPrimeAgent {
             results.len() as f32 / input.data_stream.len() as f32
         };
         metrics.insert("efficiency".to_string(), efficiency);
-        
+
         // Calculate processing speed
         let processing_speed = input.data_stream.len() as f32 / 1000.0;
         metrics.insert("processing_speed".to_string(), processing_speed);
-        
+
         Ok(metrics)
     }
 
-    async fn analyze_performance(&self, input: &SwiftPrimeTaskInput, metrics: &HashMap<String, f32>) -> AgentResult<Vec<String>> {
+    async fn analyze_performance(
+        &self,
+        input: &SwiftPrimeTaskInput,
+        metrics: &HashMap<String, f32>,
+    ) -> AgentResult<Vec<String>> {
         let mut analysis = Vec::new();
-        
-        analysis.push(format!("Performance analysis for: {}", input.processing_request));
-        
+
+        analysis.push(format!(
+            "Performance analysis for: {}",
+            input.processing_request
+        ));
+
         if let Some(&throughput) = metrics.get("throughput") {
             if throughput > 1000.0 {
                 analysis.push("High throughput achieved".to_string());
@@ -294,7 +333,7 @@ impl SwiftPrimeAgent {
                 analysis.push("Moderate throughput".to_string());
             }
         }
-        
+
         if let Some(&efficiency) = metrics.get("efficiency") {
             if efficiency > 0.9 {
                 analysis.push("Excellent processing efficiency".to_string());
@@ -304,28 +343,38 @@ impl SwiftPrimeAgent {
                 analysis.push("Processing efficiency needs improvement".to_string());
             }
         }
-        
+
         if input.performance_requirements.contains_key("max_latency") {
             analysis.push("Latency requirements met".to_string());
         }
-        
+
         Ok(analysis)
     }
 
-    async fn calculate_speed_score(&self, input: &SwiftPrimeTaskInput, metrics: &HashMap<String, f32>) -> AgentResult<f32> {
+    async fn calculate_speed_score(
+        &self,
+        input: &SwiftPrimeTaskInput,
+        metrics: &HashMap<String, f32>,
+    ) -> AgentResult<f32> {
         let base_score = 0.8;
-        
-        let throughput_score = metrics.get("throughput")
+
+        let throughput_score = metrics
+            .get("throughput")
             .map(|&t| (t / 1000.0).min(1.0))
             .unwrap_or(0.0);
-        
-        let efficiency_score = metrics.get("efficiency")
-            .map(|&e| e)
-            .unwrap_or(0.0);
-        
-        let requirements_score = if input.performance_requirements.len() > 0 { 0.1 } else { 0.0 };
-        
-        Ok((base_score + throughput_score * 0.1 + efficiency_score * 0.05 + requirements_score).min(1.0))
+
+        let efficiency_score = metrics.get("efficiency").map(|&e| e).unwrap_or(0.0);
+
+        let requirements_score = if input.performance_requirements.len() > 0 {
+            0.1
+        } else {
+            0.0
+        };
+
+        Ok(
+            (base_score + throughput_score * 0.1 + efficiency_score * 0.05 + requirements_score)
+                .min(1.0),
+        )
     }
 }
 
@@ -354,7 +403,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.processed_results.is_empty());
         assert!(!output.processing_metrics.is_empty());
@@ -366,14 +415,20 @@ mod tests {
     async fn test_stream_processing() {
         let agent = SwiftPrimeAgent::default();
         let data = vec![0.2, 0.8, 0.3, 0.9, 0.1];
-        
+
         let filtered = agent.filter_stream(&data, &HashMap::new()).await.unwrap();
         assert_eq!(filtered, vec![0.8, 0.9]);
-        
-        let transformed = agent.transform_stream(&data, &HashMap::new()).await.unwrap();
+
+        let transformed = agent
+            .transform_stream(&data, &HashMap::new())
+            .await
+            .unwrap();
         assert!(transformed.iter().all(|&x| x >= 0.0 && x <= 1.0));
-        
-        let aggregated = agent.aggregate_stream(&data, &HashMap::new()).await.unwrap();
+
+        let aggregated = agent
+            .aggregate_stream(&data, &HashMap::new())
+            .await
+            .unwrap();
         assert_eq!(aggregated.len(), data.len());
     }
 }

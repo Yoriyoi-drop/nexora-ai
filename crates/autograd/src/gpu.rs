@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use once_cell::sync::OnceCell;
 use ndarray::ArrayD;
+use once_cell::sync::OnceCell;
+use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::gpu_caps::GpuCapabilities;
@@ -125,12 +125,12 @@ impl GpuContext {
         wgsl: std::borrow::Cow<'static, str>,
         entry_point: &str,
     ) -> Result<(), GpuError> {
-        let layout = self.device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
+        let layout = self
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some(&format!("{}_layout", name)),
                 entries,
-            },
-        );
+            });
 
         let shader = self
             .device
@@ -139,13 +139,13 @@ impl GpuContext {
                 source: wgpu::ShaderSource::Wgsl(wgsl),
             });
 
-        let pipeline_layout = self.device.create_pipeline_layout(
-            &wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&format!("{}_pipeline_layout", name)),
                 bind_group_layouts: &[Some(&layout)],
                 immediate_size: 0,
-            },
-        );
+            });
 
         let pipeline = self
             .device
@@ -160,7 +160,10 @@ impl GpuContext {
 
         self.pipelines.insert(
             name.into(),
-            CompiledPipeline { pipeline, bind_group_layout: layout },
+            CompiledPipeline {
+                pipeline,
+                bind_group_layout: layout,
+            },
         );
         Ok(())
     }
@@ -245,10 +248,7 @@ impl GpuContext {
     fn compile_scale_inplace(&mut self) -> Result<(), GpuError> {
         self.compile_pipeline(
             "scale_inplace",
-            &[
-                storage_binding(0, false),
-                uniform_binding(1),
-            ],
+            &[storage_binding(0, false), uniform_binding(1)],
             std::borrow::Cow::Borrowed(SCALE_INPLACE_WGSL),
             "scale_inplace_main",
         )
@@ -283,10 +283,7 @@ impl GpuContext {
     fn compile_temperature_scale(&mut self) -> Result<(), GpuError> {
         self.compile_pipeline(
             "temperature_scale",
-            &[
-                storage_binding(0, false),
-                uniform_binding(1),
-            ],
+            &[storage_binding(0, false), uniform_binding(1)],
             std::borrow::Cow::Borrowed(TEMPERATURE_SCALE_WGSL),
             "temperature_scale_main",
         )
@@ -295,10 +292,7 @@ impl GpuContext {
     fn compile_top_k_mask(&mut self) -> Result<(), GpuError> {
         self.compile_pipeline(
             "top_k_mask",
-            &[
-                storage_binding(0, false),
-                uniform_binding(1),
-            ],
+            &[storage_binding(0, false), uniform_binding(1)],
             std::borrow::Cow::Borrowed(TOP_K_MASK_WGSL),
             "top_k_mask_main",
         )
@@ -319,16 +313,18 @@ impl GpuContext {
 
     /// Zero out a GPU tensor buffer in-place.
     pub fn fill_zero(&self, t: &GpuTensor) -> Result<(), GpuError> {
-        let pipeline = self.pipelines.get("fill_zero").ok_or_else(|| {
-            GpuError::Pipeline("fill_zero not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("fill_zero")
+            .ok_or_else(|| GpuError::Pipeline("fill_zero not compiled".into()))?;
         let numel = t.numel() as u32;
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fill_zero_bg"),
             layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: t.buffer().as_entire_binding() },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: t.buffer().as_entire_binding(),
+            }],
         });
         self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
         Ok(())
@@ -336,9 +332,10 @@ impl GpuContext {
 
     /// Scale a GPU tensor buffer in-place (multiply each element by `scale`).
     pub fn scale_inplace(&self, t: &GpuTensor, scale: f32) -> Result<(), GpuError> {
-        let pipeline = self.pipelines.get("scale_inplace").ok_or_else(|| {
-            GpuError::Pipeline("scale_inplace not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("scale_inplace")
+            .ok_or_else(|| GpuError::Pipeline("scale_inplace not compiled".into()))?;
         let numel = t.numel() as u32;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scale_cfg"),
@@ -347,13 +344,20 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 2] = [numel, f32::to_bits(scale)];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("scale_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: t.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: t.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
@@ -362,9 +366,10 @@ impl GpuContext {
 
     /// Compute L2 norm (sum of squares) for a GPU tensor. Returns scalar tensor.
     pub fn l2_norm(&self, t: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        let pipeline = self.pipelines.get("l2_norm").ok_or_else(|| {
-            GpuError::Pipeline("l2_norm not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("l2_norm")
+            .ok_or_else(|| GpuError::Pipeline("l2_norm not compiled".into()))?;
         let numel = t.numel() as u32;
         let out = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("l2_norm_out"),
@@ -378,18 +383,31 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::bytes_of(&numel));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::bytes_of(&numel));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("l2_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: t.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: t.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (1, 1, 1));
-        Ok(GpuTensor { shape: vec![1], buffer: out })
+        Ok(GpuTensor {
+            shape: vec![1],
+            buffer: out,
+        })
     }
 
     /// Causal softmax: softmax over last dim with causal mask.
@@ -410,21 +428,35 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 2] = [batch, dim];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        let pipeline = self.pipelines.get("causal_softmax").ok_or_else(|| {
-            GpuError::Pipeline("causal_softmax not compiled".into())
-        })?;
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        let pipeline = self
+            .pipelines
+            .get("causal_softmax")
+            .ok_or_else(|| GpuError::Pipeline("causal_softmax not compiled".into()))?;
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("cs_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: input.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (batch, 1, 1));
-        Ok(GpuTensor { shape: shape.to_vec(), buffer: out })
+        Ok(GpuTensor {
+            shape: shape.to_vec(),
+            buffer: out,
+        })
     }
 
     /// GPU sampling: temperature → softmax → top-k → multinomial
@@ -442,9 +474,10 @@ impl GpuContext {
 
         // Step 1: temperature scale → probs
         let probs = if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
-            let temp_pipeline = self.pipelines.get("temperature_scale").ok_or_else(|| {
-                GpuError::Pipeline("temperature_scale not compiled".into())
-            })?;
+            let temp_pipeline = self
+                .pipelines
+                .get("temperature_scale")
+                .ok_or_else(|| GpuError::Pipeline("temperature_scale not compiled".into()))?;
             let temp_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("temp_buf"),
                 size: 16,
@@ -452,7 +485,8 @@ impl GpuContext {
                 mapped_at_creation: false,
             });
             let temp_cfg: [u32; 4] = [f32::to_bits(temperature), numel as u32, 0, 0];
-            self.queue.write_buffer(&temp_buf, 0, bytemuck::cast_slice(&temp_cfg));
+            self.queue
+                .write_buffer(&temp_buf, 0, bytemuck::cast_slice(&temp_cfg));
 
             let work_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("temp_work"),
@@ -462,63 +496,90 @@ impl GpuContext {
                     | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
-            let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let mut enc = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             enc.copy_buffer_to_buffer(logits.buffer(), 0, &work_buf, 0, (numel * 4) as u64);
             self.queue.submit(Some(enc.finish()));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("temp_scale_bg"),
                 layout: &temp_pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: work_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: temp_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: work_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: temp_buf.as_entire_binding(),
+                    },
                 ],
             });
             self.dispatch(temp_pipeline, &bg, ((numel as u32 + 255) / 256, 1, 1));
-            self.softmax(&GpuTensor { shape: shape.clone(), buffer: work_buf })?
+            self.softmax(&GpuTensor {
+                shape: shape.clone(),
+                buffer: work_buf,
+            })?
         } else {
             self.softmax(logits)?
         };
 
         // Step 2: top-k mask
         let masked = if top_k > 0 && top_k < vocab {
-            let topk_pipeline = self.pipelines.get("top_k_mask").ok_or_else(|| {
-                GpuError::Pipeline("top_k_mask not compiled".into())
-            })?;
+            let topk_pipeline = self
+                .pipelines
+                .get("top_k_mask")
+                .ok_or_else(|| GpuError::Pipeline("top_k_mask not compiled".into()))?;
             let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("topk_cfg"),
-                size: 8,
+                size: 16,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let cfg: [u32; 2] = [vocab, top_k];
-            self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+            let cfg: [u32; 4] = [vocab, top_k, 0, 0];
+            self.queue
+                .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
             let masked_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("topk_masked"),
                 size: (numel * 4) as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
-            let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let mut enc = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             enc.copy_buffer_to_buffer(probs.buffer(), 0, &masked_buf, 0, (numel * 4) as u64);
             self.queue.submit(Some(enc.finish()));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("topk_bg"),
                 layout: &topk_pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: masked_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: masked_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: cfg_buf.as_entire_binding(),
+                    },
                 ],
             });
             self.dispatch(topk_pipeline, &bg, (batch as u32, 1, 1));
-            GpuTensor { shape: shape.clone(), buffer: masked_buf }
+            GpuTensor {
+                shape: shape.clone(),
+                buffer: masked_buf,
+            }
         } else {
             probs
         };
 
         // Step 3: multinomial sample
-        let sample_pipeline = self.pipelines.get("multinomial_sample").ok_or_else(|| {
-            GpuError::Pipeline("multinomial_sample not compiled".into())
-        })?;
+        let sample_pipeline = self
+            .pipelines
+            .get("multinomial_sample")
+            .ok_or_else(|| GpuError::Pipeline("multinomial_sample not compiled".into()))?;
         let out = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sample_out"),
             size: (batch * 4) as u64,
@@ -532,19 +593,32 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 4] = [vocab, seed as u32, (seed >> 32) as u32, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sample_bg"),
             layout: &sample_pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: masked.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: masked.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(sample_pipeline, &bg, (batch as u32, 1, 1));
 
-        Ok(GpuTensor { shape: vec![batch], buffer: out })
+        Ok(GpuTensor {
+            shape: vec![batch],
+            buffer: out,
+        })
     }
 
     // ── Singleton access ──────────────────────────────────────────────────────
@@ -578,8 +652,7 @@ impl GpuContext {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
-            let mut cpass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             cpass.set_pipeline(&pipeline.pipeline);
             cpass.set_bind_group(0, bind_group, &[]);
             cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
@@ -592,9 +665,8 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     fn compile_matmul_tiled(&mut self, tile: u32) -> Result<(), GpuError> {
-        let wgsl = std::borrow::Cow::Owned(
-            MATMUL_TILED_WGSL.replace("{{TILE_SIZE}}", &tile.to_string())
-        );
+        let wgsl =
+            std::borrow::Cow::Owned(MATMUL_TILED_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()));
         self.compile_pipeline(
             "matmul_tiled",
             &[
@@ -643,9 +715,10 @@ impl GpuContext {
         self.queue
             .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
 
-        let pipeline = self.pipelines.get("matmul_tiled").ok_or_else(|| {
-            GpuError::Pipeline("matmul_tiled not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("matmul_tiled")
+            .ok_or_else(|| GpuError::Pipeline("matmul_tiled not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("matmul_tiled_bind_group"),
@@ -699,11 +772,7 @@ impl GpuContext {
     }
 
     /// Dispatch element-wise/unary op: output = op(a)
-    pub fn elementwise_unary(
-        &self,
-        a: &GpuTensor,
-        op: ElemOp,
-    ) -> Result<GpuTensor, GpuError> {
+    pub fn elementwise_unary(&self, a: &GpuTensor, op: ElemOp) -> Result<GpuTensor, GpuError> {
         let shape = a.shape();
         let numel = a.numel();
 
@@ -726,9 +795,10 @@ impl GpuContext {
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("elementwise").ok_or_else(|| {
-            GpuError::Pipeline("elementwise not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("elementwise")
+            .ok_or_else(|| GpuError::Pipeline("elementwise not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("elementwise_bind_group"),
@@ -795,9 +865,10 @@ impl GpuContext {
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("elementwise").ok_or_else(|| {
-            GpuError::Pipeline("elementwise not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("elementwise")
+            .ok_or_else(|| GpuError::Pipeline("elementwise not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("elementwise_binary_bind_group"),
@@ -887,7 +958,7 @@ impl GpuContext {
 
     fn compile_reduce(&mut self, op: ReduceOp) -> Result<(), GpuError> {
         let wgsl = std::borrow::Cow::Owned(
-            REDUCE_WGSL_TEMPLATE.replace("{{OP}}", &(op as u32).to_string())
+            REDUCE_WGSL_TEMPLATE.replace("{{OP}}", &(op as u32).to_string()),
         );
         let key = match op {
             ReduceOp::Sum => "reduce_sum",
@@ -929,9 +1000,10 @@ impl GpuContext {
             ReduceOp::Min => "reduce_min",
         };
 
-        let pipeline = self.pipelines.get(key).ok_or_else(|| {
-            GpuError::Pipeline(format!("{} not compiled", key))
-        })?;
+        let pipeline = self
+            .pipelines
+            .get(key)
+            .ok_or_else(|| GpuError::Pipeline(format!("{} not compiled", key)))?;
 
         // Multi-pass: each workgroup reduces 256 elements → partial results
         // Then reduce partials until scalar remains
@@ -1030,7 +1102,9 @@ impl GpuContext {
     pub fn softmax(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let shape = input.shape();
         if shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch("Softmax GPU: input must be 2D".into()));
+            return Err(GpuError::ShapeMismatch(
+                "Softmax GPU: input must be 2D".into(),
+            ));
         }
         let rows = shape[0] as u32;
         let dim = shape[1] as u32;
@@ -1052,25 +1126,39 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [rows, dim, 0, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("softmax").ok_or_else(|| {
-            GpuError::Pipeline("softmax not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("softmax")
+            .ok_or_else(|| GpuError::Pipeline("softmax not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("softmax_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: input.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, (rows, 1, 1));
 
-        Ok(GpuTensor { shape: shape.to_vec(), buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: shape.to_vec(),
+            buffer: out_buffer,
+        })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1122,26 +1210,43 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [batch, dim, f32::to_bits(eps), 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("rms_norm").ok_or_else(|| {
-            GpuError::Pipeline("rms_norm not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("rms_norm")
+            .ok_or_else(|| GpuError::Pipeline("rms_norm not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("rms_norm_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: x.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: weight.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: x.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: weight.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
-        Ok(GpuTensor { shape: shape.to_vec(), buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: shape.to_vec(),
+            buffer: out_buffer,
+        })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1171,7 +1276,9 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let shape = logits.shape();
         if shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch("CrossEntropy GPU: logits must be 2D".into()));
+            return Err(GpuError::ShapeMismatch(
+                "CrossEntropy GPU: logits must be 2D".into(),
+            ));
         }
         let batch = shape[0] as u32;
         let classes = shape[1] as u32;
@@ -1192,26 +1299,43 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [batch, classes, 0, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("cross_entropy").ok_or_else(|| {
-            GpuError::Pipeline("cross_entropy not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("cross_entropy")
+            .ok_or_else(|| GpuError::Pipeline("cross_entropy not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("cross_entropy_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: logits.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: targets.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: logits.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: targets.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
-        Ok(GpuTensor { shape: vec![batch as usize], buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: vec![batch as usize],
+            buffer: out_buffer,
+        })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1234,14 +1358,12 @@ impl GpuContext {
 
     /// Embedding lookup: out[i * dim + d] = weight[tokens[i] * dim + d].
     /// ids: [seq_len], weight: [vocab, dim].
-    pub fn embedding(
-        &self,
-        ids: &GpuTensor,
-        weight: &GpuTensor,
-    ) -> Result<GpuTensor, GpuError> {
+    pub fn embedding(&self, ids: &GpuTensor, weight: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let w_shape = weight.shape();
         if w_shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch("Embedding GPU: weight must be 2D [vocab, dim]".into()));
+            return Err(GpuError::ShapeMismatch(
+                "Embedding GPU: weight must be 2D [vocab, dim]".into(),
+            ));
         }
         let seq_len = ids.numel() as u32;
         let dim = w_shape[1] as u32;
@@ -1263,26 +1385,43 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [vocab_size, dim, seq_len, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("embedding").ok_or_else(|| {
-            GpuError::Pipeline("embedding not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("embedding")
+            .ok_or_else(|| GpuError::Pipeline("embedding not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("embedding_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: ids.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: weight.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ids.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: weight.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, ((seq_len * dim + 255) / 256, 1, 1));
 
-        Ok(GpuTensor { shape: vec![seq_len as usize, dim as usize], buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: vec![seq_len as usize, dim as usize],
+            buffer: out_buffer,
+        })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1315,7 +1454,9 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let shape = x.shape();
         if shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch("LayerNorm GPU: x must be 2D".into()));
+            return Err(GpuError::ShapeMismatch(
+                "LayerNorm GPU: x must be 2D".into(),
+            ));
         }
         let batch = shape[0] as u32;
         let dim = shape[1] as u32;
@@ -1337,27 +1478,47 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [batch, dim, f32::to_bits(eps), 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("layer_norm").ok_or_else(|| {
-            GpuError::Pipeline("layer_norm not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("layer_norm")
+            .ok_or_else(|| GpuError::Pipeline("layer_norm not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("layer_norm_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: x.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: weight.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: bias.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: x.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: weight.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: bias.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
-        Ok(GpuTensor { shape: vec![batch as usize, dim as usize], buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: vec![batch as usize, dim as usize],
+            buffer: out_buffer,
+        })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1381,7 +1542,9 @@ impl GpuContext {
     pub fn transpose(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let shape = input.shape();
         if shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch("Transpose GPU: input must be 2D".into()));
+            return Err(GpuError::ShapeMismatch(
+                "Transpose GPU: input must be 2D".into(),
+            ));
         }
         let rows = shape[0] as u32;
         let cols = shape[1] as u32;
@@ -1403,25 +1566,39 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [rows, cols, 0, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-        let pipeline = self.pipelines.get("transpose").ok_or_else(|| {
-            GpuError::Pipeline("transpose not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("transpose")
+            .ok_or_else(|| GpuError::Pipeline("transpose not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("transpose_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: input.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, ((numel as u32 + 255) / 256, 1, 1));
 
-        Ok(GpuTensor { shape: vec![cols as usize, rows as usize], buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: vec![cols as usize, rows as usize],
+            buffer: out_buffer,
+        })
     }
 
     /// Matmul backward: grad_a = grad_out @ b^T, grad_b = a^T @ grad_out
@@ -1473,7 +1650,9 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let q_shape = q.shape();
         if q_shape.len() != 4 {
-            return Err(GpuError::ShapeMismatch("Fused Attention: Q must be 4D [B,H,S,D]".into()));
+            return Err(GpuError::ShapeMismatch(
+                "Fused Attention: Q must be 4D [B,H,S,D]".into(),
+            ));
         }
         let batch = q_shape[0] as u32;
         let heads = q_shape[1] as u32;
@@ -1497,7 +1676,8 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg1: [u32; 4] = [batch, heads, seq_len, dim];
-        self.queue.write_buffer(&cfg1_buf, 0, bytemuck::cast_slice(&cfg1));
+        self.queue
+            .write_buffer(&cfg1_buf, 0, bytemuck::cast_slice(&cfg1));
 
         let causal_flag: u32 = if causal { 1 } else { 0 };
         let cfg2_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1507,29 +1687,52 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg2: [u32; 4] = [f32::to_bits(scale), causal_flag, 0, 0];
-        self.queue.write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2));
+        self.queue
+            .write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2));
 
-        let pipeline = self.pipelines.get("fused_attention").ok_or_else(|| {
-            GpuError::Pipeline("fused_attention not compiled".into())
-        })?;
+        let pipeline = self
+            .pipelines
+            .get("fused_attention")
+            .ok_or_else(|| GpuError::Pipeline("fused_attention not compiled".into()))?;
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fused_attention_bind_group"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: q.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: k.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: v.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: cfg1_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 5, resource: cfg2_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: q.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: k.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: v.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: cfg1_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: cfg2_buf.as_entire_binding(),
+                },
             ],
         });
 
         let num_wg = batch * heads * seq_len;
         self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
 
-        Ok(GpuTensor { shape: q_shape.clone(), buffer: out_buffer })
+        Ok(GpuTensor {
+            shape: q_shape.clone(),
+            buffer: out_buffer,
+        })
     }
 }
 
@@ -1697,7 +1900,15 @@ struct Cfg {
 
 @group(0) @binding(2) var<uniform> cfg: Cfg;
 
-var<workgroup> shared: array<f32, BLOCK_SIZE>;
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
+fn reduce_op(a: f32, b: f32) -> f32 {
+    let op = {{OP}}u;
+    // Sum=0, Max=1, Min=2
+    if (op == 0u) { return a + b; }
+    if (op == 1u) { if (a > b) { return a; } else { return b; } }
+    return min(a, b);
+}
 
 @compute @workgroup_size(BLOCK_SIZE)
 fn reduce_main(@builtin(global_invocation_id) gid: vec3<u32>,
@@ -1715,14 +1926,14 @@ fn reduce_main(@builtin(global_invocation_id) gid: vec3<u32>,
     } else {
         val = 0.0;
     }
-    shared[lid.x] = val;
+    scratch[lid.x] = val;
     workgroupBarrier();
 
     // Tree-reduce
     var stride = BLOCK_SIZE / 2;
     while (stride > 0u) {
         if (lid.x < stride) {
-            {{REDUCE_BODY}}
+            scratch[lid.x] = reduce_op(scratch[lid.x], scratch[lid.x + stride]);
         }
         workgroupBarrier();
         stride = stride / 2;
@@ -1730,7 +1941,7 @@ fn reduce_main(@builtin(global_invocation_id) gid: vec3<u32>,
 
     // Write result
     if (lid.x == 0u) {
-        output[group_idx] = shared[0];
+        output[group_idx] = scratch[0];
     }
 }
 "#;
@@ -1743,6 +1954,8 @@ const SOFTMAX_WGSL: &str = r#"
 @group(0) @binding(2) var<uniform> cfg: vec4<u32>;
 
 const BLOCK_SIZE = 256u;
+
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
 @compute @workgroup_size(BLOCK_SIZE)
 fn softmax_main(
@@ -1757,9 +1970,6 @@ fn softmax_main(
 
     let base = row * dim;
 
-    // shared memory for tree-reduce
-    var shared: array<f32, BLOCK_SIZE>;
-
     // === Pass 1: find row max ===
     var mx: f32 = -3.402823e+38;
     var i = lid.x;
@@ -1768,21 +1978,21 @@ fn softmax_main(
         if (v > mx) { mx = v; }
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = mx;
+    scratch[lid.x] = mx;
     workgroupBarrier();
 
     // tree-reduce max
     var stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            if (shared[lid.x] < shared[lid.x + stride]) {
-                shared[lid.x] = shared[lid.x + stride];
+            if (scratch[lid.x] < scratch[lid.x + stride]) {
+                scratch[lid.x] = scratch[lid.x + stride];
             }
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let row_max = shared[0u];
+    let row_max = scratch[0u];
     workgroupBarrier();
 
     // === Pass 2: exp(x - max) and sum ===
@@ -1794,19 +2004,19 @@ fn softmax_main(
         sum += e;
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = sum;
+    scratch[lid.x] = sum;
     workgroupBarrier();
 
     // tree-reduce sum
     stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let row_sum = shared[0u];
+    let row_sum = scratch[0u];
     workgroupBarrier();
 
     // === Pass 3: normalize ===
@@ -1828,6 +2038,8 @@ const RMSNORM_WGSL: &str = r#"
 
 const BLOCK_SIZE = 256u;
 
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
 @compute @workgroup_size(BLOCK_SIZE)
 fn rms_norm_main(
     @builtin(global_invocation_id) gid: vec3<u32>,
@@ -1841,7 +2053,6 @@ fn rms_norm_main(
     let base = row * dim;
 
     // === Pass 1: sum(x²) ===
-    var shared: array<f32, BLOCK_SIZE>;
     var ss: f32 = 0.0;
     var i = lid.x;
     while (i < dim) {
@@ -1849,18 +2060,18 @@ fn rms_norm_main(
         ss += v * v;
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = ss;
+    scratch[lid.x] = ss;
     workgroupBarrier();
 
     var stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let rms = sqrt(shared[0u] / f32(dim) + eps);
+    let rms = sqrt(scratch[0u] / f32(dim) + eps);
     workgroupBarrier();
 
     // === Pass 2: normalize ===
@@ -1882,6 +2093,8 @@ const CROSS_ENTROPY_WGSL: &str = r#"
 
 const BLOCK_SIZE = 256u;
 
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
 @compute @workgroup_size(BLOCK_SIZE)
 fn cross_entropy_main(
     @builtin(global_invocation_id) gid: vec3<u32>,
@@ -1894,10 +2107,9 @@ fn cross_entropy_main(
     if (row >= batch) { return; }
 
     let base = row * num_classes;
-    let target = targets[row];
+    let label = targets[row];
 
     // === Pass 1: find row max (stable) ===
-    var shared: array<f32, BLOCK_SIZE>;
     var mx: f32 = -3.402823e+38;
     var i = lid.x;
     while (i < num_classes) {
@@ -1905,20 +2117,20 @@ fn cross_entropy_main(
         if (v > mx) { mx = v; }
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = mx;
+    scratch[lid.x] = mx;
     workgroupBarrier();
 
     var stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            if (shared[lid.x] < shared[lid.x + stride]) {
-                shared[lid.x] = shared[lid.x + stride];
+            if (scratch[lid.x] < scratch[lid.x + stride]) {
+                scratch[lid.x] = scratch[lid.x + stride];
             }
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let row_max = shared[0u];
+    let row_max = scratch[0u];
     workgroupBarrier();
 
     // === Pass 2: sum(exp(x - max)) ===
@@ -1928,23 +2140,23 @@ fn cross_entropy_main(
         sum += exp(logits[base + i] - row_max);
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = sum;
+    scratch[lid.x] = sum;
     workgroupBarrier();
 
     stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let log_sum_exp = log(shared[0u]) + row_max;
+    let log_sum_exp = log(scratch[0u]) + row_max;
     workgroupBarrier();
 
-    // === Pass 3: loss = log_sum_exp - logits[target] ===
+    // === Pass 3: loss = log_sum_exp - logits[label] ===
     if (lid.x == 0u) {
-        let target_logit = logits[base + target];
+        let target_logit = logits[base + label];
         losses[row] = log_sum_exp - target_logit;
     }
 }
@@ -1989,6 +2201,8 @@ const LAYERNORM_WGSL: &str = r#"
 
 const BLOCK_SIZE = 256u;
 
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
 @compute @workgroup_size(BLOCK_SIZE)
 fn layer_norm_main(
     @builtin(local_invocation_id) lid: vec3<u32>,
@@ -1999,7 +2213,6 @@ fn layer_norm_main(
     let row = wg.x;
 
     let base = row * dim;
-    var shared: array<f32, BLOCK_SIZE>;
 
     // === Pass 1: mean ===
     var sum: f32 = 0.0;
@@ -2008,18 +2221,18 @@ fn layer_norm_main(
         sum += input[base + i];
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = sum;
+    scratch[lid.x] = sum;
     workgroupBarrier();
 
     var stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let mean = shared[0u] / f32(dim);
+    let mean = scratch[0u] / f32(dim);
     workgroupBarrier();
 
     // === Pass 2: variance ===
@@ -2030,18 +2243,18 @@ fn layer_norm_main(
         var_sum += diff * diff;
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = var_sum;
+    scratch[lid.x] = var_sum;
     workgroupBarrier();
 
     stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let variance = shared[0u] / f32(dim);
+    let variance = scratch[0u] / f32(dim);
     let inv_std = 1.0 / sqrt(variance + eps);
     workgroupBarrier();
 
@@ -2089,10 +2302,10 @@ const TILE_SIZE = 32u;
 @group(0) @binding(4) var<uniform> cfg1: vec4<u32>;
 @group(0) @binding(5) var<uniform> cfg2: vec4<u32>;
 
-var<workgroup> q_shared: array<f32, BLOCK_SIZE>;
-var<workgroup> kv_shared: array<f32, BLOCK_SIZE>;
-var<workgroup> score_shared: array<f32, TILE_SIZE>;
-var<workgroup> exp_shared: array<f32, TILE_SIZE>;
+var<workgroup> q_scratch: array<f32, BLOCK_SIZE>;
+var<workgroup> kv_scratch: array<f32, BLOCK_SIZE>;
+var<workgroup> score_scratch: array<f32, TILE_SIZE>;
+var<workgroup> exp_scratch: array<f32, TILE_SIZE>;
 var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
 @compute @workgroup_size(BLOCK_SIZE)
@@ -2123,7 +2336,7 @@ fn fused_attention_main(
     let kv_base = batch_idx * batch_stride + head * head_stride;
 
     // Load Q row
-    q_shared[tid] = q[q_off + tid];
+    q_scratch[tid] = q[q_off + tid];
     workgroupBarrier();
 
     // Online softmax state
@@ -2141,10 +2354,10 @@ fn fused_attention_main(
         for (var ki: u32 = 0u; ki < tile_size; ki++) {
             let k_pos = tile_start + ki;
 
-            kv_shared[tid] = k[kv_base + k_pos * dim + tid];
+            kv_scratch[tid] = k[kv_base + k_pos * dim + tid];
             workgroupBarrier();
 
-            var partial = q_shared[tid] * kv_shared[tid];
+            var partial = q_scratch[tid] * kv_scratch[tid];
             scratch[tid] = partial;
             workgroupBarrier();
 
@@ -2162,14 +2375,14 @@ fn fused_attention_main(
                 if (causal == 1u && k_pos > q_pos) {
                     s = -3.402823e+38;
                 }
-                score_shared[ki] = s;
+                score_scratch[ki] = s;
             }
             workgroupBarrier();
         }
 
         // === Step 2: max of tile scores ===
         if (tid < tile_size) {
-            scratch[tid] = score_shared[tid];
+            scratch[tid] = score_scratch[tid];
         } else {
             scratch[tid] = -3.402823e+38;
         }
@@ -2190,8 +2403,8 @@ fn fused_attention_main(
 
         // === Step 3: exp(score - m_tile) and sum ===
         if (tid < tile_size) {
-            let e = exp(score_shared[tid] - m_tile);
-            exp_shared[tid] = e;
+            let e = exp(score_scratch[tid] - m_tile);
+            exp_scratch[tid] = e;
             scratch[tid] = e;
         } else {
             scratch[tid] = 0.0;
@@ -2220,10 +2433,10 @@ fn fused_attention_main(
         // === Step 5: Accumulate V ===
         for (var ki: u32 = 0u; ki < tile_size; ki++) {
             let k_pos = tile_start + ki;
-            kv_shared[tid] = v[kv_base + k_pos * dim + tid];
+            kv_scratch[tid] = v[kv_base + k_pos * dim + tid];
             workgroupBarrier();
 
-            o += tile_scale * exp_shared[ki] * kv_shared[tid];
+            o += tile_scale * exp_scratch[ki] * kv_scratch[tid];
             workgroupBarrier();
         }
 
@@ -2265,7 +2478,7 @@ const L2_NORM_WGSL: &str = r#"
 @group(0) @binding(2) var<uniform> cfg: vec4<u32>;
 
 const BLOCK_SIZE = 256u;
-var<workgroup> shared: array<f32, BLOCK_SIZE>;
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
 @compute @workgroup_size(BLOCK_SIZE)
 fn l2_norm_main(
@@ -2278,18 +2491,18 @@ fn l2_norm_main(
         sum += input[i] * input[i];
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = sum;
+    scratch[lid.x] = sum;
     workgroupBarrier();
     var stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
     if (lid.x == 0u) {
-        output[0] = shared[0u];
+        output[0] = scratch[0u];
     }
 }
 "#;
@@ -2300,7 +2513,7 @@ const CAUSAL_SOFTMAX_WGSL: &str = r#"
 @group(0) @binding(2) var<uniform> cfg: vec4<u32>;
 
 const BLOCK_SIZE = 256u;
-var<workgroup> shared: array<f32, BLOCK_SIZE>;
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
 @compute @workgroup_size(BLOCK_SIZE)
 fn causal_softmax_main(
@@ -2324,20 +2537,20 @@ fn causal_softmax_main(
         if (v > mx) { mx = v; }
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = mx;
+    scratch[lid.x] = mx;
     workgroupBarrier();
 
     var stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            if (shared[lid.x] < shared[lid.x + stride]) {
-                shared[lid.x] = shared[lid.x + stride];
+            if (scratch[lid.x] < scratch[lid.x + stride]) {
+                scratch[lid.x] = scratch[lid.x + stride];
             }
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let row_max = shared[0u];
+    let row_max = scratch[0u];
     workgroupBarrier();
 
     // Pass 2: exp and sum over causal prefix
@@ -2349,18 +2562,18 @@ fn causal_softmax_main(
         sum += e;
         i += BLOCK_SIZE;
     }
-    shared[lid.x] = sum;
+    scratch[lid.x] = sum;
     workgroupBarrier();
 
     stride = BLOCK_SIZE / 2u;
     while (stride > 0u) {
         if (lid.x < stride) {
-            shared[lid.x] = shared[lid.x] + shared[lid.x + stride];
+            scratch[lid.x] = scratch[lid.x] + scratch[lid.x + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
     }
-    let row_sum = shared[0u];
+    let row_sum = scratch[0u];
     workgroupBarrier();
 
     // Pass 3: normalize (only for positions <= col)
@@ -2546,9 +2759,10 @@ impl GpuTensor {
     pub fn from_cpu(data: &ArrayD<f32>) -> Result<Self, GpuError> {
         let ctx = Self::ctx()?;
         let shape = data.shape().to_vec();
-        let flat: &[u8] = bytemuck::cast_slice(data.as_slice().ok_or_else(|| {
-            GpuError::Buffer("non-contiguous array".into())
-        })?);
+        let flat: &[u8] = bytemuck::cast_slice(
+            data.as_slice()
+                .ok_or_else(|| GpuError::Buffer("non-contiguous array".into()))?,
+        );
 
         let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GpuTensor::from_cpu"),

@@ -127,19 +127,36 @@ impl ModeIsolationLayer {
     }
 
     pub fn activate_mode(&mut self, id: &ModeId) -> Result<(), IsolationError> {
-        let mode = self.modes.get_mut(id).ok_or(IsolationError::ModeNotFound(id.clone()))?;
+        let mode = self
+            .modes
+            .get_mut(id)
+            .ok_or(IsolationError::ModeNotFound(id.clone()))?;
         mode.status = ModeStatus::Active;
         Ok(())
     }
 
-    pub fn register_agent(&mut self, mode_id: &ModeId, agent_uid: Uuid) -> Result<(), IsolationError> {
-        let mode = self.modes.get_mut(mode_id).ok_or(IsolationError::ModeNotFound(mode_id.clone()))?;
+    pub fn register_agent(
+        &mut self,
+        mode_id: &ModeId,
+        agent_uid: Uuid,
+    ) -> Result<(), IsolationError> {
+        let mode = self
+            .modes
+            .get_mut(mode_id)
+            .ok_or(IsolationError::ModeNotFound(mode_id.clone()))?;
         mode.agent_ids.push(agent_uid);
         Ok(())
     }
 
-    pub fn remove_agent(&mut self, mode_id: &ModeId, agent_uid: Uuid) -> Result<(), IsolationError> {
-        let mode = self.modes.get_mut(mode_id).ok_or(IsolationError::ModeNotFound(mode_id.clone()))?;
+    pub fn remove_agent(
+        &mut self,
+        mode_id: &ModeId,
+        agent_uid: Uuid,
+    ) -> Result<(), IsolationError> {
+        let mode = self
+            .modes
+            .get_mut(mode_id)
+            .ok_or(IsolationError::ModeNotFound(mode_id.clone()))?;
         mode.agent_ids.retain(|id| *id != agent_uid);
         Ok(())
     }
@@ -149,7 +166,10 @@ impl ModeIsolationLayer {
         id: &ModeId,
         policy: ModeIsolationPolicy,
     ) -> Result<(), IsolationError> {
-        let mode = self.modes.get_mut(id).ok_or(IsolationError::ModeNotFound(id.clone()))?;
+        let mode = self
+            .modes
+            .get_mut(id)
+            .ok_or(IsolationError::ModeNotFound(id.clone()))?;
         mode.isolation_policy = policy;
         Ok(())
     }
@@ -158,11 +178,16 @@ impl ModeIsolationLayer {
         if from == to {
             return true;
         }
-        let Some(from_mode) = self.modes.get(from) else { return false };
+        let Some(from_mode) = self.modes.get(from) else {
+            return false;
+        };
         if !from_mode.isolation_policy.inter_mode_communication {
             return false;
         }
-        from_mode.isolation_policy.allow_egress_to_modes.contains(&to.0)
+        from_mode
+            .isolation_policy
+            .allow_egress_to_modes
+            .contains(&to.0)
     }
 
     pub fn list_modes(&self) -> Vec<&Mode> {
@@ -174,14 +199,20 @@ impl ModeIsolationLayer {
     }
 
     pub fn terminate_mode(&mut self, id: &ModeId) -> Result<Vec<Uuid>, IsolationError> {
-        let mode = self.modes.get_mut(id).ok_or(IsolationError::ModeNotFound(id.clone()))?;
+        let mode = self
+            .modes
+            .get_mut(id)
+            .ok_or(IsolationError::ModeNotFound(id.clone()))?;
         let agents = mode.agent_ids.clone();
         mode.status = ModeStatus::Terminating;
         Ok(agents)
     }
 
     pub fn quarantine_mode(&mut self, id: &ModeId) -> Result<(), IsolationError> {
-        let mode = self.modes.get_mut(id).ok_or(IsolationError::ModeNotFound(id.clone()))?;
+        let mode = self
+            .modes
+            .get_mut(id)
+            .ok_or(IsolationError::ModeNotFound(id.clone()))?;
         mode.status = ModeStatus::Quarantined;
         mode.isolation_policy.inter_mode_communication = false;
         mode.isolation_policy.allow_egress_to_modes.clear();
@@ -208,11 +239,7 @@ mod tests {
 
     #[test]
     fn test_mode_creation_and_activation() {
-        let mut layer = ModeIsolationLayer::new(
-            NetworkPolicy::DenyAll,
-            GpuQuota::default(),
-            16384,
-        );
+        let mut layer = ModeIsolationLayer::new(NetworkPolicy::DenyAll, GpuQuota::default(), 16384);
         let id = ModeId::new("research");
         layer.create_mode(id.clone(), ModeKind::Research);
         assert_eq!(layer.get_mode(&id).unwrap().status, ModeStatus::Creating);
@@ -222,11 +249,7 @@ mod tests {
 
     #[test]
     fn test_inter_mode_communication_blocked() {
-        let mut layer = ModeIsolationLayer::new(
-            NetworkPolicy::DenyAll,
-            GpuQuota::default(),
-            16384,
-        );
+        let mut layer = ModeIsolationLayer::new(NetworkPolicy::DenyAll, GpuQuota::default(), 16384);
         let research = ModeId::new("research");
         let defense = ModeId::new("defense");
         layer.create_mode(research.clone(), ModeKind::Research);

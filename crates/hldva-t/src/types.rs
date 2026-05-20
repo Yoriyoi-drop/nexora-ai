@@ -20,7 +20,7 @@ impl Resolution {
     pub fn new(width: usize, height: usize) -> Self {
         Self { width, height }
     }
-    
+
     pub fn area(&self) -> usize {
         self.width * self.height
     }
@@ -42,7 +42,7 @@ impl LatentSpace {
             channels,
         }
     }
-    
+
     pub fn shape(&self) -> (usize, usize, usize) {
         (self.resolution.height, self.resolution.width, self.channels)
     }
@@ -64,12 +64,12 @@ impl ClipEmbedding {
             attention_mask: None,
         }
     }
-    
+
     pub fn with_image_features(mut self, image_features: Tensor) -> Self {
         self.image_features = Some(image_features);
         self
     }
-    
+
     pub fn with_attention_mask(mut self, attention_mask: Tensor) -> Self {
         self.attention_mask = Some(attention_mask);
         self
@@ -92,7 +92,7 @@ impl NoisePrediction {
             confidence: None,
         }
     }
-    
+
     pub fn with_confidence(mut self, confidence: f32) -> Self {
         self.confidence = Some(confidence);
         self
@@ -122,19 +122,19 @@ impl UpsamplingResult {
 pub struct HLDVAInput {
     /// Text prompt
     pub prompt: String,
-    
+
     /// Optional negative prompt
     pub negative_prompt: Option<String>,
-    
+
     /// Target resolution
     pub target_resolution: Resolution,
-    
+
     /// Seed untuk reproducibility
     pub seed: Option<u64>,
-    
+
     /// Guidance scale untuk classifier-free guidance
     pub guidance_scale: f32,
-    
+
     /// Jumlah inference steps
     pub num_inference_steps: usize,
 }
@@ -157,16 +157,16 @@ impl Default for HLDVAInput {
 pub struct HLDVAOutput {
     /// Generated image
     pub image: Tensor,
-    
+
     /// Final latent representation
     pub final_latent: LatentSpace,
-    
+
     /// Intermediate results dari setiap stage
     pub intermediate_latents: Vec<LatentSpace>,
-    
+
     /// Generation metrics
     pub metrics: GenerationMetrics,
-    
+
     /// Waktu eksekusi
     pub execution_time_ms: u64,
 }
@@ -176,20 +176,20 @@ pub struct HLDVAOutput {
 pub struct GenerationMetrics {
     /// FID score (jika ada ground truth)
     pub fid: Option<f32>,
-    
+
     /// CLIP score
     pub clip_score: Option<f32>,
-    
+
     /// Inception Score
     pub inception_score: Option<f32>,
-    
+
     /// Precision dan recall
     pub precision: Option<f32>,
     pub recall: Option<f32>,
-    
+
     /// Divergence metrics
     pub kl_divergence: Option<f32>,
-    
+
     /// Perceptual quality
     pub lpips: Option<f32>,
 }
@@ -199,16 +199,16 @@ pub struct GenerationMetrics {
 pub struct TrainingBatch {
     /// Images
     pub images: Tensor,
-    
+
     /// Text prompts
     pub prompts: Vec<String>,
-    
+
     /// Timesteps untuk batch ini
     pub timesteps: Vec<Timestep>,
-    
+
     /// Noise yang ditambahkan
     pub noise: Tensor,
-    
+
     /// Latent representations
     pub latents: Tensor,
 }
@@ -229,7 +229,7 @@ impl TrainingBatch {
             latents,
         }
     }
-    
+
     pub fn batch_size(&self) -> usize {
         self.prompts.len()
     }
@@ -240,22 +240,22 @@ impl TrainingBatch {
 pub struct TrainingState {
     /// Current stage (0-3)
     pub current_stage: usize,
-    
+
     /// Current epoch
     pub current_epoch: usize,
-    
+
     /// Current step
     pub current_step: usize,
-    
+
     /// Total steps completed
     pub total_steps: usize,
-    
+
     /// Learning rate saat ini
     pub current_lr: f32,
-    
+
     /// Loss history
     pub loss_history: Vec<f32>,
-    
+
     /// Metrics history
     pub metrics_history: HashMap<String, Vec<f32>>,
 }
@@ -279,34 +279,34 @@ impl Default for TrainingState {
 pub enum HLDVAError {
     #[error("Configuration error: {0}")]
     Config(String),
-    
+
     #[error("Model error: {0}")]
     Model(String),
-    
+
     #[error("Training error: {0}")]
     Training(String),
-    
+
     #[error("Inference error: {0}")]
     Inference(String),
-    
+
     #[error("Data error: {0}")]
     Data(String),
-    
+
     #[error("Tensor error: {0}")]
     Tensor(String),
-    
+
     #[error("Device error: {0}")]
     Device(String),
-    
+
     #[error("Evaluation error: {0}")]
     Evaluation(String),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 }
@@ -323,13 +323,13 @@ pub type HLDVAResult<T> = Result<T, HLDVAError>;
 /// Trait untuk komponen HLDVA-T yang bisa di-train
 pub trait Trainable {
     type TrainingConfig;
-    
+
     fn train(&mut self, config: Self::TrainingConfig) -> HLDVAResult<()>;
-    
+
     fn evaluate(&self) -> HLDVAResult<GenerationMetrics>;
-    
+
     fn save_checkpoint<P: AsRef<std::path::Path>>(&self, path: P) -> HLDVAResult<()>;
-    
+
     fn load_checkpoint<P: AsRef<std::path::Path>>(&mut self, path: P) -> HLDVAResult<()>;
 }
 
@@ -337,28 +337,28 @@ pub trait Trainable {
 pub trait Inference {
     type Input;
     type Output;
-    
+
     fn infer(&self, input: Self::Input) -> HLDVAResult<Self::Output>;
-    
+
     fn batch_infer(&self, inputs: Vec<Self::Input>) -> HLDVAResult<Vec<Self::Output>>;
 }
 
 /// Trait untuk komponen yang menggunakan conditioning
 pub trait Conditional {
     type Conditioning;
-    
+
     fn set_conditioning(&mut self, conditioning: Self::Conditioning);
-    
+
     fn get_conditioning(&self) -> &Self::Conditioning;
 }
 
 /// Trait untuk komponen yang bisa di-optimasi
 pub trait Optimizable {
     fn parameters(&self) -> Vec<Tensor>;
-    
+
     fn gradients(&self) -> Vec<Tensor>;
-    
+
     fn update_parameters(&mut self, learning_rate: f32) -> HLDVAResult<()>;
-    
+
     fn zero_gradients(&mut self);
 }

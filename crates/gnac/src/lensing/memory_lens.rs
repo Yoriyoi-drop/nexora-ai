@@ -1,5 +1,5 @@
 use crate::canvas::NeuralGraph;
-use crate::lensing::{NeuralLens, LensType, LensObservation, ObservationSeverity};
+use crate::lensing::{LensObservation, LensType, NeuralLens, ObservationSeverity};
 
 /// Memory Lens — menyorot konsumsi memori
 pub struct MemoryLens;
@@ -37,7 +37,10 @@ impl NeuralLens for MemoryLens {
                 total_activation_memory / 1_000_000
             )
         } else {
-            format!("Total activation memory: {} MB. No memory bottlenecks.", total_activation_memory / 1_000_000)
+            format!(
+                "Total activation memory: {} MB. No memory bottlenecks.",
+                total_activation_memory / 1_000_000
+            )
         };
 
         LensObservation {

@@ -117,20 +117,26 @@ impl PermissionLayer {
         let mut role_defaults = HashMap::new();
 
         role_defaults.insert(AgentRole::System, HashSet::new());
-        role_defaults.insert(AgentRole::Admin, HashSet::from([
-            Capability::InternetAccess,
-            Capability::VectorDbAccess,
-            Capability::FileSystemRead,
-            Capability::AgentSpawn,
-        ]));
-        role_defaults.insert(AgentRole::Specialist, HashSet::from([
-            Capability::VectorDbAccess,
-            Capability::ModelInference("default".into()),
-        ]));
-        role_defaults.insert(AgentRole::Observer, HashSet::from([
-            Capability::VectorDbAccess,
-            Capability::FileSystemRead,
-        ]));
+        role_defaults.insert(
+            AgentRole::Admin,
+            HashSet::from([
+                Capability::InternetAccess,
+                Capability::VectorDbAccess,
+                Capability::FileSystemRead,
+                Capability::AgentSpawn,
+            ]),
+        );
+        role_defaults.insert(
+            AgentRole::Specialist,
+            HashSet::from([
+                Capability::VectorDbAccess,
+                Capability::ModelInference("default".into()),
+            ]),
+        );
+        role_defaults.insert(
+            AgentRole::Observer,
+            HashSet::from([Capability::VectorDbAccess, Capability::FileSystemRead]),
+        );
         role_defaults.insert(AgentRole::Restricted, HashSet::new());
 
         Self {
@@ -199,29 +205,51 @@ impl PermissionLayer {
             capability: capability.clone(),
             granted,
             timestamp: chrono::Utc::now(),
-            reason: if granted { "Allowed by role".into() } else { "Not in allowed capabilities".into() },
+            reason: if granted {
+                "Allowed by role".into()
+            } else {
+                "Not in allowed capabilities".into()
+            },
         });
         granted
     }
 
-    pub fn grant_capability(&mut self, agent_id: Uuid, capability: Capability) -> Result<(), PermissionError> {
-        let agent = self.agents.get_mut(&agent_id)
+    pub fn grant_capability(
+        &mut self,
+        agent_id: Uuid,
+        capability: Capability,
+    ) -> Result<(), PermissionError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
             .ok_or(PermissionError::AgentNotFound(agent_id))?;
         agent.denied_capabilities.remove(&capability);
         agent.allowed_capabilities.insert(capability);
         Ok(())
     }
 
-    pub fn revoke_capability(&mut self, agent_id: Uuid, capability: &Capability) -> Result<(), PermissionError> {
-        let agent = self.agents.get_mut(&agent_id)
+    pub fn revoke_capability(
+        &mut self,
+        agent_id: Uuid,
+        capability: &Capability,
+    ) -> Result<(), PermissionError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
             .ok_or(PermissionError::AgentNotFound(agent_id))?;
         agent.allowed_capabilities.remove(capability);
         agent.denied_capabilities.insert(capability.clone());
         Ok(())
     }
 
-    pub fn set_agent_role(&mut self, agent_id: Uuid, role: AgentRole) -> Result<(), PermissionError> {
-        let agent = self.agents.get_mut(&agent_id)
+    pub fn set_agent_role(
+        &mut self,
+        agent_id: Uuid,
+        role: AgentRole,
+    ) -> Result<(), PermissionError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
             .ok_or(PermissionError::AgentNotFound(agent_id))?;
         agent.role = role.clone();
         if let Some(defaults) = self.role_defaults.get(&role) {
@@ -242,7 +270,10 @@ impl PermissionLayer {
     }
 
     pub fn get_audit_log(&self, since: chrono::DateTime<chrono::Utc>) -> Vec<&AccessAuditEntry> {
-        self.audit_log.iter().filter(|e| e.timestamp >= since).collect()
+        self.audit_log
+            .iter()
+            .filter(|e| e.timestamp >= since)
+            .collect()
     }
 
     pub fn verify_tool_access(&mut self, agent_id: Uuid, tool: &str) -> bool {
@@ -305,8 +336,12 @@ mod tests {
         let sentinel_id = Uuid::new_v4();
         let _perms = layer.register_agent(sentinel_id, "code-sentinel", AgentRole::Restricted);
 
-        layer.grant_capability(sentinel_id, Capability::ShellAccess).unwrap();
-        layer.grant_capability(sentinel_id, Capability::CompilerAccess).unwrap();
+        layer
+            .grant_capability(sentinel_id, Capability::ShellAccess)
+            .unwrap();
+        layer
+            .grant_capability(sentinel_id, Capability::CompilerAccess)
+            .unwrap();
 
         assert!(layer.check_capability(sentinel_id, &Capability::ShellAccess));
         assert!(layer.check_capability(sentinel_id, &Capability::CompilerAccess));

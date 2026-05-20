@@ -1,25 +1,25 @@
 //! Entropic Resonance Pruning (ERP) - Strengthened Architecture
-//! 
+//!
 //! ERP tidak menghapus neuron secara permanen seperti pruning tradisional.
 //! Sebaliknya, ERP mendeteksi neuron dengan distribusi informasi yang sangat mirip,
 //! lalu mengelompokkannya ke dalam Resonance Groups (RG), merepresentasikannya
 //! sebagai superposed latent representation, dan hanya merekonstruksi bagian yang
 //! relevan berdasarkan konteks inferensi.
 
-pub mod core;
-pub mod resonance;
-pub mod compression;
-pub mod reconstruction;
 pub mod cache;
+pub mod compression;
+pub mod core;
+pub mod reconstruction;
+pub mod resonance;
 pub mod training;
 pub mod utils;
 
 // Re-export main components
-pub use core::*;
-pub use resonance::*;
-pub use compression::*;
-pub use reconstruction::*;
 pub use cache::*;
+pub use compression::*;
+pub use core::*;
+pub use reconstruction::*;
+pub use resonance::*;
 pub use training::*;
 pub use utils::*;
 
@@ -81,29 +81,43 @@ impl ERPEngine {
     }
 
     /// Apply ERP pruning to neural network weights
-    pub fn apply_pruning(&mut self, weights: &[ndarray::Array2<f32>]) -> Result<Vec<CompressedLayer>, ERPError> {
+    pub fn apply_pruning(
+        &mut self,
+        weights: &[ndarray::Array2<f32>],
+    ) -> Result<Vec<CompressedLayer>, ERPError> {
         // Phase 1: Information resonance mapping
         let resonance_groups = self.resonance_mapper.map_resonance(weights)?;
-        
+
         // Phase 2: Superposition compression
-        let compressed_layers = self.compressor.compress_weights(weights, &resonance_groups)?;
-        
+        let compressed_layers = self
+            .compressor
+            .compress_weights(weights, &resonance_groups)?;
+
         Ok(compressed_layers)
     }
 
     /// Inference with ERP reconstruction
-    pub fn forward(&mut self, compressed_layers: &[CompressedLayer], input: &ndarray::Array1<f32>) -> Result<ndarray::Array1<f32>, ERPError> {
+    pub fn forward(
+        &mut self,
+        compressed_layers: &[CompressedLayer],
+        input: &ndarray::Array1<f32>,
+    ) -> Result<ndarray::Array1<f32>, ERPError> {
         // Check cache first
         let context_hash = self.cache.hash_context(input);
         if let Some(cached_pattern) = self.cache.get(context_hash) {
-            return Ok(self.reconstructor.reconstruct_with_gates(compressed_layers, input, &cached_pattern.gates)?);
+            return Ok(self.reconstructor.reconstruct_with_gates(
+                compressed_layers,
+                input,
+                &cached_pattern.gates,
+            )?);
         }
 
         // Compute gates and cache
         let gates = self.reconstructor.compute_gates(compressed_layers, input)?;
         self.cache.insert(context_hash, gates.clone());
-        
-        self.reconstructor.reconstruct_with_gates(compressed_layers, input, &gates)
+
+        self.reconstructor
+            .reconstruct_with_gates(compressed_layers, input, &gates)
     }
 }
 

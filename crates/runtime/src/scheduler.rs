@@ -1,11 +1,11 @@
+use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
-use uuid::Uuid;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
-use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
-use crate::{Result, InferenceError, InferenceRequest, InferenceResponse};
+use crate::{InferenceError, InferenceRequest, InferenceResponse, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SchedulingStrategy {
@@ -109,17 +109,24 @@ impl RequestScheduler {
         Ok(())
     }
 
-    pub async fn submit_request(&self, request: InferenceRequest, response_tx: mpsc::UnboundedSender<InferenceResponse>) -> Result<()> {
+    pub async fn submit_request(
+        &self,
+        request: InferenceRequest,
+        response_tx: mpsc::UnboundedSender<InferenceResponse>,
+    ) -> Result<()> {
         debug!("Submitting request to scheduler: {:?}", request.request_id);
 
         {
             let state = self.state.read().await;
             if *state != SchedulerState::Ready {
-                return Err(InferenceError::InternalError("Scheduler not ready".to_string()).into());
+                return Err(
+                    InferenceError::InternalError("Scheduler not ready".to_string()).into(),
+                );
             }
         }
 
-        let request_uuid = request.request_id
+        let request_uuid = request
+            .request_id
             .as_ref()
             .and_then(|s| Uuid::parse_str(s).ok())
             .unwrap_or_else(Uuid::new_v4);
@@ -136,8 +143,14 @@ impl RequestScheduler {
             metadata: HashMap::new(),
         };
 
-        self.response_channels.write().await.insert(request_uuid, queued_request.response_tx.clone());
-        self.request_status.write().await.insert(request_uuid, RequestStatus::Queued);
+        self.response_channels
+            .write()
+            .await
+            .insert(request_uuid, queued_request.response_tx.clone());
+        self.request_status
+            .write()
+            .await
+            .insert(request_uuid, RequestStatus::Queued);
         self.insert_into_queue(&mut *self.request_queue.write().await, queued_request);
 
         {
@@ -177,17 +190,23 @@ impl RequestScheduler {
     pub async fn start_request(&self, request_id: Uuid) -> Result<()> {
         debug!("Starting request processing: {}", request_id);
 
-        self.request_status.write().await.get_mut(&request_id)
+        self.request_status
+            .write()
+            .await
+            .get_mut(&request_id)
             .map(|s| *s = RequestStatus::Processing);
 
-        self.active_requests.write().await.insert(request_id, RequestInfo {
+        self.active_requests.write().await.insert(
             request_id,
-            started_at: Utc::now(),
-            processing_time_ms: 0,
-            priority: 0,
-            session_id: None,
-            metadata: HashMap::new(),
-        });
+            RequestInfo {
+                request_id,
+                started_at: Utc::now(),
+                processing_time_ms: 0,
+                priority: 0,
+                session_id: None,
+                metadata: HashMap::new(),
+            },
+        );
 
         let active_len = self.active_requests.read().await.len();
         self.stats.write().await.current_active_requests = active_len;
@@ -201,7 +220,8 @@ impl RequestScheduler {
 
         let processing_time = {
             let mut active = self.active_requests.write().await;
-            active.remove(&request_id)
+            active
+                .remove(&request_id)
                 .map(|info| (Utc::now() - info.started_at).num_milliseconds() as u64)
                 .unwrap_or_else(|| {
                     warn!("Request {} not found in active requests", request_id);
@@ -209,7 +229,10 @@ impl RequestScheduler {
                 })
         };
 
-        self.request_status.write().await.get_mut(&request_id)
+        self.request_status
+            .write()
+            .await
+            .get_mut(&request_id)
             .map(|s| *s = RequestStatus::Completed);
 
         let active_len = self.active_requests.read().await.len();
@@ -218,8 +241,10 @@ impl RequestScheduler {
             stats.processed_requests += 1;
             stats.current_active_requests = active_len;
             if stats.processed_requests > 0 {
-                stats.avg_processing_time_ms = (stats.avg_processing_time_ms * (stats.processed_requests - 1) as f64
-                    + processing_time as f64) / stats.processed_requests as f64;
+                stats.avg_processing_time_ms = (stats.avg_processing_time_ms
+                    * (stats.processed_requests - 1) as f64
+                    + processing_time as f64)
+                    / stats.processed_requests as f64;
             }
             stats.last_updated = Utc::now();
         }
@@ -238,7 +263,8 @@ impl RequestScheduler {
         {
             let mut queue = self.request_queue.write().await;
             if let Some(pos) = queue.iter().position(|req| {
-                req.request.request_id
+                req.request
+                    .request_id
                     .as_ref()
                     .and_then(|s| Uuid::parse_str(s).ok())
                     .map(|uuid| uuid == request_id)
@@ -257,7 +283,10 @@ impl RequestScheduler {
         }
 
         if cancelled {
-            self.request_status.write().await.insert(request_id, RequestStatus::Cancelled);
+            self.request_status
+                .write()
+                .await
+                .insert(request_id, RequestStatus::Cancelled);
 
             let queue_len = self.request_queue.read().await.len();
             let active_len = self.active_requests.read().await.len();
@@ -286,9 +315,12 @@ impl RequestScheduler {
         };
 
         match response_tx {
-            Some(tx) => tx.send(response)
-                .map_err(|_| InferenceError::InternalError("Response channel closed".to_string()).into()),
-            None => Err(InferenceError::InternalError("Response channel not found".to_string()).into()),
+            Some(tx) => tx.send(response).map_err(|_| {
+                InferenceError::InternalError("Response channel closed".to_string()).into()
+            }),
+            None => {
+                Err(InferenceError::InternalError("Response channel not found".to_string()).into())
+            }
         }
     }
 
@@ -321,7 +353,10 @@ impl RequestScheduler {
 
         for request_id in active_ids {
             if let Err(e) = self.cancel_request(request_id).await {
-                warn!("Failed to cancel request {} during scheduler shutdown: {}", request_id, e);
+                warn!(
+                    "Failed to cancel request {} during scheduler shutdown: {}",
+                    request_id, e
+                );
             }
         }
 
@@ -333,24 +368,29 @@ impl RequestScheduler {
     async fn process_queue(&self) -> Result<()> {
         while let Some(queued_request) = self.get_next_request().await? {
             self.start_request(
-                queued_request.request.request_id
+                queued_request
+                    .request
+                    .request_id
                     .as_ref()
                     .and_then(|s| Uuid::parse_str(s).ok())
-                    .unwrap_or_else(Uuid::new_v4)
-            ).await?;
+                    .unwrap_or_else(Uuid::new_v4),
+            )
+            .await?;
         }
         Ok(())
     }
 
     fn insert_into_queue(&self, queue: &mut VecDeque<QueuedRequest>, request: QueuedRequest) {
         let insert_pos = match self.strategy {
-            SchedulingStrategy::FIFO | SchedulingStrategy::RoundRobin | SchedulingStrategy::Fair => None,
-            SchedulingStrategy::Priority => {
-                queue.iter().position(|existing| request.priority > existing.priority)
-            }
-            SchedulingStrategy::SJF => {
-                queue.iter().position(|existing| request.estimated_time_ms < existing.estimated_time_ms)
-            }
+            SchedulingStrategy::FIFO
+            | SchedulingStrategy::RoundRobin
+            | SchedulingStrategy::Fair => None,
+            SchedulingStrategy::Priority => queue
+                .iter()
+                .position(|existing| request.priority > existing.priority),
+            SchedulingStrategy::SJF => queue
+                .iter()
+                .position(|existing| request.estimated_time_ms < existing.estimated_time_ms),
         };
         match insert_pos {
             Some(pos) => queue.insert(pos, request),
@@ -360,13 +400,19 @@ impl RequestScheduler {
 
     fn calculate_priority(&self, request: &InferenceRequest) -> u8 {
         let mut priority = 50;
-        let max_tokens = request.parameters.get("max_tokens")
+        let max_tokens = request
+            .parameters
+            .get("max_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(100);
-        let streaming = request.parameters.get("streaming")
+        let streaming = request
+            .parameters
+            .get("streaming")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let temperature = request.parameters.get("temperature")
+        let temperature = request
+            .parameters
+            .get("temperature")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.7) as f32;
 
@@ -386,10 +432,14 @@ impl RequestScheduler {
 
     fn estimate_processing_time(&self, request: &InferenceRequest) -> u64 {
         let base_time_per_token = 50;
-        let max_tokens = request.parameters.get("max_tokens")
+        let max_tokens = request
+            .parameters
+            .get("max_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(100);
-        let temperature = request.parameters.get("temperature")
+        let temperature = request
+            .parameters
+            .get("temperature")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.7) as f32;
         let temperature_factor = if temperature > 0.0 { 1.5 } else { 1.0 };
@@ -409,7 +459,8 @@ mod tests {
                 model_id: "test".into(),
                 inputs: vec![],
                 parameters: [("max_tokens".to_string(), serde_json::json!(100))]
-                    .into_iter().collect(),
+                    .into_iter()
+                    .collect(),
                 request_id: Some(uuid::Uuid::new_v4().to_string()),
                 input_tokens: vec![],
                 target_tokens: None,
@@ -438,8 +489,7 @@ mod tests {
 
     #[test]
     fn test_insert_into_queue_priority() {
-        let scheduler = RequestScheduler::new(10)
-            .with_strategy(SchedulingStrategy::Priority);
+        let scheduler = RequestScheduler::new(10).with_strategy(SchedulingStrategy::Priority);
         let mut queue = VecDeque::new();
 
         scheduler.insert_into_queue(&mut queue, test_request(10));
@@ -454,13 +504,15 @@ mod tests {
 
     #[test]
     fn test_insert_into_queue_sjf() {
-        let scheduler = RequestScheduler::new(10)
-            .with_strategy(SchedulingStrategy::SJF);
+        let scheduler = RequestScheduler::new(10).with_strategy(SchedulingStrategy::SJF);
 
         let mut queue = VecDeque::new();
-        let mut r1 = test_request(50); r1.estimated_time_ms = 200;
-        let mut r2 = test_request(50); r2.estimated_time_ms = 50;
-        let mut r3 = test_request(50); r3.estimated_time_ms = 100;
+        let mut r1 = test_request(50);
+        r1.estimated_time_ms = 200;
+        let mut r2 = test_request(50);
+        r2.estimated_time_ms = 50;
+        let mut r3 = test_request(50);
+        r3.estimated_time_ms = 100;
 
         scheduler.insert_into_queue(&mut queue, r1);
         scheduler.insert_into_queue(&mut queue, r2);

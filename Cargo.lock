@@ -3711,6 +3711,7 @@ dependencies = [
  "libc",
  "mockall",
  "ndarray 0.15.6",
+ "nexora-autograd",
  "nexora-blaa",
  "nexora-common",
  "nexora-core",

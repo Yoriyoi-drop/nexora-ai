@@ -1,5 +1,5 @@
-use crate::canvas::{NeuralGraph, GradientStatus};
-use crate::lensing::{NeuralLens, LensType, LensObservation, ObservationSeverity};
+use crate::canvas::{GradientStatus, NeuralGraph};
+use crate::lensing::{LensObservation, LensType, NeuralLens, ObservationSeverity};
 
 /// Gradient Failure Lens — menyorot node dengan gradien tidak stabil
 pub struct GradientFailureLens;

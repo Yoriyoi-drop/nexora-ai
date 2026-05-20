@@ -1,57 +1,60 @@
 //! Base Agent Trait and Common Functionality
-//! 
+//!
 //! Provides the foundation for all NXR agents
 
+use super::agent_types::{AgentCapability, AgentError, AgentMetrics, AgentResult, AgentStatus};
 use async_trait::async_trait;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use super::agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult, AgentError};
+use std::collections::HashMap;
 
 /// Base trait that all NXR agents must implement
 #[async_trait]
 pub trait BaseAgent: Send + Sync {
     /// Agent-specific configuration type
     type Config: Clone + Send + Sync;
-    
+
     /// Input type for this agent
     type Input: Clone + Send + Sync;
-    
+
     /// Output type for this agent
     type Output: Clone + Send + Sync;
 
     /// Process a single task
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output>;
-    
+
     /// Get agent identifier
     fn agent_id(&self) -> &str;
-    
+
     /// Get current agent status
     fn get_status(&self) -> AgentStatus;
-    
+
     /// Get agent capabilities
     fn get_capabilities(&self) -> Vec<AgentCapability>;
-    
+
     /// Get agent metrics
     fn get_metrics(&self) -> AgentMetrics;
-    
+
     /// Initialize the agent with configuration
     async fn initialize(&mut self, config: Self::Config) -> AgentResult<()>;
-    
+
     /// Shutdown the agent gracefully
     async fn shutdown(&mut self) -> AgentResult<()>;
-    
+
     /// Health check
     async fn health_check(&self) -> AgentResult<bool> {
-        Ok(matches!(self.get_status(), AgentStatus::Idle | AgentStatus::Processing))
+        Ok(matches!(
+            self.get_status(),
+            AgentStatus::Idle | AgentStatus::Processing
+        ))
     }
-    
+
     /// Check if agent can handle specific input type
     fn can_handle_input(&self, input_type: &str) -> bool {
         self.get_capabilities()
             .iter()
             .any(|cap| cap.input_types.contains(&input_type.to_string()))
     }
-    
+
     /// Get supported input types
     fn supported_input_types(&self) -> Vec<String> {
         self.get_capabilities()
@@ -59,7 +62,7 @@ pub trait BaseAgent: Send + Sync {
             .flat_map(|cap| cap.input_types.clone())
             .collect()
     }
-    
+
     /// Get supported output types
     fn supported_output_types(&self) -> Vec<String> {
         self.get_capabilities()
@@ -164,22 +167,22 @@ pub trait AgentLifecycle: BaseAgent {
     async fn pre_process(&self, input: &Self::Input) -> AgentResult<Self::Input> {
         Ok(input.clone())
     }
-    
+
     /// Post-processing hook
     async fn post_process(&self, output: &Self::Output) -> AgentResult<Self::Output> {
         Ok(output.clone())
     }
-    
+
     /// Error handling hook
     async fn handle_error(&self, error: &AgentError) -> AgentResult<()> {
         tracing::error!("Agent {} encountered error: {}", self.agent_id(), error);
         Ok(())
     }
-    
+
     /// Process with lifecycle hooks
     async fn process_with_lifecycle(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let processed_input = self.pre_process(&input).await?;
-        
+
         match self.process(processed_input).await {
             Ok(output) => {
                 let final_output = self.post_process(&output).await?;
@@ -201,19 +204,19 @@ macro_rules! impl_base_agent {
             type Config = $config_type;
             type Input = $input_type;
             type Output = $output_type;
-            
+
             fn agent_id(&self) -> &str {
                 &self.config.agent_id
             }
-            
+
             fn get_status(&self) -> $crate::agent_types::AgentStatus {
                 self.status.clone()
             }
-            
+
             fn get_capabilities(&self) -> Vec<$crate::agent_types::AgentCapability> {
                 self.capabilities.clone()
             }
-            
+
             fn get_metrics(&self) -> $crate::agent_types::AgentMetrics {
                 self.metrics.clone()
             }

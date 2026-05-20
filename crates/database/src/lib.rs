@@ -47,7 +47,10 @@ impl std::fmt::Debug for DatabaseConfig {
             .field("password", &"***REDACTED***")
             .field("ssl_mode", &self.ssl_mode)
             .field("max_connections", &self.max_connections)
-            .field("connection_timeout_seconds", &self.connection_timeout_seconds)
+            .field(
+                "connection_timeout_seconds",
+                &self.connection_timeout_seconds,
+            )
             .field("idle_timeout_seconds", &self.idle_timeout_seconds)
             .field("max_lifetime_seconds", &self.max_lifetime_seconds)
             .finish()
@@ -102,174 +105,169 @@ mod mysql_impl {
             mysql::Value::Float(f) => Value::F32(f),
             mysql::Value::Double(d) => Value::F64(d),
             mysql::Value::Bytes(b) => Value::String(String::from_utf8_lossy(&b).to_string()),
-            mysql::Value::Date(y, m, d, h, min, sec, us) => {
-                Value::Timestamp(std::time::UNIX_EPOCH + std::time::Duration::from_secs(
-                    chrono::NaiveDateTime::new(
-                        chrono::NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32)
+            mysql::Value::Date(y, m, d, h, min, sec, us) => Value::Timestamp(
+                std::time::UNIX_EPOCH
+                    + std::time::Duration::from_secs(
+                        chrono::NaiveDateTime::new(
+                            chrono::NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32)
+                                .unwrap_or_default(),
+                            chrono::NaiveTime::from_hms_micro_opt(
+                                h as u32, min as u32, sec as u32, us,
+                            )
                             .unwrap_or_default(),
-                        chrono::NaiveTime::from_hms_micro_opt(
-                            h as u32, min as u32, sec as u32, us,
                         )
-                        .unwrap_or_default(),
-                    )
-                    .and_utc()
-                    .timestamp() as u64,
-                ))
-            }
+                        .and_utc()
+                        .timestamp() as u64,
+                    ),
+            ),
         }
     }
 
     pub struct MySQLDatabase {
-    pool: mysql::Pool,
-    config: MySQLConfig,
-}
-
-#[cfg(feature = "mysql")]
-impl MySQLDatabase {
-    pub fn new(pool: mysql::Pool, config: MySQLConfig) -> Self {
-        Self { pool, config }
-    }
-}
-
-#[cfg(feature = "mysql")]
-#[async_trait]
-impl Database for MySQLDatabase {
-    async fn connect(&self) -> Result<()> {
-        let _conn = self.pool.get_conn()?;
-        Ok(())
+        pool: mysql::Pool,
+        config: MySQLConfig,
     }
 
-    async fn execute_query(
-        &self,
-        query: &str,
-        params: Vec<Value>,
-    ) -> Result<QueryResult> {
-        let mut conn = self.pool.get_conn()?;
+    #[cfg(feature = "mysql")]
+    impl MySQLDatabase {
+        pub fn new(pool: mysql::Pool, config: MySQLConfig) -> Self {
+            Self { pool, config }
+        }
+    }
 
-        let mysql_params: Vec<mysql::Value> = params
-            .into_iter()
-            .map(|v| match v {
-                Value::String(s) => mysql::Value::from(s.as_str()),
-                Value::Integer(i) => mysql::Value::from(i as i64),
-                Value::Float(f) => mysql::Value::from(f),
-                Value::Boolean(b) => mysql::Value::from(b),
-                Value::Null => mysql::Value::NULL,
-                Value::Timestamp(ts) => mysql::Value::from(ts as i64),
-            })
-            .collect();
+    #[cfg(feature = "mysql")]
+    #[async_trait]
+    impl Database for MySQLDatabase {
+        async fn connect(&self) -> Result<()> {
+            let _conn = self.pool.get_conn()?;
+            Ok(())
+        }
 
-        let result = conn.exec_iter(query, mysql_params)?;
-        let affected = result.affected_rows() as u64;
-        let columns = result.columns().to_vec();
+        async fn execute_query(&self, query: &str, params: Vec<Value>) -> Result<QueryResult> {
+            let mut conn = self.pool.get_conn()?;
 
-        // Collect rows from result
-        let rows: Vec<HashMap<String, Value>> = result
-            .map(|row_result| {
-                row_result.map(|row| {
-                    let mut row_data = HashMap::new();
-                    for (i, column) in columns.iter().enumerate() {
-                        let val: mysql::Value = row.get(i).unwrap_or(mysql::Value::NULL);
-                        row_data.insert(column.name_str().to_string(), convert_mysql_value(val));
-                    }
-                    row_data
+            let mysql_params: Vec<mysql::Value> = params
+                .into_iter()
+                .map(|v| match v {
+                    Value::String(s) => mysql::Value::from(s.as_str()),
+                    Value::Integer(i) => mysql::Value::from(i as i64),
+                    Value::Float(f) => mysql::Value::from(f),
+                    Value::Boolean(b) => mysql::Value::from(b),
+                    Value::Null => mysql::Value::NULL,
+                    Value::Timestamp(ts) => mysql::Value::from(ts as i64),
                 })
+                .collect();
+
+            let result = conn.exec_iter(query, mysql_params)?;
+            let affected = result.affected_rows() as u64;
+            let columns = result.columns().to_vec();
+
+            // Collect rows from result
+            let rows: Vec<HashMap<String, Value>> = result
+                .map(|row_result| {
+                    row_result.map(|row| {
+                        let mut row_data = HashMap::new();
+                        for (i, column) in columns.iter().enumerate() {
+                            let val: mysql::Value = row.get(i).unwrap_or(mysql::Value::NULL);
+                            row_data
+                                .insert(column.name_str().to_string(), convert_mysql_value(val));
+                        }
+                        row_data
+                    })
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            Ok(QueryResult {
+                rows,
+                affected_rows: affected,
+                execution_time_ms: 0,
+                query: query.to_string(),
             })
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        }
 
-        Ok(QueryResult {
-            rows,
-            affected_rows: affected,
-            execution_time_ms: 0,
-            query: query.to_string(),
-        })
-    }
+        async fn execute_statement(&self, statement: &Statement) -> Result<ExecuteResult> {
+            let mut conn = self.pool.get_conn()?;
 
-    async fn execute_statement(
-        &self,
-        statement: &Statement,
-    ) -> Result<ExecuteResult> {
-        let mut conn = self.pool.get_conn()?;
+            let mysql_params: Vec<mysql::Value> = statement
+                .parameter_types
+                .iter()
+                .map(|v| match v {
+                    ValueType::String => mysql::Value::from(""),
+                    ValueType::Integer => mysql::Value::from(0),
+                    ValueType::Float => mysql::Value::from(0.0),
+                    ValueType::Boolean => mysql::Value::from(false),
+                    ValueType::Bytes => mysql::Value::from(Vec::new()),
+                    ValueType::Json => mysql::Value::from(serde_json::Value::Null),
+                    ValueType::Timestamp => mysql::Value::from(chrono::Utc::now().timestamp()),
+                    ValueType::Array(_) => mysql::Value::from(Vec::new()),
+                })
+                .collect();
 
-        let mysql_params: Vec<mysql::Value> = statement
-            .parameter_types
-            .iter()
-            .map(|v| match v {
-                ValueType::String => mysql::Value::from(""),
-                ValueType::Integer => mysql::Value::from(0),
-                ValueType::Float => mysql::Value::from(0.0),
-                ValueType::Boolean => mysql::Value::from(false),
-                ValueType::Bytes => mysql::Value::from(Vec::new()),
-                ValueType::Json => mysql::Value::from(serde_json::Value::Null),
-                ValueType::Timestamp => mysql::Value::from(chrono::Utc::now().timestamp()),
-                ValueType::Array(_) => mysql::Value::from(Vec::new()),
+            let result = conn.exec_iter(statement.query.as_str(), mysql_params)?;
+
+            Ok(ExecuteResult {
+                affected_rows: result.affected_rows() as u64,
+                execution_time_ms: 0,
+                last_insert_id: result.last_insert_id(),
             })
-            .collect();
+        }
 
-        let result = conn.exec_iter(statement.query.as_str(), mysql_params)?;
+        async fn begin_transaction(&self) -> Result<Transaction> {
+            let mut conn = self.pool.get_conn()?;
+            conn.query("START TRANSACTION")
+                .map_err(|e| anyhow!("Gagal memulai transaksi MySQL: {}", e))?;
 
-        Ok(ExecuteResult {
-            affected_rows: result.affected_rows() as u64,
-            execution_time_ms: 0,
-            last_insert_id: result.last_insert_id(),
-        })
-    }
+            Ok(Transaction::new(conn))
+        }
 
-    async fn begin_transaction(&self) -> Result<Transaction> {
-        let mut conn = self.pool.get_conn()?;
-        conn.query("START TRANSACTION")
-            .map_err(|e| anyhow!("Gagal memulai transaksi MySQL: {}", e))?;
+        async fn get_info(&self) -> Result<DatabaseInfo> {
+            let mut conn = self.pool.get_conn()?;
 
-        Ok(Transaction::new(conn))
-    }
+            let version_result: Vec<String> = conn.query("SELECT VERSION()")?;
+            let version = version_result
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string());
 
-    async fn get_info(&self) -> Result<DatabaseInfo> {
-        let mut conn = self.pool.get_conn()?;
-
-        let version_result: Vec<String> = conn.query("SELECT VERSION()")?;
-        let version = version_result
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "Unknown".to_string());
-
-        let size_result: Vec<(String,)> = conn.query(
+            let size_result: Vec<(String,)> = conn.query(
             "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) FROM information_schema.tables"
         )?;
-        let database_size_mb = size_result
-            .first()
-            .and_then(|(size,)| size.parse::<f64>().ok())
-            .unwrap_or(0.0);
+            let database_size_mb = size_result
+                .first()
+                .and_then(|(size,)| size.parse::<f64>().ok())
+                .unwrap_or(0.0);
 
-        Ok(DatabaseInfo {
-            database_name: self.config.database.clone(),
-            version,
-            database_size_mb,
-            connection_count: self.pool.status().connections,
-            uptime_seconds: 0,
-            last_activity: Some(std::time::SystemTime::now()),
-        })
+            Ok(DatabaseInfo {
+                database_name: self.config.database.clone(),
+                version,
+                database_size_mb,
+                connection_count: self.pool.status().connections,
+                uptime_seconds: 0,
+                last_activity: Some(std::time::SystemTime::now()),
+            })
+        }
+
+        async fn get_pool_status(&self) -> Result<PoolStatus> {
+            let pool_status = self.pool.status();
+
+            Ok(PoolStatus {
+                total_connections: pool_status.connections,
+                active_connections: pool_status.connections,
+                idle_connections: 0,
+                max_connections: self.config.pool_size as u32,
+                waiting_requests: 0,
+                average_wait_time_ms: 0.0,
+            })
+        }
+
+        async fn disconnect(&self) -> Result<()> {
+            Ok(())
+        }
+
+        async fn is_connected(&self) -> bool {
+            self.pool.get_conn().is_ok()
+        }
     }
-
-    async fn get_pool_status(&self) -> Result<PoolStatus> {
-        let pool_status = self.pool.status();
-
-        Ok(PoolStatus {
-            total_connections: pool_status.connections,
-            active_connections: pool_status.connections,
-            idle_connections: 0,
-            max_connections: self.config.pool_size as u32,
-            waiting_requests: 0,
-            average_wait_time_ms: 0.0,
-        })
-    }
-
-    async fn disconnect(&self) -> Result<()> {
-        Ok(())
-    }
-
-    async fn is_connected(&self) -> bool {
-        self.pool.get_conn().is_ok()
-    }
-}
 } // mod mysql_impl
 
 /// Database trait for common operations
@@ -464,7 +462,10 @@ impl Transaction {
 /// PostgreSQL-specific Transaction constructor
 #[cfg(feature = "postgres")]
 impl Transaction {
-    pub fn new_postgres(client: std::sync::Arc<tokio_postgres::Client>, connection_id: String) -> Self {
+    pub fn new_postgres(
+        client: std::sync::Arc<tokio_postgres::Client>,
+        connection_id: String,
+    ) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         Self {
             id,
@@ -936,8 +937,11 @@ impl Value {
         if let Ok(unix_timestamp) = timestamp_str.parse::<f64>() {
             let seconds = unix_timestamp.trunc() as i64;
             let nanos = ((unix_timestamp.fract() * 1_000_000_000.0) as u32) * 1_000_000;
-            if let Some(system_time) = std::time::SystemTime::UNIX_EPOCH
-                .checked_add(std::time::Duration::new(seconds.try_into().expect("timestamp seconds fit into u64"), nanos))
+            if let Some(system_time) =
+                std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
+                    seconds.try_into().expect("timestamp seconds fit into u64"),
+                    nanos,
+                ))
             {
                 return Value::Timestamp(system_time);
             }
@@ -950,7 +954,9 @@ impl Value {
                 if let Some(nanos) = datetime.timestamp_nanos_opt() {
                     if let Some(system_time) =
                         std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
-                            (nanos / 1_000_000_000).try_into().expect("nanos fit into u64"),
+                            (nanos / 1_000_000_000)
+                                .try_into()
+                                .expect("nanos fit into u64"),
                             (nanos % 1_000_000_000) as u32,
                         ))
                     {

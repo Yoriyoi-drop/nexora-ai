@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 type CustomFilterFn = Arc<dyn Fn(&DataSample) -> FilterResult + Send + Sync>;
 

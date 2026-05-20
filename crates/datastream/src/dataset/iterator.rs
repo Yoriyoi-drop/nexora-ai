@@ -1,5 +1,5 @@
-use crate::types::DataSample;
 use super::shuffle::ShuffleBuffer;
+use crate::types::DataSample;
 
 pub struct BatchIterator {
     batch_size: usize,

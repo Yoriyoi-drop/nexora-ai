@@ -1,9 +1,9 @@
-use std::path::Path;
 use anyhow::{Context, Result};
 use arrow::array::StringArray;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::types::DataSample;
@@ -57,16 +57,17 @@ pub fn write_arrow_file(samples: &[DataSample], path: &Path) -> Result<()> {
             Arc::new(trust_array),
             Arc::new(ts_array),
         ],
-    ).context("Failed to create RecordBatch")?;
+    )
+    .context("Failed to create RecordBatch")?;
 
     let file = std::fs::File::create(path)
         .with_context(|| format!("Failed to create arrow file: {}", path.display()))?;
     let mut writer = FileWriter::try_new(file, batch.schema().as_ref())
         .context("Failed to create Arrow FileWriter")?;
-    writer.write(&batch)
+    writer
+        .write(&batch)
         .context("Failed to write RecordBatch to Arrow file")?;
-    writer.finish()
-        .context("Failed to finalize Arrow file")?;
+    writer.finish().context("Failed to finalize Arrow file")?;
 
     Ok(())
 }

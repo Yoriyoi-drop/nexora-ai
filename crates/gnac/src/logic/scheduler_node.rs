@@ -43,9 +43,7 @@ impl AdaptiveSchedulerNode {
                 let cos = (std::f64::consts::PI * epoch as f64 / 100.0).cos();
                 self.base_lr * 0.5 * (1.0 + cos)
             }
-            SchedulerType::ExponentialDecay { gamma } => {
-                self.base_lr * gamma.powf(epoch as f64)
-            }
+            SchedulerType::ExponentialDecay { gamma } => self.base_lr * gamma.powf(epoch as f64),
             SchedulerType::StepDecay { step_size, gamma } => {
                 let factor = gamma.powi((epoch / step_size) as i32);
                 self.base_lr * factor

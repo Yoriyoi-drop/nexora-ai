@@ -33,14 +33,14 @@
 //! }
 //! ```
 
+pub mod delivery;
 pub mod filter;
+pub mod format_loader;
 pub mod graph;
 pub mod intake;
 pub mod intelligence;
-pub mod delivery;
-pub mod types;
 pub mod source;
-pub mod format_loader;
+pub mod types;
 
 #[cfg(feature = "arrow")]
 pub mod arrow_reader;
@@ -51,13 +51,13 @@ pub mod arrow_writer;
 #[cfg(feature = "arrow")]
 pub mod dataset;
 
+pub use delivery::*;
 pub use filter::*;
 pub use graph::*;
 pub use intake::*;
 pub use intelligence::*;
-pub use delivery::*;
-pub use types::*;
 pub use source::*;
+pub use types::*;
 
 #[cfg(feature = "arrow")]
 pub use dataset::*;
@@ -107,8 +107,21 @@ impl PipelineBuilder {
         self
     }
 
-    pub fn add_filter(mut self, id: &str, filter: impl FilterTrait + 'static, depends_on: Vec<String>, concurrent: bool, priority: u8) -> Self {
-        self.graph.add_node(id, std::sync::Arc::new(filter), depends_on, concurrent, priority);
+    pub fn add_filter(
+        mut self,
+        id: &str,
+        filter: impl FilterTrait + 'static,
+        depends_on: Vec<String>,
+        concurrent: bool,
+        priority: u8,
+    ) -> Self {
+        self.graph.add_node(
+            id,
+            std::sync::Arc::new(filter),
+            depends_on,
+            concurrent,
+            priority,
+        );
         self
     }
 
@@ -143,7 +156,10 @@ impl Pipeline {
     pub async fn run(
         &mut self,
         samples: Vec<DataSample>,
-        (cancel_tx, cancel_rx): (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
+        (cancel_tx, cancel_rx): (
+            tokio::sync::watch::Sender<bool>,
+            tokio::sync::watch::Receiver<bool>,
+        ),
     ) -> Vec<graph::ExecutionResult> {
         self.cancel_tx = Some(cancel_tx);
         self.graph.finalize();
@@ -177,8 +193,20 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_basic_flow() {
         let mut graph = ExecutionGraph::new();
-        graph.add_node("length", std::sync::Arc::new(LengthFilter::default()), vec![], true, 1);
-        graph.add_node("quality", std::sync::Arc::new(QualityFilter::default()), vec!["length".into()], true, 2);
+        graph.add_node(
+            "length",
+            std::sync::Arc::new(LengthFilter::default()),
+            vec![],
+            true,
+            1,
+        );
+        graph.add_node(
+            "quality",
+            std::sync::Arc::new(QualityFilter::default()),
+            vec!["length".into()],
+            true,
+            2,
+        );
         graph.finalize();
 
         let sample = DataSample {
@@ -210,7 +238,8 @@ mod tests {
         let filter = ToxicityFilter::default();
         let clean = DataSample {
             id: Uuid::new_v4(),
-            text: "This is a clean and respectful sentence about technology and science.".to_string(),
+            text: "This is a clean and respectful sentence about technology and science."
+                .to_string(),
             token_ids: None,
             metadata: std::collections::HashMap::new(),
             source: types::SourceInfo {

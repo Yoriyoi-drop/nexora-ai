@@ -63,7 +63,8 @@ impl GraphOptimizer {
     fn eliminate_dead_nodes(&self, ir: &GraphIR) -> GraphIR {
         let mut cleaned = ir.clone();
 
-        let used_outputs: HashSet<_> = cleaned.operations
+        let used_outputs: HashSet<_> = cleaned
+            .operations
             .iter()
             .flat_map(|op| op.inputs.iter().map(|v| v.name.clone()))
             .collect();

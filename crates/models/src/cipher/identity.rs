@@ -1,10 +1,8 @@
 //! NXR-CIPHER Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-CIPHER
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-CIPHER Identity Manager
 pub struct CipherIdentity {
@@ -79,12 +77,7 @@ impl CipherIdentity {
 
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
-        vec![
-            "PENTEST-BOT",
-            "VULN-SCAN",
-            "FIREWALL-AI",
-            "THREAT-HUNT",
-        ]
+        vec!["PENTEST-BOT", "VULN-SCAN", "FIREWALL-AI", "THREAT-HUNT"]
     }
 
     /// Get architecture components

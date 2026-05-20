@@ -1,12 +1,12 @@
 //! ERP Cache-Aware Resonant Inference
-//! 
+//!
 //! Implementasi dari cache-aware resonant inference untuk
 //! reuse activation patterns dan reduce recomputation.
 
 use crate::{ERPError, GatePattern};
+use lru::LruCache;
 use ndarray::Array1;
 use std::collections::HashMap;
-use lru::LruCache;
 use std::hash::{Hash, Hasher};
 use std::num::Wrapping;
 
@@ -31,7 +31,10 @@ impl InferenceCache {
     pub fn new(cache_size: usize) -> Self {
         Self {
             cache_size,
-            cache: LruCache::new(std::num::NonZeroUsize::new(cache_size).unwrap_or_else(|| std::num::NonZeroUsize::MIN)),
+            cache: LruCache::new(
+                std::num::NonZeroUsize::new(cache_size)
+                    .unwrap_or_else(|| std::num::NonZeroUsize::MIN),
+            ),
             cache_stats: CacheStats::default(),
             hash_function: ContextHasher::new(),
         }
@@ -95,10 +98,15 @@ impl InferenceCache {
     }
 
     /// Precompute cache untuk frequent patterns
-    pub fn precompute_patterns(&mut self, frequent_contexts: &[Array1<f32>], reconstructor: &crate::reconstruction::ContextReconstructor, compressed_layers: &[crate::compression::CompressedLayer]) -> Result<(), ERPError> {
+    pub fn precompute_patterns(
+        &mut self,
+        frequent_contexts: &[Array1<f32>],
+        reconstructor: &crate::reconstruction::ContextReconstructor,
+        compressed_layers: &[crate::compression::CompressedLayer],
+    ) -> Result<(), ERPError> {
         for context in frequent_contexts {
             let context_hash = self.hash_context(context);
-            
+
             // Skip jika sudah ada di cache
             if self.cache.contains(&context_hash) {
                 continue;
@@ -122,12 +130,14 @@ impl InferenceCache {
 
     /// Evict least frequently used patterns
     pub fn evict_lfu(&mut self, num_to_evict: usize) {
-        let mut patterns_with_counts: Vec<_> = self.cache.iter()
+        let mut patterns_with_counts: Vec<_> = self
+            .cache
+            .iter()
             .map(|(hash, pattern)| (*hash, pattern.access_count))
             .collect();
-        
+
         patterns_with_counts.sort_by_key(|(_, count)| *count);
-        
+
         for (hash, _) in patterns_with_counts.iter().take(num_to_evict) {
             self.cache.pop(hash);
             self.cache_stats.evictions += 1;
@@ -167,7 +177,7 @@ impl ContextHasher {
     /// Hash input array ke context hash
     pub fn hash_input(&self, input: &Array1<f32>) -> ContextHash {
         let mut hasher = FnvHasher::with_seed(self.seed);
-        
+
         // Hash input values dengan locality-sensitive hashing
         for (i, &value) in input.iter().enumerate() {
             if i < self.bucket_size {
@@ -175,15 +185,19 @@ impl ContextHasher {
                 quantized.hash(&mut hasher);
             }
         }
-        
+
         // Add input statistics untuk robustness
         let mean = input.mean().unwrap_or(0.0);
-        let std_dev = input.iter().map(|&x| (x - mean).powi(2)).sum::<f32>().sqrt();
-        
+        let std_dev = input
+            .iter()
+            .map(|&x| (x - mean).powi(2))
+            .sum::<f32>()
+            .sqrt();
+
         ((mean * 100.0) as i32).hash(&mut hasher);
         ((std_dev * 100.0) as i32).hash(&mut hasher);
         input.len().hash(&mut hasher);
-        
+
         ContextHash(hasher.finish())
     }
 
@@ -191,25 +205,25 @@ impl ContextHasher {
     pub fn hash_sliding_window(&self, input: &Array1<f32>, window_size: usize) -> Vec<ContextHash> {
         let count = input.len().saturating_sub(window_size) + 1;
         let mut hashes = Vec::with_capacity(count);
-        
+
         for start in 0..=input.len().saturating_sub(window_size) {
             let end = (start + window_size).min(input.len());
             let window = input.slice(ndarray::s![start..end]);
             hashes.push(self.hash_input(&window.to_owned()));
         }
-        
+
         hashes
     }
 
     /// Combine multiple hashes
     pub fn combine_hashes(&self, hashes: &[ContextHash]) -> ContextHash {
         let mut combined = Wrapping(0u64);
-        
+
         for hash in hashes {
             combined ^= Wrapping(hash.0);
             combined = combined * Wrapping(0x100000001b3); // FNV prime
         }
-        
+
         ContextHash(combined.0)
     }
 }
@@ -252,7 +266,10 @@ pub struct HybridCache {
 impl HybridCache {
     pub fn new(max_size: usize, lru_weight: f32, lfu_weight: f32) -> Self {
         Self {
-            lru_cache: LruCache::new(std::num::NonZeroUsize::new(max_size).unwrap_or_else(|| std::num::NonZeroUsize::MIN)),
+            lru_cache: LruCache::new(
+                std::num::NonZeroUsize::new(max_size)
+                    .unwrap_or_else(|| std::num::NonZeroUsize::MIN),
+            ),
             lfu_tracker: HashMap::new(),
             max_size,
             lru_weight,
@@ -287,16 +304,20 @@ impl HybridCache {
             return;
         }
 
-        let mut eviction_candidates: Vec<_> = self.lru_cache.iter()
+        let mut eviction_candidates: Vec<_> = self
+            .lru_cache
+            .iter()
             .map(|(key, _)| {
                 let lru_score = self.lru_cache.cap().get() - self.lru_cache.len(); // Simplified LRU score
                 let lfu_score = self.lfu_tracker.get(key).copied().unwrap_or(0);
-                let hybrid_score = self.lru_weight * lru_score as f32 + self.lfu_weight * lfu_score as f32;
+                let hybrid_score =
+                    self.lru_weight * lru_score as f32 + self.lfu_weight * lfu_score as f32;
                 (*key, hybrid_score)
             })
             .collect();
 
-        eviction_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        eviction_candidates
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Evict lowest scoring item
         if let Some((key, _)) = eviction_candidates.first() {
@@ -340,9 +361,13 @@ impl PatternCache {
     }
 
     /// Find pattern cluster untuk context
-    pub fn find_cluster(&mut self, context: &Array1<f32>, gates: &[GatePattern]) -> Option<PatternCluster> {
+    pub fn find_cluster(
+        &mut self,
+        context: &Array1<f32>,
+        gates: &[GatePattern],
+    ) -> Option<PatternCluster> {
         let pattern_type = self.classify_pattern(gates);
-        
+
         // Check existing clusters
         for (cluster, context_hashes) in &self.pattern_clusters {
             if cluster.pattern_type == pattern_type {
@@ -381,64 +406,68 @@ impl PatternCache {
         if let Some(cached_context) = self.context_cache.get(&context_hash) {
             // Compute cosine similarity antara contexts
             let similarity = self.compute_cosine_similarity(context, cached_context);
-            
+
             // Threshold untuk similarity (adjustable based on requirements)
             let similarity_threshold = 0.8;
-            
+
             similarity >= similarity_threshold
         } else {
             // If no cached context found, assume not similar
             false
         }
     }
-    
+
     /// Compute cosine similarity antara dua context vectors
     fn compute_cosine_similarity(&self, context1: &Array1<f32>, context2: &Array1<f32>) -> f32 {
         if context1.len() != context2.len() {
             return 0.0; // Different dimensions, not similar
         }
-        
+
         // Compute dot product
-        let dot_product: f32 = context1.iter().zip(context2.iter())
+        let dot_product: f32 = context1
+            .iter()
+            .zip(context2.iter())
             .map(|(a, b)| a * b)
             .sum();
-        
+
         // Compute norms
         let norm1: f32 = context1.iter().map(|x| x * x).sum::<f32>().sqrt();
         let norm2: f32 = context2.iter().map(|x| x * x).sum::<f32>().sqrt();
-        
+
         // Handle zero norms
         if norm1 == 0.0 || norm2 == 0.0 {
             return 0.0;
         }
-        
+
         // Return cosine similarity
         dot_product / (norm1 * norm2)
     }
-    
+
     /// Compute Euclidean distance antara contexts (alternative similarity metric)
     fn compute_euclidean_distance(&self, context1: &Array1<f32>, context2: &Array1<f32>) -> f32 {
         if context1.len() != context2.len() {
             return f32::INFINITY; // Different dimensions
         }
-        
-        let sum_sq_diff: f32 = context1.iter().zip(context2.iter())
+
+        let sum_sq_diff: f32 = context1
+            .iter()
+            .zip(context2.iter())
             .map(|(a, b)| {
                 let diff = a - b;
                 diff * diff
             })
             .sum();
-        
+
         sum_sq_diff.sqrt()
     }
-    
+
     /// Check similarity menggunakan multiple metrics untuk robust decision
     fn contexts_similar_robust(&self, context: &Array1<f32>, context_hash: ContextHash) -> bool {
         if let Some(cached_context) = self.context_cache.get(&context_hash) {
             // Compute multiple similarity metrics
             let cosine_sim = self.compute_cosine_similarity(context, cached_context);
             let euclidean_dist = self.compute_euclidean_distance(context, cached_context);
-            
+
             // Normalize Euclidean distance to similarity (closer = more similar)
             let max_possible_dist = (context.len() as f32).sqrt() * 2.0; // Maximum possible distance
             let euclidean_sim = if max_possible_dist > 0.0 {
@@ -446,10 +475,10 @@ impl PatternCache {
             } else {
                 1.0
             };
-            
+
             // Weighted combination of similarity metrics
             let combined_similarity = 0.7 * cosine_sim + 0.3 * euclidean_sim;
-            
+
             // Threshold untuk robust similarity
             combined_similarity >= 0.75
         } else {
@@ -458,8 +487,16 @@ impl PatternCache {
     }
 
     /// Add context ke pattern cluster
-    pub fn add_to_cluster(&mut self, cluster: PatternCluster, context_hash: ContextHash, gates: GatePattern) {
-        self.pattern_clusters.entry(cluster.clone()).or_insert_with(Vec::new).push(context_hash);
+    pub fn add_to_cluster(
+        &mut self,
+        cluster: PatternCluster,
+        context_hash: ContextHash,
+        gates: GatePattern,
+    ) {
+        self.pattern_clusters
+            .entry(cluster.clone())
+            .or_insert_with(Vec::new)
+            .push(context_hash);
         self.cluster_cache.insert(cluster, gates);
     }
 }

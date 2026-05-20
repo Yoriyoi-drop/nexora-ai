@@ -7,14 +7,14 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub mod orchestrator_prime;
-pub mod consensus_builder;
 pub mod alignment_arbiter;
+pub mod consensus_builder;
+pub mod orchestrator_prime;
 pub mod resource_optimizer;
 
-pub use orchestrator_prime::*;
-pub use consensus_builder::*;
 pub use alignment_arbiter::*;
+pub use consensus_builder::*;
+pub use orchestrator_prime::*;
 pub use resource_optimizer::*;
 
 // ---------------------------------------------------------------------------
@@ -179,7 +179,11 @@ fn capability_similarity(a: &CapabilityProfile, b: &CapabilityProfile) -> f32 {
         den_b += bv * bv;
     }
     let den = den_a.sqrt() * den_b.sqrt();
-    if den == 0.0 { 0.0 } else { num / den }
+    if den == 0.0 {
+        0.0
+    } else {
+        num / den
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +221,8 @@ impl ConsensusAiAgent {
             opinions.len() as f32
         };
 
-        let mut counts: HashMap<String, (f32, Vec<&AgentOpinion>)> = HashMap::with_capacity(opinions.len());
+        let mut counts: HashMap<String, (f32, Vec<&AgentOpinion>)> =
+            HashMap::with_capacity(opinions.len());
         for opinion in opinions {
             let entry = counts.entry(opinion.position.clone()).or_default();
             entry.0 += if self.weight_by_confidence {
@@ -231,7 +236,11 @@ impl ConsensusAiAgent {
         let mut best: Option<(String, f32, Vec<&AgentOpinion>)> = None;
         for (position, (weight, supporters)) in counts {
             let share = weight / total_weight;
-            if share >= best.as_ref().map_or(0.0, |b: &(String, f32, Vec<&AgentOpinion>)| b.1) {
+            if share
+                >= best
+                    .as_ref()
+                    .map_or(0.0, |b: &(String, f32, Vec<&AgentOpinion>)| b.1)
+            {
                 best = Some((position.clone(), share, supporters));
             }
         }
@@ -333,7 +342,11 @@ impl TaskRouterAgent {
             .pipelines
             .iter()
             .filter(|p| p.is_active && tags.iter().any(|t| p.tags.contains(t)))
-            .max_by(|a, b| a.throughput.partial_cmp(&b.throughput).unwrap_or(std::cmp::Ordering::Equal));
+            .max_by(|a, b| {
+                a.throughput
+                    .partial_cmp(&b.throughput)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
         if let Some(pipeline) = best {
             self.routing_history.push(RoutedTask {
@@ -545,7 +558,9 @@ pub struct PriorityGodAgent {
     pub queue: Vec<PrioritizedTask>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum PriorityLevel {
     Critical = 0,
     High = 1,
@@ -602,9 +617,7 @@ impl PriorityGodAgent {
     }
 
     pub fn peek(&self) -> Option<&PrioritizedTask> {
-        self.queue
-            .iter()
-            .min_by_key(|t| t.effective_priority())
+        self.queue.iter().min_by_key(|t| t.effective_priority())
     }
 
     pub fn preempt(&mut self, threshold: PriorityLevel) -> Vec<PrioritizedTask> {

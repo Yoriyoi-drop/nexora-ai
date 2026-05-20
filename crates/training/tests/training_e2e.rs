@@ -64,19 +64,31 @@ fn test_training_visual_demo() {
             } else {
                 0.0
             };
-            println!("  {:>4}   |  {:.4}  |  {:.4}   | {:.4}", step + 1, loss, avg, delta);
+            println!(
+                "  {:>4}   |  {:.4}  |  {:.4}   | {:.4}",
+                step + 1,
+                loss,
+                avg,
+                delta
+            );
         }
     }
 
     println!("────────┴──────────┴────────────┴──────");
     let first = losses.first().copied().unwrap_or(0.0);
     let last = losses.last().copied().unwrap_or(0.0);
-    println!("  First: {:.4} → Last: {:.4}  (Δ: {:.4})", first, last, first - last);
+    println!(
+        "  First: {:.4} → Last: {:.4}  (Δ: {:.4})",
+        first,
+        last,
+        first - last
+    );
 
     assert!(
         last < first,
         "Loss should decrease: first={:.4} last={:.4}",
-        first, last
+        first,
+        last
     );
     println!("  ✅ Loss decreased! Training works!\n");
 }
@@ -113,7 +125,11 @@ fn test_training_loss_decreases() {
         }
     }
 
-    assert!(losses.len() >= 5, "Should have multiple loss values, got {}", losses.len());
+    assert!(
+        losses.len() >= 5,
+        "Should have multiple loss values, got {}",
+        losses.len()
+    );
 
     let first_avg: f32 = losses.iter().take(5).sum::<f32>() / 5.0;
     let last_avg: f32 = losses.iter().rev().take(5).sum::<f32>() / 5.0;
@@ -121,7 +137,8 @@ fn test_training_loss_decreases() {
     assert!(
         last_avg < first_avg,
         "Loss should decrease: first_avg={:.6}, last_avg={:.6}",
-        first_avg, last_avg
+        first_avg,
+        last_avg
     );
 
     let final_loss = *losses.last().unwrap();
@@ -175,7 +192,8 @@ fn test_training_save_and_load() {
     assert!(
         after_loss < before_loss || (after_loss - before_loss).abs() < 0.5,
         "Loaded model should train: before={:.6}, after={:.6}",
-        before_loss, after_loss
+        before_loss,
+        after_loss
     );
 
     let _ = std::fs::remove_file(&save_path);

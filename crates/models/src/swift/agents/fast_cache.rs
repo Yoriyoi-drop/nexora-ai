@@ -1,14 +1,14 @@
 //! Fast Cache Agent
-//! 
+//!
 //! Intelligent caching system to avoid redundant inference
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Fast Cache Agent - Intelligent caching system
 #[derive(Debug, Clone)]
@@ -244,7 +244,7 @@ impl BaseAgent for FastCacheAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Generate query embedding if not provided
         let query_embedding = match input.query_embedding {
             Some(ref embedding) => embedding.clone(),
@@ -253,15 +253,17 @@ impl BaseAgent for FastCacheAgent {
 
         // Search cache for similar entries
         let cache_result = self.search_cache(&query_embedding, &input).await?;
-        
+
         // Analyze similarity patterns
         let similarity_analysis = self.analyze_similarity(&query_embedding).await?;
-        
+
         // Calculate performance metrics
         let performance_metrics = self.calculate_cache_metrics().await?;
-        
+
         // Generate cache recommendations
-        let cache_recommendations = self.generate_cache_recommendations(&cache_result, &similarity_analysis).await?;
+        let cache_recommendations = self
+            .generate_cache_recommendations(&cache_result, &similarity_analysis)
+            .await?;
 
         Ok(FastCacheTaskOutput {
             cache_result,
@@ -280,21 +282,22 @@ impl BaseAgent for FastCacheAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "fast_cache".to_string(),
-                description: "Intelligent caching system with semantic similarity matching".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["query".to_string(), "query_embedding".to_string()],
-                output_types: vec!["cache_result".to_string(), "similarity_analysis".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.96,
-                    avg_latency: 0.2,
-                    resource_usage: 0.4,
-                    reliability: 0.99,
-                },
+        vec![AgentCapability {
+            name: "fast_cache".to_string(),
+            description: "Intelligent caching system with semantic similarity matching".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["query".to_string(), "query_embedding".to_string()],
+            output_types: vec![
+                "cache_result".to_string(),
+                "similarity_analysis".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.96,
+                avg_latency: 0.2,
+                resource_usage: 0.4,
+                reliability: 0.99,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -335,7 +338,7 @@ impl FastCacheAgent {
         // Simple embedding generation simulation
         let words: Vec<&str> = query.split_whitespace().collect();
         let mut embedding = vec![0.0; self.similarity_matcher.embedding_dim];
-        
+
         for (i, word) in words.iter().enumerate() {
             if i < embedding.len() {
                 // Simple hash-based embedding
@@ -353,7 +356,11 @@ impl FastCacheAgent {
         Ok(embedding)
     }
 
-    async fn search_cache(&self, query_embedding: &[f32], input: &FastCacheTaskInput) -> AgentResult<CacheResult> {
+    async fn search_cache(
+        &self,
+        query_embedding: &[f32],
+        input: &FastCacheTaskInput,
+    ) -> AgentResult<CacheResult> {
         if self.cache_engine.cache_storage.is_empty() {
             return Ok(CacheResult::Miss {
                 reason: MissReason::CacheEmpty,
@@ -362,17 +369,21 @@ impl FastCacheAgent {
         }
 
         let mut best_match: Option<(&String, &CacheEntry, f32)> = None;
-        let similarity_threshold = input.similarity_threshold_override.unwrap_or(self.config.similarity_threshold);
+        let similarity_threshold = input
+            .similarity_threshold_override
+            .unwrap_or(self.config.similarity_threshold);
 
         // Search for similar entries
         for (key, entry) in &self.cache_engine.cache_storage {
             let similarity = self.calculate_similarity(query_embedding, &entry.embedding);
-            
+
             if similarity > similarity_threshold {
                 match &best_match {
                     None => best_match = Some((key, entry, similarity)),
-                    Some((_, _, current_similarity)) => if similarity > *current_similarity {
-                        best_match = Some((key, entry, similarity));
+                    Some((_, _, current_similarity)) => {
+                        if similarity > *current_similarity {
+                            best_match = Some((key, entry, similarity));
+                        }
                     }
                 }
             }
@@ -382,7 +393,7 @@ impl FastCacheAgent {
             Some((key, entry, similarity)) => {
                 let now = chrono::Utc::now();
                 let entry_age = (now - entry.timestamp).num_seconds() as u64;
-                
+
                 // Check if entry is stale
                 if let Some(ttl) = entry.ttl_seconds {
                     if entry_age > ttl {
@@ -400,7 +411,7 @@ impl FastCacheAgent {
                     similarity_score: similarity,
                     entry_age_seconds: entry_age,
                 })
-            },
+            }
             None => Ok(CacheResult::Miss {
                 reason: MissReason::BelowThreshold,
                 suggested_cache_key: self.generate_cache_key(&input.query),
@@ -415,26 +426,34 @@ impl FastCacheAgent {
 
         match self.similarity_matcher.similarity_algorithm {
             SimilarityAlgorithm::Cosine => {
-                let dot_product = embedding1.iter().zip(embedding2.iter()).map(|(a, b)| a * b).sum::<f32>();
+                let dot_product = embedding1
+                    .iter()
+                    .zip(embedding2.iter())
+                    .map(|(a, b)| a * b)
+                    .sum::<f32>();
                 let norm1 = embedding1.iter().map(|x| x * x).sum::<f32>().sqrt();
                 let norm2 = embedding2.iter().map(|x| x * x).sum::<f32>().sqrt();
-                
+
                 if norm1 == 0.0 || norm2 == 0.0 {
                     0.0
                 } else {
                     dot_product / (norm1 * norm2)
                 }
-            },
+            }
             SimilarityAlgorithm::Euclidean => {
-                let distance = embedding1.iter().zip(embedding2.iter())
+                let distance = embedding1
+                    .iter()
+                    .zip(embedding2.iter())
                     .map(|(a, b)| (a - b).powi(2))
                     .sum::<f32>()
                     .sqrt();
                 1.0 / (1.0 + distance) // Convert distance to similarity
-            },
-            SimilarityAlgorithm::DotProduct => {
-                embedding1.iter().zip(embedding2.iter()).map(|(a, b)| a * b).sum::<f32>()
-            },
+            }
+            SimilarityAlgorithm::DotProduct => embedding1
+                .iter()
+                .zip(embedding2.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f32>(),
             _ => 0.5, // Default similarity
         }
     }
@@ -442,7 +461,7 @@ impl FastCacheAgent {
     fn generate_cache_key(&self, query: &str) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         query.hash(&mut hasher);
         format!("cache_{:x}", hasher.finish())
@@ -450,7 +469,7 @@ impl FastCacheAgent {
 
     async fn analyze_similarity(&self, query_embedding: &[f32]) -> AgentResult<SimilarityAnalysis> {
         let start_time = std::time::Instant::now();
-        
+
         let mut similarities = Vec::new();
         for entry in self.cache_engine.cache_storage.values() {
             let similarity = self.calculate_similarity(query_embedding, &entry.embedding);
@@ -499,7 +518,7 @@ impl FastCacheAgent {
             0.0
         };
         let miss_rate = 1.0 - hit_rate;
-        
+
         let cache_size_mb = self.cache_engine.cache_size_bytes as f32 / (1024.0 * 1024.0);
         let avg_lookup_time_ms = 0.1; // Simulated average lookup time
 
@@ -513,32 +532,47 @@ impl FastCacheAgent {
         })
     }
 
-    async fn generate_cache_recommendations(&self, cache_result: &CacheResult, similarity_analysis: &SimilarityAnalysis) -> AgentResult<Vec<String>> {
+    async fn generate_cache_recommendations(
+        &self,
+        cache_result: &CacheResult,
+        similarity_analysis: &SimilarityAnalysis,
+    ) -> AgentResult<Vec<String>> {
         let mut recommendations = Vec::new();
 
         match cache_result {
-            CacheResult::Hit { similarity_score, .. } => {
+            CacheResult::Hit {
+                similarity_score, ..
+            } => {
                 if *similarity_score > 0.95 {
-                    recommendations.push("Excellent cache hit - consider preloading similar queries".to_string());
+                    recommendations.push(
+                        "Excellent cache hit - consider preloading similar queries".to_string(),
+                    );
                 } else if *similarity_score < 0.7 {
-                    recommendations.push("Low similarity hit - consider adjusting threshold".to_string());
+                    recommendations
+                        .push("Low similarity hit - consider adjusting threshold".to_string());
                 }
-            },
-            CacheResult::Miss { reason, .. } => {
-                match reason {
-                    MissReason::NoSimilarEntries => {
-                        recommendations.push("No similar entries found - consider expanding cache".to_string());
-                    },
-                    MissReason::BelowThreshold => {
-                        recommendations.push("All entries below threshold - consider lowering similarity threshold".to_string());
-                    },
-                    MissReason::CacheEmpty => {
-                        recommendations.push("Cache is empty - start building cache with common queries".to_string());
-                    },
-                    _ => {}
+            }
+            CacheResult::Miss { reason, .. } => match reason {
+                MissReason::NoSimilarEntries => {
+                    recommendations
+                        .push("No similar entries found - consider expanding cache".to_string());
                 }
+                MissReason::BelowThreshold => {
+                    recommendations.push(
+                        "All entries below threshold - consider lowering similarity threshold"
+                            .to_string(),
+                    );
+                }
+                MissReason::CacheEmpty => {
+                    recommendations.push(
+                        "Cache is empty - start building cache with common queries".to_string(),
+                    );
+                }
+                _ => {}
             },
-            CacheResult::Stale { freshness_score, .. } => {
+            CacheResult::Stale {
+                freshness_score, ..
+            } => {
                 if *freshness_score < 0.5 {
                     recommendations.push("Many stale entries - consider reducing TTL".to_string());
                 }
@@ -546,11 +580,13 @@ impl FastCacheAgent {
         }
 
         if similarity_analysis.average_similarity < 0.5 {
-            recommendations.push("Low average similarity - consider improving embedding quality".to_string());
+            recommendations
+                .push("Low average similarity - consider improving embedding quality".to_string());
         }
 
         if similarity_analysis.total_entries_compared < 100 {
-            recommendations.push("Small cache size - consider increasing cache capacity".to_string());
+            recommendations
+                .push("Small cache size - consider increasing cache capacity".to_string());
         }
 
         Ok(recommendations)
@@ -581,7 +617,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(matches!(output.cache_result, CacheResult::Miss { .. }));
         assert!(output.similarity_analysis.total_entries_compared == 0);

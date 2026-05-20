@@ -3,15 +3,15 @@ use tracing::info;
 
 use nexora_transformer::TransformerConfig;
 
-use crate::shared::{
-    model_registry::{global_registry, RegistryError},
-    model_identity::NxrModelId,
-    model_config::NxrModelConfig,
-    capability_spec::predefined as cap_predefined,
-    ModelMeta,
-};
 use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
 use crate::shared::NxrModel;
+use crate::shared::{
+    capability_spec::predefined as cap_predefined,
+    model_config::NxrModelConfig,
+    model_identity::NxrModelId,
+    model_registry::{global_registry, RegistryError},
+    ModelMeta,
+};
 
 fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
     let _cfg = NxrModelConfig::for_model(model_id);
@@ -110,22 +110,30 @@ async fn register_causal_lm(
             "intermediate_size": transformer_config.intermediate_size,
         }
     });
-    model.initialize(params).await
+    model
+        .initialize(params)
+        .await
         .map_err(|e| RegistryError::Validation(e.to_string()))?;
 
     let model_arc = Arc::new(model);
-    let model_trait: Arc<dyn crate::shared::NxrModel<Config = serde_json::Value, Metrics = serde_json::Value, State = serde_json::Value>> = model_arc.clone();
+    let model_trait: Arc<
+        dyn crate::shared::NxrModel<
+            Config = serde_json::Value,
+            Metrics = serde_json::Value,
+            State = serde_json::Value,
+        >,
+    > = model_arc.clone();
     let model_raw: Arc<dyn std::any::Any + Send + Sync> = model_arc;
-    registry.register_model_raw(
-        model_id,
-        model_trait,
-        Some(model_raw),
-        meta,
-        caps,
-        cfg,
-    ).await?;
+    registry
+        .register_model_raw(model_id, model_trait, Some(model_raw), meta, caps, cfg)
+        .await?;
 
-    info!("Registered {} | {} params ({:.1}M) ✓", model_id, pcount, pcount as f64 / 1_000_000.0);
+    info!(
+        "Registered {} | {} params ({:.1}M) ✓",
+        model_id,
+        pcount,
+        pcount as f64 / 1_000_000.0
+    );
     Ok(())
 }
 

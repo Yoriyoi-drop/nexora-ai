@@ -493,7 +493,9 @@ impl DatabasePool {
                     interval.tick().await;
 
                     let start = Instant::now();
-                    let result = sqlx::query_scalar::<_, i32>(&test_query).fetch_one(&pool).await;
+                    let result = sqlx::query_scalar::<_, i32>(&test_query)
+                        .fetch_one(&pool)
+                        .await;
                     let duration = start.elapsed();
 
                     let is_healthy = result.is_ok() && duration < Duration::from_secs(5);
@@ -560,7 +562,7 @@ impl DatabasePool {
                         COALESCE(s.n_dead_tup, 0) as dead_tuples
                  FROM pg_tables p
                  LEFT JOIN pg_stat_user_tables s ON s.tablename = p.tablename
-                 WHERE p.schemaname = 'public'"
+                 WHERE p.schemaname = 'public'",
             )
             .await?;
 
@@ -596,11 +598,26 @@ impl DatabasePool {
         if let Some(row) = row {
             Ok(TableStatistics {
                 table_name: table.to_string(),
-                inserts: row.try_get::<Option<i64>, _>("n_tup_ins").unwrap_or(None).unwrap_or(0),
-                updates: row.try_get::<Option<i64>, _>("n_tup_upd").unwrap_or(None).unwrap_or(0),
-                deletes: row.try_get::<Option<i64>, _>("n_tup_del").unwrap_or(None).unwrap_or(0),
-                live_tuples: row.try_get::<Option<i64>, _>("n_live_tup").unwrap_or(None).unwrap_or(0),
-                dead_tuples: row.try_get::<Option<i64>, _>("n_dead_tup").unwrap_or(None).unwrap_or(0),
+                inserts: row
+                    .try_get::<Option<i64>, _>("n_tup_ins")
+                    .unwrap_or(None)
+                    .unwrap_or(0),
+                updates: row
+                    .try_get::<Option<i64>, _>("n_tup_upd")
+                    .unwrap_or(None)
+                    .unwrap_or(0),
+                deletes: row
+                    .try_get::<Option<i64>, _>("n_tup_del")
+                    .unwrap_or(None)
+                    .unwrap_or(0),
+                live_tuples: row
+                    .try_get::<Option<i64>, _>("n_live_tup")
+                    .unwrap_or(None)
+                    .unwrap_or(0),
+                dead_tuples: row
+                    .try_get::<Option<i64>, _>("n_dead_tup")
+                    .unwrap_or(None)
+                    .unwrap_or(0),
             })
         } else {
             Ok(TableStatistics::default(table))

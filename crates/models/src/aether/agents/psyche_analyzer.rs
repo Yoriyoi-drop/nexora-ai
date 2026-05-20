@@ -1,14 +1,14 @@
 //! Psyche Analyzer Agent
-//! 
+//!
 //! Psychological analysis agent for NXR-ÆTHER
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Psyche Analyzer Agent - Psychological analysis
 #[derive(Debug, Clone)]
@@ -775,22 +775,22 @@ impl BaseAgent for PsycheAnalyzerAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Perform psychological analysis
         let results = self.perform_psychological_analysis(&input).await?;
-        
+
         // Calculate confidence score
         let confidence_score = self.calculate_confidence_score(&input, &results);
-        
+
         // Assess analysis quality
         let analysis_quality = self.assess_analysis_quality(&results);
-        
+
         // Generate recommendations
         let recommendations = self.generate_recommendations(&input, &results).await?;
-        
+
         // Build output
         let output = PsychologicalAnalysisTaskOutput {
             results,
@@ -799,9 +799,9 @@ impl BaseAgent for PsycheAnalyzerAgent {
             recommendations,
             metadata: HashMap::new(),
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -814,21 +814,19 @@ impl BaseAgent for PsycheAnalyzerAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "psychological_analysis".to_string(),
-                description: "Comprehensive psychological analysis and assessment".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["psychological_analysis_task".to_string()],
-                output_types: vec!["psychological_analysis_results".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.85,
-                    avg_latency: 800.0,
-                    resource_usage: 0.7,
-                    reliability: 0.88,
-                },
+        vec![AgentCapability {
+            name: "psychological_analysis".to_string(),
+            description: "Comprehensive psychological analysis and assessment".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["psychological_analysis_task".to_string()],
+            output_types: vec!["psychological_analysis_results".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.85,
+                avg_latency: 800.0,
+                resource_usage: 0.7,
+                reliability: 0.88,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -870,21 +868,24 @@ impl PsycheAnalyzerAgent {
     fn validate_input(&self, input: &PsychologicalAnalysisTaskInput) -> AgentResult<()> {
         if input.text.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Text to analyze cannot be empty".to_string()
+                "Text to analyze cannot be empty".to_string(),
             ));
         }
-        
+
         if input.focus_areas.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "At least one focus area must be specified".to_string()
+                "At least one focus area must be specified".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Perform psychological analysis
-    async fn perform_psychological_analysis(&self, input: &PsychologicalAnalysisTaskInput) -> AgentResult<PsychologicalAnalysisResults> {
+    async fn perform_psychological_analysis(
+        &self,
+        input: &PsychologicalAnalysisTaskInput,
+    ) -> AgentResult<PsychologicalAnalysisResults> {
         let mut results = PsychologicalAnalysisResults {
             emotional_analysis: None,
             cognitive_analysis: None,
@@ -892,31 +893,36 @@ impl PsycheAnalyzerAgent {
             personality_analysis: None,
             mental_health_screening: None,
         };
-        
+
         // Perform analysis based on focus areas
         for focus_area in &input.focus_areas {
             match focus_area {
                 AnalysisFocusArea::EmotionalState => {
-                    results.emotional_analysis = Some(self.perform_emotional_analysis(&input.text).await?);
-                },
+                    results.emotional_analysis =
+                        Some(self.perform_emotional_analysis(&input.text).await?);
+                }
                 AnalysisFocusArea::CognitivePatterns => {
-                    results.cognitive_analysis = Some(self.perform_cognitive_analysis(&input.text).await?);
-                },
+                    results.cognitive_analysis =
+                        Some(self.perform_cognitive_analysis(&input.text).await?);
+                }
                 AnalysisFocusArea::BehavioralTendencies => {
-                    results.behavioral_analysis = Some(self.perform_behavioral_analysis(&input.text).await?);
-                },
+                    results.behavioral_analysis =
+                        Some(self.perform_behavioral_analysis(&input.text).await?);
+                }
                 AnalysisFocusArea::PersonalityTraits => {
-                    results.personality_analysis = Some(self.perform_personality_analysis(&input.text).await?);
-                },
+                    results.personality_analysis =
+                        Some(self.perform_personality_analysis(&input.text).await?);
+                }
                 AnalysisFocusArea::MentalHealthIndicators => {
-                    results.mental_health_screening = Some(self.perform_mental_health_screening(&input.text).await?);
-                },
+                    results.mental_health_screening =
+                        Some(self.perform_mental_health_screening(&input.text).await?);
+                }
                 AnalysisFocusArea::DevelopmentalStage => {
                     // Developmental analysis would be implemented here
-                },
+                }
             }
         }
-        
+
         Ok(results)
     }
 
@@ -925,7 +931,7 @@ impl PsycheAnalyzerAgent {
         let detected_emotions = self.detect_emotions_from_text(text);
         let emotional_regulation = self.assess_emotional_regulation(text);
         let emotional_intelligence = self.assess_emotional_intelligence(text);
-        
+
         Ok(EmotionalAnalysis {
             detected_emotions,
             emotional_regulation,
@@ -938,7 +944,7 @@ impl PsycheAnalyzerAgent {
         let thinking_patterns = self.identify_thinking_patterns(text);
         let cognitive_biases = self.identify_cognitive_biases(text);
         let problem_solving_style = self.assess_problem_solving_style(text);
-        
+
         Ok(CognitiveAnalysis {
             thinking_patterns,
             cognitive_biases,
@@ -951,7 +957,7 @@ impl PsycheAnalyzerAgent {
         let behavior_patterns = self.identify_behavior_patterns(text);
         let habit_analysis = self.analyze_habits(text);
         let social_behavior = self.analyze_social_behavior(text);
-        
+
         Ok(BehavioralAnalysis {
             behavior_patterns,
             habit_analysis,
@@ -964,7 +970,7 @@ impl PsycheAnalyzerAgent {
         let traits = self.extract_personality_traits(text);
         let personality_type = self.determine_personality_type(&traits);
         let trait_consistency = self.calculate_trait_consistency(&traits);
-        
+
         Ok(PersonalityAnalysis {
             traits,
             personality_type,
@@ -973,12 +979,15 @@ impl PsycheAnalyzerAgent {
     }
 
     /// Perform mental health screening
-    async fn perform_mental_health_screening(&self, text: &str) -> AgentResult<MentalHealthScreening> {
+    async fn perform_mental_health_screening(
+        &self,
+        text: &str,
+    ) -> AgentResult<MentalHealthScreening> {
         let results = self.screen_mental_health_indicators(text);
         let risk_factors = self.identify_risk_factors(text);
         let protective_factors = self.identify_protective_factors(text);
         let recommendations = self.generate_mental_health_recommendations(text);
-        
+
         Ok(MentalHealthScreening {
             results,
             risk_factors,
@@ -988,10 +997,13 @@ impl PsycheAnalyzerAgent {
     }
 
     /// Calculate confidence score
-    fn calculate_confidence_score(&self, input: &PsychologicalAnalysisTaskInput, 
-                                 results: &PsychologicalAnalysisResults) -> f32 {
+    fn calculate_confidence_score(
+        &self,
+        input: &PsychologicalAnalysisTaskInput,
+        results: &PsychologicalAnalysisResults,
+    ) -> f32 {
         let mut confidence_scores = Vec::new();
-        
+
         if results.emotional_analysis.is_some() {
             confidence_scores.push(0.8);
         }
@@ -1007,11 +1019,11 @@ impl PsycheAnalyzerAgent {
         if results.mental_health_screening.is_some() {
             confidence_scores.push(0.6);
         }
-        
+
         if confidence_scores.is_empty() {
             return 0.0;
         }
-        
+
         confidence_scores.iter().sum::<f32>() / confidence_scores.len() as f32
     }
 
@@ -1021,7 +1033,7 @@ impl PsycheAnalyzerAgent {
         let reliability = 0.85;
         let validity = 0.8;
         let consistency = 0.9;
-        
+
         AnalysisQuality {
             accuracy,
             reliability,
@@ -1031,36 +1043,41 @@ impl PsycheAnalyzerAgent {
     }
 
     /// Generate recommendations
-    async fn generate_recommendations(&self, input: &PsychologicalAnalysisTaskInput, 
-                                   results: &PsychologicalAnalysisResults) -> AgentResult<Vec<Recommendation>> {
+    async fn generate_recommendations(
+        &self,
+        input: &PsychologicalAnalysisTaskInput,
+        results: &PsychologicalAnalysisResults,
+    ) -> AgentResult<Vec<Recommendation>> {
         let mut recommendations = Vec::new();
-        
+
         // Generate recommendations based on analysis results
         if let Some(emotional_analysis) = &results.emotional_analysis {
             recommendations.push(Recommendation {
                 recommendation_type: RecommendationType::SelfHelp,
                 content: "Practice emotional awareness through journaling".to_string(),
                 priority: RecommendationPriority::Medium,
-                rationale: "Emotional awareness is foundation for emotional intelligence".to_string(),
+                rationale: "Emotional awareness is foundation for emotional intelligence"
+                    .to_string(),
             });
         }
-        
+
         if let Some(cognitive_analysis) = &results.cognitive_analysis {
             recommendations.push(Recommendation {
                 recommendation_type: RecommendationType::SkillDevelopment,
                 content: "Practice cognitive restructuring techniques".to_string(),
                 priority: RecommendationPriority::Medium,
-                rationale: "Cognitive restructuring helps challenge negative thought patterns".to_string(),
+                rationale: "Cognitive restructuring helps challenge negative thought patterns"
+                    .to_string(),
             });
         }
-        
+
         Ok(recommendations)
     }
 
     /// Helper methods for analysis (simplified implementations)
     fn detect_emotions_from_text(&self, text: &str) -> Vec<DetectedEmotion> {
         let mut emotions = Vec::new();
-        
+
         // Simplified emotion detection
         if text.to_lowercase().contains("sad") || text.to_lowercase().contains("unhappy") {
             emotions.push(DetectedEmotion {
@@ -1070,7 +1087,7 @@ impl PsycheAnalyzerAgent {
                 triggers: vec!["text_content".to_string()],
             });
         }
-        
+
         if text.to_lowercase().contains("happy") || text.to_lowercase().contains("joy") {
             emotions.push(DetectedEmotion {
                 name: "joy".to_string(),
@@ -1079,7 +1096,7 @@ impl PsycheAnalyzerAgent {
                 triggers: vec!["text_content".to_string()],
             });
         }
-        
+
         emotions
     }
 
@@ -1101,25 +1118,21 @@ impl PsycheAnalyzerAgent {
     }
 
     fn identify_thinking_patterns(&self, _text: &str) -> Vec<ThinkingPattern> {
-        vec![
-            ThinkingPattern {
-                name: "analytical_thinking".to_string(),
-                description: "Tendency to analyze situations in detail".to_string(),
-                frequency: 0.6,
-                impact: "positive".to_string(),
-            },
-        ]
+        vec![ThinkingPattern {
+            name: "analytical_thinking".to_string(),
+            description: "Tendency to analyze situations in detail".to_string(),
+            frequency: 0.6,
+            impact: "positive".to_string(),
+        }]
     }
 
     fn identify_cognitive_biases(&self, _text: &str) -> Vec<CognitiveBias> {
-        vec![
-            CognitiveBias {
-                name: "confirmation_bias".to_string(),
-                description: "Tendency to seek confirming evidence".to_string(),
-                likelihood: 0.3,
-                impact: "moderate".to_string(),
-            },
-        ]
+        vec![CognitiveBias {
+            name: "confirmation_bias".to_string(),
+            description: "Tendency to seek confirming evidence".to_string(),
+            likelihood: 0.3,
+            impact: "moderate".to_string(),
+        }]
     }
 
     fn assess_problem_solving_style(&self, _text: &str) -> ProblemSolvingStyle {
@@ -1131,27 +1144,23 @@ impl PsycheAnalyzerAgent {
     }
 
     fn identify_behavior_patterns(&self, _text: &str) -> Vec<BehaviorPattern> {
-        vec![
-            BehaviorPattern {
-                name: "proactive_behavior".to_string(),
-                description: "Tendency to take initiative".to_string(),
-                frequency: 0.7,
-                contexts: vec!["work".to_string(), "personal".to_string()],
-            },
-        ]
+        vec![BehaviorPattern {
+            name: "proactive_behavior".to_string(),
+            description: "Tendency to take initiative".to_string(),
+            frequency: 0.7,
+            contexts: vec!["work".to_string(), "personal".to_string()],
+        }]
     }
 
     fn analyze_habits(&self, _text: &str) -> HabitAnalysis {
         HabitAnalysis {
-            habits: vec![
-                Habit {
-                    name: "morning_routine".to_string(),
-                    description: "Consistent morning activities".to_string(),
-                    cue: "waking_up".to_string(),
-                    routine: "exercise_meditation".to_string(),
-                    reward: "energy_clarity".to_string(),
-                },
-            ],
+            habits: vec![Habit {
+                name: "morning_routine".to_string(),
+                description: "Consistent morning activities".to_string(),
+                cue: "waking_up".to_string(),
+                routine: "exercise_meditation".to_string(),
+                reward: "energy_clarity".to_string(),
+            }],
             habit_strength: 0.8,
             habit_formation: HabitFormation {
                 stage: "maintenance".to_string(),
@@ -1164,7 +1173,10 @@ impl PsycheAnalyzerAgent {
     fn analyze_social_behavior(&self, _text: &str) -> SocialBehavior {
         SocialBehavior {
             communication_style: "assertive".to_string(),
-            social_preferences: vec!["small_groups".to_string(), "meaningful_conversations".to_string()],
+            social_preferences: vec![
+                "small_groups".to_string(),
+                "meaningful_conversations".to_string(),
+            ],
             conflict_resolution: "collaborative".to_string(),
         }
     }
@@ -1194,40 +1206,34 @@ impl PsycheAnalyzerAgent {
         if traits.is_empty() {
             return 0.0;
         }
-        
+
         let sum: f32 = traits.iter().map(|t| t.value).sum();
         sum / traits.len() as f32
     }
 
     fn screen_mental_health_indicators(&self, _text: &str) -> Vec<ScreeningResult> {
-        vec![
-            ScreeningResult {
-                area: "stress_level".to_string(),
-                score: 0.4,
-                risk_level: RiskLevel::Low,
-                interpretation: "Normal stress levels detected".to_string(),
-            },
-        ]
+        vec![ScreeningResult {
+            area: "stress_level".to_string(),
+            score: 0.4,
+            risk_level: RiskLevel::Low,
+            interpretation: "Normal stress levels detected".to_string(),
+        }]
     }
 
     fn identify_risk_factors(&self, _text: &str) -> Vec<RiskFactor> {
-        vec![
-            RiskFactor {
-                name: "work_stress".to_string(),
-                description: "High work-related stress".to_string(),
-                impact_level: 0.3,
-            },
-        ]
+        vec![RiskFactor {
+            name: "work_stress".to_string(),
+            description: "High work-related stress".to_string(),
+            impact_level: 0.3,
+        }]
     }
 
     fn identify_protective_factors(&self, _text: &str) -> Vec<ProtectiveFactor> {
-        vec![
-            ProtectiveFactor {
-                name: "social_support".to_string(),
-                description: "Strong social support network".to_string(),
-                strength_level: 0.8,
-            },
-        ]
+        vec![ProtectiveFactor {
+            name: "social_support".to_string(),
+            description: "Strong social support network".to_string(),
+            strength_level: 0.8,
+        }]
     }
 
     fn generate_mental_health_recommendations(&self, _text: &str) -> Vec<String> {
@@ -1270,7 +1276,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(output.confidence_score > 0.0);
         assert!(output.results.emotional_analysis.is_some());
@@ -1281,10 +1287,10 @@ mod tests {
     #[test]
     fn test_emotion_detection() {
         let agent = PsycheAnalyzerAgent::default();
-        
+
         let emotions = agent.detect_emotions_from_text("I'm feeling very happy and joyful today!");
         assert!(!emotions.is_empty());
-        
+
         let joy_emotion = emotions.iter().find(|e| e.name == "joy");
         assert!(joy_emotion.is_some());
         assert!(joy_emotion.unwrap().intensity > 0.0);
@@ -1297,7 +1303,10 @@ mod tests {
             ..Default::default()
         };
         let agent = PsycheAnalyzerAgent::new(config);
-        
-        assert!(matches!(agent.config.analysis_depth, AnalysisDepth::Comprehensive));
+
+        assert!(matches!(
+            agent.config.analysis_depth,
+            AnalysisDepth::Comprehensive
+        ));
     }
 }

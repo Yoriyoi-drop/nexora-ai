@@ -1,10 +1,8 @@
 //! NXR-KRONOS Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-KRONOS
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-KRONOS Identity Manager
 pub struct KronosIdentity {

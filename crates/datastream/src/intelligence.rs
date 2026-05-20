@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
-use crate::types::{DataSample, Domain, CurriculumLevel, TrustScoreMap};
+use crate::types::{CurriculumLevel, DataSample, Domain, TrustScoreMap};
 
 pub struct DatasetIntelligenceCore {
     pub trust_scores: TrustScoreMap,
@@ -33,7 +33,10 @@ impl DatasetIntelligenceCore {
     pub fn score_sample(&self, sample: &DataSample) -> f64 {
         let mut score = 0.5;
 
-        let trust = self.trust_scores.0.get(&sample.source.name.to_lowercase())
+        let trust = self
+            .trust_scores
+            .0
+            .get(&sample.source.name.to_lowercase())
             .copied()
             .unwrap_or(0.5);
         score += trust * 0.2;
@@ -101,17 +104,24 @@ impl DatasetIntelligenceCore {
         let mut sorted = dist.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = ((percentile / 100.0) * sorted.len() as f64) as usize;
-        sorted.get(idx.min(sorted.len().saturating_sub(1))).copied().unwrap_or(0.5)
+        sorted
+            .get(idx.min(sorted.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0.5)
     }
 
     pub fn data_fingerprint(&self, sample: &DataSample) -> String {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         sample.source.name.hash(&mut hasher);
         sample.text.len().hash(&mut hasher);
-        sample.text.chars().take(100).for_each(|c| c.hash(&mut hasher));
+        sample
+            .text
+            .chars()
+            .take(100)
+            .for_each(|c| c.hash(&mut hasher));
         format!("{:x}", hasher.finish())
     }
 
@@ -133,7 +143,11 @@ impl DatasetIntelligenceCore {
 
         let avg_quality = {
             let dist = self.quality_distribution.read();
-            if dist.is_empty() { 0.0 } else { dist.iter().sum::<f64>() / dist.len() as f64 }
+            if dist.is_empty() {
+                0.0
+            } else {
+                dist.iter().sum::<f64>() / dist.len() as f64
+            }
         };
 
         IntelligenceReport {

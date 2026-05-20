@@ -16,9 +16,7 @@ impl Default for LoRAConfig {
             rank: 8,
             alpha: 16.0,
             dropout: 0.1,
-            target_modules: vec![
-                "wq".into(), "wk".into(), "wv".into(), "wo".into(),
-            ],
+            target_modules: vec!["wq".into(), "wk".into(), "wv".into(), "wo".into()],
             lr_scale: 1.0,
         }
     }
@@ -64,9 +62,7 @@ impl LoRALayer {
         lora_a.set_requires_grad(true);
 
         let lora_b = Tensor::from_slice(
-            &(0..output_dim * rank)
-                .map(|_| 0.0f32)
-                .collect::<Vec<_>>(),
+            &(0..output_dim * rank).map(|_| 0.0f32).collect::<Vec<_>>(),
             &[output_dim, rank],
         );
         lora_b.set_requires_grad(true);
@@ -106,9 +102,11 @@ impl LoRALayer {
     pub fn merge_weights(&self, original: &mut Array2<f32>) {
         let a_data = self.lora_a.data();
         let b_data = self.lora_b.data();
-        let a_2d = a_data.into_dimensionality::<ndarray::Ix2>()
+        let a_2d = a_data
+            .into_dimensionality::<ndarray::Ix2>()
             .expect("lora_a must be 2D");
-        let b_2d = b_data.into_dimensionality::<ndarray::Ix2>()
+        let b_2d = b_data
+            .into_dimensionality::<ndarray::Ix2>()
             .expect("lora_b must be 2D");
         let delta = b_2d.dot(&a_2d).mapv(|v| v * self.scaling);
         for i in 0..original.shape()[0] {
@@ -133,23 +131,20 @@ impl LoRAModel {
     }
 
     pub fn add_layer(&mut self, name: String, input_dim: usize, output_dim: usize) {
-        let layer = LoRALayer::new(
-            self.config.rank,
-            self.config.alpha,
-            input_dim,
-            output_dim,
-        );
+        let layer = LoRALayer::new(self.config.rank, self.config.alpha, input_dim, output_dim);
         self.layers.push((name, layer));
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {
-        self.layers.iter()
+        self.layers
+            .iter()
             .flat_map(|(_, l)| l.parameters())
             .collect()
     }
 
     pub fn parameter_count(&self) -> usize {
-        self.layers.iter()
+        self.layers
+            .iter()
             .map(|(_, l)| l.rank * (l.input_dim + l.output_dim))
             .sum()
     }
@@ -157,12 +152,16 @@ impl LoRAModel {
     pub fn merge_all(&self, model: &mut nexora_transformer::CausalLM) {
         for (name, layer) in &self.layers {
             let parts: Vec<&str> = name.split('.').collect();
-            if parts.len() < 2 { continue; }
+            if parts.len() < 2 {
+                continue;
+            }
             let layer_idx: usize = match parts[0].parse() {
                 Ok(i) => i,
                 Err(_) => continue,
             };
-            if layer_idx >= model.blocks.len() { continue; }
+            if layer_idx >= model.blocks.len() {
+                continue;
+            }
             let target = parts[1];
             match target {
                 "wq" => layer.merge_weights(&mut model.blocks[layer_idx].attention.wq),
@@ -180,12 +179,16 @@ impl LoRAModel {
     pub fn unmerge_all(&self, model: &mut nexora_transformer::CausalLM) {
         for (name, layer) in &self.layers {
             let parts: Vec<&str> = name.split('.').collect();
-            if parts.len() < 2 { continue; }
+            if parts.len() < 2 {
+                continue;
+            }
             let layer_idx: usize = match parts[0].parse() {
                 Ok(i) => i,
                 Err(_) => continue,
             };
-            if layer_idx >= model.blocks.len() { continue; }
+            if layer_idx >= model.blocks.len() {
+                continue;
+            }
             let target = parts[1];
             let a_data = layer.lora_a.data();
             let b_data = layer.lora_b.data();
@@ -232,17 +235,24 @@ impl LoRAModel {
             tensors.push((format!("{}.lora_a", name), layer.lora_a.data()));
             tensors.push((format!("{}.lora_b", name), layer.lora_b.data()));
         }
-        let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors.iter()
+        let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors
+            .iter()
             .map(|(n, a)| (n.as_str(), a.clone()))
             .collect();
         nexora_transformer::safetensors::save_safetensors(path, &refs)?;
         Ok(())
     }
 
-    pub fn load_adapter(&mut self, path: &str, _target_shapes: &[Vec<usize>]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_adapter(
+        &mut self,
+        path: &str,
+        _target_shapes: &[Vec<usize>],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let loaded = nexora_transformer::safetensors::load_safetensors(path)?;
-        for layer_pair  in self.layers.chunks_mut(2) {
-            if layer_pair.len() < 2 { continue; }
+        for layer_pair in self.layers.chunks_mut(2) {
+            if layer_pair.len() < 2 {
+                continue;
+            }
             let name = &layer_pair[0].0;
             let layer = &mut layer_pair[0].1;
             let a_key = format!("{}.lora_a", name);
@@ -296,7 +306,10 @@ mod tests {
 
     #[test]
     fn test_lora_parameter_count() {
-        let config = LoRAConfig { rank: 8, ..Default::default() };
+        let config = LoRAConfig {
+            rank: 8,
+            ..Default::default()
+        };
         let mut model = LoRAModel::new(config);
         model.add_layer("0.wq".into(), 64, 64);
         let count = model.parameter_count();
@@ -307,9 +320,14 @@ mod tests {
     fn test_merge_unmerge_roundtrip() {
         use nexora_transformer::{CausalLM, TransformerConfig};
         let cfg = TransformerConfig {
-            vocab_size: 100, hidden_size: 32, num_heads: 4,
-            num_kv_heads: 2, num_layers: 1, max_seq_len: 64,
-            intermediate_size: 64, ..Default::default()
+            vocab_size: 100,
+            hidden_size: 32,
+            num_heads: 4,
+            num_kv_heads: 2,
+            num_layers: 1,
+            max_seq_len: 64,
+            intermediate_size: 64,
+            ..Default::default()
         };
         let mut model = CausalLM::new(cfg);
         let original_wq = model.blocks[0].attention.wq.clone();
@@ -319,7 +337,10 @@ mod tests {
         lora_model.merge_all(&mut model);
         lora_model.unmerge_all(&mut model);
 
-        let max_diff = model.blocks[0].attention.wq.iter()
+        let max_diff = model.blocks[0]
+            .attention
+            .wq
+            .iter()
             .zip(original_wq.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);

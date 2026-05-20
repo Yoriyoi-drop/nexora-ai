@@ -1,5 +1,5 @@
 //! NXR-SPECTRA Model Implementation
-//! 
+//!
 //! NXR-04 PRO - Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture
 //! Creative multimodal synthesis specialist
 
@@ -8,32 +8,34 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
     capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
-    gnac_integration::{GnacIntegrationConfig, GnacModel},
     foundation_components::FoundationComponents,
+    gnac_integration::{GnacIntegrationConfig, GnacModel},
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
 };
 
-
 // Include all Spectra modules
-mod identity;
-mod config;
-mod architecture;
 mod agents;
+mod architecture;
 mod capabilities;
+mod config;
 mod coordinator;
+mod identity;
 
 // Re-export all components
-pub use identity::*;
-pub use config::*;
-pub use architecture::*;
 pub use agents::*;
+pub use architecture::*;
 pub use capabilities::*;
+pub use config::*;
 pub use coordinator::*;
+pub use identity::*;
 
 /// NXR-SPECTRA Model Implementation
 pub struct NxrSpectraModel {
@@ -155,11 +157,11 @@ impl SpectraCapabilities {
         let vector = CapabilityVector::new(NxrModelId::Spectra)
             .with_capability(nexora_shared::capability_spec::CapabilitySpec::new(
                 nexora_shared::capability_spec::CapabilityDomain::Creative,
-                nexora_shared::capability_spec::CapabilityLevel::Expert
+                nexora_shared::capability_spec::CapabilityLevel::Expert,
             ))
             .with_capability(nexora_shared::capability_spec::CapabilitySpec::new(
                 nexora_shared::capability_spec::CapabilityDomain::Multimodal,
-                nexora_shared::capability_spec::CapabilityLevel::Advanced
+                nexora_shared::capability_spec::CapabilityLevel::Advanced,
             ))
             .calculate_score();
         Self { vector }
@@ -204,7 +206,11 @@ impl Default for SpectraConfig {
                 cross_modal_synthesis: true,
             },
             multimodal: MultimodalConfig {
-                supported_modalities: vec!["text".to_string(), "vision".to_string(), "audio".to_string()],
+                supported_modalities: vec![
+                    "text".to_string(),
+                    "vision".to_string(),
+                    "audio".to_string(),
+                ],
                 fusion_strategy: "neural".to_string(),
                 coherence_weight: 0.8,
             },
@@ -253,7 +259,9 @@ impl NxrSpectraModel {
         };
 
         // Process prompt with deep learning
-        let dl_result = self.dl_process(prompt).await
+        let dl_result = self
+            .dl_process(prompt)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // CAFFEINE-SPECTRA multimodal processing
@@ -298,10 +306,20 @@ impl NxrSpectraModel {
         })
     }
 
-    fn synthesize_creative_content(&self, prompt: &str, analysis: &CreativeAnalysis) -> NxrModelResult<String> {
+    fn synthesize_creative_content(
+        &self,
+        prompt: &str,
+        analysis: &CreativeAnalysis,
+    ) -> NxrModelResult<String> {
         let content = match analysis.modality.as_str() {
-            "visual" => format!("Generated visual artwork in {} style based on: {}", analysis.style, prompt),
-            "audio" => format!("Composed musical piece in {} style inspired by: {}", analysis.style, prompt),
+            "visual" => format!(
+                "Generated visual artwork in {} style based on: {}",
+                analysis.style, prompt
+            ),
+            "audio" => format!(
+                "Composed musical piece in {} style inspired by: {}",
+                analysis.style, prompt
+            ),
             _ => format!("Creative text in {} style: {}", analysis.style, prompt),
         };
         Ok(content)
@@ -309,7 +327,9 @@ impl NxrSpectraModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -319,19 +339,27 @@ impl NxrSpectraModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -340,7 +368,10 @@ impl NxrSpectraModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -374,45 +405,65 @@ impl NxrModel for NxrSpectraModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
         self.base.mark_initialized().await;
         Ok(())
     }
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = SpectraState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = SpectraMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SPECTRA model not initialized".to_string()
+                "NXR-SPECTRA model not initialized".to_string(),
             ));
         }
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-SPECTRA only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-SPECTRA only supports text input".to_string(),
+                ))
+            }
         };
 
         let result = self.generate_creative_content(&input_text).await?;
@@ -422,9 +473,21 @@ impl NxrModel for NxrSpectraModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -457,7 +520,7 @@ impl NxrModel for NxrSpectraModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SPECTRA model not initialized".to_string()
+                "NXR-SPECTRA model not initialized".to_string(),
             ));
         }
 
@@ -482,8 +545,13 @@ impl NxrModel for NxrSpectraModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -497,15 +565,22 @@ impl NxrModel for NxrSpectraModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 24.0,
             cpu_percent: 50.0,

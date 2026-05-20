@@ -1,5 +1,5 @@
 //! Validation utilities for Nexora AI
-//! 
+//!
 //! Common validation functions and types
 
 use std::fmt;
@@ -28,13 +28,13 @@ pub fn validate_tensor_shape(shape: &[usize]) -> ValidationResult<()> {
             message: "Tensor shape cannot be empty".to_string(),
         });
     }
-    
+
     if shape.iter().any(|&dim| dim == 0) {
         return Err(ValidationError {
             message: "Tensor dimensions cannot be zero".to_string(),
         });
     }
-    
+
     Ok(())
 }
 

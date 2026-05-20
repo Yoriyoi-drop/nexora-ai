@@ -40,6 +40,8 @@ pub struct ContinuousBatchingEngine<M> {
     max_total_sequences: usize,
     /// Per-sequence sampler
     samplers: HashMap<u64, Sampler>,
+    /// Enable GPU sampling
+    use_gpu: bool,
 }
 
 impl<M> ContinuousBatchingEngine<M>
@@ -56,6 +58,14 @@ where
             max_batch_size,
             max_total_sequences: 1024,
             samplers: HashMap::new(),
+            use_gpu: false,
+        }
+    }
+
+    pub fn set_use_gpu(&mut self, use_gpu: bool) {
+        self.use_gpu = use_gpu;
+        for sampler in self.samplers.values_mut() {
+            sampler.set_use_gpu(use_gpu);
         }
     }
 
@@ -63,7 +73,10 @@ where
     /// Returns the assigned sequence ID, or 0 if the pool is full.
     pub fn add_request(&mut self, request: InferenceRequest) -> u64 {
         if self.sequences.len() >= self.max_total_sequences {
-            warn!("ContinuousBatchingEngine: max sequences ({}) reached", self.max_total_sequences);
+            warn!(
+                "ContinuousBatchingEngine: max sequences ({}) reached",
+                self.max_total_sequences
+            );
             return 0;
         }
         let seq_id = self.next_seq_id;
@@ -75,7 +88,7 @@ where
         self.kv_caches.insert(seq_id, cache);
         self.sequences.insert(seq_id, seq);
 
-        let sampler = Sampler::new(SamplingConfig {
+        let mut sampler = Sampler::new(SamplingConfig {
             method: crate::sampler::SamplingMethod::TemperatureTopKTopP,
             temperature: request.temperature,
             top_k: request.top_k as usize,
@@ -83,6 +96,7 @@ where
             min_prob: 0.0,
             seed: None,
         });
+        sampler.set_use_gpu(self.use_gpu);
         self.samplers.insert(seq_id, sampler);
 
         seq_id
@@ -120,11 +134,7 @@ where
             processed += 1;
         }
 
-        let active_count = self
-            .sequences
-            .values()
-            .filter(|s| !s.is_finished())
-            .count();
+        let active_count = self.sequences.values().filter(|s| !s.is_finished()).count();
 
         StepResult {
             completed,
@@ -148,7 +158,10 @@ where
         let token_id = match sampler.sample(logits_slice) {
             Ok(idx) => idx as u32,
             Err(e) => {
-                warn!("Sampler failed for sequence {}, error: {:?}, falling back to argmax", seq_id, e);
+                warn!(
+                    "Sampler failed for sequence {}, error: {:?}, falling back to argmax",
+                    seq_id, e
+                );
                 let max_idx = logits_slice
                     .iter()
                     .enumerate()
@@ -193,7 +206,11 @@ where
 
     fn build_response(&self, seq_id: u64, reason: FinishReason) -> Option<InferenceResponse> {
         let seq = self.sequences.get(&seq_id)?;
-                let text: String = seq.generated.iter().map(|t| (&*t.token_text).to_string()).collect();
+        let text: String = seq
+            .generated
+            .iter()
+            .map(|t| (&*t.token_text).to_string())
+            .collect();
         Some(InferenceResponse {
             request_id: uuid::Uuid::new_v4(),
             tokens: seq.generated.clone(),
@@ -207,10 +224,7 @@ where
 
     /// Number of active (non-finished) sequences.
     pub fn active_count(&self) -> usize {
-        self.sequences
-            .values()
-            .filter(|s| !s.is_finished())
-            .count()
+        self.sequences.values().filter(|s| !s.is_finished()).count()
     }
 
     /// Remove all completed sequences, returning their responses.
@@ -232,7 +246,11 @@ where
                     _ => continue,
                 };
                 let total_tokens = seq.total_tokens();
-        let text: String = seq.generated.iter().map(|t| (&*t.token_text).to_string()).collect();
+                let text: String = seq
+                    .generated
+                    .iter()
+                    .map(|t| (&*t.token_text).to_string())
+                    .collect();
                 results.push(InferenceResponse {
                     request_id: uuid::Uuid::new_v4(),
                     tokens: seq.generated,
@@ -271,11 +289,7 @@ mod tests {
     }
 
     impl ModelForward for MockModel {
-        fn forward(
-            &self,
-            input_ids: &[u32],
-            _kv_cache: &mut Vec<KVCacheEntry>,
-        ) -> Array1<f32> {
+        fn forward(&self, input_ids: &[u32], _kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32> {
             let mut logits = Array1::zeros(self.vocab_size);
             if let Some(&tid) = input_ids.last() {
                 let idx = (tid as usize).min(self.vocab_size - 1);
@@ -327,7 +341,10 @@ mod tests {
         assert!(r.completed.is_empty());
 
         let seq = engine.get_sequence(1).unwrap();
-        assert!(!seq.generated.is_empty(), "should have at least 1 generated token after prefill");
+        assert!(
+            !seq.generated.is_empty(),
+            "should have at least 1 generated token after prefill"
+        );
     }
 
     #[test]

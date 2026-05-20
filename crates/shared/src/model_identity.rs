@@ -1,5 +1,5 @@
 //! NXR Model Identity System
-//! 
+//!
 //! Defines identity, codename, tier, and metadata for all NXR models
 
 use serde::{Deserialize, Serialize};
@@ -87,13 +87,19 @@ impl NxrModelId {
             NxrModelId::Omnis => "Nexus Omniscient Reasoning System",
             NxrModelId::Vortex => "Variable Optimization Recursive Text & Expert eXchange",
             NxrModelId::Aether => "Adaptive Emotional & Holistic Transcendent Empathy Reasoner",
-            NxrModelId::Spectra => "Spectral Perception & Encoding for Creative Transcendence & Research Analytics",
+            NxrModelId::Spectra => {
+                "Spectral Perception & Encoding for Creative Transcendence & Research Analytics"
+            }
             NxrModelId::Nexum => "Networked EXpert Unified Mediator",
             NxrModelId::Axiom => "Autonomous eXpert Intelligence for Operations & Management",
-            NxrModelId::Cipher => "Cybersecurity Intelligence & Penetration Hardening Evaluation Responder",
+            NxrModelId::Cipher => {
+                "Cybersecurity Intelligence & Penetration Hardening Evaluation Responder"
+            }
             NxrModelId::Swift => "Sub-millisecond Weighted Inference & Fast Thought",
             NxrModelId::Kronos => "Knowledge Retrieval & Ontological Neural Optimization System",
-            NxrModelId::Genesis => "Generative Evolution Network for Emergent Simulation & Intelligence Synthesis",
+            NxrModelId::Genesis => {
+                "Generative Evolution Network for Emergent Simulation & Intelligence Synthesis"
+            }
         }
     }
 
@@ -247,7 +253,7 @@ impl ModelMeta {
         self.experimental = true;
         self
     }
-    
+
     /// Get reference to self (for compatibility with existing code)
     pub fn meta(&self) -> &Self {
         self

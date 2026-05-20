@@ -1,7 +1,7 @@
 use ndarray::{Array1, Array2};
 
+use super::gqa::{KVCacheEntry, PagedCacheReader, GQA};
 use super::rms_norm::RMSNorm;
-use super::gqa::{GQA, KVCacheEntry, PagedCacheReader};
 use super::swiglu::SwiGLU;
 
 #[derive(Debug, Clone)]
@@ -13,8 +13,14 @@ pub struct TransformerBlock {
 }
 
 impl TransformerBlock {
-    pub fn new(hidden_size: usize, num_heads: usize, num_kv_heads: usize,
-               head_dim: usize, intermediate_size: usize, norm_eps: f32) -> Self {
+    pub fn new(
+        hidden_size: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        intermediate_size: usize,
+        norm_eps: f32,
+    ) -> Self {
         Self {
             attention_norm: RMSNorm::new(hidden_size, norm_eps),
             ffn_norm: RMSNorm::new(hidden_size, norm_eps),
@@ -32,7 +38,9 @@ impl TransformerBlock {
         sin: &Array1<f32>,
     ) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
-        let attn_out = self.attention.forward_with_kv(&normed, cache, layer_idx, cos, sin);
+        let attn_out = self
+            .attention
+            .forward_with_kv(&normed, cache, layer_idx, cos, sin);
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn);
@@ -40,7 +48,12 @@ impl TransformerBlock {
         after_attn + ffn_out
     }
 
-    pub fn forward_no_cache(&self, x: &Array2<f32>, cos: &Array1<f32>, sin: &Array1<f32>) -> Array2<f32> {
+    pub fn forward_no_cache(
+        &self,
+        x: &Array2<f32>,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+    ) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
         let attn_out = self.attention.forward(&normed, None, 0, cos, sin);
         let after_attn = x + attn_out;
@@ -61,7 +74,9 @@ impl TransformerBlock {
         sin: &Array1<f32>,
     ) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
-        let attn_out = self.attention.forward_with_paged(&normed, cache, seq_id, layer_idx, token_pos, cos, sin);
+        let attn_out = self
+            .attention
+            .forward_with_paged(&normed, cache, seq_id, layer_idx, token_pos, cos, sin);
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn);

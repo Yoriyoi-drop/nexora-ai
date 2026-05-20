@@ -1,9 +1,9 @@
 extern crate blas_src;
 extern crate openblas_src;
 
+use clap::Parser;
 use nexora_ai::cli::Cli;
 use tracing::{error, info};
-use clap::Parser;
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +17,11 @@ async fn main() {
 
     if let Err(e) = cli.run().await {
         error!("Application error: {}", e);
-        error!("Error code: {}, HTTP status: {}", e.error_code(), e.http_status());
+        error!(
+            "Error code: {}, HTTP status: {}",
+            e.error_code(),
+            e.http_status()
+        );
         std::process::exit(1);
     }
 
@@ -27,8 +31,8 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexora_ai::cli::Commands;
     use clap::Parser;
+    use nexora_ai::cli::Commands;
 
     #[tokio::test]
     async fn test_main_function_parsing() {

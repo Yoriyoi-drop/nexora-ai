@@ -1,9 +1,9 @@
 //! Test Runner
-//! 
+//!
 //! Executes test cases and collects results.
 
-use crate::saca::error::*;
 use super::generator::{TestCase, TestType};
+use crate::saca::error::*;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -13,24 +13,33 @@ pub struct TestRunner;
 
 impl TestRunner {
     /// Run all test cases for an implementation
-    pub async fn run_tests(&self, implementation: &str, test_cases: Vec<TestCase>) -> SACAResult<Vec<TestResult>> {
+    pub async fn run_tests(
+        &self,
+        implementation: &str,
+        test_cases: Vec<TestCase>,
+    ) -> SACAResult<Vec<TestResult>> {
         let mut test_results = Vec::new();
-        
+
         for test_case in test_cases {
             let result = self.run_single_test(test_case, implementation).await?;
             test_results.push(result);
         }
-        
+
         Ok(test_results)
     }
-    
+
     /// Run a single test case
-    async fn run_single_test(&self, test_case: TestCase, implementation: &str) -> SACAResult<TestResult> {
+    async fn run_single_test(
+        &self,
+        test_case: TestCase,
+        implementation: &str,
+    ) -> SACAResult<TestResult> {
         let start_time = std::time::Instant::now();
-        
-        let (passed, actual_output, error_message) = self.run_test_execution(&test_case, implementation);
+
+        let (passed, actual_output, error_message) =
+            self.run_test_execution(&test_case, implementation);
         let execution_time = start_time.elapsed();
-        
+
         Ok(TestResult {
             test_id: test_case.id,
             test_type: test_case.test_type,
@@ -42,7 +51,7 @@ impl TestRunner {
             error_message,
         })
     }
-    
+
     /// Run a test case against the implementation and compare output
     fn run_test_execution(
         &self,
@@ -50,16 +59,28 @@ impl TestRunner {
         implementation: &str,
     ) -> (bool, String, Option<String>) {
         if implementation.contains("unimplemented!") {
-            return (false, "Not implemented".to_string(), Some("Implementation contains unimplemented! macro".to_string()));
+            return (
+                false,
+                "Not implemented".to_string(),
+                Some("Implementation contains unimplemented! macro".to_string()),
+            );
         }
 
-        let temp_dir = std::env::temp_dir().join(format!("saca_test_{}_{}", std::process::id(), uuid::Uuid::new_v4()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "saca_test_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
         let _ = std::fs::create_dir_all(&temp_dir);
         let file_path = temp_dir.join("test_impl.py");
 
         if let Err(e) = std::fs::write(&file_path, implementation) {
             let _ = std::fs::remove_dir_all(&temp_dir);
-            return (false, String::new(), Some(format!("Failed to write temp file: {}", e)));
+            return (
+                false,
+                String::new(),
+                Some(format!("Failed to write temp file: {}", e)),
+            );
         }
 
         let output = match Command::new("python3")
@@ -78,13 +99,21 @@ impl TestRunner {
                     Ok(output) => output,
                     Err(e) => {
                         let _ = std::fs::remove_dir_all(&temp_dir);
-                        return (false, String::new(), Some(format!("Failed to read child output: {}", e)));
+                        return (
+                            false,
+                            String::new(),
+                            Some(format!("Failed to read child output: {}", e)),
+                        );
                     }
                 }
             }
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&temp_dir);
-                return (false, String::new(), Some(format!("Failed to spawn python3: {}", e)));
+                return (
+                    false,
+                    String::new(),
+                    Some(format!("Failed to spawn python3: {}", e)),
+                );
             }
         };
 
@@ -105,7 +134,14 @@ impl TestRunner {
         if actual_output == test_case.expected_output.trim() {
             (true, actual_output, None)
         } else {
-            (false, actual_output.clone(), Some(format!("Expected '{}', got '{}'", test_case.expected_output, actual_output)))
+            (
+                false,
+                actual_output.clone(),
+                Some(format!(
+                    "Expected '{}', got '{}'",
+                    test_case.expected_output, actual_output
+                )),
+            )
         }
     }
 }

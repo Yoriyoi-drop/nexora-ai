@@ -1,5 +1,5 @@
 //! Nexora Infrastructure - Infrastructure layer
-//! 
+//!
 //! Provides shared infrastructure components:
 //! - logging
 //! - metrics
@@ -10,4 +10,3 @@
 
 pub mod common;
 pub mod utils;
-

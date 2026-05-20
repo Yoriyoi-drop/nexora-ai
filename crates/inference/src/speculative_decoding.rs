@@ -10,9 +10,9 @@
 
 use rand::Rng;
 
-use crate::{Result, GeneratedToken};
 use crate::decoding::{self, DecodingConfig, DecodingContext, DecodingStrategy};
 use crate::sampler::Sampler;
+use crate::{GeneratedToken, Result};
 
 /// Configuration untuk speculative decoding
 #[derive(Debug, Clone)]
@@ -81,19 +81,13 @@ pub struct SpeculativeDecoder<D: DecodingStrategy> {
 }
 
 impl<D: DecodingStrategy> SpeculativeDecoder<D> {
-    pub fn new(
-        config: SpeculativeDecodingConfig,
-        target_strategy: D,
-        draft_strategy: D,
-    ) -> Self {
+    pub fn new(config: SpeculativeDecodingConfig, target_strategy: D, draft_strategy: D) -> Self {
         let initial_draft = config.num_draft_tokens;
         Self {
             config,
             target_strategy,
             draft_strategy,
-            sampler: Sampler::new(
-                crate::sampler::SamplingConfig::default()
-            ),
+            sampler: Sampler::new(crate::sampler::SamplingConfig::default()),
             current_acceptance_rate: 0.8,
             current_draft_length: initial_draft,
         }
@@ -114,13 +108,8 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
         let k = self.current_draft_length;
 
         // Phase 1: Draft generation (autoregressive, model kecil)
-        let (draft_tokens, draft_logits) = self.generate_draft_tokens(
-            draft_logits_fn,
-            input_ids,
-            k,
-            decoding_config,
-            context,
-        )?;
+        let (draft_tokens, draft_logits) =
+            self.generate_draft_tokens(draft_logits_fn, input_ids, k, decoding_config, context)?;
 
         let draft_ids: Vec<u32> = draft_tokens.iter().map(|t| t.token_id).collect();
 
@@ -141,13 +130,21 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
             }
 
             let target_logit = &target_logits[i];
-            let draft_logit = if i < draft_logits.len() { &draft_logits[i] } else { target_logit };
+            let draft_logit = if i < draft_logits.len() {
+                &draft_logits[i]
+            } else {
+                target_logit
+            };
 
             if self.config.use_rejection_sampling {
                 // Rejection sampling: accept if p_target / p_draft > uniform(0,1)
                 let p_target = self.compute_token_probability(target_logit, draft_token.token_id);
                 let p_draft = self.compute_token_probability(draft_logit, draft_token.token_id);
-                let ratio = if p_draft > 1e-10 { p_target / p_draft } else { 0.0 };
+                let ratio = if p_draft > 1e-10 {
+                    p_target / p_draft
+                } else {
+                    0.0
+                };
                 let u: f32 = rng.gen();
 
                 if ratio >= u {
@@ -203,11 +200,9 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
             let last_pos = accepted.len().min(target_logits.len().saturating_sub(1));
             if last_pos < target_logits.len() {
                 let bonus_logit = &target_logits[last_pos];
-                let bonus_selection = self.target_strategy.select_token(
-                    bonus_logit,
-                    decoding_config,
-                    context,
-                )?;
+                let bonus_selection =
+                    self.target_strategy
+                        .select_token(bonus_logit, decoding_config, context)?;
                 let bonus_token = GeneratedToken::new(
                     bonus_selection.token_id,
                     decoding::alloc_token_text(bonus_selection.token_id as usize),
@@ -251,11 +246,9 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
 
         for i in 0..k {
             let logits = draft_logits_fn(&current_ids)?;
-            let selection = self.draft_strategy.select_token(
-                &logits,
-                decoding_config,
-                context,
-            )?;
+            let selection = self
+                .draft_strategy
+                .select_token(&logits, decoding_config, context)?;
 
             let token = GeneratedToken::new(
                 selection.token_id,
@@ -277,24 +270,43 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
         let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let sum: f32 = logits.iter().map(|l| (l - max_logit).exp()).sum();
         let p = (logits[token_id as usize] - max_logit).exp();
-        if sum > 1e-10 { p / sum } else { 0.0 }
+        if sum > 1e-10 {
+            p / sum
+        } else {
+            0.0
+        }
     }
 
     /// Compute adjusted distribution for resampling after rejection
-    fn compute_adjusted_distribution(&self, target_logits: &[f32], draft_logits: &[f32]) -> Vec<f32> {
-        let max_t = target_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let max_d = draft_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    fn compute_adjusted_distribution(
+        &self,
+        target_logits: &[f32],
+        draft_logits: &[f32],
+    ) -> Vec<f32> {
+        let max_t = target_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_d = draft_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
 
-        target_logits.iter().zip(draft_logits.iter()).map(|(&t, &d)| {
-            let p_target = (t - max_t).exp();
-            let p_draft = (d - max_d).exp();
-            // Adjusted: max(0, p_target - p_draft) — ensures correct distribution
-            (p_target - p_draft).max(0.0)
-        }).collect()
+        target_logits
+            .iter()
+            .zip(draft_logits.iter())
+            .map(|(&t, &d)| {
+                let p_target = (t - max_t).exp();
+                let p_draft = (d - max_d).exp();
+                // Adjusted: max(0, p_target - p_draft) — ensures correct distribution
+                (p_target - p_draft).max(0.0)
+            })
+            .collect()
     }
 
     fn argmax(&self, logits: &[f32]) -> u32 {
-        logits.iter()
+        logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx as u32)
@@ -314,7 +326,8 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
             self.current_draft_length = (current * 0.8).max(2.0) as usize;
         }
 
-        self.current_draft_length = self.current_draft_length
+        self.current_draft_length = self
+            .current_draft_length
             .clamp(2, self.config.num_draft_tokens * 2);
     }
 }
@@ -329,9 +342,17 @@ mod tests {
     struct MockStrategy;
 
     impl DecodingStrategy for MockStrategy {
-        fn name(&self) -> &str { "mock" }
-        fn select_token(&self, logits: &[f32], _config: &DecodingConfig, _context: &DecodingContext) -> Result<TokenSelection> {
-            let argmax = logits.iter()
+        fn name(&self) -> &str {
+            "mock"
+        }
+        fn select_token(
+            &self,
+            logits: &[f32],
+            _config: &DecodingConfig,
+            _context: &DecodingContext,
+        ) -> Result<TokenSelection> {
+            let argmax = logits
+                .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, &v)| (idx as u32, v))
@@ -344,7 +365,9 @@ mod tests {
                 metadata: HashMap::new(),
             })
         }
-        fn validate_config(&self, _config: &DecodingConfig) -> Result<()> { Ok(()) }
+        fn validate_config(&self, _config: &DecodingConfig) -> Result<()> {
+            Ok(())
+        }
     }
 
     #[test]

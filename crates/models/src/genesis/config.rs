@@ -1,11 +1,11 @@
 //! NXR-GENESIS Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-GENESIS
 
-use serde::{Deserialize, Serialize};
-use nexora_shared::model_config::NxrModelConfig;
 use nexora_shared::deeplearning_integration::DeepLearningConfig;
 use nexora_shared::gnac_integration::GnacIntegrationConfig;
+use nexora_shared::model_config::NxrModelConfig;
+use serde::{Deserialize, Serialize};
 
 /// NXR-GENESIS Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +47,9 @@ pub enum GenerationMode {
     /// Hybrid generation
     Hybrid,
     /// Custom generation
-    Custom { parameters: std::collections::HashMap<String, f32> },
+    Custom {
+        parameters: std::collections::HashMap<String, f32>,
+    },
 }
 
 /// DiversityControl
@@ -414,12 +416,16 @@ impl GenesisConfig {
         self.base.validate()?;
 
         // Validate diversity control
-        if self.generative.diversity_control.temperature < 0.0 || self.generative.diversity_control.temperature > 2.0 {
+        if self.generative.diversity_control.temperature < 0.0
+            || self.generative.diversity_control.temperature > 2.0
+        {
             return Err("Temperature must be between 0.0 and 2.0".to_string());
         }
 
         // Validate quality threshold
-        if self.generative.quality_threshold.minimum_quality < 0.0 || self.generative.quality_threshold.minimum_quality > 1.0 {
+        if self.generative.quality_threshold.minimum_quality < 0.0
+            || self.generative.quality_threshold.minimum_quality > 1.0
+        {
             return Err("Minimum quality must be between 0.0 and 1.0".to_string());
         }
 
@@ -429,7 +435,13 @@ impl GenesisConfig {
         }
 
         // Validate evaluation criteria
-        let total_weight: f32 = self.agents.evaluator.evaluation_criteria.iter().map(|c| c.weight).sum();
+        let total_weight: f32 = self
+            .agents
+            .evaluator
+            .evaluation_criteria
+            .iter()
+            .map(|c| c.weight)
+            .sum();
         if (total_weight - 1.0).abs() > 0.01 {
             return Err("Evaluation criterion weights must sum to 1.0".to_string());
         }
@@ -440,9 +452,13 @@ impl GenesisConfig {
     /// Get configuration for specific agent
     pub fn get_agent_config(&self, agent_name: &str) -> Option<serde_json::Value> {
         match agent_name {
-            "creative_engine" => Some(serde_json::to_value(&self.agents.creative_engine).unwrap_or_default()),
+            "creative_engine" => {
+                Some(serde_json::to_value(&self.agents.creative_engine).unwrap_or_default())
+            }
             "innovator" => Some(serde_json::to_value(&self.agents.innovator).unwrap_or_default()),
-            "synthesizer" => Some(serde_json::to_value(&self.agents.synthesizer).unwrap_or_default()),
+            "synthesizer" => {
+                Some(serde_json::to_value(&self.agents.synthesizer).unwrap_or_default())
+            }
             "evaluator" => Some(serde_json::to_value(&self.agents.evaluator).unwrap_or_default()),
             _ => None,
         }

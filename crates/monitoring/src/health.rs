@@ -84,7 +84,10 @@ impl HealthChecker {
             HealthCheck {
                 name: "cpu".into(),
                 healthy: false,
-                message: format!("CPU usage critical: {:.1}%", self.metrics.cpu_usage_ratio * 100.0),
+                message: format!(
+                    "CPU usage critical: {:.1}%",
+                    self.metrics.cpu_usage_ratio * 100.0
+                ),
                 latency_ms: 0,
             }
         } else if self.metrics.cpu_usage_ratio > 0.80 {
@@ -92,14 +95,20 @@ impl HealthChecker {
             HealthCheck {
                 name: "cpu".into(),
                 healthy: true,
-                message: format!("CPU usage elevated: {:.1}%", self.metrics.cpu_usage_ratio * 100.0),
+                message: format!(
+                    "CPU usage elevated: {:.1}%",
+                    self.metrics.cpu_usage_ratio * 100.0
+                ),
                 latency_ms: 0,
             }
         } else {
             HealthCheck {
                 name: "cpu".into(),
                 healthy: true,
-                message: format!("CPU usage normal: {:.1}%", self.metrics.cpu_usage_ratio * 100.0),
+                message: format!(
+                    "CPU usage normal: {:.1}%",
+                    self.metrics.cpu_usage_ratio * 100.0
+                ),
                 latency_ms: 0,
             }
         };
@@ -111,7 +120,10 @@ impl HealthChecker {
             HealthCheck {
                 name: "memory".into(),
                 healthy: false,
-                message: format!("Memory usage critical: {:.1} GB", self.metrics.memory_usage_bytes / 1e9),
+                message: format!(
+                    "Memory usage critical: {:.1} GB",
+                    self.metrics.memory_usage_bytes / 1e9
+                ),
                 latency_ms: 0,
             }
         } else if self.metrics.memory_usage_bytes > 60_000_000_000.0 {
@@ -119,14 +131,20 @@ impl HealthChecker {
             HealthCheck {
                 name: "memory".into(),
                 healthy: true,
-                message: format!("Memory usage elevated: {:.1} GB", self.metrics.memory_usage_bytes / 1e9),
+                message: format!(
+                    "Memory usage elevated: {:.1} GB",
+                    self.metrics.memory_usage_bytes / 1e9
+                ),
                 latency_ms: 0,
             }
         } else {
             HealthCheck {
                 name: "memory".into(),
                 healthy: true,
-                message: format!("Memory usage normal: {:.1} GB", self.metrics.memory_usage_bytes / 1e9),
+                message: format!(
+                    "Memory usage normal: {:.1} GB",
+                    self.metrics.memory_usage_bytes / 1e9
+                ),
                 latency_ms: 0,
             }
         };
@@ -138,7 +156,10 @@ impl HealthChecker {
             HealthCheck {
                 name: "error_rate".into(),
                 healthy: false,
-                message: format!("Error rate critical: {:.1}%", self.metrics.error_rate * 100.0),
+                message: format!(
+                    "Error rate critical: {:.1}%",
+                    self.metrics.error_rate * 100.0
+                ),
                 latency_ms: 0,
             }
         } else if self.metrics.error_rate > 0.10 {
@@ -146,7 +167,10 @@ impl HealthChecker {
             HealthCheck {
                 name: "error_rate".into(),
                 healthy: true,
-                message: format!("Error rate elevated: {:.1}%", self.metrics.error_rate * 100.0),
+                message: format!(
+                    "Error rate elevated: {:.1}%",
+                    self.metrics.error_rate * 100.0
+                ),
                 latency_ms: 0,
             }
         } else {
@@ -165,7 +189,10 @@ impl HealthChecker {
             HealthCheck {
                 name: "latency".into(),
                 healthy: false,
-                message: format!("Latency critical: {:.1} ms", self.metrics.average_latency_ms),
+                message: format!(
+                    "Latency critical: {:.1} ms",
+                    self.metrics.average_latency_ms
+                ),
                 latency_ms: self.metrics.average_latency_ms as u64,
             }
         } else if self.metrics.average_latency_ms > 5_000.0 {
@@ -173,7 +200,10 @@ impl HealthChecker {
             HealthCheck {
                 name: "latency".into(),
                 healthy: true,
-                message: format!("Latency elevated: {:.1} ms", self.metrics.average_latency_ms),
+                message: format!(
+                    "Latency elevated: {:.1} ms",
+                    self.metrics.average_latency_ms
+                ),
                 latency_ms: self.metrics.average_latency_ms as u64,
             }
         } else {

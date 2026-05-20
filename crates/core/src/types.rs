@@ -1,10 +1,10 @@
 //! Tipe data fundamental untuk Nexora Core
-//! 
+//!
 //! Module ini berisi semua tipe data dasar yang dimigrasi dari C ke Rust
 //! dengan ownership dan type safety yang lebih baik.
 
-use serde::{Deserialize, Serialize};
 use crate::error::CoreResult;
+use serde::{Deserialize, Serialize};
 
 // ==================== Input Types ====================
 
@@ -48,7 +48,7 @@ impl Default for IntentType {
 
 impl IntentType {
     pub const COUNT: usize = 11;
-    
+
     pub fn name(&self) -> &'static str {
         match self {
             IntentType::Unknown => "Unknown",
@@ -70,16 +70,16 @@ impl IntentType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ModelId {
-    Controller = 0,     // Core Controller (ini)
-    Memory = 1,         // Memory specialist
-    Coding = 2,         // Coding specialist
-    Logic = 3,          // Logic specialist
-    Planner = 4,         // Planning specialist
-    Ranking = 5,         // Ranking specialist
-    Retrieval = 6,       // Retrieval specialist
-    Validator = 7,      // Validation specialist
-    Personality = 8,    // Personality specialist
-    Optimizer = 9,      // Optimization specialist
+    Controller = 0,  // Core Controller (ini)
+    Memory = 1,      // Memory specialist
+    Coding = 2,      // Coding specialist
+    Logic = 3,       // Logic specialist
+    Planner = 4,     // Planning specialist
+    Ranking = 5,     // Ranking specialist
+    Retrieval = 6,   // Retrieval specialist
+    Validator = 7,   // Validation specialist
+    Personality = 8, // Personality specialist
+    Optimizer = 9,   // Optimization specialist
 }
 
 impl Default for ModelId {
@@ -109,9 +109,9 @@ impl ModelId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MemoryLayer {
-    Short = 0,    // Current request
-    Session = 1,  // Active conversation
-    Long = 2,     // Persistent knowledge
+    Short = 0,     // Current request
+    Session = 1,   // Active conversation
+    Long = 2,      // Persistent knowledge
     Knowledge = 3, // Database internal
 }
 
@@ -145,28 +145,32 @@ impl InputData {
             is_valid: false, // Will be validated separately
         }
     }
-    
+
     pub fn with_metadata(mut self, metadata: String) -> Self {
         self.metadata = Some(metadata);
         self
     }
-    
+
     pub fn validate(&mut self) -> bool {
         self.is_valid = self.validate_input();
         self.is_valid
     }
-    
+
     fn validate_input(&self) -> bool {
         // Basic validation
         if self.raw_input.is_empty() || self.input_length > 10000 {
             return false;
         }
-        
+
         // Check for control characters (except newline and tab)
-        if self.raw_input.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        if self
+            .raw_input
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+        {
             return false;
         }
-        
+
         // Type-specific validation
         match self.input_type {
             InputType::Text => self.validate_text(),
@@ -176,7 +180,7 @@ impl InputData {
             InputType::Internal => true, // Internal input - always valid
         }
     }
-    
+
     fn validate_text(&self) -> bool {
         // Text should contain printable characters (including Unicode)
         // Allow letters, numbers, punctuation, whitespace, and common Unicode characters
@@ -188,46 +192,86 @@ impl InputData {
             "@#$%^&*()_+-=[]{}|;':\",./<>?~`".contains(c) ||
             // Allow common Unicode ranges
             (c as u32 >= 0x00A0 && c as u32 <= 0x00FF) || // Latin-1 supplement
-            (c as u32 >= 0x0400 && c as u32 <= 0x04FF)    // Cyrillic
+            (c as u32 >= 0x0400 && c as u32 <= 0x04FF) // Cyrillic
         })
     }
-    
+
     fn validate_command(&self) -> bool {
         // Command should start with specific Indonesian command prefixes
         let input_lower = self.raw_input.to_lowercase();
         let command_prefixes = [
-            "buat ", "simpan ", "cari ", "analisis ", "jelaskan ",
-            "tambah ", "hapus ", "ubah ", "perbarui ", "tampilkan ",
-            "hitung ", "proses ", "eksekusi ", "jalankan ", "mulai ",
-            "stop ", "berhenti ", "reset ", "clear ", "kosongkan "
+            "buat ",
+            "simpan ",
+            "cari ",
+            "analisis ",
+            "jelaskan ",
+            "tambah ",
+            "hapus ",
+            "ubah ",
+            "perbarui ",
+            "tampilkan ",
+            "hitung ",
+            "proses ",
+            "eksekusi ",
+            "jalankan ",
+            "mulai ",
+            "stop ",
+            "berhenti ",
+            "reset ",
+            "clear ",
+            "kosongkan ",
         ];
-        
-        command_prefixes.iter().any(|prefix| input_lower.starts_with(prefix))
+
+        command_prefixes
+            .iter()
+            .any(|prefix| input_lower.starts_with(prefix))
     }
-    
+
     fn validate_query(&self) -> bool {
         // Query validation - more comprehensive
         let input_lower = self.raw_input.to_lowercase();
-        
+
         // Question words in Indonesian and English
         let question_words = [
-            "apa", "bagaimana", "mengapa", "kapan", "dimana", "siapa", 
-            "berapa", "adakah", "apakah", "bisakah", "bagaimanakah",
-            "what", "how", "why", "when", "where", "who", "which",
-            "can", "could", "would", "should", "is", "are", "do", "does"
+            "apa",
+            "bagaimana",
+            "mengapa",
+            "kapan",
+            "dimana",
+            "siapa",
+            "berapa",
+            "adakah",
+            "apakah",
+            "bisakah",
+            "bagaimanakah",
+            "what",
+            "how",
+            "why",
+            "when",
+            "where",
+            "who",
+            "which",
+            "can",
+            "could",
+            "would",
+            "should",
+            "is",
+            "are",
+            "do",
+            "does",
         ];
-        
-        let has_question_word = question_words.iter().any(|word| {
-            input_lower.contains(word) || input_lower.starts_with(word)
-        });
-        
+
+        let has_question_word = question_words
+            .iter()
+            .any(|word| input_lower.contains(word) || input_lower.starts_with(word));
+
         let has_question_mark = self.raw_input.contains('?');
         let is_long_enough = self.input_length > 10;
-        
+
         // Valid if it has question words, question mark, or is reasonably long
         has_question_word || has_question_mark || is_long_enough
     }
-    
+
     fn validate_data(&self) -> bool {
         // Data validation - check if it looks like structured data
         let has_json = self.raw_input.contains('{') && self.raw_input.contains('}');
@@ -235,10 +279,10 @@ impl InputData {
         let has_key_value = self.raw_input.contains('=') || self.raw_input.contains(':');
         let has_csv = self.raw_input.split(',').count() > 1;
         let has_xml = self.raw_input.contains('<') && self.raw_input.contains('>');
-        
+
         has_json || has_array || has_key_value || has_csv || has_xml
     }
-    
+
     fn current_timestamp_ms() -> u64 {
         crate::utils::current_timestamp_ms()
     }
@@ -249,7 +293,7 @@ impl InputData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntentScore {
     pub intent_type: IntentType,
-    pub confidence: f32,  // 0.0 - 1.0
+    pub confidence: f32, // 0.0 - 1.0
 }
 
 impl IntentScore {
@@ -278,19 +322,21 @@ impl IntentResult {
             is_multi_intent: false,
         }
     }
-    
+
     pub fn add_intent(&mut self, intent_type: IntentType, confidence: f32) {
         self.intents.push(IntentScore::new(intent_type, confidence));
         self.is_multi_intent = self.intents.len() > 1;
-        
+
         // Update primary intent if this has higher confidence
         if let Some(highest) = self.intents.iter().max_by(|a, b| {
-            a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal)
+            a.confidence
+                .partial_cmp(&b.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
         }) {
             self.primary_intent = highest.intent_type;
         }
     }
-    
+
     pub fn get_confidence(&self, intent_type: IntentType) -> f32 {
         self.intents
             .iter()
@@ -309,7 +355,7 @@ pub struct ContextInfo {
     pub active_model: ModelId,
     pub active_task: Option<String>,
     pub has_memory: bool,
-    pub context_relevance: f32,  // 0.0 - 1.0
+    pub context_relevance: f32, // 0.0 - 1.0
 }
 
 impl ContextInfo {
@@ -323,12 +369,12 @@ impl ContextInfo {
             context_relevance: 0.8,
         }
     }
-    
+
     pub fn with_previous_context(mut self, previous: String) -> Self {
         self.previous_context = Some(previous);
         self
     }
-    
+
     pub fn update_context(&mut self, new_context: String) {
         self.previous_context = Some(std::mem::take(&mut self.current_context));
         self.current_context = new_context;
@@ -341,13 +387,13 @@ impl ContextInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControllerConfig {
     pub max_concurrent_tasks: usize,
-    pub intent_threshold: f32,      // Lower = more sensitive
-    pub routing_threshold: f32,     // Higher = more selective
+    pub intent_threshold: f32,  // Lower = more sensitive
+    pub routing_threshold: f32, // Higher = more selective
     pub fusion_threshold: f32,
     pub enable_multi_model: bool,
     pub enable_memory_management: bool,
-    pub context_ttl_ms: u64,        // Context TTL in milliseconds
-    pub context_cache_size: usize,  // Maximum context cache size
+    pub context_ttl_ms: u64,       // Context TTL in milliseconds
+    pub context_cache_size: usize, // Maximum context cache size
 }
 
 impl Default for ControllerConfig {
@@ -359,7 +405,7 @@ impl Default for ControllerConfig {
             fusion_threshold: 0.7,
             enable_multi_model: true,
             enable_memory_management: true,
-            context_ttl_ms: 300000,  // 5 minutes
+            context_ttl_ms: 300000, // 5 minutes
             context_cache_size: 1000,
         }
     }
@@ -410,7 +456,8 @@ impl ControllerStats {
         if self.successful_routings + self.failed_routings == 0 {
             0.0
         } else {
-            self.successful_routings as f32 / (self.successful_routings + self.failed_routings) as f32
+            self.successful_routings as f32
+                / (self.successful_routings + self.failed_routings) as f32
         }
     }
 }
@@ -445,7 +492,11 @@ pub struct RoutingDecision {
 
 #[async_trait::async_trait]
 pub trait SpecialistModel: Send + Sync {
-    async fn process(&self, input: &str, context: &ContextInfo) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
+    async fn process(
+        &self,
+        input: &str,
+        context: &ContextInfo,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
     fn model_id(&self) -> ModelId;
     fn can_handle(&self, intent: IntentType) -> bool;
 }
@@ -462,7 +513,7 @@ struct CacheItem {
 use std::collections::HashMap;
 
 pub struct LruContextCache {
-    cache: HashMap<String, (CacheItem, u64)>,  // value + access order
+    cache: HashMap<String, (CacheItem, u64)>, // value + access order
     access_counter: u64,
     max_size: usize,
 }
@@ -475,7 +526,7 @@ impl LruContextCache {
             max_size,
         }
     }
-    
+
     pub fn get(&mut self, key: &str) -> Option<ContextInfo> {
         let now = Self::current_timestamp_ms();
         if let Some((item, access_order)) = self.cache.get_mut(key) {
@@ -491,19 +542,21 @@ impl LruContextCache {
             None
         }
     }
-    
+
     pub fn put(&mut self, key: String, context: &ContextInfo, ttl_ms: u64) {
         let now = Self::current_timestamp_ms();
         let expiry = now + ttl_ms;
-        
+
         // Remove expired entries if cache is full
         if self.cache.len() >= self.max_size {
             self.cleanup_expired();
         }
-        
+
         // Still full? Evict least recently used
         while self.cache.len() >= self.max_size {
-            if let Some(evict_key) = self.cache.iter()
+            if let Some(evict_key) = self
+                .cache
+                .iter()
                 .min_by_key(|(_, (_, access))| *access)
                 .map(|(k, _)| k.clone())
             {
@@ -512,24 +565,30 @@ impl LruContextCache {
                 break;
             }
         }
-        
+
         self.access_counter += 1;
-        self.cache.insert(key, (CacheItem {
-            context: context.clone(),
-            expiry,
-            created_at: now,
-        }, self.access_counter));
+        self.cache.insert(
+            key,
+            (
+                CacheItem {
+                    context: context.clone(),
+                    expiry,
+                    created_at: now,
+                },
+                self.access_counter,
+            ),
+        );
     }
-    
+
     pub fn len(&self) -> usize {
         self.cache.len()
     }
-    
+
     pub fn cleanup_expired(&mut self) {
         let now = Self::current_timestamp_ms();
         self.cache.retain(|_, (item, _)| now < item.expiry);
     }
-    
+
     fn current_timestamp_ms() -> u64 {
         crate::utils::current_timestamp_ms()
     }
@@ -543,17 +602,17 @@ impl ControllerCore {
     pub fn current_timestamp_ms() -> u64 {
         crate::utils::current_timestamp_ms()
     }
-    
+
     pub fn generate_context_key(input_data: &InputData) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         input_data.raw_input.hash(&mut hasher);
         input_data.input_type.hash(&mut hasher);
         format!("ctx_{:x}", hasher.finish())
     }
-    
+
     pub fn map_intent_to_model(intent: IntentType) -> ModelId {
         match intent {
             IntentType::Coding => ModelId::Coding,
@@ -569,7 +628,7 @@ impl ControllerCore {
             IntentType::Unknown => ModelId::Controller,
         }
     }
-    
+
     pub fn calculate_routing_confidence(intent: IntentType, context: &ContextInfo) -> f32 {
         let base_confidence = match intent {
             IntentType::Coding => 0.9,
@@ -584,11 +643,11 @@ impl ControllerCore {
             IntentType::Optimization => 0.8,
             IntentType::Unknown => 0.3,
         };
-        
+
         // Adjust based on context relevance
         (base_confidence * context.context_relevance).min(1.0)
     }
-    
+
     pub fn get_secondary_models(intents: &[IntentScore]) -> Vec<ModelId> {
         intents
             .iter()
@@ -596,25 +655,27 @@ impl ControllerCore {
             .map(|score| Self::map_intent_to_model(score.intent_type))
             .collect()
     }
-    
+
     pub fn find_alternative_model(
-        specialist_models: &std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>>,
+        specialist_models: &std::sync::Arc<
+            parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>,
+        >,
         target_model: ModelId,
         intent: &IntentResult,
     ) -> Option<ModelId> {
         let models = specialist_models.read();
-        
+
         // Try to find a model that can handle the primary intent
         for model in models.values() {
             if model.model_id() != target_model && model.can_handle(intent.primary_intent) {
                 return Some(model.model_id());
             }
         }
-        
+
         // Fallback to controller
         Some(ModelId::Controller)
     }
-    
+
     pub async fn route_to_alternative_model(
         model: ModelId,
         _intent: &IntentResult,
@@ -632,11 +693,13 @@ impl ControllerCore {
             secondary_models: Vec::new(),
         })
     }
-    
+
     pub async fn execute_task(
         routing: &RoutingDecision,
         original_input: &str,
-        _specialist_models: &std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>>,
+        _specialist_models: &std::sync::Arc<
+            parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>,
+        >,
     ) -> CoreResult<String> {
         // For now, return a simple response
         // In a real implementation, this would call the actual specialist model

@@ -93,8 +93,13 @@ impl RuntimeIsolationSpec {
                 seccomp_profile: "restricted.json".into(),
                 apparmor_profile: "nexora-restricted".into(),
                 allowed_syscalls: vec![
-                    "read".into(), "write".into(), "exit".into(), "exit_group".into(),
-                    "futex".into(), "clock_gettime".into(), "nanosleep".into(),
+                    "read".into(),
+                    "write".into(),
+                    "exit".into(),
+                    "exit_group".into(),
+                    "futex".into(),
+                    "clock_gettime".into(),
+                    "nanosleep".into(),
                 ],
             },
             os_restrictions: OsRestrictions {
@@ -136,7 +141,12 @@ impl RuntimeIsolationSpec {
                 drop_capabilities: vec!["ALL".into()],
                 seccomp_profile: "firecracker-default.json".into(),
                 apparmor_profile: "nexora-microvm".into(),
-                allowed_syscalls: vec!["read".into(), "write".into(), "exit".into(), "exit_group".into()],
+                allowed_syscalls: vec![
+                    "read".into(),
+                    "write".into(),
+                    "exit".into(),
+                    "exit_group".into(),
+                ],
             },
             os_restrictions: OsRestrictions {
                 user_namespace: true,
@@ -178,8 +188,14 @@ impl RuntimeIsolationSpec {
                 seccomp_profile: "kata-default.json".into(),
                 apparmor_profile: "nexora-kata".into(),
                 allowed_syscalls: vec![
-                    "read".into(), "write".into(), "open".into(), "close".into(),
-                    "mmap".into(), "munmap".into(), "brk".into(), "exit".into(),
+                    "read".into(),
+                    "write".into(),
+                    "open".into(),
+                    "close".into(),
+                    "mmap".into(),
+                    "munmap".into(),
+                    "brk".into(),
+                    "exit".into(),
                 ],
             },
             os_restrictions: OsRestrictions {

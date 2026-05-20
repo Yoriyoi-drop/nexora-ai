@@ -1,10 +1,10 @@
 //! NXR-SPECTRA Architecture
-//! 
+//!
 //! Implementation of the Creative Multimodal Synthesis Architecture
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::SpectraConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-SPECTRA Architecture Implementation
 pub struct SpectraArchitecture {
@@ -45,7 +45,10 @@ pub enum CreativeNetworkType {
     /// Transformative transformer
     Transformative,
     /// Hybrid transformer
-    Hybrid { generative_weight: f32, transformative_weight: f32 },
+    Hybrid {
+        generative_weight: f32,
+        transformative_weight: f32,
+    },
     /// Ensemble transformer
     Ensemble { networks: Vec<CreativeNetworkType> },
 }
@@ -171,7 +174,11 @@ pub enum EncoderArchitecture {
     /// RNN encoder
     RNN,
     /// Hybrid encoder
-    Hybrid { cnn_weight: f32, transformer_weight: f32, rnn_weight: f32 },
+    Hybrid {
+        cnn_weight: f32,
+        transformer_weight: f32,
+        rnn_weight: f32,
+    },
 }
 
 /// Encoder Parameters
@@ -393,7 +400,11 @@ pub enum StyleEncoderArchitecture {
     /// Style GAN
     StyleGAN,
     /// Hybrid style encoder
-    Hybrid { transformer_weight: f32, cnn_weight: f32, gan_weight: f32 },
+    Hybrid {
+        transformer_weight: f32,
+        cnn_weight: f32,
+        gan_weight: f32,
+    },
 }
 
 /// Style Encoder Parameters
@@ -935,176 +946,200 @@ impl SpectraArchitecture {
     /// Create new architecture with configuration
     pub fn new(config: &SpectraConfig) -> Self {
         let mut creative_transformers = HashMap::new();
-        
+
         // Initialize creative transformers
-        creative_transformers.insert("visual_creative".to_string(), CreativeTransformer {
-            id: "visual_creative".to_string(),
-            network_type: CreativeNetworkType::Hybrid {
-                generative_weight: 0.6,
-                transformative_weight: 0.4,
+        creative_transformers.insert(
+            "visual_creative".to_string(),
+            CreativeTransformer {
+                id: "visual_creative".to_string(),
+                network_type: CreativeNetworkType::Hybrid {
+                    generative_weight: 0.6,
+                    transformative_weight: 0.4,
+                },
+                creative_domain: CreativeDomain::Visual,
+                parameters: NetworkParameters {
+                    hidden_size: 1024,
+                    num_layers: 24,
+                    attention_heads: 16,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                    batch_size: 16,
+                },
+                performance_metrics: CreativeNetworkMetrics {
+                    creativity_score: 0.94,
+                    originality_score: 0.91,
+                    quality_score: 0.93,
+                    inference_time_ms: 250.0,
+                    memory_usage_mb: 512.0,
+                },
             },
-            creative_domain: CreativeDomain::Visual,
-            parameters: NetworkParameters {
-                hidden_size: 1024,
-                num_layers: 24,
-                attention_heads: 16,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
-                batch_size: 16,
+        );
+
+        creative_transformers.insert(
+            "audio_creative".to_string(),
+            CreativeTransformer {
+                id: "audio_creative".to_string(),
+                network_type: CreativeNetworkType::Generative,
+                creative_domain: CreativeDomain::Audio,
+                parameters: NetworkParameters {
+                    hidden_size: 768,
+                    num_layers: 18,
+                    attention_heads: 12,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                    batch_size: 32,
+                },
+                performance_metrics: CreativeNetworkMetrics {
+                    creativity_score: 0.89,
+                    originality_score: 0.87,
+                    quality_score: 0.91,
+                    inference_time_ms: 180.0,
+                    memory_usage_mb: 384.0,
+                },
             },
-            performance_metrics: CreativeNetworkMetrics {
-                creativity_score: 0.94,
-                originality_score: 0.91,
-                quality_score: 0.93,
-                inference_time_ms: 250.0,
-                memory_usage_mb: 512.0,
+        );
+
+        creative_transformers.insert(
+            "text_creative".to_string(),
+            CreativeTransformer {
+                id: "text_creative".to_string(),
+                network_type: CreativeNetworkType::Transformative,
+                creative_domain: CreativeDomain::Text,
+                parameters: NetworkParameters {
+                    hidden_size: 896,
+                    num_layers: 20,
+                    attention_heads: 14,
+                    dropout_rate: 0.1,
+                    learning_rate: 0.0001,
+                    batch_size: 24,
+                },
+                performance_metrics: CreativeNetworkMetrics {
+                    creativity_score: 0.92,
+                    originality_score: 0.89,
+                    quality_score: 0.94,
+                    inference_time_ms: 200.0,
+                    memory_usage_mb: 448.0,
+                },
             },
-        });
-        
-        creative_transformers.insert("audio_creative".to_string(), CreativeTransformer {
-            id: "audio_creative".to_string(),
-            network_type: CreativeNetworkType::Generative,
-            creative_domain: CreativeDomain::Audio,
-            parameters: NetworkParameters {
-                hidden_size: 768,
-                num_layers: 18,
-                attention_heads: 12,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
-                batch_size: 32,
-            },
-            performance_metrics: CreativeNetworkMetrics {
-                creativity_score: 0.89,
-                originality_score: 0.87,
-                quality_score: 0.91,
-                inference_time_ms: 180.0,
-                memory_usage_mb: 384.0,
-            },
-        });
-        
-        creative_transformers.insert("text_creative".to_string(), CreativeTransformer {
-            id: "text_creative".to_string(),
-            network_type: CreativeNetworkType::Transformative,
-            creative_domain: CreativeDomain::Text,
-            parameters: NetworkParameters {
-                hidden_size: 896,
-                num_layers: 20,
-                attention_heads: 14,
-                dropout_rate: 0.1,
-                learning_rate: 0.0001,
-                batch_size: 24,
-            },
-            performance_metrics: CreativeNetworkMetrics {
-                creativity_score: 0.92,
-                originality_score: 0.89,
-                quality_score: 0.94,
-                inference_time_ms: 200.0,
-                memory_usage_mb: 448.0,
-            },
-        });
+        );
 
         let mut modality_encoders = HashMap::new();
-        
-        modality_encoders.insert("text_encoder".to_string(), ModalityEncoder {
-            id: "text_encoder".to_string(),
-            modality_type: Modality::Text,
-            architecture: EncoderArchitecture::Transformer,
-            parameters: EncoderParameters {
-                input_dimensions: vec![512],
-                output_dimensions: 768,
-                num_layers: 12,
-                hidden_size: 768,
-            },
-            performance_metrics: EncoderMetrics {
-                encoding_accuracy: 0.96,
-                compression_ratio: 0.15,
-                encoding_time_ms: 50.0,
-                memory_usage_mb: 128.0,
-            },
-        });
-        
-        modality_encoders.insert("image_encoder".to_string(), ModalityEncoder {
-            id: "image_encoder".to_string(),
-            modality_type: Modality::Image,
-            architecture: EncoderArchitecture::CNN,
-            parameters: EncoderParameters {
-                input_dimensions: vec![224, 224, 3],
-                output_dimensions: 512,
-                num_layers: 18,
-                hidden_size: 512,
-            },
-            performance_metrics: EncoderMetrics {
-                encoding_accuracy: 0.94,
-                compression_ratio: 0.25,
-                encoding_time_ms: 80.0,
-                memory_usage_mb: 256.0,
-            },
-        });
-        
-        modality_encoders.insert("audio_encoder".to_string(), ModalityEncoder {
-            id: "audio_encoder".to_string(),
-            modality_type: Modality::Audio,
-            architecture: EncoderArchitecture::Hybrid {
-                cnn_weight: 0.6,
-                transformer_weight: 0.4,
-                rnn_weight: 0.0,
-            },
-            parameters: EncoderParameters {
-                input_dimensions: vec![16000],
-                output_dimensions: 384,
-                num_layers: 16,
-                hidden_size: 384,
-            },
-            performance_metrics: EncoderMetrics {
-                encoding_accuracy: 0.91,
-                compression_ratio: 0.18,
-                encoding_time_ms: 60.0,
-                memory_usage_mb: 192.0,
-            },
-        });
 
-        let mut style_encoders = HashMap::new();
-        
-        for style in &config.style.supported_styles {
-            style_encoders.insert(format!("style_{}", style.name), StyleEncoder {
-                id: format!("style_{}", style.name),
-                target_style: style.name.clone(),
-                architecture: StyleEncoderArchitecture::StyleTransformer,
-                parameters: StyleEncoderParameters {
-                    style_embedding_size: 256,
-                    num_style_features: 128,
-                    style_layers: 8,
+        modality_encoders.insert(
+            "text_encoder".to_string(),
+            ModalityEncoder {
+                id: "text_encoder".to_string(),
+                modality_type: Modality::Text,
+                architecture: EncoderArchitecture::Transformer,
+                parameters: EncoderParameters {
+                    input_dimensions: vec![512],
+                    output_dimensions: 768,
+                    num_layers: 12,
+                    hidden_size: 768,
+                },
+                performance_metrics: EncoderMetrics {
+                    encoding_accuracy: 0.96,
+                    compression_ratio: 0.15,
+                    encoding_time_ms: 50.0,
+                    memory_usage_mb: 128.0,
+                },
+            },
+        );
+
+        modality_encoders.insert(
+            "image_encoder".to_string(),
+            ModalityEncoder {
+                id: "image_encoder".to_string(),
+                modality_type: Modality::Image,
+                architecture: EncoderArchitecture::CNN,
+                parameters: EncoderParameters {
+                    input_dimensions: vec![224, 224, 3],
+                    output_dimensions: 512,
+                    num_layers: 18,
                     hidden_size: 512,
                 },
-                performance_metrics: StyleEncoderMetrics {
-                    style_accuracy: 0.89,
-                    style_consistency: 0.87,
-                    style_transfer_quality: 0.91,
-                    encoding_time_ms: 120.0,
+                performance_metrics: EncoderMetrics {
+                    encoding_accuracy: 0.94,
+                    compression_ratio: 0.25,
+                    encoding_time_ms: 80.0,
+                    memory_usage_mb: 256.0,
                 },
-            });
+            },
+        );
+
+        modality_encoders.insert(
+            "audio_encoder".to_string(),
+            ModalityEncoder {
+                id: "audio_encoder".to_string(),
+                modality_type: Modality::Audio,
+                architecture: EncoderArchitecture::Hybrid {
+                    cnn_weight: 0.6,
+                    transformer_weight: 0.4,
+                    rnn_weight: 0.0,
+                },
+                parameters: EncoderParameters {
+                    input_dimensions: vec![16000],
+                    output_dimensions: 384,
+                    num_layers: 16,
+                    hidden_size: 384,
+                },
+                performance_metrics: EncoderMetrics {
+                    encoding_accuracy: 0.91,
+                    compression_ratio: 0.18,
+                    encoding_time_ms: 60.0,
+                    memory_usage_mb: 192.0,
+                },
+            },
+        );
+
+        let mut style_encoders = HashMap::new();
+
+        for style in &config.style.supported_styles {
+            style_encoders.insert(
+                format!("style_{}", style.name),
+                StyleEncoder {
+                    id: format!("style_{}", style.name),
+                    target_style: style.name.clone(),
+                    architecture: StyleEncoderArchitecture::StyleTransformer,
+                    parameters: StyleEncoderParameters {
+                        style_embedding_size: 256,
+                        num_style_features: 128,
+                        style_layers: 8,
+                        hidden_size: 512,
+                    },
+                    performance_metrics: StyleEncoderMetrics {
+                        style_accuracy: 0.89,
+                        style_consistency: 0.87,
+                        style_transfer_quality: 0.91,
+                        encoding_time_ms: 120.0,
+                    },
+                },
+            );
         }
 
         let mut concept_generators = HashMap::new();
-        
+
         for domain in &config.innovation.innovation_domains {
-            concept_generators.insert(format!("concept_{}", format!("{:?}", domain).to_lowercase()), ConceptGenerator {
-                id: format!("concept_{}", format!("{:?}", domain).to_lowercase()),
-                generator_type: ConceptGeneratorType::Neural,
-                target_domain: domain.clone().into(),
-                parameters: ConceptGeneratorParameters {
-                    concept_space_size: 10000,
-                    novelty_threshold: config.innovation.novelty_threshold,
-                    generation_depth: 6,
-                    diversity_factor: 0.8,
+            concept_generators.insert(
+                format!("concept_{}", format!("{:?}", domain).to_lowercase()),
+                ConceptGenerator {
+                    id: format!("concept_{}", format!("{:?}", domain).to_lowercase()),
+                    generator_type: ConceptGeneratorType::Neural,
+                    target_domain: domain.clone().into(),
+                    parameters: ConceptGeneratorParameters {
+                        concept_space_size: 10000,
+                        novelty_threshold: config.innovation.novelty_threshold,
+                        generation_depth: 6,
+                        diversity_factor: 0.8,
+                    },
+                    performance_metrics: ConceptGeneratorMetrics {
+                        generation_quality: 0.88,
+                        novelty_score: 0.85,
+                        diversity_score: 0.82,
+                        generation_time_ms: 150.0,
+                    },
                 },
-                performance_metrics: ConceptGeneratorMetrics {
-                    generation_quality: 0.88,
-                    novelty_score: 0.85,
-                    diversity_score: 0.82,
-                    generation_time_ms: 150.0,
-                },
-            });
+            );
         }
 
         Self {
@@ -1112,7 +1147,13 @@ impl SpectraArchitecture {
             creative_transformers,
             multimodal_fusion: MultimodalFusionEngine {
                 fusion_strategy: config.multimodal.modality_fusion.clone().into(),
-                supported_modalities: config.multimodal.supported_modalities.clone().into_iter().map(Into::into).collect(),
+                supported_modalities: config
+                    .multimodal
+                    .supported_modalities
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 modality_encoders,
                 fusion_network: FusionNetwork {
                     id: "main_fusion".to_string(),
@@ -1144,7 +1185,13 @@ impl SpectraArchitecture {
             },
             style_adaptation: StyleAdaptationSystem {
                 adaptation_mode: config.style.style_adaptation_mode.clone().into(),
-                supported_styles: config.style.supported_styles.clone().into_iter().map(Into::into).collect(),
+                supported_styles: config
+                    .style
+                    .supported_styles
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 style_encoders,
                 style_synthesis: StyleSynthesisEngine {
                     models: HashMap::new(),
@@ -1152,14 +1199,15 @@ impl SpectraArchitecture {
                         StyleSynthesisStrategy::Adaptive,
                         StyleSynthesisStrategy::Progressive,
                     ],
-                    combination_rules: vec![
-                        StyleCombinationRule {
-                            id: "weighted_combination".to_string(),
-                            source_styles: vec!["Impressionism".to_string(), "Abstract Expressionism".to_string()],
-                            combination_method: StyleCombinationMethod::Weighted,
-                            weight: 0.8,
-                        },
-                    ],
+                    combination_rules: vec![StyleCombinationRule {
+                        id: "weighted_combination".to_string(),
+                        source_styles: vec![
+                            "Impressionism".to_string(),
+                            "Abstract Expressionism".to_string(),
+                        ],
+                        combination_method: StyleCombinationMethod::Weighted,
+                        weight: 0.8,
+                    }],
                 },
                 style_learning: StyleLearningSystem {
                     models: HashMap::new(),
@@ -1180,38 +1228,44 @@ impl SpectraArchitecture {
             },
             innovation_engine: InnovationEngine {
                 innovation_mode: config.innovation.innovation_mode.clone().into(),
-                innovation_domains: config.innovation.innovation_domains.clone().into_iter().map(Into::into).collect(),
+                innovation_domains: config
+                    .innovation
+                    .innovation_domains
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 concept_generators,
-                novelty_evaluators: vec![
-                    NoveltyEvaluator {
-                        id: "statistical_evaluator".to_string(),
-                        evaluation_method: NoveltyEvaluationMethod::Statistical,
-                        evaluation_criteria: vec![
-                            NoveltyCriterion {
-                                name: "uniqueness".to_string(),
-                                description: "How unique is the concept".to_string(),
-                                weight: 0.4,
-                                threshold: 0.7,
-                            },
-                            ],
-                        performance_metrics: NoveltyEvaluatorMetrics {
-                            evaluation_accuracy: 0.87,
-                            evaluation_consistency: 0.85,
-                            evaluation_time_ms: 60.0,
-                        },
+                novelty_evaluators: vec![NoveltyEvaluator {
+                    id: "statistical_evaluator".to_string(),
+                    evaluation_method: NoveltyEvaluationMethod::Statistical,
+                    evaluation_criteria: vec![NoveltyCriterion {
+                        name: "uniqueness".to_string(),
+                        description: "How unique is the concept".to_string(),
+                        weight: 0.4,
+                        threshold: 0.7,
+                    }],
+                    performance_metrics: NoveltyEvaluatorMetrics {
+                        evaluation_accuracy: 0.87,
+                        evaluation_consistency: 0.85,
+                        evaluation_time_ms: 60.0,
                     },
-                ],
-                constraints: config.innovation.creative_constraints.clone().into_iter().map(Into::into).collect(),
+                }],
+                constraints: config
+                    .innovation
+                    .creative_constraints
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             },
             _cross_modal_attention: CrossModalAttentionNetwork {
-                attention_layers: vec![
-                    CrossModalAttentionLayer {
-                        id: "layer_1".to_string(),
-                        attention_mechanism: AttentionMechanism::CrossModal,
-                        input_modalities: vec![Modality::Text, Modality::Image, Modality::Audio],
-                        output_dimension: 1024,
-                    },
-                ],
+                attention_layers: vec![CrossModalAttentionLayer {
+                    id: "layer_1".to_string(),
+                    attention_mechanism: AttentionMechanism::CrossModal,
+                    input_modalities: vec![Modality::Text, Modality::Image, Modality::Audio],
+                    output_dimension: 1024,
+                }],
                 modality_projections: HashMap::new(),
                 fusion_strategy: CrossModalFusionStrategy::Attention,
                 performance_metrics: CrossModalAttentionMetrics {
@@ -1275,51 +1329,72 @@ impl SpectraArchitecture {
     }
 
     /// Generate creative content
-    pub async fn generate_creative_content(&self, prompt: &str, domains: &[CreativeDomain], styles: &[String]) -> NxrModelResult<CreativeGenerationResult> {
+    pub async fn generate_creative_content(
+        &self,
+        prompt: &str,
+        domains: &[CreativeDomain],
+        styles: &[String],
+    ) -> NxrModelResult<CreativeGenerationResult> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result = CreativeGenerationResult::new();
-        
+
         // Process through creative transformers
         for domain in domains {
             if let Some(transformer) = self.get_creative_transformer_for_domain(domain) {
-                let domain_result = self.generate_domain_content(transformer, prompt, styles).await?;
+                let domain_result = self
+                    .generate_domain_content(transformer, prompt, styles)
+                    .await?;
                 result.domain_results.insert(domain.clone(), domain_result);
             }
         }
-        
+
         // Fuse multimodal content if multiple domains
         if result.domain_results.len() > 1 {
-            result.fused_content = Some(self.fuse_multimodal_content(&result.domain_results).await?);
+            result.fused_content =
+                Some(self.fuse_multimodal_content(&result.domain_results).await?);
         }
-        
+
         // Apply style adaptation
         if !styles.is_empty() {
-            result.styled_content = Some(self.apply_style_adaptation(&result.domain_results, styles).await?);
+            result.styled_content = Some(
+                self.apply_style_adaptation(&result.domain_results, styles)
+                    .await?,
+            );
         }
-        
+
         // Generate innovative concepts
         if self.config.innovation.enable_concept_generation {
             result.innovative_concepts = self.generate_innovative_concepts(prompt, domains).await?;
         }
-        
+
         result.execution_time_ms = start_time.elapsed().as_millis() as u64;
         result.creativity_score = self.calculate_creativity_score(&result);
-        
+
         Ok(result)
     }
 
     /// Get creative transformer for domain
-    fn get_creative_transformer_for_domain(&self, domain: &CreativeDomain) -> Option<&CreativeTransformer> {
-        self.creative_transformers.values().find(|t| &t.creative_domain == domain)
+    fn get_creative_transformer_for_domain(
+        &self,
+        domain: &CreativeDomain,
+    ) -> Option<&CreativeTransformer> {
+        self.creative_transformers
+            .values()
+            .find(|t| &t.creative_domain == domain)
     }
 
     /// Generate domain-specific content
-    async fn generate_domain_content(&self, transformer: &CreativeTransformer, prompt: &str, styles: &[String]) -> NxrModelResult<DomainGenerationResult> {
+    async fn generate_domain_content(
+        &self,
+        transformer: &CreativeTransformer,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<DomainGenerationResult> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result = DomainGenerationResult::new();
-        
+
         // Generate content based on domain
         match transformer.creative_domain {
             CreativeDomain::Visual => {
@@ -1341,154 +1416,214 @@ impl SpectraArchitecture {
                 result.content = self.generate_performance_content(prompt, styles).await?;
             }
         }
-        
+
         result.domain = transformer.creative_domain.clone();
         result.creativity_score = transformer.performance_metrics.creativity_score;
         result.originality_score = transformer.performance_metrics.originality_score;
         result.quality_score = transformer.performance_metrics.quality_score;
         result.generation_time_ms = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(result)
     }
 
     /// Generate visual content
-    async fn generate_visual_content(&self, prompt: &str, styles: &[String]) -> NxrModelResult<String> {
+    async fn generate_visual_content(
+        &self,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<String> {
         let mut content = format!("Visual content based on: {}", prompt);
-        
+
         if !styles.is_empty() {
             content.push_str(&format!(" in styles: {:?}", styles));
         }
-        
+
         content.push_str(" [Generated visual description]");
         Ok(content)
     }
 
     /// Generate audio content
-    async fn generate_audio_content(&self, prompt: &str, styles: &[String]) -> NxrModelResult<String> {
+    async fn generate_audio_content(
+        &self,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<String> {
         let mut content = format!("Audio content based on: {}", prompt);
-        
+
         if !styles.is_empty() {
             content.push_str(&format!(" with styles: {:?}", styles));
         }
-        
+
         content.push_str(" [Generated audio description]");
         Ok(content)
     }
 
     /// Generate text content
-    async fn generate_text_content(&self, prompt: &str, styles: &[String]) -> NxrModelResult<String> {
+    async fn generate_text_content(
+        &self,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<String> {
         let mut content = format!("Text content based on: {}", prompt);
-        
+
         if !styles.is_empty() {
             content.push_str(&format!(" in styles: {:?}", styles));
         }
-        
+
         content.push_str(" [Generated text content]");
         Ok(content)
     }
 
     /// Generate multimedia content
-    async fn generate_multimedia_content(&self, prompt: &str, styles: &[String]) -> NxrModelResult<String> {
+    async fn generate_multimedia_content(
+        &self,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<String> {
         let mut content = format!("Multimedia content based on: {}", prompt);
-        
+
         if !styles.is_empty() {
             content.push_str(&format!(" with styles: {:?}", styles));
         }
-        
+
         content.push_str(" [Generated multimedia description]");
         Ok(content)
     }
 
     /// Generate interactive content
-    async fn generate_interactive_content(&self, prompt: &str, styles: &[String]) -> NxrModelResult<String> {
+    async fn generate_interactive_content(
+        &self,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<String> {
         let mut content = format!("Interactive content based on: {}", prompt);
-        
+
         if !styles.is_empty() {
             content.push_str(&format!(" with styles: {:?}", styles));
         }
-        
+
         content.push_str(" [Generated interactive description]");
         Ok(content)
     }
 
     /// Generate performance content
-    async fn generate_performance_content(&self, prompt: &str, styles: &[String]) -> NxrModelResult<String> {
+    async fn generate_performance_content(
+        &self,
+        prompt: &str,
+        styles: &[String],
+    ) -> NxrModelResult<String> {
         let mut content = format!("Performance content based on: {}", prompt);
-        
+
         if !styles.is_empty() {
             content.push_str(&format!(" with styles: {:?}", styles));
         }
-        
+
         content.push_str(" [Generated performance description]");
         Ok(content)
     }
 
     /// Fuse multimodal content
-    async fn fuse_multimodal_content(&self, domain_results: &HashMap<CreativeDomain, DomainGenerationResult>) -> NxrModelResult<String> {
+    async fn fuse_multimodal_content(
+        &self,
+        domain_results: &HashMap<CreativeDomain, DomainGenerationResult>,
+    ) -> NxrModelResult<String> {
         let mut fused_content = String::new();
-        
+
         for (domain, result) in domain_results {
             fused_content.push_str(&format!("{:?}: {}\n", domain, result.content));
         }
-        
+
         fused_content.push_str("[Fused multimodal content]");
         Ok(fused_content)
     }
 
     /// Apply style adaptation
-    async fn apply_style_adaptation(&self, domain_results: &HashMap<CreativeDomain, DomainGenerationResult>, styles: &[String]) -> NxrModelResult<HashMap<CreativeDomain, String>> {
+    async fn apply_style_adaptation(
+        &self,
+        domain_results: &HashMap<CreativeDomain, DomainGenerationResult>,
+        styles: &[String],
+    ) -> NxrModelResult<HashMap<CreativeDomain, String>> {
         let mut styled_content = HashMap::new();
-        
+
         for (domain, result) in domain_results {
             let mut adapted_content = result.content.clone();
-            
+
             for style in styles {
-                if let Some(style_encoder) = self.style_adaptation.style_encoders.get(&format!("style_{}", style)) {
-                    adapted_content = self.apply_single_style(&adapted_content, style, &style_encoder.performance_metrics).await?;
+                if let Some(style_encoder) = self
+                    .style_adaptation
+                    .style_encoders
+                    .get(&format!("style_{}", style))
+                {
+                    adapted_content = self
+                        .apply_single_style(
+                            &adapted_content,
+                            style,
+                            &style_encoder.performance_metrics,
+                        )
+                        .await?;
                 }
             }
-            
+
             styled_content.insert(domain.clone(), adapted_content);
         }
-        
+
         Ok(styled_content)
     }
 
     /// Apply single style
-    async fn apply_single_style(&self, content: &str, style: &str, metrics: &StyleEncoderMetrics) -> NxrModelResult<String> {
+    async fn apply_single_style(
+        &self,
+        content: &str,
+        style: &str,
+        metrics: &StyleEncoderMetrics,
+    ) -> NxrModelResult<String> {
         let mut styled_content = content.to_string();
-        
+
         // Apply style based on metrics
         if metrics.style_accuracy > 0.9 {
             styled_content.push_str(&format!(" [High-quality {} style]", style));
         } else {
             styled_content.push_str(&format!(" [{} style]", style));
         }
-        
+
         Ok(styled_content)
     }
 
     /// Generate innovative concepts
-    async fn generate_innovative_concepts(&self, prompt: &str, domains: &[CreativeDomain]) -> NxrModelResult<Vec<InnovativeConcept>> {
+    async fn generate_innovative_concepts(
+        &self,
+        prompt: &str,
+        domains: &[CreativeDomain],
+    ) -> NxrModelResult<Vec<InnovativeConcept>> {
         let mut concepts = Vec::new();
-        
+
         for domain in domains {
-            if let Some(generator) = self.innovation_engine.concept_generators.get(&format!("concept_{}", format!("{:?}", domain).to_lowercase())) {
-                let concept = self.generate_concept_for_domain(generator, prompt, domain).await?;
+            if let Some(generator) = self.innovation_engine.concept_generators.get(&format!(
+                "concept_{}",
+                format!("{:?}", domain).to_lowercase()
+            )) {
+                let concept = self
+                    .generate_concept_for_domain(generator, prompt, domain)
+                    .await?;
                 concepts.push(concept);
             }
         }
-        
+
         // Evaluate novelty
         concepts = self.evaluate_concept_novelty(concepts).await?;
-        
+
         Ok(concepts)
     }
 
     /// Generate concept for domain
-    async fn generate_concept_for_domain(&self, generator: &ConceptGenerator, prompt: &str, domain: &CreativeDomain) -> NxrModelResult<InnovativeConcept> {
+    async fn generate_concept_for_domain(
+        &self,
+        generator: &ConceptGenerator,
+        prompt: &str,
+        domain: &CreativeDomain,
+    ) -> NxrModelResult<InnovativeConcept> {
         let start_time = std::time::Instant::now();
-        
+
         let concept = InnovativeConcept {
             id: uuid::Uuid::new_v4().to_string(),
             domain: domain.clone(),
@@ -1499,7 +1634,7 @@ impl SpectraArchitecture {
             innovation_type: self.get_innovation_type_for_domain(domain),
             generation_time_ms: start_time.elapsed().as_millis() as u64,
         };
-        
+
         Ok(concept)
     }
 
@@ -1516,15 +1651,18 @@ impl SpectraArchitecture {
     }
 
     /// Evaluate concept novelty
-    async fn evaluate_concept_novelty(&self, concepts: Vec<InnovativeConcept>) -> NxrModelResult<Vec<InnovativeConcept>> {
+    async fn evaluate_concept_novelty(
+        &self,
+        concepts: Vec<InnovativeConcept>,
+    ) -> NxrModelResult<Vec<InnovativeConcept>> {
         let mut evaluated_concepts = Vec::new();
-        
+
         for mut concept in concepts {
             // Evaluate novelty score
             concept.novelty_score = (concept.novelty_score + 0.1_f32).min(1.0_f32);
             evaluated_concepts.push(concept);
         }
-        
+
         Ok(evaluated_concepts)
     }
 
@@ -1533,17 +1671,19 @@ impl SpectraArchitecture {
         if result.domain_results.is_empty() {
             return 0.0;
         }
-        
-        let total_score: f32 = result.domain_results
+
+        let total_score: f32 = result
+            .domain_results
             .values()
             .map(|r| r.creativity_score * r.quality_score)
             .sum();
-        
-        let total_weight: f32 = result.domain_results
+
+        let total_weight: f32 = result
+            .domain_results
             .values()
             .map(|r| r.quality_score)
             .sum();
-        
+
         if total_weight > 0.0 {
             total_score / total_weight
         } else {
@@ -1552,30 +1692,52 @@ impl SpectraArchitecture {
     }
 
     /// Adapt style dynamically
-    pub async fn adapt_style_dynamically(&self, content: &str, target_style: &str, context: &str) -> NxrModelResult<StyleAdaptationResult> {
+    pub async fn adapt_style_dynamically(
+        &self,
+        content: &str,
+        target_style: &str,
+        context: &str,
+    ) -> NxrModelResult<StyleAdaptationResult> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result = StyleAdaptationResult::new();
-        
+
         // Find style encoder
-        if let Some(style_encoder) = self.style_adaptation.style_encoders.get(&format!("style_{}", target_style)) {
-            result.adapted_content = self.apply_dynamic_style_adaptation(content, target_style, context, &style_encoder.performance_metrics).await?;
+        if let Some(style_encoder) = self
+            .style_adaptation
+            .style_encoders
+            .get(&format!("style_{}", target_style))
+        {
+            result.adapted_content = self
+                .apply_dynamic_style_adaptation(
+                    content,
+                    target_style,
+                    context,
+                    &style_encoder.performance_metrics,
+                )
+                .await?;
             result.adaptation_confidence = style_encoder.performance_metrics.style_accuracy;
         } else {
             return Err(format!("Style {} not supported", target_style).into());
         }
-        
+
         result.target_style = target_style.to_string();
         result.context = context.to_string();
         result.adaptation_time_ms = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(result)
     }
 
     /// Apply dynamic style adaptation
-    async fn apply_dynamic_style_adaptation(&self, content: &str, style: &str, context: &str, metrics: &StyleEncoderMetrics) -> NxrModelResult<String> {
+    async fn apply_dynamic_style_adaptation(
+        &self,
+        content: &str,
+        style: &str,
+        context: &str,
+        metrics: &StyleEncoderMetrics,
+    ) -> NxrModelResult<String> {
         let mut adapted_content = content.to_string();
-        
+
         // Apply context-aware adaptation
         if context.contains("modern") {
             adapted_content.push_str(&format!(" [Modern {} adaptation]", style));
@@ -1584,78 +1746,110 @@ impl SpectraArchitecture {
         } else {
             adapted_content.push_str(&format!(" [{} adaptation]", style));
         }
-        
+
         // Apply quality-based adaptation
         if metrics.style_consistency > 0.9 {
             adapted_content.push_str(" [High consistency]");
         }
-        
+
         Ok(adapted_content)
     }
 
     /// Generate cross-modal creative content
-    pub async fn generate_cross_modal_creative(&self, primary_modality: &Modality, secondary_modality: &Modality, prompt: &str) -> NxrModelResult<CrossModalCreativeResult> {
+    pub async fn generate_cross_modal_creative(
+        &self,
+        primary_modality: &Modality,
+        secondary_modality: &Modality,
+        prompt: &str,
+    ) -> NxrModelResult<CrossModalCreativeResult> {
         let start_time = std::time::Instant::now();
-        
+
         let mut result = CrossModalCreativeResult::new();
-        
+
         // Encode primary modality
-        if let Some(primary_encoder) = self.multimodal_fusion.modality_encoders.get(&format!("{}_encoder", format!("{:?}", primary_modality).to_lowercase())) {
+        if let Some(primary_encoder) = self.multimodal_fusion.modality_encoders.get(&format!(
+            "{}_encoder",
+            format!("{:?}", primary_modality).to_lowercase()
+        )) {
             result.primary_encoding = self.encode_modality(primary_encoder, prompt).await?;
         }
-        
+
         // Encode secondary modality
-        if let Some(secondary_encoder) = self.multimodal_fusion.modality_encoders.get(&format!("{}_encoder", format!("{:?}", secondary_modality).to_lowercase())) {
+        if let Some(secondary_encoder) = self.multimodal_fusion.modality_encoders.get(&format!(
+            "{}_encoder",
+            format!("{:?}", secondary_modality).to_lowercase()
+        )) {
             result.secondary_encoding = self.encode_modality(secondary_encoder, prompt).await?;
         }
-        
+
         // Apply cross-modal attention
-        result.attention_result = self.apply_cross_modal_attention(&result.primary_encoding, &result.secondary_encoding).await?;
-        
+        result.attention_result = self
+            .apply_cross_modal_attention(&result.primary_encoding, &result.secondary_encoding)
+            .await?;
+
         // Generate creative synthesis
-        result.synthesized_content = self.synthesize_cross_modal_creative(&result.attention_result, primary_modality, secondary_modality).await?;
-        
+        result.synthesized_content = self
+            .synthesize_cross_modal_creative(
+                &result.attention_result,
+                primary_modality,
+                secondary_modality,
+            )
+            .await?;
+
         result.primary_modality = primary_modality.clone();
         result.secondary_modality = secondary_modality.clone();
         result.synthesis_time_ms = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(result)
     }
 
     /// Encode modality
-    async fn encode_modality(&self, encoder: &ModalityEncoder, content: &str) -> NxrModelResult<ModalityEncoding> {
+    async fn encode_modality(
+        &self,
+        encoder: &ModalityEncoder,
+        content: &str,
+    ) -> NxrModelResult<ModalityEncoding> {
         let start_time = std::time::Instant::now();
-        
+
         let encoding = ModalityEncoding {
             modality: encoder.modality_type.clone(),
             encoded_features: vec![0.5; encoder.parameters.output_dimensions], // Placeholder
             encoding_confidence: encoder.performance_metrics.encoding_accuracy,
             encoding_time_ms: start_time.elapsed().as_millis() as u64,
         };
-        
+
         Ok(encoding)
     }
 
     /// Apply cross-modal attention
-    async fn apply_cross_modal_attention(&self, primary: &ModalityEncoding, secondary: &ModalityEncoding) -> NxrModelResult<CrossModalAttentionResult> {
+    async fn apply_cross_modal_attention(
+        &self,
+        primary: &ModalityEncoding,
+        secondary: &ModalityEncoding,
+    ) -> NxrModelResult<CrossModalAttentionResult> {
         let start_time = std::time::Instant::now();
-        
+
         let result = CrossModalAttentionResult {
             attention_weights: vec![0.6, 0.4], // Placeholder
             attention_confidence: 0.91,
             attention_time_ms: start_time.elapsed().as_millis() as u64,
         };
-        
+
         Ok(result)
     }
 
     /// Synthesize cross-modal creative content
-    async fn synthesize_cross_modal_creative(&self, attention: &CrossModalAttentionResult, primary: &Modality, secondary: &Modality) -> NxrModelResult<String> {
+    async fn synthesize_cross_modal_creative(
+        &self,
+        attention: &CrossModalAttentionResult,
+        primary: &Modality,
+        secondary: &Modality,
+    ) -> NxrModelResult<String> {
         let content = format!(
             "Cross-modal creative synthesis between {:?} and {:?} with attention weights: {:?}",
             primary, secondary, attention.attention_weights
         );
-        
+
         Ok(content)
     }
 }

@@ -51,11 +51,7 @@ Format: [YAKIN] / [TIDAK YAKIN] / [PERLU VERIFIKASI]"#
         )
     }
 
-    pub fn build_system_prompt(
-        domain: Option<&str>,
-        use_rag: bool,
-        language: &str,
-    ) -> String {
+    pub fn build_system_prompt(domain: Option<&str>, use_rag: bool, language: &str) -> String {
         let base = if language == "id" {
             Self::default_prompt_indonesian()
         } else {

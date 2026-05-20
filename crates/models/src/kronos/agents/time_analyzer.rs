@@ -1,14 +1,14 @@
 //! Time Analyzer Agent
-//! 
+//!
 //! Temporal analysis and time-based pattern recognition
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Time Analyzer Agent - Temporal analysis and time-based pattern recognition
 #[derive(Debug, Clone)]
@@ -152,7 +152,9 @@ impl BaseAgent for TimeAnalyzerAgent {
         let temporal_patterns = self.identify_temporal_patterns(&input).await?;
         let trend_analysis = self.analyze_trends(&input).await?;
         let detected_anomalies = self.detect_anomalies(&input).await?;
-        let analysis_confidence = self.calculate_analysis_confidence(&input, &temporal_patterns).await?;
+        let analysis_confidence = self
+            .calculate_analysis_confidence(&input, &temporal_patterns)
+            .await?;
 
         Ok(TimeAnalyzerTaskOutput {
             temporal_patterns,
@@ -171,21 +173,25 @@ impl BaseAgent for TimeAnalyzerAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "time_analysis".to_string(),
-                description: "Temporal analysis and time-based pattern recognition".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["temporal_data".to_string(), "analysis_parameters".to_string()],
-                output_types: vec!["temporal_patterns".to_string(), "trend_analysis".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.89,
-                    avg_latency: 2400.0,
-                    resource_usage: 0.65,
-                    reliability: 0.91,
-                },
+        vec![AgentCapability {
+            name: "time_analysis".to_string(),
+            description: "Temporal analysis and time-based pattern recognition".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "temporal_data".to_string(),
+                "analysis_parameters".to_string(),
+            ],
+            output_types: vec![
+                "temporal_patterns".to_string(),
+                "trend_analysis".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.89,
+                avg_latency: 2400.0,
+                resource_usage: 0.65,
+                reliability: 0.91,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -221,23 +227,26 @@ impl TimeAnalyzerAgent {
         }
     }
 
-    async fn identify_temporal_patterns(&self, input: &TimeAnalyzerTaskInput) -> AgentResult<Vec<String>> {
+    async fn identify_temporal_patterns(
+        &self,
+        input: &TimeAnalyzerTaskInput,
+    ) -> AgentResult<Vec<String>> {
         let mut patterns = Vec::new();
-        
+
         if input.temporal_data.len() > 10 {
             patterns.push("Periodic pattern detected".to_string());
         }
-        
+
         if self.has_seasonal_pattern(&input.temporal_data) {
             patterns.push("Seasonal pattern identified".to_string());
         }
-        
+
         if self.has_trend_pattern(&input.temporal_data) {
             patterns.push("Trend pattern recognized".to_string());
         }
-        
+
         patterns.push("Temporal sequence analysis completed".to_string());
-        
+
         Ok(patterns)
     }
 
@@ -245,18 +254,20 @@ impl TimeAnalyzerAgent {
         if data.len() < 12 {
             return false;
         }
-        
+
         // Simple seasonal pattern detection
         let values: Vec<f32> = data.iter().map(|(_, value)| *value).collect();
         let mean = values.iter().sum::<f32>() / values.len() as f32;
-        
-        let seasonal_variance = values.chunks(3)
+
+        let seasonal_variance = values
+            .chunks(3)
             .map(|chunk| {
                 let chunk_mean = chunk.iter().sum::<f32>() / chunk.len() as f32;
                 (chunk_mean - mean).powi(2)
             })
-            .sum::<f32>() / (values.len() / 3) as f32;
-        
+            .sum::<f32>()
+            / (values.len() / 3) as f32;
+
         seasonal_variance > mean * 0.1
     }
 
@@ -264,68 +275,98 @@ impl TimeAnalyzerAgent {
         if data.len() < 5 {
             return false;
         }
-        
+
         let values: Vec<f32> = data.iter().map(|(_, value)| *value).collect();
-        let first_half_mean = values[..values.len() / 2].iter().sum::<f32>() / (values.len() / 2) as f32;
-        let second_half_mean = values[values.len() / 2..].iter().sum::<f32>() / (values.len() - values.len() / 2) as f32;
-        
+        let first_half_mean =
+            values[..values.len() / 2].iter().sum::<f32>() / (values.len() / 2) as f32;
+        let second_half_mean = values[values.len() / 2..].iter().sum::<f32>()
+            / (values.len() - values.len() / 2) as f32;
+
         (second_half_mean - first_half_mean).abs() > first_half_mean * 0.2
     }
 
-    async fn analyze_trends(&self, input: &TimeAnalyzerTaskInput) -> AgentResult<HashMap<String, f32>> {
+    async fn analyze_trends(
+        &self,
+        input: &TimeAnalyzerTaskInput,
+    ) -> AgentResult<HashMap<String, f32>> {
         let mut trends = HashMap::new();
-        
+
         if input.temporal_data.is_empty() {
             return Ok(trends);
         }
-        
-        let values: Vec<f32> = input.temporal_data.iter().map(|(_, value)| *value).collect();
-        
+
+        let values: Vec<f32> = input
+            .temporal_data
+            .iter()
+            .map(|(_, value)| *value)
+            .collect();
+
         // Calculate trend metrics
         let mean = values.iter().sum::<f32>() / values.len() as f32;
         let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / values.len() as f32;
         let std_dev = variance.sqrt();
-        
+
         trends.insert("mean".to_string(), mean);
         trends.insert("variance".to_string(), variance);
         trends.insert("std_dev".to_string(), std_dev);
-        
+
         // Simple trend calculation
         if values.len() > 1 {
-            let trend = (values.last().expect("values.len() > 1") - values.first().expect("values.len() > 1")) / values.len() as f32;
+            let trend = (values.last().expect("values.len() > 1")
+                - values.first().expect("values.len() > 1"))
+                / values.len() as f32;
             trends.insert("trend".to_string(), trend);
         }
-        
+
         Ok(trends)
     }
 
-    async fn detect_anomalies(&self, input: &TimeAnalyzerTaskInput) -> AgentResult<Vec<(chrono::DateTime<chrono::Utc>, String)>> {
+    async fn detect_anomalies(
+        &self,
+        input: &TimeAnalyzerTaskInput,
+    ) -> AgentResult<Vec<(chrono::DateTime<chrono::Utc>, String)>> {
         let mut anomalies = Vec::new();
-        
+
         if input.temporal_data.len() < 3 {
             return Ok(anomalies);
         }
-        
-        let values: Vec<f32> = input.temporal_data.iter().map(|(_, value)| *value).collect();
+
+        let values: Vec<f32> = input
+            .temporal_data
+            .iter()
+            .map(|(_, value)| *value)
+            .collect();
         let mean = values.iter().sum::<f32>() / values.len() as f32;
         let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / values.len() as f32;
         let std_dev = variance.sqrt();
-        
+
         // Detect outliers (values beyond 2 standard deviations)
         for (timestamp, value) in &input.temporal_data {
             if (value - mean).abs() > 2.0 * std_dev {
                 anomalies.push((*timestamp, "Statistical anomaly detected".to_string()));
             }
         }
-        
+
         Ok(anomalies)
     }
 
-    async fn calculate_analysis_confidence(&self, input: &TimeAnalyzerTaskInput, patterns: &[String]) -> AgentResult<f32> {
-        let data_quality = if input.temporal_data.len() > 20 { 0.9 } else { 0.7 };
-        let parameter_quality = if input.analysis_parameters.len() > 0 { 0.8 } else { 0.6 };
+    async fn calculate_analysis_confidence(
+        &self,
+        input: &TimeAnalyzerTaskInput,
+        patterns: &[String],
+    ) -> AgentResult<f32> {
+        let data_quality = if input.temporal_data.len() > 20 {
+            0.9
+        } else {
+            0.7
+        };
+        let parameter_quality = if input.analysis_parameters.len() > 0 {
+            0.8
+        } else {
+            0.6
+        };
         let pattern_quality = if patterns.len() > 0 { 0.85 } else { 0.5 };
-        
+
         Ok((data_quality + parameter_quality + pattern_quality) / 3.0)
     }
 }
@@ -362,7 +403,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.temporal_patterns.is_empty());
         assert!(!output.trend_analysis.is_empty());
@@ -387,7 +428,7 @@ mod tests {
             (base_time + chrono::Duration::hours(10), 1.0),
             (base_time + chrono::Duration::hours(11), 2.0),
         ];
-        
+
         let has_seasonal = agent.has_seasonal_pattern(&data);
         assert!(has_seasonal);
     }
@@ -403,7 +444,7 @@ mod tests {
             (base_time + chrono::Duration::hours(3), 4.0),
             (base_time + chrono::Duration::hours(4), 5.0),
         ];
-        
+
         let has_trend = agent.has_trend_pattern(&data);
         assert!(has_trend);
     }

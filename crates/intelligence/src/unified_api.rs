@@ -1,36 +1,27 @@
 //! Unified API for Nexora AI Models
-//! 
+//!
 //! Provides a unified interface for accessing all AI models and frameworks
 //! in the Nexora ecosystem through a single factory interface.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
-use std::sync::Arc;
+use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
+use nexora_foundation::multimodal::caffeine::{
+    types::MultiModalInputs, types::TextInput, Caffeine, CaffeineConfig,
+};
 use nexora_foundation::reasoning::{
-    SACAConfig,
-    SACAIntegration,
-    EnhancedSACASolution,
-    CodingTask as SacaCodingTask,
+    CodingTask as SacaCodingTask, EnhancedSACASolution, SACAConfig, SACAIntegration,
     TaskContext as SacaTaskContext,
 };
-use nexora_foundation::atqs::{
-    ATQSConfig,
-    compression::CompressionEngine,
-};
-use nexora_foundation::multimodal::caffeine::{
-    Caffeine,
-    CaffeineConfig,
-    types::MultiModalInputs,
-    types::TextInput,
-};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Unified model interface that combines all AI frameworks
 #[async_trait]
 pub trait UnifiedModelTrait {
     /// Generate code based on the given task
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError>;
-    
+
     /// Get model statistics and configuration
     fn get_statistics(&self) -> ModelStatistics;
 }
@@ -43,22 +34,22 @@ impl UnifiedModelFactory {
     pub async fn create_basic_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(BasicSacaModel::new()))
     }
-    
+
     /// Create a SACA + ATQS compressed model
     pub async fn create_compressed_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(CompressedSacaModel::new()))
     }
-    
+
     /// Create a SACA + CAFFEINE multimodal model
     pub async fn create_multimodal_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(MultimodalSacaModel::new()))
     }
-    
+
     /// Create a SACA + HAS-MoE expert model
     pub async fn create_expert_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(ExpertSacaModel::new()))
     }
-    
+
     /// Create a full integration model with all frameworks
     pub async fn create_full_integration() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
         Ok(Box::new(FullIntegrationModel::new()))
@@ -144,7 +135,10 @@ fn to_saca_coding_task(task: &CodingTask) -> SacaCodingTask {
 }
 
 // Helper: convert EnhancedSACASolution to CodeSolution with given integration mode
-fn enhanced_to_code_solution(enhanced: EnhancedSACASolution, mode: IntegrationMode) -> CodeSolution {
+fn enhanced_to_code_solution(
+    enhanced: EnhancedSACASolution,
+    mode: IntegrationMode,
+) -> CodeSolution {
     CodeSolution {
         quality_score: enhanced.base_solution.quality_score as f64,
         execution_time: std::time::Duration::from_millis(
@@ -172,15 +166,17 @@ impl BasicSacaModel {
         // Try to initialize SACAIntegration; if it fails, fall back to None
         let rt = tokio::runtime::Runtime::new();
         let saca = rt.ok().and_then(|rt| {
-            rt.block_on(async {
-                SACAIntegration::new(SACAConfig::default()).await.ok()
-            })
+            rt.block_on(async { SACAIntegration::new(SACAConfig::default()).await.ok() })
         });
-        BasicSacaModel { saca: saca.map(Arc::new) }
+        BasicSacaModel {
+            saca: saca.map(Arc::new),
+        }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
-        BasicSacaModel { saca: Some(Arc::new(saca)) }
+        BasicSacaModel {
+            saca: Some(Arc::new(saca)),
+        }
     }
 }
 
@@ -189,9 +185,14 @@ impl UnifiedModelTrait for BasicSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
         if let Some(ref saca) = self.saca {
             let saca_task = to_saca_coding_task(task);
-            let enhanced = saca.solve_with_models(saca_task).await
+            let enhanced = saca
+                .solve_with_models(saca_task)
+                .await
                 .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
-            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::BasicSaca))
+            Ok(enhanced_to_code_solution(
+                enhanced,
+                IntegrationMode::BasicSaca,
+            ))
         } else {
             Ok(CodeSolution {
                 quality_score: 0.85,
@@ -207,7 +208,7 @@ impl UnifiedModelTrait for BasicSacaModel {
             })
         }
     }
-    
+
     fn get_statistics(&self) -> ModelStatistics {
         ModelStatistics {
             integration_mode: IntegrationMode::BasicSaca,
@@ -228,22 +229,22 @@ fn init_saca_with_extensions(
     let rt = tokio::runtime::Runtime::new().ok()?;
     rt.block_on(async {
         let mut saca = SACAIntegration::new(SACAConfig::default()).await.ok()?;
-        
+
         if let Some(cfg) = atqs_config {
             let engine = CompressionEngine::new(cfg).ok()?;
             saca = saca.with_atqs_compression(Arc::new(engine));
         }
-        
+
         if let Some(cfg) = caffeine_config {
             let caffeine = Caffeine::new(cfg).ok()?;
             saca = saca.with_caffeine(Arc::new(tokio::sync::Mutex::new(caffeine)));
         }
-        
+
         if let Some(_cfg) = has_moe_config {
             let router = nexora_foundation::has_moe_ffn::routing::Router::new(768, 8, 2);
             saca = saca.with_has_moe_routing(Arc::new(router));
         }
-        
+
         Some(Arc::new(saca))
     })
 }
@@ -255,16 +256,14 @@ struct CompressedSacaModel {
 
 impl CompressedSacaModel {
     fn new() -> Self {
-        let saca = init_saca_with_extensions(
-            Some(ATQSConfig::default()),
-            None,
-            None,
-        );
+        let saca = init_saca_with_extensions(Some(ATQSConfig::default()), None, None);
         CompressedSacaModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
-        CompressedSacaModel { saca: Some(Arc::new(saca)) }
+        CompressedSacaModel {
+            saca: Some(Arc::new(saca)),
+        }
     }
 }
 
@@ -273,9 +272,14 @@ impl UnifiedModelTrait for CompressedSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
         if let Some(ref saca) = self.saca {
             let saca_task = to_saca_coding_task(task);
-            let enhanced = saca.solve_with_models(saca_task).await
+            let enhanced = saca
+                .solve_with_models(saca_task)
+                .await
                 .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
-            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::SacaAtqs))
+            Ok(enhanced_to_code_solution(
+                enhanced,
+                IntegrationMode::SacaAtqs,
+            ))
         } else {
             Ok(CodeSolution {
                 quality_score: 0.88,
@@ -291,7 +295,7 @@ impl UnifiedModelTrait for CompressedSacaModel {
             })
         }
     }
-    
+
     fn get_statistics(&self) -> ModelStatistics {
         ModelStatistics {
             integration_mode: IntegrationMode::SacaAtqs,
@@ -310,16 +314,14 @@ struct MultimodalSacaModel {
 
 impl MultimodalSacaModel {
     fn new() -> Self {
-        let saca = init_saca_with_extensions(
-            None,
-            Some(CaffeineConfig::medium_model()),
-            None,
-        );
+        let saca = init_saca_with_extensions(None, Some(CaffeineConfig::medium_model()), None);
         MultimodalSacaModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
-        MultimodalSacaModel { saca: Some(Arc::new(saca)) }
+        MultimodalSacaModel {
+            saca: Some(Arc::new(saca)),
+        }
     }
 }
 
@@ -328,9 +330,14 @@ impl UnifiedModelTrait for MultimodalSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
         if let Some(ref saca) = self.saca {
             let saca_task = to_saca_coding_task(task);
-            let enhanced = saca.solve_with_models(saca_task).await
+            let enhanced = saca
+                .solve_with_models(saca_task)
+                .await
                 .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
-            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::SacaCaffeine))
+            Ok(enhanced_to_code_solution(
+                enhanced,
+                IntegrationMode::SacaCaffeine,
+            ))
         } else {
             Ok(CodeSolution {
                 quality_score: 0.91,
@@ -346,7 +353,7 @@ impl UnifiedModelTrait for MultimodalSacaModel {
             })
         }
     }
-    
+
     fn get_statistics(&self) -> ModelStatistics {
         ModelStatistics {
             integration_mode: IntegrationMode::SacaCaffeine,
@@ -374,7 +381,9 @@ impl ExpertSacaModel {
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
-        ExpertSacaModel { saca: Some(Arc::new(saca)) }
+        ExpertSacaModel {
+            saca: Some(Arc::new(saca)),
+        }
     }
 }
 
@@ -383,9 +392,14 @@ impl UnifiedModelTrait for ExpertSacaModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
         if let Some(ref saca) = self.saca {
             let saca_task = to_saca_coding_task(task);
-            let enhanced = saca.solve_with_models(saca_task).await
+            let enhanced = saca
+                .solve_with_models(saca_task)
+                .await
                 .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
-            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::SacaHasMoe))
+            Ok(enhanced_to_code_solution(
+                enhanced,
+                IntegrationMode::SacaHasMoe,
+            ))
         } else {
             Ok(CodeSolution {
                 quality_score: 0.93,
@@ -401,7 +415,7 @@ impl UnifiedModelTrait for ExpertSacaModel {
             })
         }
     }
-    
+
     fn get_statistics(&self) -> ModelStatistics {
         ModelStatistics {
             integration_mode: IntegrationMode::SacaHasMoe,
@@ -429,7 +443,9 @@ impl FullIntegrationModel {
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
-        FullIntegrationModel { saca: Some(Arc::new(saca)) }
+        FullIntegrationModel {
+            saca: Some(Arc::new(saca)),
+        }
     }
 }
 
@@ -438,9 +454,14 @@ impl UnifiedModelTrait for FullIntegrationModel {
     async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
         if let Some(ref saca) = self.saca {
             let saca_task = to_saca_coding_task(task);
-            let enhanced = saca.solve_with_models(saca_task).await
+            let enhanced = saca
+                .solve_with_models(saca_task)
+                .await
                 .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
-            Ok(enhanced_to_code_solution(enhanced, IntegrationMode::FullIntegration))
+            Ok(enhanced_to_code_solution(
+                enhanced,
+                IntegrationMode::FullIntegration,
+            ))
         } else {
             Ok(CodeSolution {
                 quality_score: 0.96,
@@ -456,7 +477,7 @@ impl UnifiedModelTrait for FullIntegrationModel {
             })
         }
     }
-    
+
     fn get_statistics(&self) -> ModelStatistics {
         ModelStatistics {
             integration_mode: IntegrationMode::FullIntegration,

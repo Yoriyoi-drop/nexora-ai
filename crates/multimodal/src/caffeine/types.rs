@@ -1,7 +1,7 @@
 //! Type definitions for CAFFEINE
 
-use serde::{Deserialize, Serialize};
 use ndarray::ArrayD;
+use serde::{Deserialize, Serialize};
 
 /// Unified token representation for all modalities
 #[derive(Debug, Clone, Serialize, Deserialize)]

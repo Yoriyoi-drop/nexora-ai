@@ -1,9 +1,12 @@
 //! NXR-SWIFT Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-SWIFT
 
+use nexora_shared::{
+    deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig,
+    model_config::NxrModelConfig,
+};
 use serde::{Deserialize, Serialize};
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-SWIFT Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -562,7 +565,12 @@ impl SwiftConfig {
             return Err("Target latency too low (minimum 10ms)".to_string());
         }
 
-        if self.performance.throughput_optimization.target_throughput_rps == 0 {
+        if self
+            .performance
+            .throughput_optimization
+            .target_throughput_rps
+            == 0
+        {
             return Err("Target throughput must be > 0".to_string());
         }
 
@@ -582,10 +590,18 @@ impl SwiftConfig {
     /// Get configuration for specific agent
     pub fn get_agent_config(&self, agent_name: &str) -> Option<serde_json::Value> {
         match agent_name {
-            "speed_boost" => Some(serde_json::to_value(&self.agents.speed_boost).unwrap_or_default()),
-            "flow_manager" => Some(serde_json::to_value(&self.agents.flow_manager).unwrap_or_default()),
-            "stream_processor" => Some(serde_json::to_value(&self.agents.stream_processor).unwrap_or_default()),
-            "edge_adapter" => Some(serde_json::to_value(&self.agents.edge_adapter).unwrap_or_default()),
+            "speed_boost" => {
+                Some(serde_json::to_value(&self.agents.speed_boost).unwrap_or_default())
+            }
+            "flow_manager" => {
+                Some(serde_json::to_value(&self.agents.flow_manager).unwrap_or_default())
+            }
+            "stream_processor" => {
+                Some(serde_json::to_value(&self.agents.stream_processor).unwrap_or_default())
+            }
+            "edge_adapter" => {
+                Some(serde_json::to_value(&self.agents.edge_adapter).unwrap_or_default())
+            }
             _ => None,
         }
     }

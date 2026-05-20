@@ -1,8 +1,8 @@
 //! Reasoning Module - High-level reasoning capabilities
 
 use async_trait::async_trait;
-use serde::{Serialize, Deserialize};
 use nexora_foundation::FoundationResult;
+use serde::{Deserialize, Serialize};
 
 /// Reasoning chain for complex problem solving
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,14 +34,22 @@ pub enum ReasoningType {
 #[async_trait]
 pub trait ReasoningEngine: Send + Sync {
     /// Perform reasoning on a problem
-    async fn reason(&self, problem: &str, context: serde_json::Value) -> FoundationResult<ReasoningChain>;
-    
+    async fn reason(
+        &self,
+        problem: &str,
+        context: serde_json::Value,
+    ) -> FoundationResult<ReasoningChain>;
+
     /// Verify reasoning chain
     async fn verify(&self, chain: &ReasoningChain) -> FoundationResult<bool>;
-    
+
     /// Get alternative reasoning paths
-    async fn alternatives(&self, problem: &str, context: serde_json::Value) -> FoundationResult<Vec<ReasoningChain>>;
-    
+    async fn alternatives(
+        &self,
+        problem: &str,
+        context: serde_json::Value,
+    ) -> FoundationResult<Vec<ReasoningChain>>;
+
     /// Explain reasoning step
     async fn explain_step(&self, step: &ReasoningStep) -> FoundationResult<String>;
 }
@@ -80,13 +88,20 @@ impl ChainOfThoughtReasoner {
             i if i == total_steps - 1 => "Therefore".to_string(),
             _ => "Furthermore".to_string(),
         };
-        connective.to_string() + " " + premise + ", we can infer that this leads to the next logical step"
+        connective.to_string()
+            + " "
+            + premise
+            + ", we can infer that this leads to the next logical step"
     }
 }
 
 #[async_trait]
 impl ReasoningEngine for ChainOfThoughtReasoner {
-    async fn reason(&self, problem: &str, _context: serde_json::Value) -> FoundationResult<ReasoningChain> {
+    async fn reason(
+        &self,
+        problem: &str,
+        _context: serde_json::Value,
+    ) -> FoundationResult<ReasoningChain> {
         let premises = self.decompose_problem(problem);
         let total = premises.len();
         let mut steps = Vec::with_capacity(total);
@@ -106,7 +121,10 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
             });
         }
 
-        let conclusion = steps.last().map(|s| s.inference.clone()).unwrap_or_default();
+        let conclusion = steps
+            .last()
+            .map(|s| s.inference.clone())
+            .unwrap_or_default();
         let avg_confidence = if steps.is_empty() {
             0.0
         } else {
@@ -119,7 +137,7 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
             confidence: avg_confidence,
         })
     }
-    
+
     async fn verify(&self, chain: &ReasoningChain) -> FoundationResult<bool> {
         if chain.steps.is_empty() {
             return Ok(false);
@@ -129,11 +147,18 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
         }
         let valid_ids: Vec<usize> = (1..=chain.steps.len()).collect();
         let has_all_ids = chain.steps.iter().all(|s| valid_ids.contains(&s.step_id));
-        let has_confidence = chain.steps.iter().all(|s| (0.0..=1.0).contains(&s.confidence));
+        let has_confidence = chain
+            .steps
+            .iter()
+            .all(|s| (0.0..=1.0).contains(&s.confidence));
         Ok(has_all_ids && has_confidence)
     }
-    
-    async fn alternatives(&self, problem: &str, _context: serde_json::Value) -> FoundationResult<Vec<ReasoningChain>> {
+
+    async fn alternatives(
+        &self,
+        problem: &str,
+        _context: serde_json::Value,
+    ) -> FoundationResult<Vec<ReasoningChain>> {
         let mut alternatives = Vec::with_capacity(2);
 
         // Deductive alternative
@@ -145,13 +170,15 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
         if premises.len() > 1 {
             let reversed: Vec<&str> = premises.iter().rev().map(|s| s.as_str()).collect();
             let reversed_problem = reversed.join(". ");
-            let inductive: ReasoningChain = self.reason(&reversed_problem, serde_json::Value::Null).await?;
+            let inductive: ReasoningChain = self
+                .reason(&reversed_problem, serde_json::Value::Null)
+                .await?;
             alternatives.push(inductive);
         }
 
         Ok(alternatives)
     }
-    
+
     async fn explain_step(&self, step: &ReasoningStep) -> FoundationResult<String> {
         Ok(format!(
             "Step {} ({:?}): From '{}', we infer: {} (confidence: {:.2})",

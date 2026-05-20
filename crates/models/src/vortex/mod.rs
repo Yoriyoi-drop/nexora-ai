@@ -1,5 +1,5 @@
 //! NXR-VORTEX Model Implementation
-//! 
+//!
 //! NXR-02 APEX - Variable Optimization Recursive Text & Expert eXchange
 //! Code generation and software engineering specialist
 
@@ -7,31 +7,34 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
-    capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
-    gnac_integration::{GnacIntegrationConfig, GnacModel},
-    foundation_components::FoundationComponents,
-};
 use nexora_has_moe_ffn::HasMoeFFNConfig;
+use nexora_shared::{
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
+    capability_spec::CapabilityVector,
+    deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
+    foundation_components::FoundationComponents,
+    gnac_integration::{GnacIntegrationConfig, GnacModel},
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
+};
 
 // Include all Vortex modules
-mod identity;
-mod config;
-mod architecture;
 mod agents;
+mod architecture;
 mod capabilities;
+mod config;
+mod identity;
 
 // Re-export all components
-pub use identity::*;
-pub use config::*;
-pub use architecture::*;
 pub use agents::*;
+pub use architecture::*;
 pub use capabilities::*;
+pub use config::*;
+pub use identity::*;
 
 /// NXR-VORTEX Model Implementation
 pub struct NxrVortexModel {
@@ -378,8 +381,6 @@ impl VortexAgents {
     }
 }
 
-
-
 /// NXR-VORTEX Capabilities
 pub struct VortexCapabilities {
     vector: CapabilityVector,
@@ -390,7 +391,7 @@ impl VortexCapabilities {
         let vector = CapabilityVector::new(NxrModelId::Vortex)
             .with_capability(nexora_shared::capability_spec::CapabilitySpec::new(
                 nexora_shared::capability_spec::CapabilityDomain::Code,
-                nexora_shared::capability_spec::CapabilityLevel::Transcendent
+                nexora_shared::capability_spec::CapabilityLevel::Transcendent,
             ))
             .calculate_score();
         Self { vector }
@@ -485,12 +486,11 @@ impl NxrVortexModel {
             architecture: VortexArchitecture::new(),
             agents: VortexAgents::new(),
             capabilities,
-            components: FoundationComponents::new()
-                .with_moe_config(HasMoeFFNConfig {
-                    num_experts: 8,
-                    top_k: 2,
-                    ..Default::default()
-                }),
+            components: FoundationComponents::new().with_moe_config(HasMoeFFNConfig {
+                num_experts: 8,
+                top_k: 2,
+                ..Default::default()
+            }),
             #[cfg(feature = "hallucination")]
             hallucination: None,
         }
@@ -498,7 +498,9 @@ impl NxrVortexModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -508,19 +510,27 @@ impl NxrVortexModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -529,7 +539,10 @@ impl NxrVortexModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -554,47 +567,73 @@ impl NxrModel for NxrVortexModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        self.architecture.initialize().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        self.agents.initialize().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+        self.architecture
+            .initialize()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
+        self.agents
+            .initialize()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         Ok(())
     }
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = VortexState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = VortexMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-VORTEX model not initialized".to_string()
+                "NXR-VORTEX model not initialized".to_string(),
             ));
         }
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-VORTEX only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-VORTEX only supports text input".to_string(),
+                ))
+            }
         };
 
         // Tokenize input
@@ -604,35 +643,54 @@ impl NxrModel for NxrVortexModel {
         };
 
         // Process input with deep learning
-        let dl_result = self.dl_process(&input_text).await
+        let dl_result = self
+            .dl_process(&input_text)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Process through MoE for expert code routing
         let moe_input = ndarray::Array2::from_shape_vec(
             (1, tokens.len().max(1)),
             tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
-        ).unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
+        )
+        .unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
         let _moe_output = self.components.moe.forward(&moe_input);
 
         // Enhanced code analysis via ORACLE-VORTEX integration
         let oracle_summary = String::new();
-        
+
         // Perform code analysis
-        let analysis = self.agents.code_sentinel().analyze_code(&input_text).await?;
+        let analysis = self
+            .agents
+            .code_sentinel()
+            .analyze_code(&input_text)
+            .await?;
         let result = format!(
             "Code Analysis:\nLanguage: {}\nComplexity: {:.2}\nQuality Score: {:.2}\nORACLE: {}\nDL Processing: {}",
             analysis.language, analysis.complexity, analysis.quality_score, oracle_summary, dl_result
         );
-        
+
         let generation_time_ms = start_time.elapsed().as_millis() as u64;
         let total_tokens = result.split_whitespace().count();
 
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -665,15 +723,17 @@ impl NxrModel for NxrVortexModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-VORTEX model not initialized".to_string()
+                "NXR-VORTEX model not initialized".to_string(),
             ));
         }
 
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-VORTEX only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-VORTEX only supports text input".to_string(),
+                ))
+            }
         };
 
         let steps = vec![
@@ -697,8 +757,13 @@ impl NxrModel for NxrVortexModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -735,15 +800,22 @@ impl NxrModel for NxrVortexModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 32.0,
             cpu_percent: 60.0,

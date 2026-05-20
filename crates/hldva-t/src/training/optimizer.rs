@@ -30,7 +30,7 @@ impl AdamOptimizer {
         let beta1 = config.beta1;
         let beta2 = config.beta2;
         let epsilon = config.epsilon;
-        
+
         Self {
             _config: config,
             learning_rate,
@@ -42,12 +42,12 @@ impl AdamOptimizer {
             v: Vec::new(),
         }
     }
-    
+
     /// Initialize moment vectors
     fn initialize_moments(&mut self, parameters: &[Tensor]) {
         self.m.clear();
         self.v.clear();
-        
+
         for param in parameters {
             let param_data = param.data();
             self.m.push(vec![0.0; param_data.len()]);
@@ -61,43 +61,47 @@ impl Optimizer for AdamOptimizer {
         if self.m.is_empty() {
             self.initialize_moments(parameters);
         }
-        
+
         self.step += 1;
-        
+
         for (i, (param, grad)) in parameters.iter_mut().zip(gradients.iter()).enumerate() {
             let param_data = param.data_mut();
             let grad_data = grad.data();
-            
+
             if param_data.len() != grad_data.len() {
-                return Err(HLDVAError::Training("Parameter and gradient dimensions must match".to_string()));
+                return Err(HLDVAError::Training(
+                    "Parameter and gradient dimensions must match".to_string(),
+                ));
             }
-            
+
             // Update biased first moment estimate
             for (m_val, &grad_val) in self.m[i].iter_mut().zip(grad_data.iter()) {
                 *m_val = self.beta1 * *m_val + (1.0 - self.beta1) * grad_val;
             }
-            
+
             // Update biased second moment estimate
             for (v_val, &grad_val) in self.v[i].iter_mut().zip(grad_data.iter()) {
                 *v_val = self.beta2 * *v_val + (1.0 - self.beta2) * grad_val * grad_val;
             }
-            
+
             // Compute bias-corrected estimates
             let bias_correction1 = 1.0 - self.beta1.powi(self.step as i32);
             let bias_correction2 = 1.0 - self.beta2.powi(self.step as i32);
-            
+
             // Update parameters
-            for (param_val, (m_val, v_val)) in param_data.iter_mut()
-                .zip(self.m[i].iter().zip(self.v[i].iter())) {
+            for (param_val, (m_val, v_val)) in param_data
+                .iter_mut()
+                .zip(self.m[i].iter().zip(self.v[i].iter()))
+            {
                 let m_hat = *m_val / bias_correction1;
                 let v_hat = *v_val / bias_correction2;
                 *param_val -= self.learning_rate * m_hat / (v_hat.sqrt() + self.epsilon);
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn zero_grad(&mut self, gradients: &mut [Tensor]) -> HLDVAResult<()> {
         for grad in gradients {
             let grad_data = grad.data_mut();
@@ -107,7 +111,7 @@ impl Optimizer for AdamOptimizer {
         }
         Ok(())
     }
-    
+
     fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
     }
@@ -130,7 +134,7 @@ impl SGDOptimizer {
     pub fn new(config: SGDConfig) -> Self {
         let learning_rate = config.learning_rate;
         let momentum = config.momentum;
-        
+
         Self {
             _config: config,
             learning_rate,
@@ -138,7 +142,7 @@ impl SGDOptimizer {
             velocity: Vec::new(),
         }
     }
-    
+
     /// Initialize velocity vectors
     fn initialize_velocity(&mut self, parameters: &[Tensor]) {
         self.velocity.clear();
@@ -154,29 +158,31 @@ impl Optimizer for SGDOptimizer {
         if self.velocity.is_empty() {
             self.initialize_velocity(parameters);
         }
-        
+
         for (i, (param, grad)) in parameters.iter_mut().zip(gradients.iter()).enumerate() {
             let param_data = param.data_mut();
             let grad_data = grad.data();
-            
+
             if param_data.len() != grad_data.len() {
-                return Err(HLDVAError::Training("Parameter and gradient dimensions must match".to_string()));
+                return Err(HLDVAError::Training(
+                    "Parameter and gradient dimensions must match".to_string(),
+                ));
             }
-            
+
             // Update velocity
             for (vel_val, &grad_val) in self.velocity[i].iter_mut().zip(grad_data.iter()) {
                 *vel_val = self.momentum * *vel_val + grad_val;
             }
-            
+
             // Update parameters
             for (param_val, &vel_val) in param_data.iter_mut().zip(self.velocity[i].iter()) {
                 *param_val -= self.learning_rate * vel_val;
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn zero_grad(&mut self, gradients: &mut [Tensor]) -> HLDVAResult<()> {
         for grad in gradients {
             let grad_data = grad.data_mut();
@@ -186,7 +192,7 @@ impl Optimizer for SGDOptimizer {
         }
         Ok(())
     }
-    
+
     fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
     }
@@ -268,7 +274,7 @@ impl LearningRateScheduler for StepLR {
         let decay_steps = step / self.step_size;
         self.initial_lr * self.gamma.powi(decay_steps as i32)
     }
-    
+
     fn step(&mut self, step: usize) {
         self.current_step = step;
     }
@@ -295,7 +301,7 @@ impl LearningRateScheduler for ExponentialLR {
     fn get_lr(&self, step: usize) -> f32 {
         self.initial_lr * self.gamma.powi(step as i32)
     }
-    
+
     fn step(&mut self, step: usize) {
         self.current_step = step;
     }
@@ -323,9 +329,11 @@ impl CosineAnnealingLR {
 impl LearningRateScheduler for CosineAnnealingLR {
     fn get_lr(&self, step: usize) -> f32 {
         let progress = (step % self.t_max) as f32 / self.t_max as f32;
-        self.eta_min + (self.initial_lr - self.eta_min) * (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
+        self.eta_min
+            + (self.initial_lr - self.eta_min)
+                * (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
     }
-    
+
     fn step(&mut self, step: usize) {
         self.current_step = step;
     }

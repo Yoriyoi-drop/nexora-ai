@@ -1,16 +1,17 @@
-use std::collections::HashMap;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use tracing::info;
 
-use crate::types::{DataSample, SampleStats, SourceCategory};
 use crate::source::SourceProvider;
+use crate::types::{DataSample, SampleStats, SourceCategory};
 use uuid::Uuid;
 
 fn client() -> Option<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent("Nexora-DataStream/1.0")
         .timeout(std::time::Duration::from_secs(30))
-        .build().ok()
+        .build()
+        .ok()
 }
 
 /// Fetch HackerNews top stories via Firebase API (no auth required).
@@ -18,12 +19,24 @@ pub struct HackerNewsProvider;
 
 #[async_trait]
 impl SourceProvider for HackerNewsProvider {
-    fn name(&self) -> &str { "hackernews" }
-    fn url(&self) -> &str { "https://news.ycombinator.com" }
-    fn category(&self) -> SourceCategory { SourceCategory::News }
-    fn default_trust_score(&self) -> f64 { 0.70 }
-    fn description(&self) -> &str { "Hacker News top stories and discussions" }
-    fn sample_data(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "hackernews"
+    }
+    fn url(&self) -> &str {
+        "https://news.ycombinator.com"
+    }
+    fn category(&self) -> SourceCategory {
+        SourceCategory::News
+    }
+    fn default_trust_score(&self) -> f64 {
+        0.70
+    }
+    fn description(&self) -> &str {
+        "Hacker News top stories and discussions"
+    }
+    fn sample_data(&self) -> Vec<String> {
+        vec![]
+    }
 
     async fn fetch_samples(&self) -> Vec<DataSample> {
         let client = match client() {
@@ -34,13 +47,20 @@ impl SourceProvider for HackerNewsProvider {
 
         let resp = client
             .get("https://hacker-news.firebaseio.com/v0/topstories.json")
-            .send().await;
+            .send()
+            .await;
         let ids: Vec<u64> = match resp.and_then(|r| r.error_for_status()) {
             Ok(r) => match r.json().await {
                 Ok(ids) => ids,
-                Err(e) => { tracing::warn!("HN: json parse failed: {}", e); return vec![]; }
+                Err(e) => {
+                    tracing::warn!("HN: json parse failed: {}", e);
+                    return vec![];
+                }
             },
-            Err(e) => { tracing::warn!("HN: request failed: {}", e); return vec![]; }
+            Err(e) => {
+                tracing::warn!("HN: request failed: {}", e);
+                return vec![];
+            }
         };
 
         let mut samples = Vec::with_capacity(ids.len().min(100));
@@ -50,14 +70,23 @@ impl SourceProvider for HackerNewsProvider {
             let item: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
                 Ok(r) => match r.json().await {
                     Ok(v) => v,
-                    Err(e) => { tracing::warn!("HN: item {} json failed: {}", id, e); continue; }
+                    Err(e) => {
+                        tracing::warn!("HN: item {} json failed: {}", id, e);
+                        continue;
+                    }
                 },
-                Err(e) => { tracing::warn!("HN: item {} failed: {}", id, e); continue; }
+                Err(e) => {
+                    tracing::warn!("HN: item {} failed: {}", id, e);
+                    continue;
+                }
             };
 
             let title = item.get("title").and_then(|t| t.as_str()).unwrap_or("");
             let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
-            let by = item.get("by").and_then(|b| b.as_str()).unwrap_or("anonymous");
+            let by = item
+                .get("by")
+                .and_then(|b| b.as_str())
+                .unwrap_or("anonymous");
             let content = if text.is_empty() {
                 format!("[HN] {} (by {})", title, by)
             } else {
@@ -91,12 +120,24 @@ pub struct WikipediaProvider;
 
 #[async_trait]
 impl SourceProvider for WikipediaProvider {
-    fn name(&self) -> &str { "wikipedia" }
-    fn url(&self) -> &str { "https://en.wikipedia.org" }
-    fn category(&self) -> SourceCategory { SourceCategory::Wikipedia }
-    fn default_trust_score(&self) -> f64 { 0.95 }
-    fn description(&self) -> &str { "Wikipedia featured and random articles" }
-    fn sample_data(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "wikipedia"
+    }
+    fn url(&self) -> &str {
+        "https://en.wikipedia.org"
+    }
+    fn category(&self) -> SourceCategory {
+        SourceCategory::Wikipedia
+    }
+    fn default_trust_score(&self) -> f64 {
+        0.95
+    }
+    fn description(&self) -> &str {
+        "Wikipedia featured and random articles"
+    }
+    fn sample_data(&self) -> Vec<String> {
+        vec![]
+    }
 
     async fn fetch_samples(&self) -> Vec<DataSample> {
         let client = match client() {
@@ -114,8 +155,11 @@ impl SourceProvider for WikipediaProvider {
                 ("rnnamespace", "0"),
                 ("format", "json"),
             ];
-            let resp = client.get("https://en.wikipedia.org/w/api.php")
-                .query(&params).send().await;
+            let resp = client
+                .get("https://en.wikipedia.org/w/api.php")
+                .query(&params)
+                .send()
+                .await;
             let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
                 Ok(r) => match r.json().await {
                     Ok(v) => v,
@@ -163,8 +207,11 @@ async fn fetch_wikipedia_extract(client: &reqwest::Client, title: &str) -> Optio
         ("titles", title),
         ("format", "json"),
     ];
-    let resp = client.get("https://en.wikipedia.org/w/api.php")
-        .query(&params).send().await;
+    let resp = client
+        .get("https://en.wikipedia.org/w/api.php")
+        .query(&params)
+        .send()
+        .await;
     let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
         Ok(r) => r.json().await.ok()?,
         Err(_) => return None,
@@ -199,18 +246,31 @@ impl Default for RedditProvider {
 
 #[async_trait]
 impl SourceProvider for RedditProvider {
-    fn name(&self) -> &str { "reddit" }
-    fn url(&self) -> &str { "https://reddit.com" }
-    fn category(&self) -> SourceCategory { SourceCategory::Reddit }
-    fn default_trust_score(&self) -> f64 { 0.55 }
-    fn description(&self) -> &str { "Reddit discussions from technology and science subreddits" }
-    fn sample_data(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "reddit"
+    }
+    fn url(&self) -> &str {
+        "https://reddit.com"
+    }
+    fn category(&self) -> SourceCategory {
+        SourceCategory::Reddit
+    }
+    fn default_trust_score(&self) -> f64 {
+        0.55
+    }
+    fn description(&self) -> &str {
+        "Reddit discussions from technology and science subreddits"
+    }
+    fn sample_data(&self) -> Vec<String> {
+        vec![]
+    }
 
     async fn fetch_samples(&self) -> Vec<DataSample> {
         let client = match reqwest::Client::builder()
             .user_agent("Nexora-DataStream/1.0 (by /u/nexora)")
             .timeout(std::time::Duration::from_secs(30))
-            .build().ok()
+            .build()
+            .ok()
         {
             Some(c) => c,
             None => return vec![],
@@ -219,16 +279,27 @@ impl SourceProvider for RedditProvider {
         let mut samples = Vec::new();
 
         for sub in &self.subreddits {
-            let url = format!("https://www.reddit.com/r/{}/top.json?limit={}", sub, self.limit);
-            let resp = client.get(&url)
+            let url = format!(
+                "https://www.reddit.com/r/{}/top.json?limit={}",
+                sub, self.limit
+            );
+            let resp = client
+                .get(&url)
                 .header("Accept", "application/json")
-                .send().await;
+                .send()
+                .await;
             let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
                 Ok(r) => match r.json().await {
                     Ok(v) => v,
-                    Err(e) => { tracing::warn!("Reddit r/{}: json error: {}", sub, e); continue; }
+                    Err(e) => {
+                        tracing::warn!("Reddit r/{}: json error: {}", sub, e);
+                        continue;
+                    }
                 },
-                Err(e) => { tracing::warn!("Reddit r/{}: request failed: {}", sub, e); continue; }
+                Err(e) => {
+                    tracing::warn!("Reddit r/{}: request failed: {}", sub, e);
+                    continue;
+                }
             };
 
             if let Some(children) = json["data"]["children"].as_array() {
@@ -246,7 +317,10 @@ impl SourceProvider for RedditProvider {
                     } else {
                         format!(" - {}", selftext)
                     };
-                    let content = format!("[r/{}] {} {} (by {}, +{})", subreddit, title, excerpt, author, score);
+                    let content = format!(
+                        "[r/{}] {} {} (by {}, +{})",
+                        subreddit, title, excerpt, author, score
+                    );
                     samples.push(DataSample {
                         id: Uuid::new_v4(),
                         text: content,

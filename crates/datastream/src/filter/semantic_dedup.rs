@@ -1,8 +1,8 @@
-use std::sync::Mutex;
 use async_trait::async_trait;
+use std::sync::Mutex;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 pub struct SemanticDedupFilter {
     pub similarity_threshold: f64,
@@ -47,7 +47,10 @@ impl Default for SemanticDedupFilter {
 
 impl SemanticDedupFilter {
     pub fn new(threshold: f64) -> Self {
-        Self { similarity_threshold: threshold, ..Default::default() }
+        Self {
+            similarity_threshold: threshold,
+            ..Default::default()
+        }
     }
 
     fn minhash_signature(&self, text: &str) -> Vec<u64> {
@@ -93,7 +96,9 @@ impl SemanticDedupFilter {
         let set_b: HashSet<&u64> = b.iter().collect();
         let shared = a.iter().filter(|&x| set_b.contains(x)).count();
         let total = a.len() + b.len() - shared;
-        if total == 0 { return 0.0; }
+        if total == 0 {
+            return 0.0;
+        }
         shared as f64 / total as f64
     }
 }

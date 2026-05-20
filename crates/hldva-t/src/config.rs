@@ -9,19 +9,19 @@ use serde::{Deserialize, Serialize};
 pub struct HLDVAConfig {
     /// Konfigurasi DiT backbone
     pub dit: DiTConfig,
-    
+
     /// Konfigurasi Cascaded Diffusion Models
     pub cascaded: CascadedConfig,
-    
+
     /// Konfigurasi CLIP conditioning
     pub clip: ClipConfig,
-    
+
     /// Konfigurasi VAE
     pub vae: VAEConfig,
-    
+
     /// Konfigurasi DDPM
     pub ddpm: DDPMConfig,
-    
+
     /// Konfigurasi training
     pub training: TrainingConfig,
 }
@@ -44,22 +44,22 @@ impl Default for HLDVAConfig {
 pub struct DiTConfig {
     /// Model size: base, small, large
     pub model_size: DiTModelSize,
-    
+
     /// Jumlah blok transformer
     pub num_blocks: usize,
-    
+
     /// Hidden dimension
     pub hidden_dim: usize,
-    
+
     /// Jumlah attention heads
     pub num_heads: usize,
-    
+
     /// Patch size untuk latent
     pub patch_size: usize,
-    
+
     /// Max sequence length
     pub max_seq_len: usize,
-    
+
     /// Dropout rate
     pub dropout: f32,
 }
@@ -90,16 +90,16 @@ impl Default for DiTConfig {
 pub struct CascadedConfig {
     /// Jumlah tahap upsampling
     pub num_stages: usize,
-    
+
     /// Resolusi setiap tahap
     pub resolutions: Vec<(usize, usize)>, // (latent_res, image_res)
-    
+
     /// Konfigurasi upsampler
     pub upsamplers: Vec<UpsamplerConfig>,
-    
+
     /// Noise conditioning augmentation
     pub noise_conditioning: bool,
-    
+
     /// Noise level untuk conditioning
     pub noise_levels: Vec<f32>,
 }
@@ -108,13 +108,13 @@ pub struct CascadedConfig {
 pub struct UpsamplerConfig {
     /// Resolusi input
     pub input_res: usize,
-    
+
     /// Resolusi output
     pub output_res: usize,
-    
+
     /// Jumlah blok DiT
     pub num_blocks: usize,
-    
+
     /// Hidden dimension
     pub hidden_dim: usize,
 }
@@ -149,13 +149,13 @@ impl Default for CascadedConfig {
 pub struct ClipConfig {
     /// Model CLIP yang digunakan
     pub model_name: String,
-    
+
     /// Maximum token length
     pub max_length: usize,
-    
+
     /// Dimension dari CLIP embedding
     pub embedding_dim: usize,
-    
+
     /// Cross-attention dropout
     pub cross_attention_dropout: f32,
 }
@@ -176,13 +176,13 @@ impl Default for ClipConfig {
 pub struct VAEConfig {
     /// Latent dimension
     pub latent_dim: usize,
-    
+
     /// Compression factor (faktor downsampling)
     pub compression_factor: usize,
-    
+
     /// KL divergence weight
     pub kl_weight: f32,
-    
+
     /// Reconstruction loss weight
     pub recon_weight: f32,
 }
@@ -203,16 +203,16 @@ impl Default for VAEConfig {
 pub struct DDPMConfig {
     /// Jumlah timestep
     pub num_timesteps: usize,
-    
+
     /// Noise schedule type
     pub schedule_type: NoiseScheduleType,
-    
+
     /// Beta start
     pub beta_start: f32,
-    
+
     /// Beta end
     pub beta_end: f32,
-    
+
     /// Cosine schedule parameter
     pub cosine_s: f32,
 }
@@ -241,25 +241,25 @@ impl Default for DDPMConfig {
 pub struct TrainingConfig {
     /// Learning rate
     pub learning_rate: f32,
-    
+
     /// Batch size
     pub batch_size: usize,
-    
+
     /// Jumlah epoch
     pub num_epochs: usize,
-    
+
     /// Weight decay
     pub weight_decay: f32,
-    
+
     /// Gradient clipping
     pub grad_clip_norm: f32,
-    
+
     /// Warmup steps
     pub warmup_steps: usize,
-    
+
     /// Checkpoint interval
     pub checkpoint_interval: usize,
-    
+
     /// Evaluation interval
     pub eval_interval: usize,
 }

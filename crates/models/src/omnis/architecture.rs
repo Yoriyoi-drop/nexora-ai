@@ -1,10 +1,10 @@
 //! NXR-OMNIS Architecture
-//! 
+//!
 //! Implementation of the MoE + Transformer-XL hybrid architecture
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::OmnisConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-OMNIS Architecture Implementation
 pub struct OmnisArchitecture {
@@ -296,7 +296,10 @@ pub enum PredictionArchitecture {
     /// Linear prediction
     Linear,
     /// Neural network prediction
-    Neural { layers: Vec<usize>, activation: String },
+    Neural {
+        layers: Vec<usize>,
+        activation: String,
+    },
     /// Ensemble prediction
     Ensemble { models: Vec<String> },
     /// Bayesian prediction
@@ -599,71 +602,95 @@ impl OmnisArchitecture {
     /// Create new architecture with configuration
     pub fn new(config: &OmnisConfig) -> Self {
         let mut experts = HashMap::new();
-        
+
         // Initialize expert networks
-        experts.insert("text_reasoning".to_string(), ExpertNetwork {
-            id: "text_reasoning".to_string(),
-            specialization: ExpertSpecialization::TextReasoning,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.95,
-        });
-        
-        experts.insert("mathematical_reasoning".to_string(), ExpertNetwork {
-            id: "mathematical_reasoning".to_string(),
-            specialization: ExpertSpecialization::MathematicalReasoning,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.98,
-        });
-        
-        experts.insert("logical_reasoning".to_string(), ExpertNetwork {
-            id: "logical_reasoning".to_string(),
-            specialization: ExpertSpecialization::LogicalReasoning,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.97,
-        });
-        
-        experts.insert("world_modeling".to_string(), ExpertNetwork {
-            id: "world_modeling".to_string(),
-            specialization: ExpertSpecialization::WorldModeling,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.93,
-        });
-        
-        experts.insert("meta_reasoning".to_string(), ExpertNetwork {
-            id: "meta_reasoning".to_string(),
-            specialization: ExpertSpecialization::MetaReasoning,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.96,
-        });
-        
-        experts.insert("truth_arbitration".to_string(), ExpertNetwork {
-            id: "truth_arbitration".to_string(),
-            specialization: ExpertSpecialization::TruthArbitration,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.99,
-        });
-        
-        experts.insert("synthesis".to_string(), ExpertNetwork {
-            id: "synthesis".to_string(),
-            specialization: ExpertSpecialization::Synthesis,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.94,
-        });
-        
-        experts.insert("verification".to_string(), ExpertNetwork {
-            id: "verification".to_string(),
-            specialization: ExpertSpecialization::Verification,
-            capacity: 1.0,
-            utilization: 0.0,
-            performance_score: 0.97,
-        });
+        experts.insert(
+            "text_reasoning".to_string(),
+            ExpertNetwork {
+                id: "text_reasoning".to_string(),
+                specialization: ExpertSpecialization::TextReasoning,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.95,
+            },
+        );
+
+        experts.insert(
+            "mathematical_reasoning".to_string(),
+            ExpertNetwork {
+                id: "mathematical_reasoning".to_string(),
+                specialization: ExpertSpecialization::MathematicalReasoning,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.98,
+            },
+        );
+
+        experts.insert(
+            "logical_reasoning".to_string(),
+            ExpertNetwork {
+                id: "logical_reasoning".to_string(),
+                specialization: ExpertSpecialization::LogicalReasoning,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.97,
+            },
+        );
+
+        experts.insert(
+            "world_modeling".to_string(),
+            ExpertNetwork {
+                id: "world_modeling".to_string(),
+                specialization: ExpertSpecialization::WorldModeling,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.93,
+            },
+        );
+
+        experts.insert(
+            "meta_reasoning".to_string(),
+            ExpertNetwork {
+                id: "meta_reasoning".to_string(),
+                specialization: ExpertSpecialization::MetaReasoning,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.96,
+            },
+        );
+
+        experts.insert(
+            "truth_arbitration".to_string(),
+            ExpertNetwork {
+                id: "truth_arbitration".to_string(),
+                specialization: ExpertSpecialization::TruthArbitration,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.99,
+            },
+        );
+
+        experts.insert(
+            "synthesis".to_string(),
+            ExpertNetwork {
+                id: "synthesis".to_string(),
+                specialization: ExpertSpecialization::Synthesis,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.94,
+            },
+        );
+
+        experts.insert(
+            "verification".to_string(),
+            ExpertNetwork {
+                id: "verification".to_string(),
+                specialization: ExpertSpecialization::Verification,
+                capacity: 1.0,
+                utilization: 0.0,
+                performance_score: 0.97,
+            },
+        );
 
         Self {
             config: config.clone(),
@@ -765,7 +792,8 @@ impl OmnisArchitecture {
         }
 
         // Initialize gating network
-        self.gating_network.expert_weights = self.experts
+        self.gating_network.expert_weights = self
+            .experts
             .iter()
             .map(|(id, expert)| (id.clone(), expert.performance_score))
             .collect();
@@ -812,34 +840,34 @@ impl OmnisArchitecture {
     pub async fn select_experts(&self, input: &str) -> Vec<String> {
         // Simple heuristic-based selection for now
         let mut selected_experts = Vec::new();
-        
+
         if input.contains("math") || input.contains("calculate") {
             selected_experts.push("mathematical_reasoning".to_string());
         }
-        
+
         if input.contains("logic") || input.contains("reason") {
             selected_experts.push("logical_reasoning".to_string());
         }
-        
+
         if input.contains("world") || input.contains("context") {
             selected_experts.push("world_modeling".to_string());
         }
-        
+
         if input.len() > 1000 {
             selected_experts.push("meta_reasoning".to_string());
         }
-        
+
         // Always include text reasoning and synthesis
         selected_experts.push("text_reasoning".to_string());
         selected_experts.push("synthesis".to_string());
-        
+
         // Limit to top-k experts
         match &self.gating_network.strategy {
             GatingStrategy::TopK { k } => selected_experts.truncate(*k),
             GatingStrategy::NoisyTopK { k, .. } => selected_experts.truncate(*k),
             _ => {}
         }
-        
+
         selected_experts
     }
 
@@ -848,7 +876,7 @@ impl OmnisArchitecture {
         // Simple world model update
         let timestamp = chrono::Utc::now();
         self.neural_world_model.world_state.last_updated = timestamp;
-        
+
         // Add input as a world variable
         self.neural_world_model.world_state.variables.insert(
             format!("input_{}", timestamp.timestamp()),
@@ -860,26 +888,26 @@ impl OmnisArchitecture {
                 temporal_dynamics: None,
             },
         );
-        
+
         Ok(())
     }
 
     /// Perform meta-reasoning
     pub async fn meta_reason(&self, problem: &str) -> NxrModelResult<Vec<String>> {
         let mut reasoning_steps = Vec::new();
-        
+
         // Self-reflection
         reasoning_steps.push("Analyzing problem structure and complexity".to_string());
-        
+
         // Strategy selection
         reasoning_steps.push("Selecting optimal reasoning approach".to_string());
-        
+
         // Performance monitoring
         reasoning_steps.push("Monitoring reasoning progress and quality".to_string());
-        
+
         // Adaptation
         reasoning_steps.push("Adapting reasoning strategy based on progress".to_string());
-        
+
         Ok(reasoning_steps)
     }
 
@@ -889,7 +917,7 @@ impl OmnisArchitecture {
         if claims.is_empty() {
             return Ok("No claims to arbitrate".to_string());
         }
-        
+
         // For now, return the most confident claim
         // In a real implementation, this would be much more sophisticated
         Ok(claims.first().expect("claims is non-empty here").clone())
@@ -898,30 +926,33 @@ impl OmnisArchitecture {
     /// Execute reasoning chain
     pub async fn execute_chain(&self, steps: Vec<String>) -> NxrModelResult<String> {
         let mut result = String::new();
-        
+
         for step in steps {
             result.push_str(&step);
             result.push_str(" → ");
         }
-        
+
         // Remove final arrow
         if result.ends_with(" → ") {
             result.truncate(result.len() - 3);
         }
-        
+
         Ok(result)
     }
 
     /// Synthesize results
-    pub async fn synthesize(&self, expert_outputs: HashMap<String, String>) -> NxrModelResult<String> {
+    pub async fn synthesize(
+        &self,
+        expert_outputs: HashMap<String, String>,
+    ) -> NxrModelResult<String> {
         let mut synthesis = String::new();
-        
+
         for (expert, output) in expert_outputs {
             synthesis.push_str(&format!("[{}]: {}\n", expert, output));
         }
-        
+
         synthesis.push_str("\nSynthesis: Integrated results from all expert networks.");
-        
+
         Ok(synthesis)
     }
 }

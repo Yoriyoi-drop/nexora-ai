@@ -1,14 +1,14 @@
 //! Orchestration Prime Agent
-//! 
+//!
 //! Core orchestration agent for NXR-NEXUM
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Orchestration Prime Agent - Core orchestration
 #[derive(Debug, Clone)]
@@ -468,13 +468,11 @@ impl Default for TaskManagement {
 impl Default for AgentCoordination {
     fn default() -> Self {
         Self {
-            protocols: vec![
-                CoordinationProtocol {
-                    name: "request_response".to_string(),
-                    protocol_type: ProtocolType::RequestResponse,
-                    parameters: HashMap::new(),
-                },
-            ],
+            protocols: vec![CoordinationProtocol {
+                name: "request_response".to_string(),
+                protocol_type: ProtocolType::RequestResponse,
+                parameters: HashMap::new(),
+            }],
             communication_channels: HashMap::new(),
             conflict_resolution: ConflictResolution {
                 strategies: vec![
@@ -520,19 +518,21 @@ impl BaseAgent for OrchestratorPrimeAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Create orchestration plan
         let coordination_plan = self.create_coordination_plan(&input).await?;
-        
+
         // Assign agents to tasks
         let agent_assignments = self.assign_agents(&input).await?;
-        
+
         // Create task schedule
-        let task_schedule = self.create_task_schedule(&input, &agent_assignments).await?;
-        
+        let task_schedule = self
+            .create_task_schedule(&input, &agent_assignments)
+            .await?;
+
         // Build output
         let output = OrchestrationTaskOutput {
             orchestration_result: format!("Orchestrated task: {}", input.task_description),
@@ -541,9 +541,9 @@ impl BaseAgent for OrchestratorPrimeAgent {
             task_schedule,
             success: true,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -556,21 +556,19 @@ impl BaseAgent for OrchestratorPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "orchestration".to_string(),
-                description: "Multi-agent orchestration and coordination".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["orchestration_task".to_string()],
-                output_types: vec!["orchestration_result".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.95,
-                    avg_latency: 200.0,
-                    resource_usage: 0.6,
-                    reliability: 0.98,
-                },
+        vec![AgentCapability {
+            name: "orchestration".to_string(),
+            description: "Multi-agent orchestration and coordination".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["orchestration_task".to_string()],
+            output_types: vec!["orchestration_result".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.95,
+                avg_latency: 200.0,
+                resource_usage: 0.6,
+                reliability: 0.98,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -612,43 +610,49 @@ impl OrchestratorPrimeAgent {
     fn validate_input(&self, input: &OrchestrationTaskInput) -> AgentResult<()> {
         if input.task_description.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Task description cannot be empty".to_string()
+                "Task description cannot be empty".to_string(),
             ));
         }
-        
+
         if input.available_agents.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "At least one available agent must be specified".to_string()
+                "At least one available agent must be specified".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Create coordination plan
-    async fn create_coordination_plan(&self, input: &OrchestrationTaskInput) -> AgentResult<String> {
+    async fn create_coordination_plan(
+        &self,
+        input: &OrchestrationTaskInput,
+    ) -> AgentResult<String> {
         let plan = match self.config.orchestration_strategy {
             OrchestrationStrategy::Centralized => {
                 "Centralized orchestration plan with single coordinator"
-            },
+            }
             OrchestrationStrategy::Distributed => {
                 "Distributed orchestration plan with peer-to-peer coordination"
-            },
+            }
             OrchestrationStrategy::Hybrid => {
                 "Hybrid orchestration plan combining centralized and distributed approaches"
-            },
+            }
             OrchestrationStrategy::Adaptive => {
                 "Adaptive orchestration plan that adjusts based on system conditions"
-            },
+            }
         };
-        
+
         Ok(format!("{} for task: {}", plan, input.task_description))
     }
 
     /// Assign agents to tasks
-    async fn assign_agents(&self, input: &OrchestrationTaskInput) -> AgentResult<Vec<AgentAssignment>> {
+    async fn assign_agents(
+        &self,
+        input: &OrchestrationTaskInput,
+    ) -> AgentResult<Vec<AgentAssignment>> {
         let mut assignments = Vec::new();
-        
+
         // Simple assignment strategy - assign to first available agent
         if let Some(agent_id) = input.available_agents.first() {
             assignments.push(AgentAssignment {
@@ -658,18 +662,21 @@ impl OrchestratorPrimeAgent {
                 expected_completion: chrono::Utc::now() + chrono::Duration::minutes(30),
             });
         }
-        
+
         Ok(assignments)
     }
 
     /// Create task schedule
-    async fn create_task_schedule(&self, input: &OrchestrationTaskInput,
-                                assignments: &[AgentAssignment]) -> AgentResult<Vec<ScheduledTask>> {
+    async fn create_task_schedule(
+        &self,
+        input: &OrchestrationTaskInput,
+        assignments: &[AgentAssignment],
+    ) -> AgentResult<Vec<ScheduledTask>> {
         let mut schedule = Vec::new();
-        
+
         let task_id = format!("task_{}", chrono::Utc::now().timestamp());
         let now = chrono::Utc::now();
-        
+
         schedule.push(ScheduledTask {
             task_id,
             scheduled_start: now,
@@ -677,7 +684,7 @@ impl OrchestratorPrimeAgent {
             assigned_agents: assignments.iter().map(|a| a.agent_id.clone()).collect(),
             dependencies: vec![],
         });
-        
+
         Ok(schedule)
     }
 }
@@ -706,7 +713,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(output.success);
         assert!(!output.orchestration_result.is_empty());
@@ -720,7 +727,10 @@ mod tests {
             ..Default::default()
         };
         let agent = OrchestratorPrimeAgent::new(config);
-        
-        assert!(matches!(agent.config.orchestration_strategy, OrchestrationStrategy::Distributed));
+
+        assert!(matches!(
+            agent.config.orchestration_strategy,
+            OrchestrationStrategy::Distributed
+        ));
     }
 }

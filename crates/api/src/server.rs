@@ -1,25 +1,19 @@
 //! API Server - Rust implementation
-//! 
+//!
 //! High-performance HTTP server replacing runtime_http_server.c
 
 use anyhow::Result;
+use axum::{extract::State, http::StatusCode, response::Json, routing::get, Router};
+use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
-use axum::{
-    Router,
-    routing::get,
-    extract::State,
-    response::Json,
-    http::StatusCode,
-};
-use tower_http::cors::{CorsLayer, Any};
-use serde_json::json;
 
 use crate::{
-    ApiConfig, ApiStatistics, HealthStatus,
-    handlers::HandlerRegistry, MiddlewareStack, MetricsCollector,
+    handlers::HandlerRegistry, ApiConfig, ApiStatistics, HealthStatus, MetricsCollector,
+    MiddlewareStack,
 };
 
 /// Main API server
@@ -46,9 +40,14 @@ impl ApiServer {
         } else {
             Arc::new(MiddlewareStack::new())
         };
-        
-        let router = Self::build_router(&config, handlers.clone(), middleware.clone(), metrics.clone())?;
-        
+
+        let router = Self::build_router(
+            &config,
+            handlers.clone(),
+            middleware.clone(),
+            metrics.clone(),
+        )?;
+
         Ok(Self {
             config,
             router,
@@ -59,7 +58,7 @@ impl ApiServer {
             start_time: Instant::now(),
         })
     }
-    
+
     /// Build application router
     fn build_router(
         config: &ApiConfig,
@@ -79,22 +78,18 @@ impl ApiServer {
             // Health check endpoints
             .route("/health", get(health_check_handler))
             .route("/health/detailed", get(detailed_health_check_handler))
-            
             // Metrics endpoints
             .route("/metrics", get(metrics_handler))
             .route("/metrics/routes", get(route_metrics_handler))
-            
             // API endpoints
             .route("/api/v1/status", get(api_status_handler))
             .route("/api/v1/routes", get(list_routes_handler))
-            
             // System endpoints
             .route("/system/info", get(system_info_handler))
             .route("/system/stats", get(system_stats_handler))
-            
             // Add state for all handlers
             .with_state(app_state);
-        
+
         // Add CORS if enabled
         if config.enable_cors {
             let cors = if config.cors_origins.is_empty() {
@@ -119,40 +114,41 @@ impl ApiServer {
                     axum::http::Method::DELETE,
                 ])
                 .allow_headers(Any);
-            
+
             app = app.layer(cors);
         }
-        
+
         Ok(app)
     }
-    
+
     /// Start the server
     pub async fn start(self) -> Result<()> {
         let addr: std::net::SocketAddr = format!("{}:{}", self.config.host, self.config.port)
             .parse()
             .map_err(|e| anyhow::anyhow!("Invalid address: {}", e))?;
-        
+
         info!("Starting API server on {}", addr);
-        
-        let listener = TcpListener::bind(addr).await
+
+        let listener = TcpListener::bind(addr)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to bind to address: {}", e))?;
-        
+
         info!("API server listening on {}", listener.local_addr()?);
-        
+
         if self.config.enable_tls {
             self.start_tls_server(listener).await
         } else {
             self.start_http_server(listener).await
         }
     }
-    
+
     /// Start HTTP server
     async fn start_http_server(self, listener: TcpListener) -> Result<()> {
         axum::serve(listener, self.router)
             .with_graceful_shutdown(shutdown_signal())
             .await
             .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
-        
+
         Ok(())
     }
 }
@@ -184,68 +180,70 @@ impl ApiServer {
     async fn _create_app(self) -> axum::Router {
         self.router
     }
-    
+
     /// Start HTTPS server
     async fn start_tls_server(self, listener: TcpListener) -> Result<()> {
         #[cfg(feature = "tls")]
         {
             info!("Starting HTTPS server with TLS support");
-            
+
             // Load TLS configuration
             let tls_config = self.load_tls_config().await?;
-            
+
             // Create TLS acceptor
             let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
-            
+
             // Create HTTPS router
             let app = self._create_app().await;
-            
+
             // Serve HTTPS with TLS
             axum_server::bind_rustls(listener, tls_acceptor)
                 .serve(app.into_make_service())
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to start HTTPS server: {}", e))?;
-            
+
             info!("HTTPS server started successfully");
             Ok(())
         }
-        
+
         #[cfg(not(feature = "tls"))]
         {
             warn!("TLS feature not enabled, falling back to HTTP");
             self.start_http_server(listener).await
         }
     }
-    
+
     /// Load TLS configuration
     #[cfg(feature = "tls")]
     async fn load_tls_config(&self) -> Result<tokio_rustls::TlsConfig> {
-        use std::fs;
         use rustls::{Certificate, PrivateKey, ServerConfig};
         use rustls_pemfile::{certs, pkcs8_private_keys};
-        
+        use std::fs;
+
         // Default certificate paths
-        let cert_path = std::env::var("TLS_CERT_PATH").unwrap_or_else(|_| "certs/server.crt".to_string());
-        let key_path = std::env::var("TLS_KEY_PATH").unwrap_or_else(|_| "certs/server.key".to_string());
-        
+        let cert_path =
+            std::env::var("TLS_CERT_PATH").unwrap_or_else(|_| "certs/server.crt".to_string());
+        let key_path =
+            std::env::var("TLS_KEY_PATH").unwrap_or_else(|_| "certs/server.key".to_string());
+
         // Load certificate file
         let cert_file = fs::File::open(&cert_path)
             .map_err(|e| anyhow::anyhow!("Failed to open certificate file {}: {}", cert_path, e))?;
         let mut cert_reader = std::io::BufReader::new(cert_file);
         let certs = certs(&mut cert_reader)
             .map_err(|e| anyhow::anyhow!("Failed to read certificates: {}", e))?;
-        
+
         // Load private key file
         let key_file = fs::File::open(&key_path)
             .map_err(|e| anyhow::anyhow!("Failed to open private key file {}: {}", key_path, e))?;
         let mut key_reader = std::io::BufReader::new(key_file);
         let keys = pkcs8_private_keys(&mut key_reader)
             .map_err(|e| anyhow::anyhow!("Failed to read private keys: {}", e))?;
-        
+
         if keys.is_empty() {
             return Err(anyhow::anyhow!("No private keys found in {}", key_path));
         }
-        
+
         // Create server configuration
         let mut config = ServerConfig::builder()
             .with_safe_defaults(rustls::Version::TLS_1_2)
@@ -255,66 +253,73 @@ impl ApiServer {
                 PrivateKey(keys[0].clone()),
             )
             .map_err(|e| anyhow::anyhow!("Failed to create TLS config: {}", e))?;
-        
+
         // Enable ALPN for HTTP/2
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        
+
         Ok(tokio_rustls::TlsConfig::from_config(Arc::new(config)))
     }
-    
+
     /// Generate self-signed certificate for development
     #[cfg(feature = "tls")]
     pub async fn generate_self_signed_cert() -> Result<()> {
         use rcgen::{CertificateParams, DistinguishedName, KeyPair};
         use std::fs;
         use time::OffsetDateTime;
-        
+
         info!("Generating self-signed certificate for development");
-        
+
         // Create certificate parameters
         let mut params = CertificateParams::default();
         params.distinguished_name = DistinguishedName::new();
-        params.distinguished_name.push(rcgen::DnType::CommonName, "localhost");
-        params.distinguished_name.push(rcgen::DnType::OrganizationName, "Nexora AI");
-        params.distinguished_name.push(rcgen::DnType::OrganizationalUnitName, "Development");
-        
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "localhost");
+        params
+            .distinguished_name
+            .push(rcgen::DnType::OrganizationName, "Nexora AI");
+        params
+            .distinguished_name
+            .push(rcgen::DnType::OrganizationalUnitName, "Development");
+
         // Set validity period (1 year)
         params.not_before = OffsetDateTime::now_utc();
         params.not_after = OffsetDateTime::now_utc() + time::Duration::days(365);
-        
+
         // Generate key pair
         let key_pair = KeyPair::generate()
             .map_err(|e| anyhow::anyhow!("Failed to generate key pair: {}", e))?;
-        
+
         // Generate certificate
-        let cert = params.self_signed(&key_pair)
+        let cert = params
+            .self_signed(&key_pair)
             .map_err(|e| anyhow::anyhow!("Failed to generate certificate: {}", e))?;
-        
+
         // Create certs directory if it doesn't exist
         fs::create_dir_all("certs")
             .map_err(|e| anyhow::anyhow!("Failed to create certs directory: {}", e))?;
-        
+
         // Write certificate
         fs::write("certs/server.crt", cert.pem())
             .map_err(|e| anyhow::anyhow!("Failed to write certificate: {}", e))?;
-        
+
         // Write private key
         fs::write("certs/server.key", key_pair.serialize_pem())
             .map_err(|e| anyhow::anyhow!("Failed to write private key: {}", e))?;
-        
+
         info!("Self-signed certificate generated successfully");
         info!("Certificate: certs/server.crt");
         info!("Private key: certs/server.key");
         info!("Use these for development or replace with production certificates");
-        
+
         Ok(())
     }
-    
+
     /// Get server statistics
     pub async fn get_statistics(&self) -> ApiStatistics {
         self.statistics.read().await.clone()
     }
-    
+
     /// Get server uptime
     pub fn uptime(&self) -> Duration {
         self.start_time.elapsed()
@@ -332,9 +337,11 @@ pub struct AppState {
 }
 
 /// Health check handler
-async fn health_check_handler(State(state): State<AppState>) -> Result<Json<HealthStatus>, StatusCode> {
+async fn health_check_handler(
+    State(state): State<AppState>,
+) -> Result<Json<HealthStatus>, StatusCode> {
     let stats = state.statistics.read().await;
-    
+
     Ok(Json(HealthStatus {
         healthy: true,
         timestamp: nexora_infrastructure::common::unix_timestamp(),
@@ -347,9 +354,11 @@ async fn health_check_handler(State(state): State<AppState>) -> Result<Json<Heal
 }
 
 /// Detailed health check handler
-async fn detailed_health_check_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn detailed_health_check_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let stats = state.statistics.read().await;
-    
+
     Ok(Json(json!({
         "healthy": true,
         "timestamp": std::time::SystemTime::now()
@@ -379,9 +388,11 @@ async fn detailed_health_check_handler(State(state): State<AppState>) -> Result<
 }
 
 /// Metrics handler
-async fn metrics_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn metrics_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let metrics_data = state.metrics.get_current_metrics().await;
-    
+
     Ok(Json(json!({
         "timestamp": metrics_data.timestamp,
         "requests_total": metrics_data.requests_total,
@@ -396,16 +407,22 @@ async fn metrics_handler(State(state): State<AppState>) -> Result<Json<serde_jso
 }
 
 /// Route metrics handler
-async fn route_metrics_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn route_metrics_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let stats = state.statistics.read().await;
-    
-    let routes: Vec<_> = stats.route_counts.iter()
-        .map(|(path, count)| json!({
-            "path": path,
-            "requests": count
-        }))
+
+    let routes: Vec<_> = stats
+        .route_counts
+        .iter()
+        .map(|(path, count)| {
+            json!({
+                "path": path,
+                "requests": count
+            })
+        })
         .collect();
-    
+
     Ok(Json(json!({
         "routes": routes,
         "total_routes": routes.len()
@@ -413,9 +430,11 @@ async fn route_metrics_handler(State(state): State<AppState>) -> Result<Json<ser
 }
 
 /// API status handler
-async fn api_status_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn api_status_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let stats = state.statistics.read().await;
-    
+
     Ok(Json(json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
@@ -438,9 +457,11 @@ async fn api_status_handler(State(state): State<AppState>) -> Result<Json<serde_
 }
 
 /// List routes handler
-async fn list_routes_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn list_routes_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let routes = state.handlers.list_routes().await;
-    
+
     Ok(Json(json!({
         "routes": routes,
         "total": routes.len()
@@ -467,9 +488,11 @@ async fn system_info_handler() -> Result<Json<serde_json::Value>, StatusCode> {
 }
 
 /// System stats handler
-async fn system_stats_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn system_stats_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let stats = state.statistics.read().await;
-    
+
     Ok(Json(json!({
         "timestamp": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -493,5 +516,3 @@ async fn system_stats_handler(State(state): State<AppState>) -> Result<Json<serd
         }
     })))
 }
-
-

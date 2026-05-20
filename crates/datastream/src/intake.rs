@@ -3,7 +3,7 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
-use crate::types::{DataSample, BatchConfig, SourceInfo, SampleStats};
+use crate::types::{BatchConfig, DataSample, SampleStats, SourceInfo};
 use uuid::Uuid;
 
 pub struct StreamIntakeEngine {
@@ -31,11 +31,7 @@ impl StreamIntakeEngine {
         self
     }
 
-    pub async fn ingest_file(
-        &self,
-        path: &str,
-        source: SourceInfo,
-    ) -> mpsc::Receiver<DataSample> {
+    pub async fn ingest_file(&self, path: &str, source: SourceInfo) -> mpsc::Receiver<DataSample> {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
         let path = path.to_string();
         let semaphore = self.semaphore.clone();

@@ -1,10 +1,10 @@
 //! Experimental Algorithm Generator
-//! 
+//!
 //! Generates cutting-edge experimental implementations using quantum-inspired algorithms
 //! and neural network heuristics.
 
 use super::{AlgorithmGenerator, AlgorithmType};
-use crate::saca::{types::*, error::*};
+use crate::saca::{error::*, types::*};
 use uuid::Uuid;
 
 /// Experimental algorithm generator
@@ -140,7 +140,7 @@ impl AlgorithmGenerator for ExperimentalAlgorithmGenerator {
             \n",
             module.name, module.name.to_lowercase()
         );
-        
+
         Ok(SamplingCandidate {
             id: Uuid::new_v4(),
             module_id: module.id.clone(),

@@ -61,9 +61,7 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
             let fmt_layer = tracing_subscriber::fmt::layer().json();
             if config.enable_file_sink {
                 let file = create_file_writer(config)?;
-                let file_layer = tracing_subscriber::fmt::layer()
-                    .json()
-                    .with_writer(file);
+                let file_layer = tracing_subscriber::fmt::layer().json().with_writer(file);
                 subscriber.with(fmt_layer).with(file_layer).init();
             } else {
                 subscriber.with(fmt_layer).init();
@@ -73,9 +71,7 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
             let fmt_layer = tracing_subscriber::fmt::layer().pretty();
             if config.enable_file_sink {
                 let file = create_file_writer(config)?;
-                let file_layer = tracing_subscriber::fmt::layer()
-                    .pretty()
-                    .with_writer(file);
+                let file_layer = tracing_subscriber::fmt::layer().pretty().with_writer(file);
                 subscriber.with(fmt_layer).with(file_layer).init();
             } else {
                 subscriber.with(fmt_layer).init();
@@ -85,9 +81,7 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
             let fmt_layer = tracing_subscriber::fmt::layer().compact();
             if config.enable_file_sink {
                 let file = create_file_writer(config)?;
-                let file_layer = tracing_subscriber::fmt::layer()
-                    .compact()
-                    .with_writer(file);
+                let file_layer = tracing_subscriber::fmt::layer().compact().with_writer(file);
                 subscriber.with(fmt_layer).with(file_layer).init();
             } else {
                 subscriber.with(fmt_layer).init();
@@ -100,9 +94,6 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
 }
 
 fn create_file_writer(config: &TracingConfig) -> Result<std::fs::File, String> {
-    let path = config
-        .file_path
-        .as_deref()
-        .unwrap_or("nexora-trace.log");
+    let path = config.file_path.as_deref().unwrap_or("nexora-trace.log");
     std::fs::File::create(path).map_err(|e| format!("Failed to create trace file {}: {}", path, e))
 }

@@ -89,13 +89,14 @@ impl GpuProfiler {
     }
 
     fn pop_start(&mut self, scope: &ProfileScope) -> Option<Duration> {
-        let idx = self.start_times.iter().rposition(|(s, _)| {
-            match (s, scope) {
+        let idx = self
+            .start_times
+            .iter()
+            .rposition(|(s, _)| match (s, scope) {
                 (ProfileScope::Kernel(a), ProfileScope::Kernel(b)) => a == b,
                 (ProfileScope::Phase(a), ProfileScope::Phase(b)) => a == b,
                 _ => false,
-            }
-        })?;
+            })?;
         let (_, start) = self.start_times.remove(idx);
         Some(start.elapsed())
     }
@@ -130,11 +131,7 @@ impl GpuProfiler {
         if !self.phase_log.is_empty() {
             lines.push("Phases:".to_string());
             for (label, duration) in &self.phase_log {
-                lines.push(format!(
-                    "  {:25}  {:.3}s",
-                    label,
-                    duration.as_secs_f64()
-                ));
+                lines.push(format!("  {:25}  {:.3}s", label, duration.as_secs_f64()));
             }
         }
 

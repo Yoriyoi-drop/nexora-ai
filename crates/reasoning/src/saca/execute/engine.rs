@@ -1,19 +1,19 @@
 //! Execute Engine Core
-//! 
+//!
 //! Core execution engine implementation with modular strategy, testing, and fixing support.
 
+use super::fixing::*;
 use super::strategies::*;
 use super::testing::*;
-use super::fixing::*;
-use crate::saca::{types::*, config::*, error::*};
+use crate::saca::{config::*, error::*, types::*};
 
 // Re-export PerformanceMetrics from types
 pub use crate::saca::types::PerformanceMetrics;
 use nexora_core::async_executor::AsyncTaskExecutor;
-use std::sync::Arc;
-use tracing::{debug, info, warn};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, info, warn};
 
 /// Execute-Fail-Fix Loop engine
 pub struct ExecuteEngine {
@@ -30,17 +30,22 @@ pub struct ExecuteEngine {
 impl ExecuteEngine {
     /// Create new Execute engine
     pub fn new(config: ExecuteConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(nexora_core::async_executor::ExecutorConfig::default()));
-        
+        let executor = Arc::new(AsyncTaskExecutor::new(
+            nexora_core::async_executor::ExecutorConfig::default(),
+        ));
+
         let code_executor = Arc::new(SandboxCodeExecutor::new());
         let error_analyzer = Arc::new(ErrorAnalyzer::new(config.error_analysis_depth.clone()));
         let fix_generator = Arc::new(FixGenerator::new());
         let test_generator = Arc::new(TestGenerator);
         let test_runner = Arc::new(TestRunner);
         let performance_monitor = Arc::new(PerformanceMonitor::new());
-        
-        info!("Execute Engine initialized with {}s timeout", config.timeout_seconds);
-        
+
+        info!(
+            "Execute Engine initialized with {}s timeout",
+            config.timeout_seconds
+        );
+
         Ok(Self {
             config,
             executor,
@@ -52,31 +57,34 @@ impl ExecuteEngine {
             performance_monitor,
         })
     }
-    
+
     /// Execute all sampling candidates with fail-fix loop
     pub async fn execute_all(
         &self,
         candidates: Vec<SamplingCandidate>,
         context: &RepositoryContext,
     ) -> SACAResult<Vec<SACAExecutionResult>> {
-        debug!("Starting execute-fail-fix loop for {} candidates", candidates.len());
-        
+        debug!(
+            "Starting execute-fail-fix loop for {} candidates",
+            candidates.len()
+        );
+
         let execution_results = match self.config.execution_strategy {
             ExecutionStrategy::Sequential => {
                 SequentialExecutionStrategy::execute(self, candidates, context).await?
-            },
+            }
             ExecutionStrategy::Parallel => {
                 ParallelExecutionStrategy::execute(self, candidates, context).await?
-            },
+            }
             ExecutionStrategy::Adaptive => {
                 AdaptiveExecutionStrategy::execute(self, candidates, context).await?
-            },
+            }
         };
-        
+
         info!("Execution completed: {} results", execution_results.len());
         Ok(execution_results)
     }
-    
+
     /// Execute a single candidate with fail-fix loop
     pub async fn execute_candidate_with_fix_loop(
         &self,
@@ -85,38 +93,51 @@ impl ExecuteEngine {
     ) -> SACAResult<SACAExecutionResult> {
         let mut fix_attempts = 0;
         let max_fix_attempts = self.config.max_fix_attempts;
-        
+
         loop {
             // Execute the candidate
             let execution_result = self.execute_single_candidate(&candidate, context).await?;
-            
+
             // Check if execution was successful
             if execution_result.success {
                 return Ok(execution_result);
             }
-            
+
             // Check if we've exceeded max fix attempts
             if fix_attempts >= max_fix_attempts {
                 warn!("Max fix attempts reached for candidate {}", candidate.id);
                 return Ok(execution_result);
             }
-            
+
             // Analyze errors and generate fixes
-            let error_analysis = self.error_analyzer.analyze_errors(&execution_result.error_logs).await?;
-            let fixes = self.fix_generator.generate_fixes(&candidate, &error_analysis).await?;
-            
+            let error_analysis = self
+                .error_analyzer
+                .analyze_errors(&execution_result.error_logs)
+                .await?;
+            let fixes = self
+                .fix_generator
+                .generate_fixes(&candidate, &error_analysis)
+                .await?;
+
             // Apply the best fix
-            if let Some(best_fix) = fixes.iter().max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal)) {
+            if let Some(best_fix) = fixes.iter().max_by(|a, b| {
+                a.confidence
+                    .partial_cmp(&b.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }) {
                 candidate.implementation = best_fix.fixed_code.clone();
                 fix_attempts += 1;
-                debug!("Applied fix attempt {} for candidate {}", fix_attempts, candidate.id);
+                debug!(
+                    "Applied fix attempt {} for candidate {}",
+                    fix_attempts, candidate.id
+                );
             } else {
                 // No fixes available, return current result
                 return Ok(execution_result);
             }
         }
     }
-    
+
     /// Execute a single candidate
     async fn execute_single_candidate(
         &self,
@@ -124,53 +145,71 @@ impl ExecuteEngine {
         context: &RepositoryContext,
     ) -> SACAResult<SACAExecutionResult> {
         let start_time = std::time::Instant::now();
-        
+
         // Setup execution environment
         let execution_env = self.setup_execution_environment(candidate, context).await?;
-        
+
         // Generate test cases
-        let test_cases = self.test_generator.generate_test_cases(&candidate.implementation).await?;
-        
+        let test_cases = self
+            .test_generator
+            .generate_test_cases(&candidate.implementation)
+            .await?;
+
         // Run tests
-        let test_results = self.test_runner.run_tests(&candidate.implementation, test_cases).await?;
-        
+        let test_results = self
+            .test_runner
+            .run_tests(&candidate.implementation, test_cases)
+            .await?;
+
         // Execute code in sandbox
-        let execution_output = self.code_executor.execute(&candidate.implementation, &execution_env)?;
-        
+        let execution_output = self
+            .code_executor
+            .execute(&candidate.implementation, &execution_env)?;
+
         let execution_time = start_time.elapsed();
-        
+
         // Collect performance metrics
-        let performance_metrics = self.performance_monitor.collect_metrics(&execution_output).await;
-        
+        let performance_metrics = self
+            .performance_monitor
+            .collect_metrics(&execution_output)
+            .await;
+
         // Determine success
         let success = execution_output.success && test_results.iter().all(|r| r.passed);
-        
+
         // Collect error logs
         let mut error_logs = execution_output.error_logs;
         if !success {
             error_logs.extend(test_results.iter().filter(|r| !r.passed).map(|r| {
-                format!("Test {} failed: {}", r.test_id, r.error_message.as_deref().unwrap_or("Unknown error"))
+                format!(
+                    "Test {} failed: {}",
+                    r.test_id,
+                    r.error_message.as_deref().unwrap_or("Unknown error")
+                )
             }));
         }
-        
+
         Ok(SACAExecutionResult {
             candidate_id: candidate.id,
             success,
             execution_time_ms: execution_time.as_millis() as u64,
             memory_usage_mb: 0.0, // Default value
             error_logs,
-            test_results: test_results.into_iter().map(|r| crate::saca::types::TestResult {
-                test_name: r.test_id.clone(),
-                passed: r.passed,
-                execution_time_ms: r.execution_time.as_millis() as u64,
-                error_message: r.error_message.clone(),
-            }).collect(),
+            test_results: test_results
+                .into_iter()
+                .map(|r| crate::saca::types::TestResult {
+                    test_name: r.test_id.clone(),
+                    passed: r.passed,
+                    execution_time_ms: r.execution_time.as_millis() as u64,
+                    error_message: r.error_message.clone(),
+                })
+                .collect(),
             performance_metrics,
             code_lines: Some(candidate.implementation.lines().count()),
             generated_code: Some(candidate.implementation.clone()),
         })
     }
-    
+
     /// Setup execution environment
     async fn setup_execution_environment(
         &self,
@@ -242,7 +281,7 @@ impl PerformanceMonitor {
     fn new() -> Self {
         Self { _private: () }
     }
-    
+
     async fn collect_metrics(&self, output: &ExecutionOutput) -> PerformanceMetrics {
         // Estimate complexity based on execution characteristics
         let execution_time = output.execution_time.unwrap_or(0) as f32;
@@ -255,7 +294,7 @@ impl PerformanceMonitor {
         } else {
             "O(n²)".to_string()
         };
-        
+
         let memory_usage = output.memory_usage.unwrap_or(1024.0); // Already f32
         let space_complexity = if memory_usage < 1024.0 {
             "O(1)".to_string()
@@ -264,11 +303,11 @@ impl PerformanceMonitor {
         } else {
             "O(n²)".to_string()
         };
-        
+
         // Estimate CPU cycles based on execution time (assuming 3GHz)
         let cpu_cycles = (execution_time * 3_000_000.0) as u64;
         let cache_misses = (cpu_cycles / 1000) as u64; // Rough estimate
-        
+
         PerformanceMetrics {
             time_complexity,
             space_complexity,
@@ -279,7 +318,6 @@ impl PerformanceMonitor {
     }
 }
 
-
 /// Sandbox code executor
 pub struct SandboxCodeExecutor {
     _private: (),
@@ -289,14 +327,14 @@ impl SandboxCodeExecutor {
     fn new() -> Self {
         Self { _private: () }
     }
-    
+
     /// Validate code syntax with comprehensive checks
     fn validate_syntax(&self, code: &str) -> Result<(), String> {
         // Check for unmatched braces
         let mut brace_count = 0;
         let mut paren_count = 0;
         let mut bracket_count = 0;
-        
+
         for ch in code.chars() {
             match ch {
                 '{' => brace_count += 1,
@@ -308,7 +346,7 @@ impl SandboxCodeExecutor {
                 _ => {}
             }
         }
-        
+
         if brace_count != 0 {
             return Err(format!("Unmatched braces: {}", brace_count));
         }
@@ -318,10 +356,10 @@ impl SandboxCodeExecutor {
         if bracket_count != 0 {
             return Err(format!("Unmatched brackets: {}", bracket_count));
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate code for security issues using combined blocklist and heuristics
     fn validate_security(&self, code: &str) -> Result<(), String> {
         let dangerous_patterns = [
@@ -378,7 +416,7 @@ impl SandboxCodeExecutor {
             "help(",
             "input(",
         ];
-        
+
         for pattern in &dangerous_patterns {
             if code.contains(pattern) {
                 return Err(format!("Dangerous pattern detected: {}", pattern));
@@ -394,10 +432,27 @@ impl SandboxCodeExecutor {
                     && !import_name.contains('(')
                     && !import_name.contains(')')
                 {
-                    let allowed = ["math", "random", "json", "re", "collections",
-                        "itertools", "functools", "operator", "typing",
-                        "dataclasses", "enum", "string", "decimal", "datetime",
-                        "statistics", "bisect", "heapq", "copy", "pprint"];
+                    let allowed = [
+                        "math",
+                        "random",
+                        "json",
+                        "re",
+                        "collections",
+                        "itertools",
+                        "functools",
+                        "operator",
+                        "typing",
+                        "dataclasses",
+                        "enum",
+                        "string",
+                        "decimal",
+                        "datetime",
+                        "statistics",
+                        "bisect",
+                        "heapq",
+                        "copy",
+                        "pprint",
+                    ];
                     if !allowed.contains(&import_name) {
                         return Err(format!("Import not allowed: {}", import_name));
                     }
@@ -407,9 +462,13 @@ impl SandboxCodeExecutor {
 
         Ok(())
     }
-    
+
     /// Execute code in a controlled sandbox environment
-    fn execute_in_sandbox(&self, code: &str, _env: &ExecutionEnvironment) -> Result<ExecutionOutput, String> {
+    fn execute_in_sandbox(
+        &self,
+        code: &str,
+        _env: &ExecutionEnvironment,
+    ) -> Result<ExecutionOutput, String> {
         if code.trim().is_empty() {
             return Ok(ExecutionOutput {
                 success: true,
@@ -448,7 +507,10 @@ impl SandboxCodeExecutor {
                     memory_usage: None,
                 })
             }
-            Err(e) => Err(format!("Failed to execute code: python3 not available ({})", e)),
+            Err(e) => Err(format!(
+                "Failed to execute code: python3 not available ({})",
+                e
+            )),
         }
     }
 }
@@ -457,14 +519,20 @@ impl CodeExecutor for SandboxCodeExecutor {
     fn execute(&self, code: &str, env: &ExecutionEnvironment) -> SACAResult<ExecutionOutput> {
         // Enhanced syntax validation
         if let Err(syntax_error) = self.validate_syntax(code) {
-            return Err(SACAError::ExecuteError(format!("Syntax error: {}", syntax_error)));
+            return Err(SACAError::ExecuteError(format!(
+                "Syntax error: {}",
+                syntax_error
+            )));
         }
-        
+
         // Security validation
         if let Err(security_error) = self.validate_security(code) {
-            return Err(SACAError::ExecuteError(format!("Security error: {}", security_error)));
+            return Err(SACAError::ExecuteError(format!(
+                "Security error: {}",
+                security_error
+            )));
         }
-        
+
         // Execute in sandbox
         self.execute_in_sandbox(code, env)
             .map_err(|e| SACAError::ExecuteError(format!("Execution failed: {}", e)))

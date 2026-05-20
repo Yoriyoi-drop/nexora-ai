@@ -23,11 +23,19 @@ impl Default for AWQConfig {
 
 impl AWQConfig {
     pub fn w4a16() -> Self {
-        Self { bits: 4, group_size: 128, ..Default::default() }
+        Self {
+            bits: 4,
+            group_size: 128,
+            ..Default::default()
+        }
     }
 
     pub fn w3a16() -> Self {
-        Self { bits: 3, group_size: 128, ..Default::default() }
+        Self {
+            bits: 3,
+            group_size: 128,
+            ..Default::default()
+        }
     }
 }
 
@@ -59,9 +67,9 @@ pub struct AWQQuantizedTensor {
 impl AWQQuantizedTensor {
     pub fn compress_ratio(&self) -> f32 {
         let original_bits = self.original_shape.iter().product::<usize>() as f32 * 32.0;
-        let compressed_bits = self.qdata.len() as f32 * 8.0 +
-            self.scales.len() as f32 * 32.0 +
-            self.zero_points.len() as f32 * 32.0;
+        let compressed_bits = self.qdata.len() as f32 * 8.0
+            + self.scales.len() as f32 * 32.0
+            + self.zero_points.len() as f32 * 32.0;
         original_bits / compressed_bits
     }
 }
@@ -79,7 +87,8 @@ impl AWQEngine {
         let num_cols = activations[0].len();
         let mut max_vals = Array1::zeros(num_cols);
         for col in 0..num_cols {
-            let abs_max = activations.iter()
+            let abs_max = activations
+                .iter()
                 .map(|a| a[col].abs())
                 .fold(0.0f32, f32::max);
             max_vals[col] = if abs_max > 0.0 { abs_max } else { 1.0 };
@@ -87,7 +96,11 @@ impl AWQEngine {
         max_vals
     }
 
-    pub fn compute_saliency(&self, weight: &Array2<f32>, activation_scale: &Array1<f32>) -> Array1<f32> {
+    pub fn compute_saliency(
+        &self,
+        weight: &Array2<f32>,
+        activation_scale: &Array1<f32>,
+    ) -> Array1<f32> {
         let in_features = weight.shape()[1];
         let mut saliency = Array1::zeros(in_features);
         for j in 0..in_features {
@@ -149,7 +162,12 @@ impl AWQEngine {
         (scales, zero_points)
     }
 
-    pub fn quantize(&self, weight: &Array2<f32>, scales: &[f32], zero_points: &[i32]) -> AWQQuantizedTensor {
+    pub fn quantize(
+        &self,
+        weight: &Array2<f32>,
+        scales: &[f32],
+        zero_points: &[i32],
+    ) -> AWQQuantizedTensor {
         let num_groups = scales.len();
         let max_quant = (1 << self.config.bits) as f32 - 1.0;
         let entries_per_byte = 8 / self.config.bits as usize;
@@ -227,7 +245,8 @@ impl AWQEngine {
         &self,
         weights: Vec<(&'a str, ArrayD<f32>)>,
     ) -> Vec<(&'a str, AWQQuantizedTensor)> {
-        weights.into_iter()
+        weights
+            .into_iter()
             .filter_map(|(name, w)| {
                 let w2 = w.into_dimensionality::<ndarray::Ix2>().ok()?;
                 let dummy_act = Array1::from_elem(w2.shape()[1], 1.0);
@@ -246,18 +265,18 @@ mod tests {
     #[test]
     fn test_quantize_dequantize_roundtrip() {
         let engine = AWQEngine::new(AWQConfig::w4a16());
-        let weight = Array2::from_shape_fn((16, 32), |(i, j)| {
-            (i * 32 + j) as f32 / 128.0 - 1.0
-        });
+        let weight = Array2::from_shape_fn((16, 32), |(i, j)| (i * 32 + j) as f32 / 128.0 - 1.0);
         let act_scale = engine.compute_activation_scale(&[Array1::from_elem(32, 0.5)]);
         let saliency = engine.compute_saliency(&weight, &act_scale);
         let (scales, zps) = engine.find_optimal_scales(&weight, &saliency);
         let q = engine.quantize(&weight, &scales, &zps);
         let deq = engine.dequantize(&q);
-        let mse: f32 = weight.iter()
+        let mse: f32 = weight
+            .iter()
             .zip(deq.iter())
             .map(|(a, b)| (a - b).powi(2))
-            .sum::<f32>() / (weight.len() as f32);
+            .sum::<f32>()
+            / (weight.len() as f32);
         assert!(mse < 1.0, "mse = {mse} too high");
     }
 
@@ -274,13 +293,17 @@ mod tests {
     fn test_saliency_high_for_large_activations() {
         let engine = AWQEngine::new(AWQConfig::default());
         let weight = Array2::ones((16, 32));
-        let activations = vec![
-            Array1::from_shape_fn(32, |j| if j < 4 { 10.0 } else { 0.1 }),
-        ];
+        let activations = vec![Array1::from_shape_fn(
+            32,
+            |j| if j < 4 { 10.0 } else { 0.1 },
+        )];
         let act_scale = engine.compute_activation_scale(&activations);
         let saliency = engine.compute_saliency(&weight, &act_scale);
         for j in 0..4 {
-            assert!(saliency[j] > saliency[10], "channel {j} should have high saliency");
+            assert!(
+                saliency[j] > saliency[10],
+                "channel {j} should have high saliency"
+            );
         }
     }
 }

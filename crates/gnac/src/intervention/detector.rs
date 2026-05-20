@@ -1,4 +1,4 @@
-use crate::canvas::{NeuralGraph, GradientStatus};
+use crate::canvas::{GradientStatus, NeuralGraph};
 
 /// Deteksi anomali pada graf neural
 pub struct AnomalyDetector;
@@ -33,7 +33,10 @@ impl AnomalyDetector {
                         anomaly_type: AnomalyType::ExplodingGradient,
                         node_id: edge.target_node,
                         severity: (norm / 100.0).min(1.0),
-                        description: format!("Exploding gradient (norm={:.2}) detected at edge {}", norm, edge.id),
+                        description: format!(
+                            "Exploding gradient (norm={:.2}) detected at edge {}",
+                            norm, edge.id
+                        ),
                     });
                 }
                 GradientStatus::Vanishing(_) => {
@@ -53,17 +56,25 @@ impl AnomalyDetector {
                     anomaly_type: AnomalyType::DeadActivation,
                     node_id: edge.target_node,
                     severity: 0.8,
-                    description: format!("Dead activation (sparsity={:.2}) at edge {}", edge.activation_distribution.sparsity, edge.id),
+                    description: format!(
+                        "Dead activation (sparsity={:.2}) at edge {}",
+                        edge.activation_distribution.sparsity, edge.id
+                    ),
                 });
             }
 
             // Saturated activation
-            if edge.activation_distribution.std < 0.01 && edge.activation_distribution.mean.abs() > 2.0 {
+            if edge.activation_distribution.std < 0.01
+                && edge.activation_distribution.mean.abs() > 2.0
+            {
                 anomalies.push(DetectedAnomaly {
                     anomaly_type: AnomalyType::SaturatedActivation,
                     node_id: edge.target_node,
                     severity: 0.6,
-                    description: format!("Saturated activation (mean={:.2}, std={:.4})", edge.activation_distribution.mean, edge.activation_distribution.std),
+                    description: format!(
+                        "Saturated activation (mean={:.2}, std={:.4})",
+                        edge.activation_distribution.mean, edge.activation_distribution.std
+                    ),
                 });
             }
         }

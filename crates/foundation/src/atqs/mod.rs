@@ -2,7 +2,7 @@
 
 pub use nexora_atqs::*;
 
-use crate::shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput, OutputData};
+use crate::shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput, OutputData};
 pub use nexora_models::swift::NxrSwiftModel;
 
 /// Enhanced ATQS with NXR-SWIFT integration
@@ -38,7 +38,10 @@ impl AtqsSwiftIntegration {
         }
     }
 
-    pub async fn edge_optimized_compression(&self, data: &[u8]) -> Result<EdgeOptimizedCompression, Box<dyn std::error::Error>> {
+    pub async fn edge_optimized_compression(
+        &self,
+        data: &[u8],
+    ) -> Result<EdgeOptimizedCompression, Box<dyn std::error::Error>> {
         let mut result = EdgeOptimizedCompression::new();
 
         if let Ok(atqs_result) = self.atqs_compression.compress(data).await {
@@ -85,27 +88,36 @@ impl EdgeOptimizedCompression {
 
     fn combine_results(&mut self, config: &AtqsSwiftConfig) {
         if let Some(atqs) = &self.atqs_compression {
-            self.combined_insights.push(format!("ATQS Compression: {:.2}% reduction", atqs.compression_ratio));
+            self.combined_insights.push(format!(
+                "ATQS Compression: {:.2}% reduction",
+                atqs.compression_ratio
+            ));
         }
 
         if let Some(swift) = &self.swift_optimization {
             if let OutputData::Text(text) = &swift.data {
-                self.combined_insights.push(format!("Edge Optimization: {}", text));
+                self.combined_insights
+                    .push(format!("Edge Optimization: {}", text));
 
                 if text.contains("edge") && text.contains("optimized") {
-                    self.edge_recommendations.push("Deploy with 4-bit quantization for maximum efficiency".to_string());
+                    self.edge_recommendations
+                        .push("Deploy with 4-bit quantization for maximum efficiency".to_string());
                 }
                 if text.contains("latency") && text.contains("1ms") {
-                    self.edge_recommendations.push("Sub-millisecond latency achieved for real-time processing".to_string());
+                    self.edge_recommendations.push(
+                        "Sub-millisecond latency achieved for real-time processing".to_string(),
+                    );
                 }
             }
         }
 
         if config.target_latency_ms <= 1 {
-            self.edge_recommendations.push("Ultra-low latency configuration optimized for edge devices".to_string());
+            self.edge_recommendations
+                .push("Ultra-low latency configuration optimized for edge devices".to_string());
         }
         if config.edge_compression_level <= 4 {
-            self.edge_recommendations.push("High compression ratio maintained for edge deployment".to_string());
+            self.edge_recommendations
+                .push("High compression ratio maintained for edge deployment".to_string());
         }
     }
 

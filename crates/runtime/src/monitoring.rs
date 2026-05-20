@@ -1,10 +1,10 @@
 //! Monitoring Module
-//! 
+//!
 //! Provides performance monitoring and health check capabilities
 
 use crate::Result;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
-use serde::{Serialize, Deserialize};
 
 /// Performance metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ impl HealthChecker {
             metrics: PerformanceMetrics::default(),
         }
     }
-    
+
     /// Check system health
     pub async fn check_health(&mut self) -> Result<bool> {
         self.last_check = Instant::now();
@@ -65,18 +65,21 @@ impl HealthChecker {
         }
 
         if self.metrics.average_latency_ms > 10_000.0 {
-            tracing::warn!("Average latency too high: {} ms", self.metrics.average_latency_ms);
+            tracing::warn!(
+                "Average latency too high: {} ms",
+                self.metrics.average_latency_ms
+            );
             healthy = false;
         }
 
         Ok(healthy)
     }
-    
+
     /// Get current metrics
     pub fn get_metrics(&self) -> &PerformanceMetrics {
         &self.metrics
     }
-    
+
     /// Update metrics
     pub fn update_metrics(&mut self, metrics: PerformanceMetrics) {
         self.metrics = metrics;

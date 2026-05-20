@@ -1,5 +1,5 @@
 //! NXR-GENESIS Agents Module
-//! 
+//!
 //! Individual agent implementations for creation and innovation
 
 pub mod creation_architect;

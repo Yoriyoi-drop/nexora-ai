@@ -7,9 +7,9 @@
 //! - Fused Matrix Multiplication + Bias
 //! - Fused Element-wise Operations
 
-use crate::{DLResult, DeepLearningError};
 use crate::tensor_pool::PooledTensor1D;
-use ndarray::{ArrayD, Array1, Array2, ArrayView, ArrayViewMut, Zip, s};
+use crate::{DLResult, DeepLearningError};
+use ndarray::{s, Array1, Array2, ArrayD, ArrayView, ArrayViewMut, Zip};
 use std::arch::x86_64::*;
 
 /// Fused Linear + Activation operations
@@ -52,7 +52,7 @@ impl FusedLinearActivation {
     pub fn forward(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
         let input_view = input.view().into_dimensionality::<ndarray::Ix1>()?;
         let input_size = input_view.len();
-        
+
         if input_size != self.weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![self.weights.shape()[0]],
@@ -79,7 +79,10 @@ impl FusedLinearActivation {
     ) -> DLResult<()> {
         let input_slice = input.as_slice().expect("tensor should be contiguous");
         let output_slice = output.as_slice_mut().expect("tensor should be contiguous");
-        let weights_slice = self.weights.as_slice().expect("tensor should be contiguous");
+        let weights_slice = self
+            .weights
+            .as_slice()
+            .expect("tensor should be contiguous");
         let bias_slice = self.bias.as_slice().expect("tensor should be contiguous");
 
         let output_dim = self.weights.shape()[1];
@@ -87,11 +90,12 @@ impl FusedLinearActivation {
 
         for out_idx in 0..output_dim {
             let mut sum = bias_slice[out_idx];
-            
+
             // Vectorized matrix multiplication
             let mut i = 0;
             while i + 8 <= input_dim {
-                let weights_vec = _mm256_loadu_ps(weights_slice.as_ptr().add(out_idx * input_dim + i));
+                let weights_vec =
+                    _mm256_loadu_ps(weights_slice.as_ptr().add(out_idx * input_dim + i));
                 let input_vec = _mm256_loadu_ps(input_slice.as_ptr().add(i));
                 let product = _mm256_mul_ps(weights_vec, input_vec);
                 sum += horizontal_sum_avx2(product);
@@ -105,7 +109,13 @@ impl FusedLinearActivation {
 
             // Apply activation
             output_slice[out_idx] = match self.activation_type {
-                ActivationType::ReLU => if sum > 0.0 { sum } else { 0.0 },
+                ActivationType::ReLU => {
+                    if sum > 0.0 {
+                        sum
+                    } else {
+                        0.0
+                    }
+                }
                 ActivationType::GELU => self.gelu_approx(sum),
                 ActivationType::Sigmoid => 1.0 / (1.0 + (-sum).exp()),
                 ActivationType::Tanh => sum.tanh(),
@@ -134,13 +144,19 @@ impl FusedLinearActivation {
 
         for out_idx in 0..output_dim {
             let mut sum = self.bias[out_idx];
-            
+
             for in_idx in 0..input_dim {
                 sum += self.weights[[in_idx, out_idx]] * input[in_idx];
             }
 
             output[out_idx] = match self.activation_type {
-                ActivationType::ReLU => if sum > 0.0 { sum } else { 0.0 },
+                ActivationType::ReLU => {
+                    if sum > 0.0 {
+                        sum
+                    } else {
+                        0.0
+                    }
+                }
                 ActivationType::GELU => self.gelu_approx(sum),
                 ActivationType::Sigmoid => 1.0 / (1.0 + (-sum).exp()),
                 ActivationType::Tanh => sum.tanh(),
@@ -182,9 +198,10 @@ impl FusedAttentionSoftmax {
     ) -> DLResult<Self> {
         // Validate dimensions
         let hidden_dim = query_weights.shape()[0];
-        if key_weights.shape()[0] != hidden_dim || 
-           value_weights.shape()[0] != hidden_dim ||
-           output_weights.shape()[1] != hidden_dim {
+        if key_weights.shape()[0] != hidden_dim
+            || value_weights.shape()[0] != hidden_dim
+            || output_weights.shape()[1] != hidden_dim
+        {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![hidden_dim],
                 actual: vec![],
@@ -204,29 +221,32 @@ impl FusedAttentionSoftmax {
     /// Fused attention computation with integrated softmax
     pub fn forward(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
         let input_view = input.view().into_dimensionality::<ndarray::Ix1>()?;
-        
+
         // Project to Q, K, V (fused)
         let (q, k, v) = self.fused_qkv_projection(input_view)?;
-        
+
         // Compute attention scores with fused softmax
         let attention_output = self.fused_attention_softmax(&q, &k, &v)?;
-        
+
         // Final projection
         let output = self.final_projection(&attention_output)?;
-        
+
         Ok(output.into_dyn())
     }
 
-    fn fused_qkv_projection(&self, input: ArrayView<f32, ndarray::Ix1>) -> DLResult<(Array1<f32>, Array1<f32>, Array1<f32>)> {
+    fn fused_qkv_projection(
+        &self,
+        input: ArrayView<f32, ndarray::Ix1>,
+    ) -> DLResult<(Array1<f32>, Array1<f32>, Array1<f32>)> {
         let hidden_dim = input.len();
         let _head_dim = self.head_dim;
         let _num_heads = self.num_heads;
-        
+
         // Use pooled tensors
         let mut pooled_q = PooledTensor1D::new(hidden_dim)?;
         let mut pooled_k = PooledTensor1D::new(hidden_dim)?;
         let mut pooled_v = PooledTensor1D::new(hidden_dim)?;
-        
+
         let q = pooled_q.get_mut();
         let k = pooled_k.get_mut();
         let v = pooled_v.get_mut();
@@ -236,7 +256,7 @@ impl FusedAttentionSoftmax {
             q[i] = 0.0;
             k[i] = 0.0;
             v[i] = 0.0;
-            
+
             for j in 0..hidden_dim {
                 let input_val = input[j];
                 q[i] += self.query_weights[[j, i]] * input_val;
@@ -257,7 +277,7 @@ impl FusedAttentionSoftmax {
         let head_dim = self.head_dim;
         let num_heads = self.num_heads;
         let hidden_dim = q.len();
-        
+
         let mut pooled_output = PooledTensor1D::new(hidden_dim)?;
         let output = pooled_output.get_mut();
 
@@ -265,11 +285,11 @@ impl FusedAttentionSoftmax {
         for head in 0..num_heads {
             let start_idx = head * head_dim;
             let end_idx = start_idx + head_dim;
-            
+
             let q_head = q.slice(s![start_idx..end_idx]);
             let k_head = k.slice(s![start_idx..end_idx]);
             let v_head = v.slice(s![start_idx..end_idx]);
-            
+
             // Compute attention scores (q @ k^T)
             let mut scores = vec![0.0f32; head_dim];
             for i in 0..head_dim {
@@ -281,19 +301,19 @@ impl FusedAttentionSoftmax {
 
             // Fused softmax + weighted sum
             let mut output_head = vec![0.0f32; head_dim];
-            
+
             // Compute softmax and apply to values in one pass
             let mut max_score = scores[0];
             for &score in &scores {
                 max_score = max_score.max(score);
             }
-            
+
             let mut exp_sum = 0.0f32;
             for score in &mut scores {
                 *score = (*score - max_score).exp();
                 exp_sum += *score;
             }
-            
+
             // Apply softmax weights to values
             for i in 0..head_dim {
                 let softmax_weight = scores[i] / exp_sum;
@@ -301,7 +321,7 @@ impl FusedAttentionSoftmax {
                     output_head[j] += softmax_weight * v_head[j];
                 }
             }
-            
+
             // Copy to output
             for (i, &val) in output_head.iter().enumerate() {
                 output[start_idx + i] = val;
@@ -314,7 +334,7 @@ impl FusedAttentionSoftmax {
     fn final_projection(&self, attention_output: &Array1<f32>) -> DLResult<Array1<f32>> {
         let hidden_dim = attention_output.len();
         let output_dim = self.output_weights.shape()[1];
-        
+
         let mut pooled_output = PooledTensor1D::new(output_dim)?;
         let output = pooled_output.get_mut();
 
@@ -356,7 +376,7 @@ impl FusedElementWise {
     /// Apply fused element-wise operations
     pub fn forward(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
         let mut result = input.clone();
-        
+
         for op in &self.operations {
             result = match op {
                 ElementWiseOp::Add(val) => {
@@ -400,7 +420,8 @@ impl FusedElementWise {
                             let x = inp;
                             let sqrt_2_over_pi = 0.7978845608_f32;
                             let coeff = 0.044715_f32;
-                            *out = 0.5 * x * (1.0 + (sqrt_2_over_pi * (x + coeff * x * x * x)).tanh());
+                            *out =
+                                0.5 * x * (1.0 + (sqrt_2_over_pi * (x + coeff * x * x * x)).tanh());
                         });
                     output.clone().into_dyn()
                 }
@@ -461,13 +482,13 @@ unsafe fn horizontal_sum_avx2(v: __m256) -> f32 {
     let v128_hi = _mm256_extractf128_ps(v, 1);
     let v128_lo = _mm256_castps256_ps128(v);
     let v128_sum = _mm_add_ps(v128_lo, v128_hi);
-    
+
     // Horizontal add within 128-bit vector
     let v64_hi = _mm_movehl_ps(v128_sum, v128_sum);
     let v64_sum = _mm_add_ps(v128_sum, v64_hi);
-    
+
     let v32_hi = _mm_shuffle_ps(v64_sum, v64_sum, 0x1);
     let v32_sum = _mm_add_ss(v64_sum, v32_hi);
-    
+
     _mm_cvtss_f32(v32_sum)
 }

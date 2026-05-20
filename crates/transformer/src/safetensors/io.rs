@@ -18,28 +18,34 @@ pub struct SafetensorsHeader {
     pub tensors: HashMap<String, TensorEntry>,
 }
 
-pub fn save_safetensors(path: impl AsRef<Path>, tensors: &[(&str, ArrayD<f32>)]) -> TransformerResult<()> {
+pub fn save_safetensors(
+    path: impl AsRef<Path>,
+    tensors: &[(&str, ArrayD<f32>)],
+) -> TransformerResult<()> {
     let mut header_map = HashMap::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut offset: usize = 0;
 
     for (name, arr) in tensors {
-        let flat: Vec<u8> = arr.iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
+        let flat: Vec<u8> = arr.iter().flat_map(|v| v.to_le_bytes()).collect();
         let len = flat.len();
 
-        header_map.insert(name.to_string(), TensorEntry {
-            dtype: "F32".to_string(),
-            shape: arr.shape().to_vec(),
-            data_offsets: [offset, offset + len],
-        });
+        header_map.insert(
+            name.to_string(),
+            TensorEntry {
+                dtype: "F32".to_string(),
+                shape: arr.shape().to_vec(),
+                data_offsets: [offset, offset + len],
+            },
+        );
 
         data_bytes.extend_from_slice(&flat);
         offset += len;
     }
 
-    let header_obj = SafetensorsHeader { tensors: header_map };
+    let header_obj = SafetensorsHeader {
+        tensors: header_map,
+    };
     let header_json = serde_json::to_string(&header_obj)
         .map_err(|e| crate::TransformerError::Implementation(format!("JSON serialize: {}", e)))?;
     let header_bytes = header_json.as_bytes();
@@ -59,7 +65,9 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> TransformerResult<HashMap<Str
     let raw = std::fs::read(path.as_ref())?;
 
     if raw.len() < 8 {
-        return Err(crate::TransformerError::Implementation("File too small".into()));
+        return Err(crate::TransformerError::Implementation(
+            "File too small".into(),
+        ));
     }
 
     let header_len = u64::from_le_bytes([
@@ -68,7 +76,9 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> TransformerResult<HashMap<Str
 
     let header_end = 8 + header_len;
     if header_end > raw.len() {
-        return Err(crate::TransformerError::Implementation("Header exceeds file size".into()));
+        return Err(crate::TransformerError::Implementation(
+            "Header exceeds file size".into(),
+        ));
     }
 
     let header_json = std::str::from_utf8(&raw[8..header_end])
@@ -80,16 +90,18 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> TransformerResult<HashMap<Str
     let mut result = HashMap::new();
     for (name, entry) in &header.tensors {
         if entry.dtype != "F32" {
-            return Err(crate::TransformerError::Implementation(
-                format!("Unsupported dtype: {} for tensor {}", entry.dtype, name)
-            ));
+            return Err(crate::TransformerError::Implementation(format!(
+                "Unsupported dtype: {} for tensor {}",
+                entry.dtype, name
+            )));
         }
         let start = 8 + header_len + entry.data_offsets[0];
         let end = 8 + header_len + entry.data_offsets[1];
         if end > raw.len() {
-            return Err(crate::TransformerError::Implementation(
-                format!("Data offset out of range for tensor {}", name)
-            ));
+            return Err(crate::TransformerError::Implementation(format!(
+                "Data offset out of range for tensor {}",
+                name
+            )));
         }
         let bytes = &raw[start..end];
         let total: usize = entry.shape.iter().product();

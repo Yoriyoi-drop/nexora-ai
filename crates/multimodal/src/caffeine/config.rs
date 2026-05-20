@@ -1,8 +1,8 @@
 //! Configuration types for CAFFEINE
 
-use serde::{Deserialize, Serialize};
 use nexora_atqs::config::ATQSConfig;
 use nexora_has_moe_ffn::HasMoeFFNConfig;
+use serde::{Deserialize, Serialize};
 
 /// Main CAFFEINE configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +68,7 @@ impl CaffeineConfig {
         config.num_hidden_layers = 6;
         config
     }
-    
+
     /// Create medium model configuration
     pub fn medium_model() -> Self {
         let mut config = Self::default();
@@ -78,7 +78,7 @@ impl CaffeineConfig {
         config.num_hidden_layers = 12;
         config
     }
-    
+
     /// Create large model configuration
     pub fn large_model() -> Self {
         let mut config = Self::default();
@@ -88,14 +88,14 @@ impl CaffeineConfig {
         config.num_hidden_layers = 24;
         config
     }
-    
+
     /// Enable ATQS compression with custom config
     pub fn with_atqs_compression(mut self, atqs_config: ATQSConfig) -> Self {
         self.atqs_config = Some(atqs_config);
         self.enable_atqs_compression = true;
         self
     }
-    
+
     /// Enable HAS-MoE-FFN routing with custom config
     pub fn with_has_moe_routing(mut self, has_moe_config: HasMoeFFNConfig) -> Self {
         self.has_moe_config = Some(has_moe_config);

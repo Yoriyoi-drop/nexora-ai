@@ -1,14 +1,14 @@
-use std::sync::Arc;
 use parking_lot::RwLock as PRwLock;
+use std::sync::Arc;
 
-use nexora_erp::{ERPEngine, ERPConfig};
-use nexora_vogp::{VOGPPlus, VOGPConfig};
 use nexora_atqs::compression::AtqsCompression;
+use nexora_erp::{ERPConfig, ERPEngine};
 use nexora_has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
+use nexora_vogp::{VOGPConfig, VOGPPlus};
 
-use super::tokenizer_integration::NxrTokenizerRef;
-use super::deeplearning_integration::{DeepLearningEngine, DeepLearningConfig};
+use super::deeplearning_integration::{DeepLearningConfig, DeepLearningEngine};
 use super::gnac_integration::{GnacEngine, GnacIntegrationConfig};
+use super::tokenizer_integration::NxrTokenizerRef;
 
 pub struct FoundationComponents {
     pub tokenizer: NxrTokenizerRef,
@@ -23,9 +23,7 @@ pub struct FoundationComponents {
 impl FoundationComponents {
     pub fn new() -> Self {
         Self {
-            tokenizer: Arc::new(PRwLock::new(
-                nexora_tokenizer::BpeTokenizer::default()
-            )),
+            tokenizer: Arc::new(PRwLock::new(nexora_tokenizer::BpeTokenizer::default())),
             erp: PRwLock::new(ERPEngine::new(ERPConfig::default())),
             vogp: PRwLock::new(VOGPPlus::new()),
             atqs: AtqsCompression::new(),

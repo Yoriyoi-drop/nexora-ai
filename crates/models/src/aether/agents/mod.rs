@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use nexora_shared::base_model::NxrModelResult;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-pub mod psyche_analyzer;
 pub mod culture_adapter;
 pub mod emotion_weaver;
 pub mod empathy_prime;
+pub mod psyche_analyzer;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmotionalSignature {
@@ -54,7 +54,10 @@ impl EmpahCoreAgent {
         vocabulary.insert("proud".into(), (0.7, 0.6, 0.75));
         vocabulary.insert("guilty".into(), (-0.6, 0.5, 0.80));
         vocabulary.insert("hopeless".into(), (-0.9, 0.2, 0.90));
-        Self { sensitivity, vocabulary }
+        Self {
+            sensitivity,
+            vocabulary,
+        }
     }
 
     pub fn analyze(&self, text: &str) -> NxrModelResult<EmotionalSignature> {
@@ -83,7 +86,11 @@ impl EmpahCoreAgent {
         found.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
 
         let primary = &found[0];
-        let secondary: Vec<String> = found.iter().skip(1).map(|(name, _, _, _)| name.clone()).collect();
+        let secondary: Vec<String> = found
+            .iter()
+            .skip(1)
+            .map(|(name, _, _, _)| name.clone())
+            .collect();
 
         let avg_valence: f32 = found.iter().map(|(_, v, _, _)| v).sum::<f32>() / found.len() as f32;
         let avg_arousal: f32 = found.iter().map(|(_, _, a, _)| a).sum::<f32>() / found.len() as f32;
@@ -141,7 +148,13 @@ pub struct ToneMapperAgent {
 impl ToneMapperAgent {
     pub fn new(warmth: f32, formality: f32, assertiveness: f32, empathy: f32, humor: f32) -> Self {
         Self {
-            target_profile: ToneProfile { warmth, formality, assertiveness, empathy, humor },
+            target_profile: ToneProfile {
+                warmth,
+                formality,
+                assertiveness,
+                empathy,
+                humor,
+            },
         }
     }
 
@@ -153,13 +166,16 @@ impl ToneMapperAgent {
 
         let warmth = 0.5 + (lower.matches("please").count() as f32 * 0.1)
             - (lower.matches("don't").count() as f32 * 0.05);
-        let formality = 0.5 + (lower.matches("would").count() as f32 * 0.05)
+        let formality = 0.5
+            + (lower.matches("would").count() as f32 * 0.05)
             + (lower.matches("could").count() as f32 * 0.05)
             - (lower.matches("gonna").count() as f32 * 0.1);
         let assertiveness = (exclamation_count / word_count).min(1.0);
-        let empathy = 0.5 + (lower.matches("feel").count() as f32 * 0.1)
+        let empathy = 0.5
+            + (lower.matches("feel").count() as f32 * 0.1)
             + (lower.matches("understand").count() as f32 * 0.1);
-        let humor = 0.3 + (lower.matches("lol").count() as f32 * 0.2)
+        let humor = 0.3
+            + (lower.matches("lol").count() as f32 * 0.2)
             + (lower.matches("haha").count() as f32 * 0.2);
 
         Ok(ToneProfile {
@@ -171,7 +187,11 @@ impl ToneMapperAgent {
         })
     }
 
-    pub fn map_response(&self, response: &str, current_tone: &ToneProfile) -> NxrModelResult<String> {
+    pub fn map_response(
+        &self,
+        response: &str,
+        current_tone: &ToneProfile,
+    ) -> NxrModelResult<String> {
         let mut adjusted = response.to_string();
 
         if self.target_profile.warmth > current_tone.warmth + 0.2 {
@@ -186,7 +206,8 @@ impl ToneMapperAgent {
             adjusted = adjusted.to_lowercase();
             let chars: Vec<char> = adjusted.chars().collect();
             if !chars.is_empty() {
-                adjusted = chars[0].to_uppercase().collect::<String>() + &chars[1..].iter().collect::<String>();
+                adjusted = chars[0].to_uppercase().collect::<String>()
+                    + &chars[1..].iter().collect::<String>();
             }
         }
 
@@ -221,7 +242,11 @@ impl ContextWeaveAgent {
         }
     }
 
-    pub fn push_frame(&mut self, signature: EmotionalSignature, topics: Vec<String>) -> NxrModelResult<()> {
+    pub fn push_frame(
+        &mut self,
+        signature: EmotionalSignature,
+        topics: Vec<String>,
+    ) -> NxrModelResult<()> {
         let frame = ContextFrame {
             turn_id: self.history.len() as u64 + 1,
             emotional_signature: signature.clone(),
@@ -229,7 +254,8 @@ impl ContextWeaveAgent {
             timestamp: chrono::Utc::now(),
         };
 
-        self.emotional_trajectory.push((signature.valence, signature.arousal));
+        self.emotional_trajectory
+            .push((signature.valence, signature.arousal));
 
         if self.history.len() >= self.max_history {
             self.history.remove(0);
@@ -244,8 +270,16 @@ impl ContextWeaveAgent {
             return Ok("Building emotional context...".to_string());
         }
 
-        let start = self.emotional_trajectory.first().copied().unwrap_or((0.0, 0.0));
-        let current = self.emotional_trajectory.last().copied().unwrap_or((0.0, 0.0));
+        let start = self
+            .emotional_trajectory
+            .first()
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        let current = self
+            .emotional_trajectory
+            .last()
+            .copied()
+            .unwrap_or((0.0, 0.0));
         let valence_shift = current.0 - start.0;
         let arousal_shift = current.1 - start.1;
 
@@ -263,9 +297,7 @@ impl ContextWeaveAgent {
     }
 
     pub fn recent_topics(&self) -> Vec<String> {
-        let mut topics: Vec<String> = self.history.iter()
-            .flat_map(|f| f.topics.clone())
-            .collect();
+        let mut topics: Vec<String> = self.history.iter().flat_map(|f| f.topics.clone()).collect();
         topics.reverse();
         topics.truncate(5);
         topics
@@ -317,7 +349,11 @@ impl SoulMirrorAgent {
             "Every emotion you feel is valid and worthy of attention.".to_string(),
             "The fact that you're here, working through this, speaks volumes about your resilience.".to_string(),
         ];
-        Self { affirmations, encounter_count: 0, trust_level: 0.0 }
+        Self {
+            affirmations,
+            encounter_count: 0,
+            trust_level: 0.0,
+        }
     }
 
     pub fn reflect(&mut self, signature: &EmotionalSignature) -> NxrModelResult<Reflection> {
@@ -390,10 +426,8 @@ impl SoulMirrorAgent {
                  right now. Breathe. You are capable of handling what comes."
                     .to_string()
             }
-            _ => {
-                "This moment is just one part of your story. It doesn't define the whole."
-                    .to_string()
-            }
+            _ => "This moment is just one part of your story. It doesn't define the whole."
+                .to_string(),
         }
     }
 
@@ -428,7 +462,11 @@ impl AetherAgents {
         Self {
             empath_core: EmpahCoreAgent::new(empath_sensitivity),
             tone_mapper: ToneMapperAgent::new(
-                tone_warmth, tone_formality, tone_assertiveness, tone_empathy, tone_humor,
+                tone_warmth,
+                tone_formality,
+                tone_assertiveness,
+                tone_empathy,
+                tone_humor,
             ),
             context_weave: ContextWeaveAgent::new(context_max_history),
             soul_mirror: SoulMirrorAgent::new(),
@@ -497,7 +535,9 @@ mod tests {
     #[test]
     fn test_tone_mapper_analyze() {
         let agent = ToneMapperAgent::new(0.8, 0.5, 0.4, 0.9, 0.3);
-        let tone = agent.analyze_tone("Please help me understand this.").unwrap();
+        let tone = agent
+            .analyze_tone("Please help me understand this.")
+            .unwrap();
         assert!(tone.warmth > 0.5);
     }
 
@@ -520,7 +560,9 @@ mod tests {
             arousal: 0.3,
             confidence: 0.8,
         };
-        agent.push_frame(sig, vec!["grief".into(), "loss".into()]).unwrap();
+        agent
+            .push_frame(sig, vec!["grief".into(), "loss".into()])
+            .unwrap();
         let summary = agent.current_context_summary().unwrap();
         assert!(summary.contains("sad"));
         assert!(summary.contains("grief"));
@@ -529,28 +571,32 @@ mod tests {
     #[test]
     fn test_context_weave_emotional_arc() {
         let mut agent = ContextWeaveAgent::new(10);
-        agent.push_frame(
-            EmotionalSignature {
-                primary_emotion: "sad".into(),
-                secondary_emotions: vec![],
-                intensity: 0.7,
-                valence: -0.6,
-                arousal: 0.3,
-                confidence: 0.8,
-            },
-            vec!["grief".into()],
-        ).unwrap();
-        agent.push_frame(
-            EmotionalSignature {
-                primary_emotion: "happy".into(),
-                secondary_emotions: vec![],
-                intensity: 0.6,
-                valence: 0.7,
-                arousal: 0.5,
-                confidence: 0.7,
-            },
-            vec!["hope".into()],
-        ).unwrap();
+        agent
+            .push_frame(
+                EmotionalSignature {
+                    primary_emotion: "sad".into(),
+                    secondary_emotions: vec![],
+                    intensity: 0.7,
+                    valence: -0.6,
+                    arousal: 0.3,
+                    confidence: 0.8,
+                },
+                vec!["grief".into()],
+            )
+            .unwrap();
+        agent
+            .push_frame(
+                EmotionalSignature {
+                    primary_emotion: "happy".into(),
+                    secondary_emotions: vec![],
+                    intensity: 0.6,
+                    valence: 0.7,
+                    arousal: 0.5,
+                    confidence: 0.7,
+                },
+                vec!["hope".into()],
+            )
+            .unwrap();
         let arc = agent.emotional_arc().unwrap();
         assert!(arc.contains("positive"));
     }
@@ -600,13 +646,19 @@ mod tests {
     #[test]
     fn test_full_pipeline() {
         let mut agents = AetherAgents::default();
-        let sig = agents.empath_core().analyze("I'm feeling really anxious about everything.").unwrap();
+        let sig = agents
+            .empath_core()
+            .analyze("I'm feeling really anxious about everything.")
+            .unwrap();
         assert_eq!(sig.primary_emotion, "anxious");
 
         let narrative = agents.empath_core().emotional_narrative(&sig).unwrap();
         assert!(narrative.contains("anxious"));
 
-        agents.context_weave().push_frame(sig.clone(), vec!["anxiety".into(), "life".into()]).unwrap();
+        agents
+            .context_weave()
+            .push_frame(sig.clone(), vec!["anxiety".into(), "life".into()])
+            .unwrap();
 
         let reflection = agents.soul_mirror().reflect(&sig).unwrap();
         assert!(!reflection.validation.is_empty());

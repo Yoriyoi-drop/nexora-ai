@@ -1,14 +1,14 @@
 //! Alignment Arbiter Agent
-//! 
+//!
 //! Manages alignment and arbitration between agent objectives and behaviors
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Alignment Arbiter Agent - Manages alignment and arbitration
 #[derive(Debug, Clone)]
@@ -105,7 +105,10 @@ pub enum EthicalFramework {
     /// Rights based ethics
     RightsBasedEthics,
     /// Custom framework
-    CustomFramework { name: String, principles: Vec<String> },
+    CustomFramework {
+        name: String,
+        principles: Vec<String>,
+    },
 }
 
 /// Alignment Capabilities
@@ -453,7 +456,9 @@ pub enum PriorityScheme {
     /// Dynamic priority
     DynamicPriority { factors: Vec<PriorityFactor> },
     /// Contextual priority
-    ContextualPriority { contexts: HashMap<String, Vec<String>> },
+    ContextualPriority {
+        contexts: HashMap<String, Vec<String>>,
+    },
 }
 
 /// Priority Factor
@@ -704,9 +709,13 @@ pub struct AlignmentDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DecisionType {
     /// Priority adjustment
-    PriorityAdjustment { adjustments: Vec<PriorityAdjustment> },
+    PriorityAdjustment {
+        adjustments: Vec<PriorityAdjustment>,
+    },
     /// Objective modification
-    ObjectiveModification { modifications: Vec<ObjectiveModification> },
+    ObjectiveModification {
+        modifications: Vec<ObjectiveModification>,
+    },
     /// Constraint addition
     ConstraintAddition { constraints: Vec<String> },
     /// Behavioral guidance
@@ -990,7 +999,9 @@ impl Default for ObjectiveAlignment {
             priority_management: PriorityManagement {
                 priority_schemes: vec![
                     PriorityScheme::HierarchicalPriority { hierarchy: vec![] },
-                    PriorityScheme::WeightedPriority { weights: HashMap::new() },
+                    PriorityScheme::WeightedPriority {
+                        weights: HashMap::new(),
+                    },
                 ],
                 conflict_resolution: PriorityConflictResolution {
                     strategies: vec![
@@ -1005,9 +1016,7 @@ impl Default for ObjectiveAlignment {
                 },
                 dynamic_adjustment: DynamicAdjustment {
                     triggers: vec![],
-                    algorithms: vec![
-                        AdjustmentAlgorithm::LinearAdjustment,
-                    ],
+                    algorithms: vec![AdjustmentAlgorithm::LinearAdjustment],
                     feedback_mechanisms: vec![
                         FeedbackMechanism::PerformanceFeedback,
                         FeedbackMechanism::EthicalFeedback,
@@ -1045,31 +1054,39 @@ impl BaseAgent for AlignmentArbiterAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze alignment
         let alignment_analysis = self.analyze_alignment(&input).await?;
-        
+
         // Identify conflicts
         let conflict_analysis = self.identify_conflicts(&input).await?;
-        
+
         // Assess ethical considerations
         let ethical_assessment = self.assess_ethical_considerations(&input).await?;
-        
+
         // Resolve conflicts
         let conflict_resolutions = self.resolve_conflicts(&input, &conflict_analysis).await?;
-        
+
         // Make alignment decisions
-        let alignment_decisions = self.make_alignment_decisions(&input, &alignment_analysis, &conflict_resolutions).await?;
-        
+        let alignment_decisions = self
+            .make_alignment_decisions(&input, &alignment_analysis, &conflict_resolutions)
+            .await?;
+
         // Calculate overall alignment score
-        let alignment_score = self.calculate_alignment_score(&alignment_analysis, &conflict_resolutions, &ethical_assessment);
-        
+        let alignment_score = self.calculate_alignment_score(
+            &alignment_analysis,
+            &conflict_resolutions,
+            &ethical_assessment,
+        );
+
         // Generate recommendations
-        let recommendations = self.generate_recommendations(&input, &alignment_analysis, &conflict_resolutions).await?;
-        
+        let recommendations = self
+            .generate_recommendations(&input, &alignment_analysis, &conflict_resolutions)
+            .await?;
+
         // Build output
         let output = AlignmentTaskOutput {
             alignment_decisions,
@@ -1078,9 +1095,9 @@ impl BaseAgent for AlignmentArbiterAgent {
             alignment_score,
             recommendations,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -1093,21 +1110,22 @@ impl BaseAgent for AlignmentArbiterAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "alignment_arbitration".to_string(),
-                description: "Manages alignment and arbitration between agent objectives".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["agent_objectives".to_string(), "conflicts".to_string()],
-                output_types: vec!["alignment_decisions".to_string(), "conflict_resolutions".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.85,
-                    avg_latency: 800.0,
-                    resource_usage: 0.6,
-                    reliability: 0.90,
-                },
+        vec![AgentCapability {
+            name: "alignment_arbitration".to_string(),
+            description: "Manages alignment and arbitration between agent objectives".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["agent_objectives".to_string(), "conflicts".to_string()],
+            output_types: vec![
+                "alignment_decisions".to_string(),
+                "conflict_resolutions".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.85,
+                avg_latency: 800.0,
+                resource_usage: 0.6,
+                reliability: 0.90,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -1149,34 +1167,45 @@ impl AlignmentArbiterAgent {
     fn validate_input(&self, input: &AlignmentTaskInput) -> AgentResult<()> {
         if input.agent_objectives.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "At least one agent objective must be provided".to_string()
+                "At least one agent objective must be provided".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Analyze alignment between agent objectives
-    async fn analyze_alignment(&self, input: &AlignmentTaskInput) -> AgentResult<AlignmentAnalysis> {
+    async fn analyze_alignment(
+        &self,
+        input: &AlignmentTaskInput,
+    ) -> AgentResult<AlignmentAnalysis> {
         let mut alignment_scores = HashMap::new();
         let mut coherence_scores = HashMap::new();
-        
+
         // Analyze pairwise alignment
         for (i, obj1) in input.agent_objectives.iter().enumerate() {
             for (j, obj2) in input.agent_objectives.iter().enumerate() {
                 if i < j {
                     let alignment_score = self.calculate_pairwise_alignment_score(obj1, obj2);
                     let coherence_score = self.calculate_coherence_score(obj1, obj2);
-                    
-                    alignment_scores.insert(format!("{}_{}", obj1.agent_id, obj2.agent_id), alignment_score);
-                    coherence_scores.insert(format!("{}_{}", obj1.agent_id, obj2.agent_id), coherence_score);
+
+                    alignment_scores.insert(
+                        format!("{}_{}", obj1.agent_id, obj2.agent_id),
+                        alignment_score,
+                    );
+                    coherence_scores.insert(
+                        format!("{}_{}", obj1.agent_id, obj2.agent_id),
+                        coherence_score,
+                    );
                 }
             }
         }
-        
-        let overall_alignment = alignment_scores.values().sum::<f32>() / alignment_scores.len() as f32;
-        let overall_coherence = coherence_scores.values().sum::<f32>() / coherence_scores.len() as f32;
-        
+
+        let overall_alignment =
+            alignment_scores.values().sum::<f32>() / alignment_scores.len() as f32;
+        let overall_coherence =
+            coherence_scores.values().sum::<f32>() / coherence_scores.len() as f32;
+
         Ok(AlignmentAnalysis {
             alignment_scores,
             coherence_scores,
@@ -1186,9 +1215,12 @@ impl AlignmentArbiterAgent {
     }
 
     /// Identify conflicts between agent objectives
-    async fn identify_conflicts(&self, input: &AlignmentTaskInput) -> AgentResult<ConflictAnalysisResult> {
+    async fn identify_conflicts(
+        &self,
+        input: &AlignmentTaskInput,
+    ) -> AgentResult<ConflictAnalysisResult> {
         let mut conflicts = Vec::new();
-        
+
         for (i, obj1) in input.agent_objectives.iter().enumerate() {
             for (j, obj2) in input.agent_objectives.iter().enumerate() {
                 if i < j {
@@ -1198,7 +1230,7 @@ impl AlignmentArbiterAgent {
                 }
             }
         }
-        
+
         let total_conflicts = conflicts.len();
         let severity_distribution = self.calculate_severity_distribution(&conflicts);
 
@@ -1210,27 +1242,35 @@ impl AlignmentArbiterAgent {
     }
 
     /// Assess ethical considerations
-    async fn assess_ethical_considerations(&self, input: &AlignmentTaskInput) -> AgentResult<EthicalAssessment> {
+    async fn assess_ethical_considerations(
+        &self,
+        input: &AlignmentTaskInput,
+    ) -> AgentResult<EthicalAssessment> {
         let mut ethical_issues = Vec::new();
         let mut compliance_scores = Vec::new();
-        
+
         for framework in &self.config.ethical_frameworks {
             let compliance_score = self.assess_ethical_compliance(input, framework);
             compliance_scores.push(compliance_score);
-            
+
             if compliance_score < self.config.alignment_thresholds.ethical_compliance {
                 ethical_issues.push(EthicalIssue {
                     issue_id: format!("ethical_issue_{:?}", framework),
                     description: format!("Low compliance with {:?} framework", framework),
                     severity: SeverityLevel::Medium,
-                    affected_agents: input.agent_objectives.iter().map(|obj| obj.agent_id.clone()).collect(),
+                    affected_agents: input
+                        .agent_objectives
+                        .iter()
+                        .map(|obj| obj.agent_id.clone())
+                        .collect(),
                     mitigation_required: true,
                 });
             }
         }
-        
-        let overall_compliance = compliance_scores.iter().sum::<f32>() / compliance_scores.len() as f32;
-        
+
+        let overall_compliance =
+            compliance_scores.iter().sum::<f32>() / compliance_scores.len() as f32;
+
         Ok(EthicalAssessment {
             assessment_id: format!("assessment_{}", chrono::Utc::now().timestamp()),
             framework: self.config.ethical_frameworks[0].clone(),
@@ -1241,61 +1281,79 @@ impl AlignmentArbiterAgent {
     }
 
     /// Resolve conflicts
-    async fn resolve_conflicts(&self, input: &AlignmentTaskInput,
-                              conflict_analysis: &ConflictAnalysisResult) -> AgentResult<Vec<ConflictResolutionResult>> {
+    async fn resolve_conflicts(
+        &self,
+        input: &AlignmentTaskInput,
+        conflict_analysis: &ConflictAnalysisResult,
+    ) -> AgentResult<Vec<ConflictResolutionResult>> {
         let mut resolutions = Vec::new();
-        
+
         for conflict in &conflict_analysis.conflicts {
             let resolution = self.resolve_single_conflict(conflict, input).await?;
             resolutions.push(resolution);
         }
-        
+
         Ok(resolutions)
     }
 
     /// Make alignment decisions
-    async fn make_alignment_decisions(&self, input: &AlignmentTaskInput,
-                                    alignment_analysis: &AlignmentAnalysis,
-                                    conflict_resolutions: &[ConflictResolutionResult]) -> AgentResult<Vec<AlignmentDecision>> {
+    async fn make_alignment_decisions(
+        &self,
+        input: &AlignmentTaskInput,
+        alignment_analysis: &AlignmentAnalysis,
+        conflict_resolutions: &[ConflictResolutionResult],
+    ) -> AgentResult<Vec<AlignmentDecision>> {
         let mut decisions = Vec::new();
-        
+
         // Priority adjustments based on conflicts
         for resolution in conflict_resolutions {
             if resolution.success {
                 let decision = AlignmentDecision {
                     decision_id: format!("decision_{}", resolution.conflict_id),
                     affected_agents: vec![],
-                    decision_type: DecisionType::PriorityAdjustment { adjustments: vec![] },
-                    rationale: format!("Priority adjustment for conflict {}", resolution.conflict_id),
+                    decision_type: DecisionType::PriorityAdjustment {
+                        adjustments: vec![],
+                    },
+                    rationale: format!(
+                        "Priority adjustment for conflict {}",
+                        resolution.conflict_id
+                    ),
                     implementation_steps: vec!["Adjust agent priorities".to_string()],
                 };
                 decisions.push(decision);
             }
         }
-        
+
         Ok(decisions)
     }
 
     /// Calculate overall alignment score
-    fn calculate_alignment_score(&self, alignment_analysis: &AlignmentAnalysis,
-                               _conflict_resolutions: &[ConflictResolutionResult],
-                               ethical_assessment: &EthicalAssessment) -> f32 {
+    fn calculate_alignment_score(
+        &self,
+        alignment_analysis: &AlignmentAnalysis,
+        _conflict_resolutions: &[ConflictResolutionResult],
+        ethical_assessment: &EthicalAssessment,
+    ) -> f32 {
         let alignment_weight = 0.4;
         let coherence_weight = 0.3;
         let ethical_weight = 0.3;
-        
-        alignment_analysis.overall_alignment * alignment_weight +
-        alignment_analysis.overall_coherence * coherence_weight +
-        ethical_assessment.compliance_score * ethical_weight
+
+        alignment_analysis.overall_alignment * alignment_weight
+            + alignment_analysis.overall_coherence * coherence_weight
+            + ethical_assessment.compliance_score * ethical_weight
     }
 
     /// Generate recommendations
-    async fn generate_recommendations(&self, input: &AlignmentTaskInput,
-                                    alignment_analysis: &AlignmentAnalysis,
-                                    conflict_resolutions: &[ConflictResolutionResult]) -> AgentResult<Vec<AlignmentRecommendation>> {
+    async fn generate_recommendations(
+        &self,
+        input: &AlignmentTaskInput,
+        alignment_analysis: &AlignmentAnalysis,
+        conflict_resolutions: &[ConflictResolutionResult],
+    ) -> AgentResult<Vec<AlignmentRecommendation>> {
         let mut recommendations = Vec::new();
-        
-        if alignment_analysis.overall_alignment < self.config.alignment_thresholds.minimum_alignment {
+
+        if alignment_analysis.overall_alignment < self.config.alignment_thresholds.minimum_alignment
+        {
             recommendations.push(AlignmentRecommendation {
                 recommendation_id: "rec_001".to_string(),
                 recommendation_type: RecommendationType::ProcessImprovement,
@@ -1304,7 +1362,7 @@ impl AlignmentArbiterAgent {
                 implementation_complexity: ImplementationComplexity::Medium,
             });
         }
-        
+
         if !conflict_resolutions.is_empty() {
             recommendations.push(AlignmentRecommendation {
                 recommendation_id: "rec_002".to_string(),
@@ -1314,22 +1372,30 @@ impl AlignmentArbiterAgent {
                 implementation_complexity: ImplementationComplexity::Low,
             });
         }
-        
+
         Ok(recommendations)
     }
 
     /// Calculate alignment score between two objectives
-    fn calculate_pairwise_alignment_score(&self, obj1: &AgentObjective, obj2: &AgentObjective) -> f32 {
+    fn calculate_pairwise_alignment_score(
+        &self,
+        obj1: &AgentObjective,
+        obj2: &AgentObjective,
+    ) -> f32 {
         // Simplified alignment calculation based on semantic similarity
         let lower1 = obj1.objective.to_lowercase();
         let lower2 = obj2.objective.to_lowercase();
         let words1: std::collections::HashSet<_> = lower1.split_whitespace().collect();
         let words2: std::collections::HashSet<_> = lower2.split_whitespace().collect();
-        
+
         let intersection = words1.intersection(&words2).count();
         let union = words1.union(&words2).count();
-        
-        if union == 0 { 0.0 } else { intersection as f32 / union as f32 }
+
+        if union == 0 {
+            0.0
+        } else {
+            intersection as f32 / union as f32
+        }
     }
 
     /// Calculate coherence score between two objectives
@@ -1337,20 +1403,27 @@ impl AlignmentArbiterAgent {
         // Simplified coherence calculation
         let alignment = self.calculate_pairwise_alignment_score(obj1, obj2);
         let priority_diff = (obj1.priority as f32 - obj2.priority as f32).abs() / 255.0;
-        
+
         alignment * (1.0 - priority_diff)
     }
 
     /// Detect conflict between two objectives
-    fn detect_conflict(&self, obj1: &AgentObjective, obj2: &AgentObjective) -> Option<AlignmentConflict> {
+    fn detect_conflict(
+        &self,
+        obj1: &AgentObjective,
+        obj2: &AgentObjective,
+    ) -> Option<AlignmentConflict> {
         let alignment_score = self.calculate_pairwise_alignment_score(obj1, obj2);
-        
+
         if alignment_score < self.config.alignment_thresholds.conflict_tolerance {
             Some(AlignmentConflict {
                 conflict_id: format!("conflict_{}_{}", obj1.agent_id, obj2.agent_id),
                 agents: vec![obj1.agent_id.clone(), obj2.agent_id.clone()],
                 conflict_type: ConflictType::ObjectiveConflict,
-                description: format!("Low alignment between {} and {}", obj1.objective, obj2.objective),
+                description: format!(
+                    "Low alignment between {} and {}",
+                    obj1.objective, obj2.objective
+                ),
                 severity: SeverityLevel::Medium,
                 impact: ImpactAssessment {
                     impact_areas: vec![ImpactArea::SystemPerformance],
@@ -1364,7 +1437,11 @@ impl AlignmentArbiterAgent {
     }
 
     /// Assess ethical compliance for a framework
-    fn assess_ethical_compliance(&self, input: &AlignmentTaskInput, framework: &EthicalFramework) -> f32 {
+    fn assess_ethical_compliance(
+        &self,
+        input: &AlignmentTaskInput,
+        framework: &EthicalFramework,
+    ) -> f32 {
         // Simplified ethical compliance assessment
         match framework {
             EthicalFramework::Utilitarianism => 0.8,
@@ -1375,14 +1452,18 @@ impl AlignmentArbiterAgent {
     }
 
     /// Resolve a single conflict
-    async fn resolve_single_conflict(&self, conflict: &AlignmentConflict, _input: &AlignmentTaskInput) -> AgentResult<ConflictResolutionResult> {
+    async fn resolve_single_conflict(
+        &self,
+        conflict: &AlignmentConflict,
+        _input: &AlignmentTaskInput,
+    ) -> AgentResult<ConflictResolutionResult> {
         let resolution_strategy = match conflict.severity {
             SeverityLevel::Low => ResolutionStrategy::CompromiseFinding,
             SeverityLevel::Medium => ResolutionStrategy::CompromiseFinding,
             SeverityLevel::High => ResolutionStrategy::EthicalOverride,
             _ => ResolutionStrategy::PriorityEscalation,
         };
-        
+
         Ok(ConflictResolutionResult {
             conflict_id: conflict.conflict_id.clone(),
             resolution_strategy,
@@ -1393,13 +1474,16 @@ impl AlignmentArbiterAgent {
     }
 
     /// Calculate severity distribution
-    fn calculate_severity_distribution(&self, conflicts: &[AlignmentConflict]) -> HashMap<SeverityLevel, usize> {
+    fn calculate_severity_distribution(
+        &self,
+        conflicts: &[AlignmentConflict],
+    ) -> HashMap<SeverityLevel, usize> {
         let mut distribution = HashMap::new();
-        
+
         for conflict in conflicts {
             *distribution.entry(conflict.severity.clone()).or_insert(0) += 1;
         }
-        
+
         distribution
     }
 }
@@ -1463,7 +1547,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(output.alignment_score > 0.0);
         assert!(!output.alignment_decisions.is_empty() || !output.recommendations.is_empty());
@@ -1472,7 +1556,7 @@ mod tests {
     #[test]
     fn test_alignment_calculation() {
         let agent = AlignmentArbiterAgent::default();
-        
+
         let obj1 = AgentObjective {
             agent_id: "agent1".to_string(),
             objective: "Maximize user satisfaction".to_string(),
@@ -1480,7 +1564,7 @@ mod tests {
             constraints: vec![],
             dependencies: vec![],
         };
-        
+
         let obj2 = AgentObjective {
             agent_id: "agent2".to_string(),
             objective: "Maximize user experience".to_string(),
@@ -1488,7 +1572,7 @@ mod tests {
             constraints: vec![],
             dependencies: vec![],
         };
-        
+
         let alignment = agent.calculate_pairwise_alignment_score(&obj1, &obj2);
         assert!(alignment > 0.0);
         assert!(alignment <= 1.0);
@@ -1504,7 +1588,7 @@ mod tests {
             ..Default::default()
         };
         let agent = AlignmentArbiterAgent::new(config);
-        
+
         assert_eq!(agent.config.ethical_frameworks.len(), 2);
     }
 }

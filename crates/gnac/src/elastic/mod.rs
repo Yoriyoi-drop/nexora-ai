@@ -4,14 +4,13 @@
 //! mengganti jalur inferensi, atau menyesuaikan depth berdasarkan
 //! hardware dan kompleksitas input.
 
-pub mod router;
-pub mod precision;
 pub mod depth;
+pub mod precision;
+pub mod router;
 
-pub use router::*;
-pub use precision::*;
 pub use depth::*;
-
+pub use precision::*;
+pub use router::*;
 
 /// Strategi adaptasi elastis
 #[derive(Debug, Clone, Copy, PartialEq)]

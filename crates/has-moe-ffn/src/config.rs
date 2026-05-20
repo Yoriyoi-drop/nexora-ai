@@ -1,6 +1,6 @@
 //! Configuration for HAS-MoE-FFN
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Configuration for layers
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -242,8 +242,7 @@ impl<T: Clone> GenericConnectionPool<T> {
                         // Decrement waiting requests counter
                         *self.waiting_requests.write().await -= 1;
 
-                        let last = connections.last_mut()
-                            .expect("connection was just added");
+                        let last = connections.last_mut().expect("connection was just added");
                         let conn_clone = last.connection.clone();
                         return Ok(ConnectionTicket {
                             connection: conn_clone,
@@ -301,7 +300,11 @@ impl<T: Clone> GenericConnectionPool<T> {
             stats.idle_connections += 1;
         } else {
             // Close invalid connection
-            if let Err(e) = self.connection_factory.close_connection(ticket.connection).await {
+            if let Err(e) = self
+                .connection_factory
+                .close_connection(ticket.connection)
+                .await
+            {
                 tracing::error!("Failed to close invalid connection: {}", e);
             }
 

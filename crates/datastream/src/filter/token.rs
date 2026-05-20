@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct TokenFilter {
@@ -33,7 +33,10 @@ impl Default for TokenFilter {
 
 impl TokenFilter {
     pub fn with_tokenizer(t: Arc<RwLock<nexora_tokenizer::BpeTokenizer>>) -> Self {
-        Self { tokenizer: Some(t), ..Default::default() }
+        Self {
+            tokenizer: Some(t),
+            ..Default::default()
+        }
     }
 
     fn count_tokens(&self, text: &str) -> usize {
@@ -76,10 +79,16 @@ impl Filter for TokenFilter {
         let token_count = self.count_tokens(&sample.text);
         let mut reason = None;
         let passed = if token_count < self.min_tokens {
-            reason = Some(format!("too_few_tokens: {} < {}", token_count, self.min_tokens));
+            reason = Some(format!(
+                "too_few_tokens: {} < {}",
+                token_count, self.min_tokens
+            ));
             false
         } else if token_count > self.max_tokens {
-            reason = Some(format!("too_many_tokens: {} > {}", token_count, self.max_tokens));
+            reason = Some(format!(
+                "too_many_tokens: {} > {}",
+                token_count, self.max_tokens
+            ));
             false
         } else {
             true

@@ -1,5 +1,5 @@
 //! NXR-ÆTHER Model Implementation
-//! 
+//!
 //! NXR-03 APEX - Adaptive Emotional & Holistic Transcendent Empathy Reasoner
 //! Emotional intelligence and psychological analysis specialist
 
@@ -8,32 +8,35 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
     capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
     deeplearning_integration::{DeepLearningModel, HasComponents},
-    gnac_integration::GnacModel,
-    safety_gate::{global_safety, ConsentToken, ConsentScope},
     foundation_components::FoundationComponents,
+    gnac_integration::GnacModel,
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
+    safety_gate::{global_safety, ConsentScope, ConsentToken},
 };
 
 // Include all Aether modules
-mod identity;
-mod config;
-mod architecture;
 pub mod agents;
+mod architecture;
 mod capabilities;
+mod config;
 mod coordinator;
+mod identity;
 
 // Re-export all components
-pub use identity::*;
-pub use config::*;
-pub use architecture::*;
 pub use agents::*;
+pub use architecture::*;
 pub use capabilities::*;
+pub use config::*;
 pub use coordinator::*;
+pub use identity::*;
 
 /// NXR-ÆTHER Model Implementation
 pub struct NxrAetherModel {
@@ -141,7 +144,7 @@ impl AetherCapabilities {
         let vector = CapabilityVector::new(NxrModelId::Aether)
             .with_capability(nexora_shared::capability_spec::CapabilitySpec::new(
                 nexora_shared::capability_spec::CapabilityDomain::Emotional,
-                nexora_shared::capability_spec::CapabilityLevel::Transcendent
+                nexora_shared::capability_spec::CapabilityLevel::Transcendent,
             ))
             .calculate_score();
         Self { vector }
@@ -185,7 +188,9 @@ impl NxrAetherModel {
         };
 
         // Process text with deep learning
-        let dl_result = self.dl_process(text).await
+        let dl_result = self
+            .dl_process(text)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // SACA-ÆTHER enhanced reasoning with emotional context
@@ -209,25 +214,40 @@ impl NxrAetherModel {
         let lower_text = text.to_lowercase();
         let words: Vec<&str> = lower_text.split_whitespace().collect();
         let mut emotional_scores = HashMap::new();
-        
+
         // Simple emotional keyword detection
-        if words.iter().any(|w| w.contains("sad") || w.contains("unhappy")) {
+        if words
+            .iter()
+            .any(|w| w.contains("sad") || w.contains("unhappy"))
+        {
             emotional_scores.insert("sadness".to_string(), 0.8f32);
         }
-        if words.iter().any(|w| w.contains("happy") || w.contains("joy")) {
+        if words
+            .iter()
+            .any(|w| w.contains("happy") || w.contains("joy"))
+        {
             emotional_scores.insert("joy".to_string(), 0.9f32);
         }
-        if words.iter().any(|w| w.contains("angry") || w.contains("mad")) {
+        if words
+            .iter()
+            .any(|w| w.contains("angry") || w.contains("mad"))
+        {
             emotional_scores.insert("anger".to_string(), 0.7f32);
         }
-        
+
         let (primary_emotion, intensity) = emotional_scores
             .iter()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(emotion, score)| (emotion.clone(), *score))
             .unwrap_or(("neutral".to_string(), 0.5f32));
 
-        let valence = if primary_emotion == "joy" { 0.8f32 } else if primary_emotion == "sadness" { -0.6f32 } else { 0.0f32 };
+        let valence = if primary_emotion == "joy" {
+            0.8f32
+        } else if primary_emotion == "sadness" {
+            -0.6f32
+        } else {
+            0.0f32
+        };
 
         Ok(EmotionalState {
             primary_emotion,
@@ -237,7 +257,11 @@ impl NxrAetherModel {
         })
     }
 
-    fn generate_empathy_response(&self, text: &str, emotional_state: &EmotionalState) -> NxrModelResult<String> {
+    fn generate_empathy_response(
+        &self,
+        text: &str,
+        emotional_state: &EmotionalState,
+    ) -> NxrModelResult<String> {
         let response = match emotional_state.primary_emotion.as_str() {
             "sadness" => "I understand this must be difficult for you. Your feelings are valid, and it's okay to feel this way.",
             "joy" => "It's wonderful to hear this positivity! Your enthusiasm is inspiring.",
@@ -249,7 +273,9 @@ impl NxrAetherModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -259,19 +285,27 @@ impl NxrAetherModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -280,7 +314,10 @@ impl NxrAetherModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -304,11 +341,19 @@ impl NxrModel for NxrAetherModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
         self.base.mark_initialized().await;
         self.config = config;
         Ok(())
@@ -316,42 +361,56 @@ impl NxrModel for NxrAetherModel {
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = AetherState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = AetherMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-ÆTHER model not initialized".to_string()
+                "NXR-ÆTHER model not initialized".to_string(),
             ));
         }
 
         let safety = global_safety();
         let consent_token = input.metadata.get("consent_token").and_then(|v| v.as_str());
-        safety.pre_inference_check(NxrModelId::Aether, consent_token).await?;
+        safety
+            .pre_inference_check(NxrModelId::Aether, consent_token)
+            .await?;
 
         if self.config().psychological.enable_profiling {
             safety.gate.check_consent(consent_token)?;
         }
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-ÆTHER only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-ÆTHER only supports text input".to_string(),
+                ))
+            }
         };
 
         let result = self.analyze_emotional_content(&input_text).await?;
@@ -361,9 +420,21 @@ impl NxrModel for NxrAetherModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -396,7 +467,7 @@ impl NxrModel for NxrAetherModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-ÆTHER model not initialized".to_string()
+                "NXR-ÆTHER model not initialized".to_string(),
             ));
         }
 
@@ -421,8 +492,13 @@ impl NxrModel for NxrAetherModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -436,15 +512,22 @@ impl NxrModel for NxrAetherModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 16.0,
             cpu_percent: 55.0,

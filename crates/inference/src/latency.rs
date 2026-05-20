@@ -1,13 +1,13 @@
 //! Latency Tracking
-//! 
+//!
 //! Latency measurement dan analysis untuk inference.
 
+use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 use tracing::{debug, info};
-use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use crate::Result;
 
@@ -97,7 +97,7 @@ impl LatencyMeasurement {
             metadata: HashMap::new(),
         }
     }
-    
+
     /// Calculate tokens per second
     pub fn tokens_per_second(&self) -> f64 {
         if self.token_generation_time_ms > 0 {
@@ -106,7 +106,7 @@ impl LatencyMeasurement {
             0.0
         }
     }
-    
+
     /// Check if this is an outlier
     pub fn is_outlier(&self, avg_latency: f64, std_dev: f64, threshold: f32) -> bool {
         let z_score = ((self.total_latency_ms as f64 - avg_latency) / std_dev).abs();
@@ -157,7 +157,7 @@ impl LatencyTracker {
     pub fn new() -> Self {
         Self::with_config(LatencyConfig::default())
     }
-    
+
     /// Create latency tracker with configuration
     pub fn with_config(config: LatencyConfig) -> Self {
         Self {
@@ -167,45 +167,48 @@ impl LatencyTracker {
             percentiles: Arc::new(RwLock::new(PercentileStats::default())),
         }
     }
-    
+
     /// Add latency measurement
     pub async fn add_measurement(&self, measurement: LatencyMeasurement) -> Result<()> {
-        debug!("Adding latency measurement for request: {}", measurement.request_id);
-        
+        debug!(
+            "Adding latency measurement for request: {}",
+            measurement.request_id
+        );
+
         // Add to measurements
         {
             let mut measurements = self.measurements.write().await;
             measurements.push_back(measurement.clone());
-            
+
             // Maintain size limit
             if measurements.len() > self.config.max_measurements {
                 measurements.pop_front();
             }
-            
+
             // Trigger cleanup if needed
-            if self.config.enable_cleanup && 
-               measurements.len() % self.config.cleanup_interval == 0 {
+            if self.config.enable_cleanup && measurements.len() % self.config.cleanup_interval == 0
+            {
                 drop(measurements);
                 self.cleanup_old_measurements().await?;
             }
         }
-        
+
         // Update statistics
         self.update_statistics().await?;
-        
+
         Ok(())
     }
-    
+
     /// Get current statistics
     pub async fn get_stats(&self) -> LatencyStats {
         self.stats.read().await.clone()
     }
-    
+
     /// Get percentile statistics
     pub async fn get_percentiles(&self) -> PercentileStats {
         self.percentiles.read().await.clone()
     }
-    
+
     /// Get measurements for time range
     pub async fn get_measurements_in_range(
         &self,
@@ -213,39 +216,37 @@ impl LatencyTracker {
         end_time: DateTime<Utc>,
     ) -> Vec<LatencyMeasurement> {
         let measurements = self.measurements.read().await;
-        measurements.iter()
+        measurements
+            .iter()
             .filter(|m| m.timestamp >= start_time && m.timestamp <= end_time)
             .cloned()
             .collect()
     }
-    
+
     /// Get recent measurements
     pub async fn get_recent_measurements(&self, count: usize) -> Vec<LatencyMeasurement> {
         let measurements = self.measurements.read().await;
-        measurements.iter()
-            .rev()
-            .take(count)
-            .cloned()
-            .collect()
+        measurements.iter().rev().take(count).cloned().collect()
     }
-    
+
     /// Calculate latency percentiles
     pub async fn calculate_percentiles(&self) -> Result<PercentileStats> {
         let measurements = self.measurements.read().await;
-        
+
         if measurements.is_empty() {
             return Ok(PercentileStats::default());
         }
-        
+
         // Extract latencies
-        let mut latencies: Vec<f64> = measurements.iter()
+        let mut latencies: Vec<f64> = measurements
+            .iter()
             .map(|m| m.total_latency_ms as f64)
             .collect();
-        
+
         latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         let mut percentile_stats = HashMap::new();
-        
+
         for &percentile in &self.config.percentiles {
             let index = ((percentile as f64 / 100.0) * latencies.len() as f64) as usize;
             let index = index.min(latencies.len().saturating_sub(1));
@@ -253,36 +254,36 @@ impl LatencyTracker {
             let percentile_key = (percentile * 1000.0) as u32;
             percentile_stats.insert(percentile_key, latencies[index]);
         }
-        
+
         let stats = PercentileStats {
             percentiles: percentile_stats,
             last_calculated: Utc::now(),
         };
-        
+
         // Update cached percentiles
         {
             let mut cached_percentiles = self.percentiles.write().await;
             *cached_percentiles = stats.clone();
         }
-        
+
         Ok(stats)
     }
-    
+
     /// Detect outliers in recent measurements
     pub async fn detect_outliers(&self) -> Result<Vec<LatencyMeasurement>> {
         if !self.config.enable_outlier_detection {
             return Ok(Vec::new());
         }
-        
+
         let measurements = self.measurements.read().await;
         let stats = self.stats.read().await;
-        
+
         if measurements.len() < 10 {
             return Ok(Vec::new()); // Not enough data
         }
-        
+
         let mut outliers = Vec::with_capacity(measurements.len());
-        
+
         for measurement in measurements.iter() {
             if measurement.is_outlier(
                 stats.avg_total_latency_ms,
@@ -292,97 +293,147 @@ impl LatencyTracker {
                 outliers.push(measurement.clone());
             }
         }
-        
+
         Ok(outliers)
     }
-    
+
     /// Get latency breakdown by component
     pub async fn get_component_breakdown(&self) -> ComponentBreakdown {
         let measurements = self.measurements.read().await;
-        
+
         if measurements.is_empty() {
             return ComponentBreakdown::default();
         }
-        
+
         let _total_count = measurements.len() as f64;
-        
+
         let breakdown = ComponentBreakdown {
-            queue_percentage: (measurements.iter().map(|m| m.queue_time_ms as f64).sum::<f64>() / 
-                              measurements.iter().map(|m| m.total_latency_ms as f64).sum::<f64>()) * 100.0,
-            processing_percentage: (measurements.iter().map(|m| m.processing_time_ms as f64).sum::<f64>() / 
-                                  measurements.iter().map(|m| m.total_latency_ms as f64).sum::<f64>()) * 100.0,
-            token_generation_percentage: (measurements.iter().map(|m| m.token_generation_time_ms as f64).sum::<f64>() / 
-                                       measurements.iter().map(|m| m.total_latency_ms as f64).sum::<f64>()) * 100.0,
-            post_processing_percentage: (measurements.iter().map(|m| m.post_processing_time_ms as f64).sum::<f64>() / 
-                                      measurements.iter().map(|m| m.total_latency_ms as f64).sum::<f64>()) * 100.0,
+            queue_percentage: (measurements
+                .iter()
+                .map(|m| m.queue_time_ms as f64)
+                .sum::<f64>()
+                / measurements
+                    .iter()
+                    .map(|m| m.total_latency_ms as f64)
+                    .sum::<f64>())
+                * 100.0,
+            processing_percentage: (measurements
+                .iter()
+                .map(|m| m.processing_time_ms as f64)
+                .sum::<f64>()
+                / measurements
+                    .iter()
+                    .map(|m| m.total_latency_ms as f64)
+                    .sum::<f64>())
+                * 100.0,
+            token_generation_percentage: (measurements
+                .iter()
+                .map(|m| m.token_generation_time_ms as f64)
+                .sum::<f64>()
+                / measurements
+                    .iter()
+                    .map(|m| m.total_latency_ms as f64)
+                    .sum::<f64>())
+                * 100.0,
+            post_processing_percentage: (measurements
+                .iter()
+                .map(|m| m.post_processing_time_ms as f64)
+                .sum::<f64>()
+                / measurements
+                    .iter()
+                    .map(|m| m.total_latency_ms as f64)
+                    .sum::<f64>())
+                * 100.0,
         };
-        
+
         breakdown
     }
-    
+
     /// Clear all measurements
     pub async fn clear(&self) -> Result<()> {
         info!("Clearing all latency measurements");
-        
+
         {
             let mut measurements = self.measurements.write().await;
             measurements.clear();
         }
-        
+
         {
             let mut stats = self.stats.write().await;
             *stats = LatencyStats::default();
         }
-        
+
         {
             let mut percentiles = self.percentiles.write().await;
             *percentiles = PercentileStats::default();
         }
-        
+
         Ok(())
     }
-    
+
     /// Update aggregated statistics
     async fn update_statistics(&self) -> Result<()> {
         let measurements = self.measurements.read().await;
-        
+
         if measurements.is_empty() {
             return Ok(());
         }
-        
+
         let count = measurements.len();
         let total_latency: f64 = measurements.iter().map(|m| m.total_latency_ms as f64).sum();
         let queue_time: f64 = measurements.iter().map(|m| m.queue_time_ms as f64).sum();
-        let processing_time: f64 = measurements.iter().map(|m| m.processing_time_ms as f64).sum();
-        let token_gen_time: f64 = measurements.iter().map(|m| m.token_generation_time_ms as f64).sum();
-        let post_proc_time: f64 = measurements.iter().map(|m| m.post_processing_time_ms as f64).sum();
-        
+        let processing_time: f64 = measurements
+            .iter()
+            .map(|m| m.processing_time_ms as f64)
+            .sum();
+        let token_gen_time: f64 = measurements
+            .iter()
+            .map(|m| m.token_generation_time_ms as f64)
+            .sum();
+        let post_proc_time: f64 = measurements
+            .iter()
+            .map(|m| m.post_processing_time_ms as f64)
+            .sum();
+
         let avg_total = total_latency / count as f64;
         let avg_queue = queue_time / count as f64;
         let avg_processing = processing_time / count as f64;
         let avg_token_gen = token_gen_time / count as f64;
         let avg_post_proc = post_proc_time / count as f64;
-        
+
         // Calculate min/max
-        let min_latency = measurements.iter().map(|m| m.total_latency_ms).min().unwrap_or(0);
-        let max_latency = measurements.iter().map(|m| m.total_latency_ms).max().unwrap_or(0);
-        
+        let min_latency = measurements
+            .iter()
+            .map(|m| m.total_latency_ms)
+            .min()
+            .unwrap_or(0);
+        let max_latency = measurements
+            .iter()
+            .map(|m| m.total_latency_ms)
+            .max()
+            .unwrap_or(0);
+
         // Calculate standard deviation
-        let variance: f64 = measurements.iter()
+        let variance: f64 = measurements
+            .iter()
             .map(|m| (m.total_latency_ms as f64 - avg_total).powi(2))
-            .sum::<f64>() / count as f64;
+            .sum::<f64>()
+            / count as f64;
         let std_dev = variance.sqrt();
-        
+
         // Calculate average tokens per second
-        let avg_tokens_per_sec: f64 = measurements.iter()
+        let avg_tokens_per_sec: f64 = measurements
+            .iter()
             .map(|m| m.tokens_per_second())
-            .sum::<f64>() / count as f64;
-        
+            .sum::<f64>()
+            / count as f64;
+
         // Count outliers
-        let outlier_count = measurements.iter()
+        let outlier_count = measurements
+            .iter()
             .filter(|m| m.is_outlier(avg_total, std_dev, self.config.outlier_threshold))
             .count() as u64;
-        
+
         let stats = LatencyStats {
             total_measurements: count as u64,
             avg_total_latency_ms: avg_total,
@@ -397,29 +448,29 @@ impl LatencyTracker {
             outlier_count,
             last_updated: Utc::now(),
         };
-        
+
         {
             let mut cached_stats = self.stats.write().await;
             *cached_stats = stats;
         }
-        
+
         Ok(())
     }
-    
+
     /// Clean up old measurements
     async fn cleanup_old_measurements(&self) -> Result<()> {
         let mut measurements = self.measurements.write().await;
         let initial_count = measurements.len();
-        
+
         // Remove measurements older than 24 hours
         let cutoff_time = Utc::now() - chrono::Duration::hours(24);
         measurements.retain(|m| m.timestamp > cutoff_time);
-        
+
         let removed_count = initial_count - measurements.len();
         if removed_count > 0 {
             debug!("Cleaned up {} old latency measurements", removed_count);
         }
-        
+
         Ok(())
     }
 }
@@ -442,85 +493,112 @@ impl Default for LatencyTracker {
 /// Utility functions for latency analysis
 pub mod analysis {
     use super::*;
-    
+
     /// Calculate moving average
     pub fn moving_average(measurements: &[LatencyMeasurement], window_size: usize) -> Vec<f64> {
         if measurements.is_empty() || window_size == 0 {
             return Vec::new();
         }
-        
+
         let count = measurements.len().saturating_sub(window_size) + 1;
         let mut averages = Vec::with_capacity(count);
-        
+
         for i in window_size..=measurements.len() {
             let window = &measurements[i - window_size..i];
-            let avg: f64 = window.iter().map(|m| m.total_latency_ms as f64).sum::<f64>() / window.len() as f64;
+            let avg: f64 = window
+                .iter()
+                .map(|m| m.total_latency_ms as f64)
+                .sum::<f64>()
+                / window.len() as f64;
             averages.push(avg);
         }
-        
+
         averages
     }
-    
+
     /// Detect latency trends
     pub fn detect_trend(measurements: &[LatencyMeasurement]) -> TrendDirection {
         if measurements.len() < 2 {
             return TrendDirection::Stable;
         }
-        
+
         let first_half = &measurements[..measurements.len() / 2];
         let second_half = &measurements[measurements.len() / 2..];
-        
-        let first_avg: f64 = first_half.iter().map(|m| m.total_latency_ms as f64).sum::<f64>() / first_half.len() as f64;
-        let second_avg: f64 = second_half.iter().map(|m| m.total_latency_ms as f64).sum::<f64>() / second_half.len() as f64;
-        
+
+        let first_avg: f64 = first_half
+            .iter()
+            .map(|m| m.total_latency_ms as f64)
+            .sum::<f64>()
+            / first_half.len() as f64;
+        let second_avg: f64 = second_half
+            .iter()
+            .map(|m| m.total_latency_ms as f64)
+            .sum::<f64>()
+            / second_half.len() as f64;
+
         let change_percent = ((second_avg - first_avg) / first_avg) * 100.0;
-        
+
         match change_percent {
             x if x > 5.0 => TrendDirection::Increasing,
             x if x < -5.0 => TrendDirection::Decreasing,
             _ => TrendDirection::Stable,
         }
     }
-    
+
     /// Calculate latency distribution
-    pub fn calculate_distribution(measurements: &[LatencyMeasurement], bins: usize) -> Vec<(f64, f64)> {
+    pub fn calculate_distribution(
+        measurements: &[LatencyMeasurement],
+        bins: usize,
+    ) -> Vec<(f64, f64)> {
         if measurements.is_empty() || bins == 0 {
             return Vec::new();
         }
-        
-        let latencies: Vec<f64> = measurements.iter().map(|m| m.total_latency_ms as f64).collect();
+
+        let latencies: Vec<f64> = measurements
+            .iter()
+            .map(|m| m.total_latency_ms as f64)
+            .collect();
         let min_latency = latencies.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max_latency = latencies.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-        
+
         let bin_width = (max_latency - min_latency) / bins as f64;
-        
+
         let mut distribution = Vec::with_capacity(bins);
-        
+
         for i in 0..bins {
             let bin_start = min_latency + (i as f64 * bin_width);
             let bin_end = bin_start + bin_width;
-            
-            let count = latencies.iter()
+
+            let count = latencies
+                .iter()
                 .filter(|&&latency| latency >= bin_start && latency < bin_end)
                 .count();
-            
+
             let frequency = count as f64 / latencies.len() as f64;
             distribution.push((bin_start, frequency));
         }
-        
+
         distribution
     }
-    
+
     /// Compare latency between two periods
     pub fn compare_periods(
         period1: &[LatencyMeasurement],
         period2: &[LatencyMeasurement],
     ) -> LatencyComparison {
-        let avg1: f64 = period1.iter().map(|m| m.total_latency_ms as f64).sum::<f64>() / period1.len() as f64;
-        let avg2: f64 = period2.iter().map(|m| m.total_latency_ms as f64).sum::<f64>() / period2.len() as f64;
-        
+        let avg1: f64 = period1
+            .iter()
+            .map(|m| m.total_latency_ms as f64)
+            .sum::<f64>()
+            / period1.len() as f64;
+        let avg2: f64 = period2
+            .iter()
+            .map(|m| m.total_latency_ms as f64)
+            .sum::<f64>()
+            / period2.len() as f64;
+
         let change_percent = ((avg2 - avg1) / avg1) * 100.0;
-        
+
         LatencyComparison {
             period1_avg: avg1,
             period2_avg: avg2,

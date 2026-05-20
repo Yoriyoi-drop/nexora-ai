@@ -160,7 +160,9 @@ impl CognitiveIsolationLayer {
             is_quarantined: false,
         };
         let id = region.id;
-        self.memory_isolation.agent_memory_regions.insert(id, region);
+        self.memory_isolation
+            .agent_memory_regions
+            .insert(id, region);
         id
     }
 
@@ -171,17 +173,26 @@ impl CognitiveIsolationLayer {
         key: &str,
         value: Vec<u8>,
     ) -> Result<(), CognitiveError> {
-        let region = self.memory_isolation.agent_memory_regions.get_mut(&region_id)
+        let region = self
+            .memory_isolation
+            .agent_memory_regions
+            .get_mut(&region_id)
             .ok_or(CognitiveError::MemoryRegionNotFound(region_id))?;
 
         if region.is_quarantined {
             return Err(CognitiveError::RegionQuarantined(region_id));
         }
 
-        if !region.access_control.write_allowed_agents.contains(&agent_id)
+        if !region
+            .access_control
+            .write_allowed_agents
+            .contains(&agent_id)
             && !region.access_control.world_writable
         {
-            return Err(CognitiveError::WriteAccessDenied { agent_id, region_id });
+            return Err(CognitiveError::WriteAccessDenied {
+                agent_id,
+                region_id,
+            });
         }
 
         let checksum = simple_checksum(&value);
@@ -205,13 +216,22 @@ impl CognitiveIsolationLayer {
         agent_id: Uuid,
         key: &str,
     ) -> Result<Option<Vec<u8>>, CognitiveError> {
-        let region = self.memory_isolation.agent_memory_regions.get_mut(&region_id)
+        let region = self
+            .memory_isolation
+            .agent_memory_regions
+            .get_mut(&region_id)
             .ok_or(CognitiveError::MemoryRegionNotFound(region_id))?;
 
-        if !region.access_control.read_allowed_agents.contains(&agent_id)
+        if !region
+            .access_control
+            .read_allowed_agents
+            .contains(&agent_id)
             && !region.access_control.world_readable
         {
-            return Err(CognitiveError::ReadAccessDenied { agent_id, region_id });
+            return Err(CognitiveError::ReadAccessDenied {
+                agent_id,
+                region_id,
+            });
         }
 
         if let Some(entry) = region.entries.iter_mut().find(|e| e.key == key) {
@@ -249,7 +269,10 @@ impl CognitiveIsolationLayer {
         reasoning_type: &str,
         confidence: f64,
     ) -> Result<ReasoningStep, CognitiveError> {
-        let parent_chain = self.chain_isolation.chain_registry.get(&chain_id)
+        let parent_chain = self
+            .chain_isolation
+            .chain_registry
+            .get(&chain_id)
             .and_then(|c| c.parent_chain);
 
         if self.chain_isolation.prevent_cross_chain_contamination {
@@ -260,7 +283,10 @@ impl CognitiveIsolationLayer {
             }
         }
 
-        let chain = self.chain_isolation.chain_registry.get_mut(&chain_id)
+        let chain = self
+            .chain_isolation
+            .chain_registry
+            .get_mut(&chain_id)
             .ok_or(CognitiveError::ReasoningChainNotFound(chain_id))?;
 
         let step = ReasoningStep {
@@ -276,13 +302,17 @@ impl CognitiveIsolationLayer {
     }
 
     pub fn detect_anomaly(&mut self, agent_id: Uuid, score: f64, reason: &str) {
-        let entry = self.anomaly_detector.per_agent_scores.entry(agent_id).or_insert(AnomalyScore {
-            agent_id,
-            score: 0.0,
-            reasons: Vec::new(),
-            detected_at: chrono::Utc::now(),
-            auto_quarantined: false,
-        });
+        let entry = self
+            .anomaly_detector
+            .per_agent_scores
+            .entry(agent_id)
+            .or_insert(AnomalyScore {
+                agent_id,
+                score: 0.0,
+                reasons: Vec::new(),
+                detected_at: chrono::Utc::now(),
+                auto_quarantined: false,
+            });
         entry.score = score;
         entry.reasons.push(reason.to_string());
         entry.detected_at = chrono::Utc::now();
@@ -312,7 +342,10 @@ impl CognitiveIsolationLayer {
     }
 
     pub fn verify_memory_integrity(&self, region_id: Uuid) -> Result<bool, CognitiveError> {
-        let region = self.memory_isolation.agent_memory_regions.get(&region_id)
+        let region = self
+            .memory_isolation
+            .agent_memory_regions
+            .get(&region_id)
             .ok_or(CognitiveError::MemoryRegionNotFound(region_id))?;
         let computed: u64 = region.entries.iter().map(|e| e.checksum).sum();
         let expected: u64 = u64::from_str_radix(&region.integrity_hash, 16).unwrap_or(0);
@@ -321,11 +354,16 @@ impl CognitiveIsolationLayer {
 }
 
 fn simple_checksum(data: &[u8]) -> u64 {
-    data.iter().fold(0u64, |acc, &b| acc.wrapping_mul(31).wrapping_add(b as u64))
+    data.iter()
+        .fold(0u64, |acc, &b| acc.wrapping_mul(31).wrapping_add(b as u64))
 }
 
 fn simple_hash(s: &str) -> String {
-    format!("{:x}", s.bytes().fold(0u64, |acc, b| acc.wrapping_mul(127).wrapping_add(b as u64)))
+    format!(
+        "{:x}",
+        s.bytes()
+            .fold(0u64, |acc, b| acc.wrapping_mul(127).wrapping_add(b as u64))
+    )
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -356,8 +394,12 @@ mod tests {
         let agent_id = Uuid::new_v4();
         let region_id = cognitive.create_memory_region(agent_id);
 
-        cognitive.write_memory(region_id, agent_id, "secret", b"data".to_vec()).unwrap();
-        let read = cognitive.read_memory(region_id, agent_id, "secret").unwrap();
+        cognitive
+            .write_memory(region_id, agent_id, "secret", b"data".to_vec())
+            .unwrap();
+        let read = cognitive
+            .read_memory(region_id, agent_id, "secret")
+            .unwrap();
         assert_eq!(read, Some(b"data".to_vec()));
     }
 

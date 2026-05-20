@@ -2,14 +2,14 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
+use tracing::{debug, error, info};
 use uuid::Uuid;
-use tracing::{debug, info, error};
 
-use crate::{Result, InferenceError, InferenceRequest};
+use crate::{InferenceError, InferenceRequest, Result};
 
 use super::config::BatchConfig;
-use super::types::{BatchItem, Batch, BatchStats};
+use super::types::{Batch, BatchItem, BatchStats};
 
 /// Processor state
 #[derive(Debug, Clone, PartialEq)]
@@ -66,7 +66,7 @@ impl BatchProcessor {
     pub fn new(config: BatchConfig) -> Self {
         let capacity = config.max_batch_size.max(1) * 4;
         let (batch_sender, batch_receiver) = mpsc::channel(capacity);
-        
+
         Self {
             config,
             pending_queue: Arc::new(RwLock::new(VecDeque::new())),
@@ -78,30 +78,33 @@ impl BatchProcessor {
             batch_receiver: Arc::new(RwLock::new(Some(batch_receiver))),
         }
     }
-    
+
     /// Initialize the batch processor
     pub async fn initialize(&self) -> Result<()> {
         let mut state = self.state.write().await;
         if *state != ProcessorState::Uninitialized {
-            return Err(InferenceError::InvalidState("Processor already initialized".to_string()).into());
+            return Err(
+                InferenceError::InvalidState("Processor already initialized".to_string()).into(),
+            );
         }
-        
+
         *state = ProcessorState::Initializing;
-        
+
         // Validate configuration
-        self.config.validate()
+        self.config
+            .validate()
             .map_err(|e| InferenceError::InvalidConfig(e))?;
-        
+
         // Start background processing and flush tasks
         self.start_processing_task().await?;
         self.start_flush_task().await?;
-        
+
         *state = ProcessorState::Ready;
         info!("Batch processor initialized successfully");
-        
+
         Ok(())
     }
-    
+
     /// Add request to processing queue
     pub async fn add_request(&self, request: InferenceRequest) -> Result<()> {
         let state = self.state.read().await;
@@ -109,9 +112,10 @@ impl BatchProcessor {
             return Err(InferenceError::InvalidState("Processor not ready".to_string()).into());
         }
         drop(state);
-        
+
         let batch_item = BatchItem::new(
-            request.request_id
+            request
+                .request_id
                 .as_ref()
                 .and_then(|s| Uuid::parse_str(s).ok())
                 .unwrap_or_else(Uuid::new_v4),
@@ -120,39 +124,39 @@ impl BatchProcessor {
             request.priority,
             request.metadata,
         );
-        
+
         let mut queue = self.pending_queue.write().await;
         queue.push_back(batch_item);
         drop(queue);
-        
+
         debug!("Added request {:?} to pending queue", request.request_id);
-        
+
         // Try to form a batch immediately if conditions are met
         self.try_form_batch().await?;
-        
+
         Ok(())
     }
-    
+
     /// Get current statistics
     pub async fn get_stats(&self) -> BatchStats {
         self.stats.read().await.clone()
     }
-    
+
     /// Get current state
     pub async fn get_state(&self) -> ProcessorState {
         self.state.read().await.clone()
     }
-    
+
     /// Get pending queue size
     pub async fn get_pending_queue_size(&self) -> usize {
         self.pending_queue.read().await.len()
     }
-    
+
     /// Get active batches count
     pub async fn get_active_batches_count(&self) -> usize {
         self.active_batches.read().await.len()
     }
-    
+
     /// Try to form a batch from pending requests
     async fn try_form_batch(&self) -> Result<()> {
         let batch_items = {
@@ -160,8 +164,8 @@ impl BatchProcessor {
             if queue.is_empty() {
                 return Ok(());
             }
-            let can_batch = self.config.enable_dynamic_batching
-                || queue.len() >= self.config.min_batch_size;
+            let can_batch =
+                self.config.enable_dynamic_batching || queue.len() >= self.config.min_batch_size;
             if !can_batch {
                 return Ok(());
             }
@@ -175,7 +179,8 @@ impl BatchProcessor {
             let items = if self.config.enable_length_sorting {
                 let mut sorted: Vec<_> = queue.drain(..).collect();
                 sorted.sort_by(|a, b| {
-                    b.sequence_length.cmp(&a.sequence_length)
+                    b.sequence_length
+                        .cmp(&a.sequence_length)
                         .then(b.priority.cmp(&a.priority))
                 });
                 sorted.truncate(max_batch_size);
@@ -196,11 +201,14 @@ impl BatchProcessor {
             return Ok(());
         }
 
-        let batch = Batch::new(batch_items, &self.config)
-            .map_err(|e| InferenceError::BatchError(e))?;
+        let batch =
+            Batch::new(batch_items, &self.config).map_err(|e| InferenceError::BatchError(e))?;
         let batch_id = batch.batch_id;
 
-        self.active_batches.write().await.insert(batch_id, batch.clone());
+        self.active_batches
+            .write()
+            .await
+            .insert(batch_id, batch.clone());
         self.stats.write().await.increment_in_progress();
 
         if let Err(e) = self.batch_sender.send(batch.clone()).await {
@@ -236,54 +244,54 @@ impl BatchProcessor {
         });
         Ok(())
     }
-    
+
     /// Process completed batch
     async fn process_completed_batch(&self, batch: Batch) -> Result<()> {
         let batch_id = batch.batch_id;
-        
+
         // Remove from active batches
         let mut active_batches = self.active_batches.write().await;
         if let Some(mut batch) = active_batches.remove(&batch_id) {
             batch.end_processing();
-            
+
             // Add to completed batches
             let mut completed_batches = self.completed_batches.write().await;
             completed_batches.push_back(batch.clone());
-            
+
             // Keep only last 100 completed batches
             while completed_batches.len() > 100 {
                 completed_batches.pop_front();
             }
             drop(completed_batches);
-            
+
             // Update stats
             let mut stats = self.stats.write().await;
             stats.update_with_completed_batch(&batch);
             stats.decrement_in_progress();
             drop(stats);
-            
+
             info!("Completed batch {} processing", batch_id);
         }
-        
+
         Ok(())
     }
-    
+
     /// Start background processing task
     async fn start_processing_task(&self) -> Result<()> {
         let processor = self.clone();
-        
+
         tokio::spawn(async move {
             let mut receiver = {
                 let mut receiver_lock = processor.batch_receiver.write().await;
                 receiver_lock.take()
             };
-            
+
             if let Some(ref mut rx) = receiver {
                 while let Some(batch) = rx.recv().await {
                     if let Err(e) = processor.process_completed_batch(batch).await {
                         error!("Error processing completed batch: {}", e);
                     }
-                    
+
                     // Try to form new batch after processing
                     if let Err(e) = processor.try_form_batch().await {
                         error!("Error forming new batch: {}", e);
@@ -291,16 +299,16 @@ impl BatchProcessor {
                 }
             }
         });
-        
+
         Ok(())
     }
-    
+
     /// Shutdown the batch processor
     pub async fn shutdown(&self) -> Result<()> {
         let mut state = self.state.write().await;
         *state = ProcessorState::Shutdown;
         drop(state);
-        
+
         info!("Batch processor shutdown completed");
         Ok(())
     }
@@ -309,30 +317,33 @@ impl BatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_processor_state_transitions() {
         let config = BatchConfig::default();
         let processor = BatchProcessor::new(config);
-        
+
         // Test initial state
-        assert_eq!(processor.state.blocking_read().clone(), ProcessorState::Uninitialized);
+        assert_eq!(
+            processor.state.blocking_read().clone(),
+            ProcessorState::Uninitialized
+        );
     }
-    
+
     #[test]
     fn test_batch_config_validation() {
         let mut config = BatchConfig::default();
         assert!(config.validate().is_ok());
-        
+
         // Test invalid max_batch_size
         config.max_batch_size = 0;
         assert!(config.validate().is_err());
-        
+
         // Test invalid max_wait_time_ms
         config.max_batch_size = 8;
         config.max_wait_time_ms = 0;
         assert!(config.validate().is_err());
-        
+
         // Test invalid min_batch_size
         config.max_wait_time_ms = 50;
         config.min_batch_size = 8;

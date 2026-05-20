@@ -1,14 +1,14 @@
 //! Spectral Mapper Agent
-//! 
+//!
 //! Spectral mapping and visualization systems
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Spectral Mapper Agent - Spectral mapping and visualization systems
 #[derive(Debug, Clone)]
@@ -171,21 +171,22 @@ impl BaseAgent for SpectralMapperAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "spectral_mapping".to_string(),
-                description: "Spectral mapping and visualization systems".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["spectral_data".to_string(), "mapping_parameters".to_string()],
-                output_types: vec!["mapped_data".to_string(), "visualization_data".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.91,
-                    avg_latency: 2500.0,
-                    resource_usage: 0.75,
-                    reliability: 0.93,
-                },
+        vec![AgentCapability {
+            name: "spectral_mapping".to_string(),
+            description: "Spectral mapping and visualization systems".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "spectral_data".to_string(),
+                "mapping_parameters".to_string(),
+            ],
+            output_types: vec!["mapped_data".to_string(), "visualization_data".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.91,
+                avg_latency: 2500.0,
+                resource_usage: 0.75,
+                reliability: 0.93,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -221,53 +222,75 @@ impl SpectralMapperAgent {
         }
     }
 
-    async fn map_spectral_data(&self, input: &SpectralMapperTaskInput) -> AgentResult<Vec<(f32, f32, f32)>> {
+    async fn map_spectral_data(
+        &self,
+        input: &SpectralMapperTaskInput,
+    ) -> AgentResult<Vec<(f32, f32, f32)>> {
         let mut mapped_data = Vec::new();
-        
+
         for (i, (freq, amp)) in input.spectral_data.iter().enumerate() {
             let x = *freq;
             let y = *amp;
             let z = (i as f32 * 0.1).sin();
             mapped_data.push((x, y, z));
         }
-        
+
         Ok(mapped_data)
     }
 
-    async fn generate_visualization(&self, input: &SpectralMapperTaskInput, mapped_data: &[(f32, f32, f32)]) -> AgentResult<Vec<u8>> {
+    async fn generate_visualization(
+        &self,
+        input: &SpectralMapperTaskInput,
+        mapped_data: &[(f32, f32, f32)],
+    ) -> AgentResult<Vec<u8>> {
         // Simple visualization data generation
         let data_size = mapped_data.len() * 4; // RGBA
         let mut visualization_data = Vec::with_capacity(data_size);
-        
+
         for (x, y, z) in mapped_data {
             let r = (x * 255.0) as u8;
             let g = (y * 255.0) as u8;
             let b = (z * 255.0) as u8;
             let a = 255;
-            
+
             visualization_data.extend_from_slice(&[r, g, b, a]);
         }
-        
+
         Ok(visualization_data)
     }
 
-    async fn create_color_map(&self, mapped_data: &[(f32, f32, f32)]) -> AgentResult<Vec<(f32, f32, f32)>> {
+    async fn create_color_map(
+        &self,
+        mapped_data: &[(f32, f32, f32)],
+    ) -> AgentResult<Vec<(f32, f32, f32)>> {
         let mut color_map = Vec::new();
-        
+
         for (x, y, z) in mapped_data {
             let r = x.abs().min(1.0);
             let g = y.abs().min(1.0);
             let b = z.abs().min(1.0);
             color_map.push((r, g, b));
         }
-        
+
         Ok(color_map)
     }
 
-    async fn assess_mapping_quality(&self, input: &SpectralMapperTaskInput, mapped_data: &[(f32, f32, f32)]) -> AgentResult<f32> {
-        let data_completeness = if input.spectral_data.len() == mapped_data.len() { 0.9 } else { 0.7 };
-        let parameter_validity = if input.mapping_parameters.len() > 0 { 0.8 } else { 0.6 };
-        
+    async fn assess_mapping_quality(
+        &self,
+        input: &SpectralMapperTaskInput,
+        mapped_data: &[(f32, f32, f32)],
+    ) -> AgentResult<f32> {
+        let data_completeness = if input.spectral_data.len() == mapped_data.len() {
+            0.9
+        } else {
+            0.7
+        };
+        let parameter_validity = if input.mapping_parameters.len() > 0 {
+            0.8
+        } else {
+            0.6
+        };
+
         Ok((data_completeness + parameter_validity) / 2.0)
     }
 }
@@ -297,7 +320,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.mapped_data.is_empty());
         assert!(!output.visualization_data.is_empty());

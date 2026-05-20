@@ -1,5 +1,5 @@
 //! Custom error types untuk Nexora AI
-//! 
+//!
 //! Module ini berisi definisi error types yang spesifik dan terstruktur
 //! untuk menggantikan generic error handling
 
@@ -27,7 +27,10 @@ pub enum NexoraError {
     Model { message: String },
 
     #[error("IO error: {source}")]
-    Io { #[from] source: std::io::Error },
+    Io {
+        #[from]
+        source: std::io::Error,
+    },
 
     #[error("Serialization error: {message}")]
     Serialization { message: String },
@@ -159,5 +162,3 @@ impl From<anyhow::Error> for NexoraError {
         Self::system(error.to_string())
     }
 }
-
-

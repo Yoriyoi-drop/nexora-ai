@@ -1,15 +1,15 @@
 //! API Middleware - Rust implementation
-//! 
+//!
 //! Middleware stack for request/response processing
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
 use tracing::warn;
 
-use crate::{Middleware, RequestContext, RateLimiter};
+use crate::{Middleware, RateLimiter, RequestContext};
 
 /// Middleware stack for processing requests and responses
 pub struct MiddlewareStack {
@@ -25,14 +25,18 @@ impl MiddlewareStack {
             rate_limiter: Arc::new(RateLimiter::new()),
         }
     }
-    
+
     /// Add middleware to stack
     pub fn add_middleware(&mut self, middleware: Arc<dyn Middleware>) {
         self.middlewares.push(middleware);
     }
-    
+
     /// Process request through middleware stack
-    pub async fn process_request(&self, ctx: &mut RequestContext, body: &mut Vec<u8>) -> Result<()> {
+    pub async fn process_request(
+        &self,
+        ctx: &mut RequestContext,
+        body: &mut Vec<u8>,
+    ) -> Result<()> {
         // Security middleware must run first (gate)
         for mw in &self.middlewares {
             if mw.name() == "security_middleware" {
@@ -42,7 +46,9 @@ impl MiddlewareStack {
 
         // Independent middleware (CORS, Logging, Compression, Auth, RateLimiting)
         // can run concurrently via cloned contexts
-        let independent: Vec<_> = self.middlewares.iter()
+        let independent: Vec<_> = self
+            .middlewares
+            .iter()
             .filter(|m| m.name() != "security_middleware")
             .collect();
 
@@ -61,7 +67,8 @@ impl MiddlewareStack {
                 }));
             }
             for handle in handles {
-                let result = handle.await
+                let result = handle
+                    .await
                     .map_err(|e| anyhow::anyhow!("Middleware join error: {}", e))??;
                 ctx.headers.extend(result.headers);
             }
@@ -70,15 +77,19 @@ impl MiddlewareStack {
         }
         Ok(())
     }
-    
+
     /// Process response through middleware stack
-    pub async fn process_response(&self, ctx: &mut RequestContext, response: &mut Vec<u8>) -> Result<()> {
+    pub async fn process_response(
+        &self,
+        ctx: &mut RequestContext,
+        response: &mut Vec<u8>,
+    ) -> Result<()> {
         for mw in &self.middlewares {
             mw.process_response(ctx, response).await?;
         }
         Ok(())
     }
-    
+
     /// Get rate limiter
     pub fn rate_limiter(&self) -> &Arc<RateLimiter> {
         &self.rate_limiter
@@ -115,8 +126,13 @@ impl AuthMiddleware {
             enable_auth,
         }
     }
-    
-    pub async fn add_api_key(&self, key: String, name: String, permissions: Vec<String>) -> Result<()> {
+
+    pub async fn add_api_key(
+        &self,
+        key: String,
+        name: String,
+        permissions: Vec<String>,
+    ) -> Result<()> {
         let info = ApiKeyInfo {
             key: key.clone(),
             name,
@@ -128,17 +144,17 @@ impl AuthMiddleware {
             last_used: None,
             usage_count: 0,
         };
-        
+
         let mut keys = self.api_keys.write().await;
         keys.insert(key, info);
         Ok(())
     }
-    
+
     pub async fn validate_api_key(&self, key: &str) -> Result<bool> {
         let keys = self.api_keys.read().await;
         Ok(keys.contains_key(key))
     }
-    
+
     pub async fn update_usage(&self, key: &str) -> Result<()> {
         let mut keys = self.api_keys.write().await;
         if let Some(info) = keys.get_mut(key) {
@@ -146,7 +162,7 @@ impl AuthMiddleware {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                    .as_secs()
+                    .as_secs(),
             );
             info.usage_count += 1;
         }
@@ -160,31 +176,38 @@ impl Middleware for AuthMiddleware {
         if !self.enable_auth {
             return Ok(());
         }
-        
+
         // Check for API key in headers
-        let api_key = ctx.headers.get("authorization")
+        let api_key = ctx
+            .headers
+            .get("authorization")
             .or_else(|| ctx.headers.get("x-api-key"))
             .and_then(|k| k.strip_prefix("Bearer "))
             .unwrap_or("");
-        
+
         if !self.validate_api_key(api_key).await? {
             return Err(anyhow::anyhow!("Invalid API key"));
         }
-        
+
         // Update usage statistics
         self.update_usage(api_key).await?;
-        
+
         // Add user info to context
-        ctx.headers.insert("authenticated".to_string(), "true".to_string());
-        
+        ctx.headers
+            .insert("authenticated".to_string(), "true".to_string());
+
         Ok(())
     }
-    
-    async fn process_response(&self, _ctx: &mut RequestContext, _response: &mut Vec<u8>) -> Result<()> {
+
+    async fn process_response(
+        &self,
+        _ctx: &mut RequestContext,
+        _response: &mut Vec<u8>,
+    ) -> Result<()> {
         // No post-processing needed for auth
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "auth_middleware"
     }
@@ -212,7 +235,7 @@ impl LoggingMiddleware {
             include_body,
         }
     }
-    
+
     fn should_log(&self, level: LogLevel) -> bool {
         match (&self.log_level, level) {
             (LogLevel::Debug, _) => true,
@@ -237,7 +260,7 @@ impl Middleware for LoggingMiddleware {
                 "Incoming request"
             );
         }
-        
+
         if self.should_log(LogLevel::Debug) && self.include_body {
             tracing::debug!(
                 request_id = %ctx.request_id,
@@ -245,11 +268,15 @@ impl Middleware for LoggingMiddleware {
                 "Request body"
             );
         }
-        
+
         Ok(())
     }
-    
-    async fn process_response(&self, ctx: &mut RequestContext, response: &mut Vec<u8>) -> Result<()> {
+
+    async fn process_response(
+        &self,
+        ctx: &mut RequestContext,
+        response: &mut Vec<u8>,
+    ) -> Result<()> {
         if self.should_log(LogLevel::Info) {
             tracing::info!(
                 request_id = %ctx.request_id,
@@ -257,7 +284,7 @@ impl Middleware for LoggingMiddleware {
                 "Response sent"
             );
         }
-        
+
         if self.should_log(LogLevel::Debug) && self.include_body {
             tracing::debug!(
                 request_id = %ctx.request_id,
@@ -265,10 +292,10 @@ impl Middleware for LoggingMiddleware {
                 "Response body"
             );
         }
-        
+
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "logging_middleware"
     }
@@ -307,17 +334,17 @@ impl RateLimitingMiddleware {
                 max_requests: self.default_limit,
                 window_seconds: self.window_seconds,
                 burst_size: None,
-            }
+            },
         );
     }
-    
+
     pub fn with_custom_limits(self, limits: HashMap<String, crate::RateLimit>) -> Self {
         for (key, limit) in limits {
             let _ = self.rate_limiter.add_limit(key, limit);
         }
         self
     }
-    
+
     fn get_client_key(&self, ctx: &RequestContext) -> String {
         // Use IP address as default key, fall back to default if no IP
         if ctx.client_ip.is_empty() {
@@ -326,7 +353,7 @@ impl RateLimitingMiddleware {
             ctx.client_ip.clone()
         }
     }
-    
+
     /// Add specific rate limit for an IP or client
     pub fn add_client_limit(&mut self, client_key: String, max_requests: u32, window_seconds: u64) {
         let _ = self.rate_limiter.add_limit(
@@ -335,28 +362,28 @@ impl RateLimitingMiddleware {
                 max_requests,
                 window_seconds,
                 burst_size: None,
-            }
+            },
         );
     }
-    
+
     /// Check if a specific client would be rate limited
     pub async fn is_rate_limited(&self, client_key: &str) -> Result<bool> {
         self.rate_limiter.check_rate_limit(client_key).await
     }
-    
+
     /// Get current request count for a client (approximate, from counters)
     pub async fn get_request_count(&self, _client_key: &str) -> Result<usize> {
         // Sliding window counter tidak menyimpan per-request timestamp
         // Kembalikan 0 sebagai placeholder — gunakan check_rate_limit untuk pengecekan
         Ok(0)
     }
-    
+
     /// Reset rate limit for a client
     pub async fn reset_rate_limit(&self, _client_key: &str) -> Result<()> {
         // Sliding window counter tidak perlu reset — window akan bergerak sendiri
         Ok(())
     }
-    
+
     /// Get rate limit statistics
     pub async fn get_statistics(&self) -> Result<RateLimitStatistics> {
         Ok(RateLimitStatistics {
@@ -366,7 +393,7 @@ impl RateLimitingMiddleware {
             average_requests_per_client: 0.0,
         })
     }
-    
+
     /// Clear rate limit data for a client
     pub async fn clear_client_data(&self, _client_key: &str) -> Result<()> {
         Ok(())
@@ -377,7 +404,7 @@ impl RateLimitingMiddleware {
 impl Middleware for RateLimitingMiddleware {
     async fn process_request(&self, ctx: &mut RequestContext, _body: &mut Vec<u8>) -> Result<()> {
         let client_key = self.get_client_key(ctx);
-        
+
         // Check rate limit with proper error handling
         match self.rate_limiter.check_rate_limit(&client_key).await {
             Ok(true) => {
@@ -385,39 +412,43 @@ impl Middleware for RateLimitingMiddleware {
                 if let Ok(count) = self.get_request_count(&client_key).await {
                     ctx.headers.insert(
                         "X-RateLimit-Limit".to_string(),
-                        self.default_limit.to_string()
+                        self.default_limit.to_string(),
                     );
                     ctx.headers.insert(
                         "X-RateLimit-Remaining".to_string(),
-                        (self.default_limit.saturating_sub(count as u32)).to_string()
+                        (self.default_limit.saturating_sub(count as u32)).to_string(),
                     );
                     ctx.headers.insert(
                         "X-RateLimit-Reset".to_string(),
                         (std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
-                            .as_secs() + self.window_seconds).to_string()
+                            .as_secs()
+                            + self.window_seconds)
+                            .to_string(),
                     );
                 }
                 Ok(())
-            },
+            }
             Ok(false) => {
                 // Rate limit exceeded
                 ctx.headers.insert(
                     "X-RateLimit-Limit".to_string(),
-                    self.default_limit.to_string()
+                    self.default_limit.to_string(),
                 );
-                ctx.headers.insert(
-                    "X-RateLimit-Remaining".to_string(),
-                    "0".to_string()
-                );
+                ctx.headers
+                    .insert("X-RateLimit-Remaining".to_string(), "0".to_string());
                 ctx.headers.insert(
                     "X-RateLimit-Retry-After".to_string(),
-                    self.window_seconds.to_string()
+                    self.window_seconds.to_string(),
                 );
-                Err(anyhow::anyhow!("Rate limit exceeded for client: {}. Limit: {} requests per {} seconds", 
-                    client_key, self.default_limit, self.window_seconds))
-            },
+                Err(anyhow::anyhow!(
+                    "Rate limit exceeded for client: {}. Limit: {} requests per {} seconds",
+                    client_key,
+                    self.default_limit,
+                    self.window_seconds
+                ))
+            }
             Err(e) => {
                 // Log error but allow request to continue (fail open)
                 tracing::warn!(
@@ -429,12 +460,16 @@ impl Middleware for RateLimitingMiddleware {
             }
         }
     }
-    
-    async fn process_response(&self, _ctx: &mut RequestContext, _response: &mut Vec<u8>) -> Result<()> {
+
+    async fn process_response(
+        &self,
+        _ctx: &mut RequestContext,
+        _response: &mut Vec<u8>,
+    ) -> Result<()> {
         // No response processing needed for rate limiting
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "rate_limiting_middleware"
     }
@@ -452,11 +487,11 @@ impl CorsMiddleware {
             allowed_origins: vec!["*".to_string()],
         }
     }
-    
+
     fn is_origin_allowed(&self, origin: &str) -> bool {
-        self.allowed_origins.iter().any(|allowed| {
-            allowed == "*" || allowed == origin
-        })
+        self.allowed_origins
+            .iter()
+            .any(|allowed| allowed == "*" || allowed == origin)
     }
 }
 
@@ -467,29 +502,33 @@ impl Middleware for CorsMiddleware {
         if ctx.method == "OPTIONS" {
             return Ok(());
         }
-        
+
         // Check Origin header
         if let Some(origin) = ctx.headers.get("origin") {
             if !self.is_origin_allowed(origin) {
                 return Err(anyhow::anyhow!("Origin not allowed: {}", origin));
             }
         }
-        
+
         Ok(())
     }
-    
-    async fn process_response(&self, ctx: &mut RequestContext, _response: &mut Vec<u8>) -> Result<()> {
+
+    async fn process_response(
+        &self,
+        ctx: &mut RequestContext,
+        _response: &mut Vec<u8>,
+    ) -> Result<()> {
         // Add CORS headers to response
         // Note: In a real implementation, this would modify HTTP headers
         // For now, we just log the CORS information
-        
+
         if ctx.method == "OPTIONS" {
             tracing::debug!("CORS preflight request processed");
         }
-        
+
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "cors_middleware"
     }
@@ -509,7 +548,7 @@ impl CompressionMiddleware {
             min_size,
         }
     }
-    
+
     fn should_compress(&self, content_length: usize) -> bool {
         self.enable_compression && content_length >= self.min_size
     }
@@ -519,30 +558,39 @@ impl CompressionMiddleware {
 impl Middleware for CompressionMiddleware {
     async fn process_request(&self, ctx: &mut RequestContext, _body: &mut Vec<u8>) -> Result<()> {
         // Check if client accepts compression
-        let accepts_encoding = ctx.headers.get("accept-encoding")
+        let accepts_encoding = ctx
+            .headers
+            .get("accept-encoding")
             .map(|s| s.contains("gzip"))
             .unwrap_or(false);
-        
+
         if accepts_encoding {
-            ctx.headers.insert("compression_supported".to_string(), "true".to_string());
+            ctx.headers
+                .insert("compression_supported".to_string(), "true".to_string());
         }
-        
+
         Ok(())
     }
-    
-    async fn process_response(&self, ctx: &mut RequestContext, response: &mut Vec<u8>) -> Result<()> {
+
+    async fn process_response(
+        &self,
+        ctx: &mut RequestContext,
+        response: &mut Vec<u8>,
+    ) -> Result<()> {
         if self.should_compress(response.len()) {
             let original_size = response.len();
-            
+
             // Perform compression using gzip
             match self.compress_data(response) {
                 Ok(compressed_data) => {
                     *response = compressed_data;
-                    
+
                     // Update response headers
-                    ctx.headers.insert("Content-Encoding".to_string(), "gzip".to_string());
-                    ctx.headers.insert("Content-Length".to_string(), response.len().to_string());
-                    
+                    ctx.headers
+                        .insert("Content-Encoding".to_string(), "gzip".to_string());
+                    ctx.headers
+                        .insert("Content-Length".to_string(), response.len().to_string());
+
                     tracing::info!(
                         request_id = %ctx.request_id,
                         original_size = original_size,
@@ -560,10 +608,10 @@ impl Middleware for CompressionMiddleware {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "compression_middleware"
     }
@@ -575,10 +623,12 @@ impl CompressionMiddleware {
         use flate2::write::GzEncoder;
         use flate2::Compression;
         use std::io::prelude::*;
-        
+
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(data)?;
-        encoder.finish().map_err(|e| anyhow::anyhow!("Compression failed: {}", e))
+        encoder
+            .finish()
+            .map_err(|e| anyhow::anyhow!("Compression failed: {}", e))
     }
 }
 
@@ -604,52 +654,55 @@ impl SecurityMiddleware {
             ],
         }
     }
-    
+
     fn is_suspicious_content(&self, content: &str) -> bool {
         let content_lower = content.to_lowercase();
-        self.suspicious_patterns.iter()
+        self.suspicious_patterns
+            .iter()
             .any(|pattern| content_lower.contains(pattern))
     }
-    
+
     fn is_suspicious_ip(&self, ip: &str) -> bool {
         // Basic IP reputation checking
         self.is_in_blacklist(ip) || self.is_suspicious_ip_pattern(ip)
     }
-    
+
     /// Check if IP is in blacklist
     fn is_in_blacklist(&self, ip: &str) -> bool {
         // Common malicious IP ranges and patterns
         let blacklist_patterns = vec![
-            "0.0.0.0", // Unspecified address
+            "0.0.0.0",   // Unspecified address
             "127.0.0.1", // Localhost (should be handled separately)
-            "::1", // IPv6 localhost
+            "::1",       // IPv6 localhost
         ];
-        
+
         // Check exact matches
         if blacklist_patterns.contains(&ip) {
             return true;
         }
-        
+
         // Check for suspicious IP patterns
         self.is_suspicious_ip_pattern(ip)
     }
-    
+
     /// Check for suspicious IP patterns
     fn is_suspicious_ip_pattern(&self, ip: &str) -> bool {
         // Check for private IP ranges that shouldn't be accessing public endpoints
-        if ip.starts_with("10.") || ip.starts_with("192.168.") || 
-           (ip.starts_with("172.") && self.is_in_172_16_31_range(ip)) {
+        if ip.starts_with("10.")
+            || ip.starts_with("192.168.")
+            || (ip.starts_with("172.") && self.is_in_172_16_31_range(ip))
+        {
             return true;
         }
-        
+
         // Check for known proxy/VPN patterns (simplified)
         if self.is_known_proxy_pattern(ip) {
             return true;
         }
-        
+
         false
     }
-    
+
     /// Check if IP is in 172.16.0.0/12 range
     fn is_in_172_16_31_range(&self, ip: &str) -> bool {
         if let Some(octets) = self.parse_ipv4(ip) {
@@ -658,33 +711,33 @@ impl SecurityMiddleware {
             false
         }
     }
-    
+
     /// Check for known proxy/VPN patterns
     fn is_known_proxy_pattern(&self, ip: &str) -> bool {
         // Simplified proxy detection - in production, use a proper IP reputation service
         let suspicious_asn_ranges = vec![
-            "1.0.0.0/8",   // APNIC
-            "2.0.0.0/8",   // RIPE NCC
-            "5.0.0.0/8",   // RIPE NCC
+            "1.0.0.0/8", // APNIC
+            "2.0.0.0/8", // RIPE NCC
+            "5.0.0.0/8", // RIPE NCC
         ];
-        
+
         // Check if IP falls in suspicious ranges
         for range in &suspicious_asn_ranges {
             if self.ip_in_range(ip, range) {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Parse IPv4 address into octets
     fn parse_ipv4(&self, ip: &str) -> Option<[u8; 4]> {
         let parts: Vec<&str> = ip.split('.').collect();
         if parts.len() != 4 {
             return None;
         }
-        
+
         let mut octets = [0u8; 4];
         for (i, part) in parts.iter().enumerate() {
             match part.parse::<u8>() {
@@ -692,14 +745,16 @@ impl SecurityMiddleware {
                 Err(_) => return None,
             }
         }
-        
+
         Some(octets)
     }
-    
+
     /// Check if IP is in CIDR range (simplified implementation)
     fn ip_in_range(&self, ip: &str, cidr: &str) -> bool {
         if let Some((network_str, prefix_str)) = cidr.split_once('/') {
-            if let (Some(network), Ok(prefix)) = (self.parse_ipv4(network_str), prefix_str.parse::<u8>()) {
+            if let (Some(network), Ok(prefix)) =
+                (self.parse_ipv4(network_str), prefix_str.parse::<u8>())
+            {
                 if let Some(target) = self.parse_ipv4(ip) {
                     // Simple CIDR check (for demonstration)
                     let mask = self.create_netmask(prefix);
@@ -711,12 +766,12 @@ impl SecurityMiddleware {
         }
         false
     }
-    
+
     /// Create netmask for CIDR
     fn create_netmask(&self, prefix: u8) -> [u8; 4] {
         let mut mask = [0u8; 4];
         let mut bits = prefix;
-        
+
         for i in 0..4 {
             if bits >= 8 {
                 mask[i] = 255;
@@ -728,10 +783,10 @@ impl SecurityMiddleware {
                 mask[i] = 0;
             }
         }
-        
+
         mask
     }
-    
+
     /// Apply netmask to IP
     fn apply_mask(&self, ip: [u8; 4], mask: [u8; 4]) -> [u8; 4] {
         [
@@ -750,26 +805,30 @@ impl Middleware for SecurityMiddleware {
         if body.len() > self.max_request_size {
             return Err(anyhow::anyhow!("Request too large: {} bytes", body.len()));
         }
-        
+
         // Check for suspicious IP
         if self.block_suspicious_ips && self.is_suspicious_ip(&ctx.client_ip) {
             return Err(anyhow::anyhow!("Suspicious IP blocked: {}", ctx.client_ip));
         }
-        
+
         // Check for suspicious content
         let body_str = String::from_utf8_lossy(body);
         if self.is_suspicious_content(&body_str) {
             return Err(anyhow::anyhow!("Suspicious content detected"));
         }
-        
+
         Ok(())
     }
-    
-    async fn process_response(&self, _ctx: &mut RequestContext, _response: &mut Vec<u8>) -> Result<()> {
+
+    async fn process_response(
+        &self,
+        _ctx: &mut RequestContext,
+        _response: &mut Vec<u8>,
+    ) -> Result<()> {
         // No post-processing needed for security
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "security_middleware"
     }
@@ -778,7 +837,7 @@ impl Middleware for SecurityMiddleware {
 /// Utility function to create default middleware stack
 pub async fn create_default_middleware_stack() -> MiddlewareStack {
     let mut stack = MiddlewareStack::new();
-    
+
     // Add default middlewares in order
     stack.add_middleware(Arc::new(SecurityMiddleware::new(10 * 1024 * 1024, true))); // 10MB max
     stack.add_middleware(Arc::new(LoggingMiddleware::new(LogLevel::Info, false)));
@@ -793,6 +852,6 @@ pub async fn create_default_middleware_stack() -> MiddlewareStack {
     warn!("Authentication is DISABLED by default. Set up API keys and enable auth for production.");
     stack.add_middleware(Arc::new(AuthMiddleware::new(false))); // Auth disabled by default
     stack.add_middleware(Arc::new(CompressionMiddleware::new(true, 1024)));
-    
+
     stack
 }

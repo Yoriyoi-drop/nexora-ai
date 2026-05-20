@@ -1,13 +1,13 @@
 //! Agent State
-//! 
+//!
 //! Shared runtime state untuk semua agent.
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 use crate::{AgentError, Result};
 
@@ -105,11 +105,25 @@ pub type StateChangeListener = Box<dyn Fn(StateChangeEvent) + Send + Sync>;
 #[derive(Debug, Clone)]
 pub enum StateChangeEvent {
     /// Global state changed
-    GlobalStateChanged { key: String, old_value: Option<serde_json::Value>, new_value: serde_json::Value },
+    GlobalStateChanged {
+        key: String,
+        old_value: Option<serde_json::Value>,
+        new_value: serde_json::Value,
+    },
     /// Session state changed
-    SessionStateChanged { session_id: Uuid, key: String, old_value: Option<serde_json::Value>, new_value: serde_json::Value },
+    SessionStateChanged {
+        session_id: Uuid,
+        key: String,
+        old_value: Option<serde_json::Value>,
+        new_value: serde_json::Value,
+    },
     /// Agent state changed
-    AgentStateChanged { agent_id: Uuid, key: String, old_value: Option<serde_json::Value>, new_value: serde_json::Value },
+    AgentStateChanged {
+        agent_id: Uuid,
+        key: String,
+        old_value: Option<serde_json::Value>,
+        new_value: serde_json::Value,
+    },
     /// Session created
     SessionCreated { session_id: Uuid },
     /// Session closed
@@ -135,12 +149,12 @@ impl AgentState {
             state_listeners: Arc::new(RwLock::new(Vec::new())),
         }
     }
-    
+
     /// Get global state
     pub async fn get_global_state(&self) -> GlobalState {
         self.global_state.read().await.clone()
     }
-    
+
     /// Update global state
     pub async fn update_global_state<F>(&self, updater: F) -> Result<()>
     where
@@ -149,9 +163,11 @@ impl AgentState {
         let mut global_state = self.global_state.write().await;
         updater(&mut global_state);
         global_state.last_updated = Utc::now();
-        
+
         // Skip full-state clone for diff — use dirty-key tracking instead
-        let changed_keys: Vec<String> = global_state.system_config.keys()
+        let changed_keys: Vec<String> = global_state
+            .system_config
+            .keys()
             .chain(global_state.counters.keys())
             .chain(global_state.flags.keys())
             .cloned()
@@ -161,31 +177,33 @@ impl AgentState {
                 key,
                 old_value: None,
                 new_value: serde_json::Value::Null,
-            }).await;
+            })
+            .await;
         }
-        
+
         Ok(())
     }
-    
+
     /// Get global config value
     pub async fn get_global_config(&self, key: &str) -> Option<serde_json::Value> {
         let global_state = self.global_state.read().await;
         global_state.system_config.get(key).cloned()
     }
-    
+
     /// Set global config value
     pub async fn set_global_config(&self, key: String, value: serde_json::Value) -> Result<()> {
         self.update_global_state(|state| {
             state.system_config.insert(key, value);
-        }).await
+        })
+        .await
     }
-    
+
     /// Get global counter
     pub async fn get_global_counter(&self, key: &str) -> Option<u64> {
         let global_state = self.global_state.read().await;
         global_state.counters.get(key).cloned()
     }
-    
+
     /// Increment global counter
     pub async fn increment_global_counter(&self, key: String, amount: u64) -> Result<u64> {
         let mut new_value = 0u64;
@@ -193,24 +211,26 @@ impl AgentState {
             let counter = state.counters.entry(key.clone()).or_insert(0);
             *counter += amount;
             new_value = *counter;
-        }).await?;
-        
+        })
+        .await?;
+
         Ok(new_value)
     }
-    
+
     /// Get global flag
     pub async fn get_global_flag(&self, key: &str) -> Option<bool> {
         let global_state = self.global_state.read().await;
         global_state.flags.get(key).cloned()
     }
-    
+
     /// Set global flag
     pub async fn set_global_flag(&self, key: String, value: bool) -> Result<()> {
         self.update_global_state(|state| {
             state.flags.insert(key, value);
-        }).await
+        })
+        .await
     }
-    
+
     /// Create new session
     pub async fn create_session(&self, session_id: Uuid, user_id: Option<Uuid>) -> Result<()> {
         let session_state = SessionState {
@@ -222,70 +242,84 @@ impl AgentState {
             last_activity: Utc::now(),
             status: SessionStatus::Active,
         };
-        
+
         let mut session_states = self.session_states.write().await;
         session_states.insert(session_id, session_state);
-        
+
         // Emit event
-        self.emit_state_change(StateChangeEvent::SessionCreated { session_id }).await;
-        
+        self.emit_state_change(StateChangeEvent::SessionCreated { session_id })
+            .await;
+
         Ok(())
     }
-    
+
     /// Get session state
     pub async fn get_session_state(&self, session_id: Uuid) -> Option<SessionState> {
         let session_states = self.session_states.read().await;
         session_states.get(&session_id).cloned()
     }
-    
+
     /// Update session state
     pub async fn update_session_state<F>(&self, session_id: Uuid, updater: F) -> Result<()>
     where
         F: FnOnce(&mut SessionState),
     {
         let mut session_states = self.session_states.write().await;
-        
+
         if let Some(session_state) = session_states.get_mut(&session_id) {
             let old_data = session_state.data.clone();
-            
+
             updater(session_state);
             session_state.last_activity = Utc::now();
-            
+
             // Emit changes
-            self.emit_session_state_changes(session_id, &old_data, &session_state.data).await;
-            
+            self.emit_session_state_changes(session_id, &old_data, &session_state.data)
+                .await;
+
             Ok(())
         } else {
-            Err(AgentError::StateError(format!("Session {} not found", session_id)))
+            Err(AgentError::StateError(format!(
+                "Session {} not found",
+                session_id
+            )))
         }
     }
-    
+
     /// Set session data
-    pub async fn set_session_data(&self, session_id: Uuid, key: String, value: serde_json::Value) -> Result<()> {
+    pub async fn set_session_data(
+        &self,
+        session_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<()> {
         self.update_session_state(session_id, |state| {
             state.data.insert(key, value);
-        }).await
+        })
+        .await
     }
-    
+
     /// Get session data
     pub async fn get_session_data(&self, session_id: Uuid, key: &str) -> Option<serde_json::Value> {
         let session_states = self.session_states.read().await;
-        session_states.get(&session_id)
+        session_states
+            .get(&session_id)
             .and_then(|state| state.data.get(key).cloned())
     }
-    
+
     /// Close session
     pub async fn close_session(&self, session_id: Uuid) -> Result<()> {
         self.update_session_state(session_id, |state| {
             state.status = SessionStatus::Closed;
-        }).await?;
-        
+        })
+        .await?;
+
         // Emit event
-        self.emit_state_change(StateChangeEvent::SessionClosed { session_id }).await;
-        
+        self.emit_state_change(StateChangeEvent::SessionClosed { session_id })
+            .await;
+
         Ok(())
     }
-    
+
     /// Register agent state
     pub async fn register_agent(&self, agent_id: Uuid, agent_type: String) -> Result<()> {
         let agent_state = AgentSpecificState {
@@ -296,83 +330,111 @@ impl AgentState {
             metrics: AgentMetrics::default(),
             last_updated: Utc::now(),
         };
-        
+
         let mut agent_states = self.agent_states.write().await;
         agent_states.insert(agent_id, agent_state);
-        
+
         // Emit event
-        self.emit_state_change(StateChangeEvent::AgentRegistered { agent_id }).await;
-        
+        self.emit_state_change(StateChangeEvent::AgentRegistered { agent_id })
+            .await;
+
         Ok(())
     }
-    
+
     /// Unregister agent state
     pub async fn unregister_agent(&self, agent_id: Uuid) -> Result<()> {
         let mut agent_states = self.agent_states.write().await;
         agent_states.remove(&agent_id);
-        
+
         // Emit event
-        self.emit_state_change(StateChangeEvent::AgentUnregistered { agent_id }).await;
-        
+        self.emit_state_change(StateChangeEvent::AgentUnregistered { agent_id })
+            .await;
+
         Ok(())
     }
-    
+
     /// Get agent state
     pub async fn get_agent_state(&self, agent_id: Uuid) -> Option<AgentSpecificState> {
         let agent_states = self.agent_states.read().await;
         agent_states.get(&agent_id).cloned()
     }
-    
+
     /// Update agent state
     pub async fn update_agent_state<F>(&self, agent_id: Uuid, updater: F) -> Result<()>
     where
         F: FnOnce(&mut AgentSpecificState),
     {
         let mut agent_states = self.agent_states.write().await;
-        
+
         if let Some(agent_state) = agent_states.get_mut(&agent_id) {
             let old_shared_data = agent_state.shared_data.clone();
-            
+
             updater(agent_state);
             agent_state.last_updated = Utc::now();
-            
+
             // Emit changes
-            self.emit_agent_state_changes(agent_id, &old_shared_data, &agent_state.shared_data).await;
-            
+            self.emit_agent_state_changes(agent_id, &old_shared_data, &agent_state.shared_data)
+                .await;
+
             Ok(())
         } else {
-            Err(AgentError::StateError(format!("Agent {} not found", agent_id)))
+            Err(AgentError::StateError(format!(
+                "Agent {} not found",
+                agent_id
+            )))
         }
     }
-    
+
     /// Set agent private data
-    pub async fn set_agent_private_data(&self, agent_id: Uuid, key: String, value: serde_json::Value) -> Result<()> {
+    pub async fn set_agent_private_data(
+        &self,
+        agent_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<()> {
         self.update_agent_state(agent_id, |state| {
             state.private_data.insert(key, value);
-        }).await
+        })
+        .await
     }
-    
+
     /// Get agent private data
-    pub async fn get_agent_private_data(&self, agent_id: Uuid, key: &str) -> Option<serde_json::Value> {
+    pub async fn get_agent_private_data(
+        &self,
+        agent_id: Uuid,
+        key: &str,
+    ) -> Option<serde_json::Value> {
         let agent_states = self.agent_states.read().await;
-        agent_states.get(&agent_id)
+        agent_states
+            .get(&agent_id)
             .and_then(|state| state.private_data.get(key).cloned())
     }
-    
+
     /// Set agent shared data
-    pub async fn set_agent_shared_data(&self, agent_id: Uuid, key: String, value: serde_json::Value) -> Result<()> {
+    pub async fn set_agent_shared_data(
+        &self,
+        agent_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<()> {
         self.update_agent_state(agent_id, |state| {
             state.shared_data.insert(key, value);
-        }).await
+        })
+        .await
     }
-    
+
     /// Get agent shared data
-    pub async fn get_agent_shared_data(&self, agent_id: Uuid, key: &str) -> Option<serde_json::Value> {
+    pub async fn get_agent_shared_data(
+        &self,
+        agent_id: Uuid,
+        key: &str,
+    ) -> Option<serde_json::Value> {
         let agent_states = self.agent_states.read().await;
-        agent_states.get(&agent_id)
+        agent_states
+            .get(&agent_id)
             .and_then(|state| state.shared_data.get(key).cloned())
     }
-    
+
     /// Update agent metrics
     pub async fn update_agent_metrics<F>(&self, agent_id: Uuid, updater: F) -> Result<()>
     where
@@ -380,47 +442,49 @@ impl AgentState {
     {
         self.update_agent_state(agent_id, |state| {
             updater(&mut state.metrics);
-        }).await
+        })
+        .await
     }
-    
+
     /// Add state change listener
     pub async fn add_state_listener(&self, listener: StateChangeListener) {
         let mut listeners = self.state_listeners.write().await;
         listeners.push(listener);
     }
-    
+
     /// Get all active sessions
     pub async fn get_active_sessions(&self) -> Vec<SessionState> {
         let session_states = self.session_states.read().await;
-        session_states.values()
+        session_states
+            .values()
             .filter(|state| state.status == SessionStatus::Active)
             .cloned()
             .collect()
     }
-    
+
     /// Cleanup old sessions
     pub async fn cleanup_old_sessions(&self, max_idle_hours: u64) -> Result<usize> {
         let now = Utc::now();
         let mut removed_count = 0;
-        
+
         {
             let mut session_states = self.session_states.write().await;
             session_states.retain(|_session_id, state| {
                 let idle_hours = (now - state.last_activity).num_hours() as u64;
-                let should_keep = idle_hours <= max_idle_hours || 
-                                state.status == SessionStatus::Active;
-                
+                let should_keep =
+                    idle_hours <= max_idle_hours || state.status == SessionStatus::Active;
+
                 if !should_keep {
                     removed_count += 1;
                 }
-                
+
                 should_keep
             });
         }
-        
+
         Ok(removed_count)
     }
-    
+
     /// Emit state change event
     async fn emit_state_change(&self, event: StateChangeEvent) {
         let listeners = self.state_listeners.read().await;
@@ -428,7 +492,7 @@ impl AgentState {
             listener(event.clone());
         }
     }
-    
+
     /// Emit global state changes
     async fn emit_global_state_changes(&self, old_state: &GlobalState, new_state: &GlobalState) {
         // Check for config changes
@@ -443,20 +507,21 @@ impl AgentState {
                 self.emit_state_change(event).await;
             }
         }
-        
+
         // Check for counter changes
         for (key, &new_value) in &new_state.counters {
             let old_value = old_state.counters.get(key);
             if old_value != Some(&new_value) {
                 let event = StateChangeEvent::GlobalStateChanged {
                     key: key.clone(),
-                    old_value: old_value.map(|v| serde_json::Value::Number(serde_json::Number::from(*v))),
+                    old_value: old_value
+                        .map(|v| serde_json::Value::Number(serde_json::Number::from(*v))),
                     new_value: serde_json::Value::Number(serde_json::Number::from(new_value)),
                 };
                 self.emit_state_change(event).await;
             }
         }
-        
+
         // Check for flag changes
         for (key, &new_value) in &new_state.flags {
             let old_value = old_state.flags.get(key);
@@ -470,9 +535,14 @@ impl AgentState {
             }
         }
     }
-    
+
     /// Emit session state changes
-    async fn emit_session_state_changes(&self, session_id: Uuid, old_data: &HashMap<String, serde_json::Value>, new_data: &HashMap<String, serde_json::Value>) {
+    async fn emit_session_state_changes(
+        &self,
+        session_id: Uuid,
+        old_data: &HashMap<String, serde_json::Value>,
+        new_data: &HashMap<String, serde_json::Value>,
+    ) {
         for (key, new_value) in new_data {
             let old_value = old_data.get(key);
             if old_value != Some(new_value) {
@@ -486,9 +556,14 @@ impl AgentState {
             }
         }
     }
-    
+
     /// Emit agent state changes
-    async fn emit_agent_state_changes(&self, agent_id: Uuid, old_data: &HashMap<String, serde_json::Value>, new_data: &HashMap<String, serde_json::Value>) {
+    async fn emit_agent_state_changes(
+        &self,
+        agent_id: Uuid,
+        old_data: &HashMap<String, serde_json::Value>,
+        new_data: &HashMap<String, serde_json::Value>,
+    ) {
         for (key, new_value) in new_data {
             let old_value = old_data.get(key);
             if old_value != Some(new_value) {

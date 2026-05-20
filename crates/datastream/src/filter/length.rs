@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct LengthFilter {
@@ -38,19 +38,34 @@ impl Filter for LengthFilter {
 
         let mut reason = None;
         let passed = if char_count < self.min_chars {
-            reason = Some(format!("too_short: {} chars < {}", char_count, self.min_chars));
+            reason = Some(format!(
+                "too_short: {} chars < {}",
+                char_count, self.min_chars
+            ));
             false
         } else if char_count > self.max_chars {
-            reason = Some(format!("too_long: {} chars > {}", char_count, self.max_chars));
+            reason = Some(format!(
+                "too_long: {} chars > {}",
+                char_count, self.max_chars
+            ));
             false
         } else if word_count < self.min_words {
-            reason = Some(format!("too_few_words: {} < {}", word_count, self.min_words));
+            reason = Some(format!(
+                "too_few_words: {} < {}",
+                word_count, self.min_words
+            ));
             false
         } else if word_count > self.max_words {
-            reason = Some(format!("too_many_words: {} > {}", word_count, self.max_words));
+            reason = Some(format!(
+                "too_many_words: {} > {}",
+                word_count, self.max_words
+            ));
             false
         } else if line_count < self.min_lines {
-            reason = Some(format!("too_few_lines: {} < {}", line_count, self.min_lines));
+            reason = Some(format!(
+                "too_few_lines: {} < {}",
+                line_count, self.min_lines
+            ));
             false
         } else {
             true

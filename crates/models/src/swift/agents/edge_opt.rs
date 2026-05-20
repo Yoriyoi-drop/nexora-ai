@@ -1,14 +1,14 @@
 //! Edge Opt Agent
-//! 
+//!
 //! Runtime optimization for dynamic edge conditions
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Edge Opt Agent - Runtime optimization for edge conditions
 #[derive(Debug, Clone)]
@@ -83,9 +83,14 @@ pub struct HardwareState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkState {
-    Connected { bandwidth_mbps: f32, latency_ms: u32 },
+    Connected {
+        bandwidth_mbps: f32,
+        latency_ms: u32,
+    },
     Disconnected,
-    Poor { signal_strength: f32 },
+    Poor {
+        signal_strength: f32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,7 +152,10 @@ pub enum OptimizationAction {
     /// Enable/disable CPU cores
     ManageCpuCores { active_cores: u32 },
     /// Adjust memory allocation
-    OptimizeMemory { target_mb: u32, strategy: MemoryStrategy },
+    OptimizeMemory {
+        target_mb: u32,
+        strategy: MemoryStrategy,
+    },
     /// Enable thermal throttling
     EnableThermalThrottling { max_temp_celsius: f32 },
     /// Switch to battery saver mode
@@ -155,7 +163,9 @@ pub enum OptimizationAction {
     /// Adjust model complexity
     AdaptModelComplexity { complexity_level: ModelComplexity },
     /// Optimize inference pipeline
-    OptimizePipeline { optimization_level: PipelineOptimization },
+    OptimizePipeline {
+        optimization_level: PipelineOptimization,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -395,7 +405,10 @@ impl Default for HardwareState {
             memory_usage_mb: 128.0,
             battery_level_percent: Some(80.0),
             thermal_state_celsius: 45.0,
-            network_connectivity: NetworkState::Connected { bandwidth_mbps: 100.0, latency_ms: 50 },
+            network_connectivity: NetworkState::Connected {
+                bandwidth_mbps: 100.0,
+                latency_ms: 50,
+            },
             power_consumption_mw: 500.0,
             cpu_frequency_ghz: 2.0,
             gpu_utilization: None,
@@ -449,7 +462,10 @@ impl Default for AdaptationStrategy {
     fn default() -> Self {
         Self {
             strategy_type: AdaptationType::Hybrid,
-            adaptation_rate: AdaptationRate::Dynamic { min_seconds: 1, max_seconds: 10 },
+            adaptation_rate: AdaptationRate::Dynamic {
+                min_seconds: 1,
+                max_seconds: 10,
+            },
             stability_margin: 0.1,
             prediction_horizon_seconds: 30,
         }
@@ -484,15 +500,21 @@ impl BaseAgent for EdgeOptAgent {
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         // Analyze current resource state
         let resource_assessment = self.assess_resources(&input).await?;
-        
+
         // Generate optimization plan
-        let optimization_plan = self.generate_optimization_plan(&input, &resource_assessment).await?;
-        
+        let optimization_plan = self
+            .generate_optimization_plan(&input, &resource_assessment)
+            .await?;
+
         // Forecast performance impact
-        let performance_forecast = self.forecast_performance(&optimization_plan, &input).await?;
-        
+        let performance_forecast = self
+            .forecast_performance(&optimization_plan, &input)
+            .await?;
+
         // Generate adaptation recommendations
-        let adaptation_recommendations = self.generate_adaptation_recommendations(&resource_assessment, &optimization_plan).await?;
+        let adaptation_recommendations = self
+            .generate_adaptation_recommendations(&resource_assessment, &optimization_plan)
+            .await?;
 
         Ok(EdgeOptTaskOutput {
             optimization_plan,
@@ -511,21 +533,25 @@ impl BaseAgent for EdgeOptAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "edge_opt".to_string(),
-                description: "Runtime optimization for dynamic edge conditions".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["hardware_state".to_string(), "performance_requirements".to_string()],
-                output_types: vec!["optimization_plan".to_string(), "resource_assessment".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.94,
-                    avg_latency: 2.0,
-                    resource_usage: 0.5,
-                    reliability: 0.96,
-                },
+        vec![AgentCapability {
+            name: "edge_opt".to_string(),
+            description: "Runtime optimization for dynamic edge conditions".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "hardware_state".to_string(),
+                "performance_requirements".to_string(),
+            ],
+            output_types: vec![
+                "optimization_plan".to_string(),
+                "resource_assessment".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.94,
+                avg_latency: 2.0,
+                resource_usage: 0.5,
+                reliability: 0.96,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -565,14 +591,21 @@ impl EdgeOptAgent {
     async fn assess_resources(&self, input: &EdgeOptTaskInput) -> AgentResult<ResourceAssessment> {
         let current_utilization = ResourceUtilization {
             cpu_utilization_percent: input.current_hardware_state.cpu_usage_percent,
-            memory_utilization_percent: (input.current_hardware_state.memory_usage_mb / input.optimization_constraints.max_memory_mb as f32) * 100.0,
-            power_utilization_percent: (input.current_hardware_state.power_consumption_mw / input.optimization_constraints.max_power_mw as f32) * 100.0,
-            thermal_utilization_percent: (input.current_hardware_state.thermal_state_celsius / input.optimization_constraints.max_temperature_celsius) * 100.0,
+            memory_utilization_percent: (input.current_hardware_state.memory_usage_mb
+                / input.optimization_constraints.max_memory_mb as f32)
+                * 100.0,
+            power_utilization_percent: (input.current_hardware_state.power_consumption_mw
+                / input.optimization_constraints.max_power_mw as f32)
+                * 100.0,
+            thermal_utilization_percent: (input.current_hardware_state.thermal_state_celsius
+                / input.optimization_constraints.max_temperature_celsius)
+                * 100.0,
         };
 
         let primary_bottleneck = self.identify_primary_bottleneck(&current_utilization);
         let secondary_bottlenecks = self.identify_secondary_bottlenecks(&current_utilization);
-        let mitigation_suggestions = self.generate_mitigation_suggestions(&primary_bottleneck, &secondary_bottlenecks);
+        let mitigation_suggestions =
+            self.generate_mitigation_suggestions(&primary_bottleneck, &secondary_bottlenecks);
 
         let bottleneck_analysis = BottleneckAnalysis {
             primary_bottleneck,
@@ -582,7 +615,10 @@ impl EdgeOptAgent {
         };
 
         let resource_trends = self.analyze_resource_trends(&input.current_hardware_state);
-        let capacity_remaining = self.calculate_capacity_remaining(&input.current_hardware_state, &input.optimization_constraints);
+        let capacity_remaining = self.calculate_capacity_remaining(
+            &input.current_hardware_state,
+            &input.optimization_constraints,
+        );
 
         Ok(ResourceAssessment {
             current_utilization,
@@ -592,52 +628,85 @@ impl EdgeOptAgent {
         })
     }
 
-    fn identify_primary_bottleneck(&self, utilization: &ResourceUtilization) -> Option<BottleneckType> {
+    fn identify_primary_bottleneck(
+        &self,
+        utilization: &ResourceUtilization,
+    ) -> Option<BottleneckType> {
         let thresholds = vec![
             (utilization.cpu_utilization_percent, BottleneckType::CPU),
-            (utilization.memory_utilization_percent, BottleneckType::Memory),
+            (
+                utilization.memory_utilization_percent,
+                BottleneckType::Memory,
+            ),
             (utilization.power_utilization_percent, BottleneckType::Power),
-            (utilization.thermal_utilization_percent, BottleneckType::Thermal),
+            (
+                utilization.thermal_utilization_percent,
+                BottleneckType::Thermal,
+            ),
         ];
 
-        thresholds.into_iter()
+        thresholds
+            .into_iter()
             .filter(|(percent, _)| *percent > 80.0)
             .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(_, bottleneck_type)| bottleneck_type)
     }
 
-    fn identify_secondary_bottlenecks(&self, utilization: &ResourceUtilization) -> Vec<BottleneckType> {
+    fn identify_secondary_bottlenecks(
+        &self,
+        utilization: &ResourceUtilization,
+    ) -> Vec<BottleneckType> {
         let thresholds = vec![
             (utilization.cpu_utilization_percent, BottleneckType::CPU),
-            (utilization.memory_utilization_percent, BottleneckType::Memory),
+            (
+                utilization.memory_utilization_percent,
+                BottleneckType::Memory,
+            ),
             (utilization.power_utilization_percent, BottleneckType::Power),
-            (utilization.thermal_utilization_percent, BottleneckType::Thermal),
+            (
+                utilization.thermal_utilization_percent,
+                BottleneckType::Thermal,
+            ),
         ];
 
-        thresholds.into_iter()
+        thresholds
+            .into_iter()
             .filter(|(percent, _)| *percent > 60.0 && *percent <= 80.0)
             .map(|(_, bottleneck_type)| bottleneck_type)
             .collect()
     }
 
     fn calculate_bottleneck_severity(&self, utilization: &ResourceUtilization) -> f32 {
-        let max_utilization = utilization.cpu_utilization_percent
+        let max_utilization = utilization
+            .cpu_utilization_percent
             .max(utilization.memory_utilization_percent)
             .max(utilization.power_utilization_percent)
             .max(utilization.thermal_utilization_percent);
-        
+
         (max_utilization - 80.0).max(0.0) / 20.0 // Normalize to 0-1 range
     }
 
-    fn generate_mitigation_suggestions(&self, primary: &Option<BottleneckType>, secondary: &[BottleneckType]) -> Vec<String> {
+    fn generate_mitigation_suggestions(
+        &self,
+        primary: &Option<BottleneckType>,
+        secondary: &[BottleneckType],
+    ) -> Vec<String> {
         let mut suggestions = Vec::new();
 
         if let Some(bottleneck) = primary {
             suggestions.push(match bottleneck {
-                BottleneckType::CPU => "Reduce CPU frequency or enable parallel processing".to_string(),
-                BottleneckType::Memory => "Implement memory pooling or reduce model size".to_string(),
-                BottleneckType::Power => "Enable battery saver mode or reduce processing intensity".to_string(),
-                BottleneckType::Thermal => "Enable thermal throttling or reduce workload".to_string(),
+                BottleneckType::CPU => {
+                    "Reduce CPU frequency or enable parallel processing".to_string()
+                }
+                BottleneckType::Memory => {
+                    "Implement memory pooling or reduce model size".to_string()
+                }
+                BottleneckType::Power => {
+                    "Enable battery saver mode or reduce processing intensity".to_string()
+                }
+                BottleneckType::Thermal => {
+                    "Enable thermal throttling or reduce workload".to_string()
+                }
                 _ => "Monitor and optimize resource usage".to_string(),
             });
         }
@@ -666,16 +735,27 @@ impl EdgeOptAgent {
         }
     }
 
-    fn calculate_capacity_remaining(&self, state: &HardwareState, constraints: &ResourceConstraints) -> CapacityRemaining {
+    fn calculate_capacity_remaining(
+        &self,
+        state: &HardwareState,
+        constraints: &ResourceConstraints,
+    ) -> CapacityRemaining {
         CapacityRemaining {
             cpu_capacity_percent: (constraints.max_cpu_percent - state.cpu_usage_percent).max(0.0),
             memory_capacity_mb: (constraints.max_memory_mb as f32 - state.memory_usage_mb).max(0.0),
-            power_capacity_mw: (constraints.max_power_mw as f32 - state.power_consumption_mw).max(0.0),
-            thermal_headroom_celsius: (constraints.max_temperature_celsius - state.thermal_state_celsius).max(0.0),
+            power_capacity_mw: (constraints.max_power_mw as f32 - state.power_consumption_mw)
+                .max(0.0),
+            thermal_headroom_celsius: (constraints.max_temperature_celsius
+                - state.thermal_state_celsius)
+                .max(0.0),
         }
     }
 
-    async fn generate_optimization_plan(&self, input: &EdgeOptTaskInput, assessment: &ResourceAssessment) -> AgentResult<OptimizationPlan> {
+    async fn generate_optimization_plan(
+        &self,
+        input: &EdgeOptTaskInput,
+        assessment: &ResourceAssessment,
+    ) -> AgentResult<OptimizationPlan> {
         let primary_action = self.determine_primary_optimization_action(input, assessment);
         let secondary_actions = self.determine_secondary_optimization_actions(input, assessment);
         let expected_impact = self.predict_optimization_impact(&primary_action, assessment);
@@ -691,46 +771,54 @@ impl EdgeOptAgent {
         })
     }
 
-    fn determine_primary_optimization_action(&self, input: &EdgeOptTaskInput, assessment: &ResourceAssessment) -> OptimizationAction {
+    fn determine_primary_optimization_action(
+        &self,
+        input: &EdgeOptTaskInput,
+        assessment: &ResourceAssessment,
+    ) -> OptimizationAction {
         if let Some(bottleneck) = &assessment.bottleneck_analysis.primary_bottleneck {
             match bottleneck {
                 BottleneckType::CPU => OptimizationAction::AdjustCpuFrequency { target_ghz: 1.5 },
-                BottleneckType::Memory => OptimizationAction::OptimizeMemory { 
-                    target_mb: 256, 
-                    strategy: MemoryStrategy::Balanced 
+                BottleneckType::Memory => OptimizationAction::OptimizeMemory {
+                    target_mb: 256,
+                    strategy: MemoryStrategy::Balanced,
                 },
-                BottleneckType::Power => OptimizationAction::EnableBatterySaver { 
-                    aggressiveness: BatterySaverLevel::Medium 
+                BottleneckType::Power => OptimizationAction::EnableBatterySaver {
+                    aggressiveness: BatterySaverLevel::Medium,
                 },
-                BottleneckType::Thermal => OptimizationAction::EnableThermalThrottling { 
-                    max_temp_celsius: 75.0 
+                BottleneckType::Thermal => OptimizationAction::EnableThermalThrottling {
+                    max_temp_celsius: 75.0,
                 },
-                _ => OptimizationAction::AdaptModelComplexity { 
-                    complexity_level: ModelComplexity::Medium 
+                _ => OptimizationAction::AdaptModelComplexity {
+                    complexity_level: ModelComplexity::Medium,
                 },
             }
         } else {
-            OptimizationAction::AdaptModelComplexity { 
-                complexity_level: ModelComplexity::High 
+            OptimizationAction::AdaptModelComplexity {
+                complexity_level: ModelComplexity::High,
             }
         }
     }
 
-    fn determine_secondary_optimization_actions(&self, _input: &EdgeOptTaskInput, assessment: &ResourceAssessment) -> Vec<OptimizationAction> {
+    fn determine_secondary_optimization_actions(
+        &self,
+        _input: &EdgeOptTaskInput,
+        assessment: &ResourceAssessment,
+    ) -> Vec<OptimizationAction> {
         let mut actions = Vec::new();
 
         for bottleneck in &assessment.bottleneck_analysis.secondary_bottlenecks {
             actions.push(match bottleneck {
                 BottleneckType::CPU => OptimizationAction::ManageCpuCores { active_cores: 2 },
-                BottleneckType::Memory => OptimizationAction::OptimizeMemory { 
-                    target_mb: 200, 
-                    strategy: MemoryStrategy::Conservative 
+                BottleneckType::Memory => OptimizationAction::OptimizeMemory {
+                    target_mb: 200,
+                    strategy: MemoryStrategy::Conservative,
                 },
-                BottleneckType::Power => OptimizationAction::EnableBatterySaver { 
-                    aggressiveness: BatterySaverLevel::Low 
+                BottleneckType::Power => OptimizationAction::EnableBatterySaver {
+                    aggressiveness: BatterySaverLevel::Low,
                 },
-                BottleneckType::Thermal => OptimizationAction::EnableThermalThrottling { 
-                    max_temp_celsius: 80.0 
+                BottleneckType::Thermal => OptimizationAction::EnableThermalThrottling {
+                    max_temp_celsius: 80.0,
                 },
                 _ => continue,
             });
@@ -739,7 +827,11 @@ impl EdgeOptAgent {
         actions
     }
 
-    fn predict_optimization_impact(&self, action: &OptimizationAction, _assessment: &ResourceAssessment) -> ImpactPrediction {
+    fn predict_optimization_impact(
+        &self,
+        action: &OptimizationAction,
+        _assessment: &ResourceAssessment,
+    ) -> ImpactPrediction {
         match action {
             OptimizationAction::AdjustCpuFrequency { .. } => ImpactPrediction {
                 latency_change_percent: -15.0,
@@ -784,19 +876,27 @@ impl EdgeOptAgent {
 
     fn generate_rollback_plan(&self, action: &OptimizationAction) -> Option<OptimizationAction> {
         match action {
-            OptimizationAction::AdjustCpuFrequency { .. } => Some(OptimizationAction::AdjustCpuFrequency { target_ghz: 2.0 }),
-            OptimizationAction::OptimizeMemory { .. } => Some(OptimizationAction::OptimizeMemory { 
-                target_mb: 512, 
-                strategy: MemoryStrategy::Balanced 
+            OptimizationAction::AdjustCpuFrequency { .. } => {
+                Some(OptimizationAction::AdjustCpuFrequency { target_ghz: 2.0 })
+            }
+            OptimizationAction::OptimizeMemory { .. } => Some(OptimizationAction::OptimizeMemory {
+                target_mb: 512,
+                strategy: MemoryStrategy::Balanced,
             }),
-            OptimizationAction::EnableBatterySaver { .. } => Some(OptimizationAction::EnableBatterySaver { 
-                aggressiveness: BatterySaverLevel::Low 
-            }),
+            OptimizationAction::EnableBatterySaver { .. } => {
+                Some(OptimizationAction::EnableBatterySaver {
+                    aggressiveness: BatterySaverLevel::Low,
+                })
+            }
             _ => None,
         }
     }
 
-    async fn forecast_performance(&self, plan: &OptimizationPlan, input: &EdgeOptTaskInput) -> AgentResult<PerformanceForecast> {
+    async fn forecast_performance(
+        &self,
+        plan: &OptimizationPlan,
+        input: &EdgeOptTaskInput,
+    ) -> AgentResult<PerformanceForecast> {
         let base_latency = input.performance_requirements.target_latency_ms as f32;
         let base_throughput = input.performance_requirements.target_throughput_ops_per_sec;
         let base_accuracy = input.performance_requirements.target_accuracy;
@@ -806,31 +906,46 @@ impl EdgeOptAgent {
 
         Ok(PerformanceForecast {
             predicted_latency_ms: base_latency * (1.0 + impact.latency_change_percent / 100.0),
-            predicted_throughput_ops_per_sec: base_throughput * (1.0 + impact.throughput_change_percent / 100.0) as f64,
+            predicted_throughput_ops_per_sec: base_throughput
+                * (1.0 + impact.throughput_change_percent / 100.0) as f64,
             predicted_accuracy: base_accuracy * (1.0 + impact.accuracy_change_percent / 100.0),
-            predicted_energy_efficiency: base_efficiency * (1.0 + impact.power_change_percent / 100.0),
+            predicted_energy_efficiency: base_efficiency
+                * (1.0 + impact.power_change_percent / 100.0),
             forecast_confidence: impact.confidence,
             time_horizon_seconds: 60,
         })
     }
 
-    async fn generate_adaptation_recommendations(&self, assessment: &ResourceAssessment, plan: &OptimizationPlan) -> AgentResult<Vec<String>> {
+    async fn generate_adaptation_recommendations(
+        &self,
+        assessment: &ResourceAssessment,
+        plan: &OptimizationPlan,
+    ) -> AgentResult<Vec<String>> {
         let mut recommendations = Vec::new();
 
         // Add recommendations based on bottlenecks
         if let Some(bottleneck) = &assessment.bottleneck_analysis.primary_bottleneck {
             recommendations.push(match bottleneck {
-                BottleneckType::CPU => "Consider upgrading CPU or implementing better parallel processing".to_string(),
-                BottleneckType::Memory => "Memory pressure detected - consider memory optimization techniques".to_string(),
-                BottleneckType::Power => "High power consumption - battery optimization recommended".to_string(),
-                BottleneckType::Thermal => "Thermal throttling may be needed - monitor temperature closely".to_string(),
+                BottleneckType::CPU => {
+                    "Consider upgrading CPU or implementing better parallel processing".to_string()
+                }
+                BottleneckType::Memory => {
+                    "Memory pressure detected - consider memory optimization techniques".to_string()
+                }
+                BottleneckType::Power => {
+                    "High power consumption - battery optimization recommended".to_string()
+                }
+                BottleneckType::Thermal => {
+                    "Thermal throttling may be needed - monitor temperature closely".to_string()
+                }
                 _ => "Monitor system resources continuously".to_string(),
             });
         }
 
         // Add recommendations based on capacity
         if assessment.capacity_remaining.cpu_capacity_percent < 20.0 {
-            recommendations.push("Low CPU capacity remaining - consider load balancing".to_string());
+            recommendations
+                .push("Low CPU capacity remaining - consider load balancing".to_string());
         }
 
         if assessment.capacity_remaining.memory_capacity_mb < 100.0 {
@@ -839,7 +954,7 @@ impl EdgeOptAgent {
 
         // Add optimization-specific recommendations
         recommendations.push(format!("Primary optimization: {:?}", plan.primary_action));
-        
+
         for (i, action) in plan.secondary_actions.iter().enumerate() {
             recommendations.push(format!("Secondary optimization {}: {:?}", i + 1, action));
         }
@@ -868,7 +983,10 @@ mod tests {
                 memory_usage_mb: 400.0,
                 battery_level_percent: Some(50.0),
                 thermal_state_celsius: 80.0,
-                network_connectivity: NetworkState::Connected { bandwidth_mbps: 100.0, latency_ms: 50 },
+                network_connectivity: NetworkState::Connected {
+                    bandwidth_mbps: 100.0,
+                    latency_ms: 50,
+                },
                 power_consumption_mw: 1500.0,
                 cpu_frequency_ghz: 2.0,
                 gpu_utilization: None,
@@ -880,9 +998,15 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
-        assert!(matches!(output.resource_assessment.bottleneck_analysis.primary_bottleneck, Some(BottleneckType::CPU)));
+        assert!(matches!(
+            output
+                .resource_assessment
+                .bottleneck_analysis
+                .primary_bottleneck,
+            Some(BottleneckType::CPU)
+        ));
         assert!(!output.adaptation_recommendations.is_empty());
     }
 

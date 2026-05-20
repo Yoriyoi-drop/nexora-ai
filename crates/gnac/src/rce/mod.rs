@@ -4,12 +4,11 @@
 //! menghitung estimasi VRAM, FLOPs, inference latency, tensor bandwidth,
 //! cloud cost, dan konsumsi energi. Mendukung constraint-aware architecture design.
 
-pub mod estimator;
 pub mod constraints;
+pub mod estimator;
 
-pub use estimator::*;
 pub use constraints::*;
-
+pub use estimator::*;
 
 /// Laporan resource untuk satu graf atau subgraf
 #[derive(Debug, Clone)]

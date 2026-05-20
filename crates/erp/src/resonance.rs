@@ -1,5 +1,5 @@
 //! ERP Resonance Graph Clustering
-//! 
+//!
 //! Implementasi dari resonance graph clustering algorithm dengan
 //! Louvain clustering, spectral clustering, dan adaptive modular partitioning.
 
@@ -26,7 +26,10 @@ impl ResonanceClusterer {
         let clustering_method = match config.compression_mode {
             crate::CompressionMode::Conservative => ClusteringMethod::Louvain { resolution: 1.0 },
             crate::CompressionMode::Balanced => ClusteringMethod::Spectral { n_clusters: 32 },
-            crate::CompressionMode::Aggressive => ClusteringMethod::AdaptiveModular { min_size: 2, max_size: 16 },
+            crate::CompressionMode::Aggressive => ClusteringMethod::AdaptiveModular {
+                min_size: 2,
+                max_size: 16,
+            },
         };
 
         Self {
@@ -36,7 +39,11 @@ impl ResonanceClusterer {
     }
 
     /// Cluster resonance graph ke dalam resonance groups
-    pub fn cluster(&self, graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature]) -> Result<Vec<ResonanceGroup>, ERPError> {
+    pub fn cluster(
+        &self,
+        graph: &ResonanceGraph,
+        signatures: &[crate::core::NeuronSignature],
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         match &self.clustering_method {
             ClusteringMethod::Louvain { resolution } => {
                 self.louvain_clustering(graph, signatures, *resolution)
@@ -51,7 +58,12 @@ impl ResonanceClusterer {
     }
 
     /// Louvain clustering untuk community detection
-    fn louvain_clustering(&self, graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature], resolution: f32) -> Result<Vec<ResonanceGroup>, ERPError> {
+    fn louvain_clustering(
+        &self,
+        graph: &ResonanceGraph,
+        signatures: &[crate::core::NeuronSignature],
+        resolution: f32,
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         let n_nodes = graph.adjacency.len();
         let mut communities: Vec<usize> = (0..n_nodes).collect();
         let mut changed = true;
@@ -63,8 +75,9 @@ impl ResonanceClusterer {
 
             for node in 0..n_nodes {
                 let current_community = communities[node];
-                let best_community = self.find_best_community(node, &communities, graph, signatures, resolution);
-                
+                let best_community =
+                    self.find_best_community(node, &communities, graph, signatures, resolution);
+
                 if best_community != current_community {
                     communities[node] = best_community;
                     changed = true;
@@ -77,9 +90,23 @@ impl ResonanceClusterer {
     }
 
     /// Find best community untuk node menggunakan modularity optimization
-    fn find_best_community(&self, node: usize, communities: &[usize], graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature], resolution: f32) -> usize {
+    fn find_best_community(
+        &self,
+        node: usize,
+        communities: &[usize],
+        graph: &ResonanceGraph,
+        signatures: &[crate::core::NeuronSignature],
+        resolution: f32,
+    ) -> usize {
         let mut best_community = communities[node];
-        let mut best_modularity = self.compute_modularity_gain(node, best_community, communities, graph, signatures, resolution);
+        let mut best_modularity = self.compute_modularity_gain(
+            node,
+            best_community,
+            communities,
+            graph,
+            signatures,
+            resolution,
+        );
 
         // Get neighboring communities
         let mut neighboring_communities = HashSet::new();
@@ -88,7 +115,14 @@ impl ResonanceClusterer {
         }
 
         for &community in &neighboring_communities {
-            let modularity_gain = self.compute_modularity_gain(node, community, communities, graph, signatures, resolution);
+            let modularity_gain = self.compute_modularity_gain(
+                node,
+                community,
+                communities,
+                graph,
+                signatures,
+                resolution,
+            );
             if modularity_gain > best_modularity {
                 best_modularity = modularity_gain;
                 best_community = community;
@@ -99,7 +133,15 @@ impl ResonanceClusterer {
     }
 
     /// Compute modularity gain untuk memindahkan node ke community
-    fn compute_modularity_gain(&self, node: usize, community: usize, communities: &[usize], graph: &ResonanceGraph, _signatures: &[crate::core::NeuronSignature], resolution: f32) -> f32 {
+    fn compute_modularity_gain(
+        &self,
+        node: usize,
+        community: usize,
+        communities: &[usize],
+        graph: &ResonanceGraph,
+        _signatures: &[crate::core::NeuronSignature],
+        resolution: f32,
+    ) -> f32 {
         let mut intra_community_weight = 0.0;
         let mut total_community_weight = 0.0;
         let mut node_weight = 0.0;
@@ -127,7 +169,9 @@ impl ResonanceClusterer {
         }
 
         // Modularity formula: ΔQ = [(2*l_in - k_i*sum_tot)/2m] - resolution * [(k_i*sum_tot)/(2m)]²
-        let modularity_gain = (intra_community_weight - node_weight * total_community_weight / total_weight) / total_weight;
+        let modularity_gain = (intra_community_weight
+            - node_weight * total_community_weight / total_weight)
+            / total_weight;
         modularity_gain * resolution
     }
 
@@ -137,22 +181,27 @@ impl ResonanceClusterer {
     /// 2. Compute k smallest eigenvectors via power iteration + deflation
     /// 3. Form matrix U ∈ R^(n×k) dari eigenvectors
     /// 4. Cluster rows of U via k-means
-    fn spectral_clustering(&self, graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature], n_clusters: usize) -> Result<Vec<ResonanceGroup>, ERPError> {
+    fn spectral_clustering(
+        &self,
+        graph: &ResonanceGraph,
+        signatures: &[crate::core::NeuronSignature],
+        n_clusters: usize,
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         let n_nodes = graph.adjacency.len();
         if n_nodes <= n_clusters {
             return self.each_node_as_group(n_nodes, signatures);
         }
 
         let laplacian = self.build_laplacian_matrix(graph);
-        
+
         // Compute eigenvectors corresponding to k smallest eigenvalues
         // via power iteration on (I - L) = D^(-1/2)·A·D^(-1/2)
         let k = n_clusters.min(n_nodes);
         let eigenvectors = self.compute_k_smallest_eigenvectors(&laplacian, k)?;
-        
+
         // Normalize rows to unit length
         let normalized_rows = self.normalize_eigenvector_rows(&eigenvectors, k, n_nodes);
-        
+
         // Simple k-means on normalized rows (Lloyd's algorithm, 20 iterations)
         let assignments = self.kmeans_on_rows(&normalized_rows, n_clusters, 20)?;
 
@@ -174,16 +223,18 @@ impl ResonanceClusterer {
 
         for _ in 0..k {
             // Power iteration untuk dominant eigenvector dari shifted matrix
-            let mut v = Array1::from_iter(
-                (0..n).map(|_| rand::random::<f32>() * 2.0 - 1.0)
-            );
+            let mut v = Array1::from_iter((0..n).map(|_| rand::random::<f32>() * 2.0 - 1.0));
             let v_norm = v.mapv(|x| x * x).sum().sqrt();
-            if v_norm > 1e-10 { v = v / v_norm; }
+            if v_norm > 1e-10 {
+                v = v / v_norm;
+            }
 
             for _ in 0..30 {
                 v = shifted.dot(&v);
                 let norm = v.mapv(|x| x * x).sum().sqrt();
-                if norm > 1e-10 { v = v / norm; }
+                if norm > 1e-10 {
+                    v = v / norm;
+                }
             }
 
             eigenvectors.push(v.to_vec());
@@ -209,7 +260,7 @@ impl ResonanceClusterer {
         n: usize,
     ) -> Vec<Vec<f32>> {
         let mut rows = vec![vec![0.0f32; k]; n];
-        
+
         for (eig_idx, eig_vec) in eigenvectors.iter().enumerate() {
             for (node, &val) in eig_vec.iter().enumerate() {
                 if node < n && eig_idx < k {
@@ -255,14 +306,20 @@ impl ResonanceClusterer {
 
         for _ in 1..k_actual {
             // For each point, compute distance to nearest centroid
-            let mut distances: Vec<f32> = rows.iter().map(|row| {
-                centroids.iter()
-                    .map(|c| self.euclidean_squared(row, c))
-                    .fold(f32::INFINITY, f32::min)
-            }).collect();
+            let mut distances: Vec<f32> = rows
+                .iter()
+                .map(|row| {
+                    centroids
+                        .iter()
+                        .map(|c| self.euclidean_squared(row, c))
+                        .fold(f32::INFINITY, f32::min)
+                })
+                .collect();
 
             let sum_dist: f32 = distances.iter().sum();
-            if sum_dist < 1e-10 { break; }
+            if sum_dist < 1e-10 {
+                break;
+            }
 
             // Weighted random selection
             for d in distances.iter_mut() {
@@ -286,7 +343,8 @@ impl ResonanceClusterer {
             // Assignment step
             let mut changed = false;
             for (i, row) in rows.iter().enumerate() {
-                let best = centroids.iter()
+                let best = centroids
+                    .iter()
                     .enumerate()
                     .min_by(|(_, a), (_, b)| {
                         self.euclidean_squared(row, a)
@@ -302,7 +360,9 @@ impl ResonanceClusterer {
                 }
             }
 
-            if !changed { break; }
+            if !changed {
+                break;
+            }
 
             // Update step
             let mut sums: Vec<Vec<f32>> = vec![vec![0.0f32; dim]; k_actual];
@@ -329,9 +389,7 @@ impl ResonanceClusterer {
     }
 
     fn euclidean_squared(&self, a: &[f32], b: &[f32]) -> f32 {
-        a.iter().zip(b.iter())
-            .map(|(x, y)| (x - y) * (x - y))
-            .sum()
+        a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
     }
 
     /// Build normalized Laplacian matrix
@@ -355,7 +413,13 @@ impl ResonanceClusterer {
     }
 
     /// Adaptive modular clustering dengan size constraints
-    fn adaptive_modular_clustering(&self, graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature], min_size: usize, max_size: usize) -> Result<Vec<ResonanceGroup>, ERPError> {
+    fn adaptive_modular_clustering(
+        &self,
+        graph: &ResonanceGraph,
+        signatures: &[crate::core::NeuronSignature],
+        min_size: usize,
+        max_size: usize,
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         let n_nodes = graph.adjacency.len();
         let mut visited = vec![false; n_nodes];
         let mut groups = Vec::new();
@@ -363,7 +427,7 @@ impl ResonanceClusterer {
         for i in 0..n_nodes {
             if !visited[i] {
                 let mut group = self.expand_group(i, graph, signatures, &mut visited, max_size);
-                
+
                 // Handle groups yang terlalu kecil
                 if group.neurons.len() < min_size {
                     // Try to merge dengan group terdekat
@@ -380,7 +444,14 @@ impl ResonanceClusterer {
     }
 
     /// Expand group dari seed node
-    fn expand_group(&self, seed: usize, graph: &ResonanceGraph, signatures: &[crate::core::NeuronSignature], visited: &mut [bool], max_size: usize) -> ResonanceGroup {
+    fn expand_group(
+        &self,
+        seed: usize,
+        graph: &ResonanceGraph,
+        signatures: &[crate::core::NeuronSignature],
+        visited: &mut [bool],
+        max_size: usize,
+    ) -> ResonanceGroup {
         let mut group_neurons = vec![seed];
         visited[seed] = true;
         let mut frontier = vec![seed];
@@ -400,7 +471,8 @@ impl ResonanceClusterer {
             }
         }
 
-        let importance_scores = group_neurons.iter()
+        let importance_scores = group_neurons
+            .iter()
             .map(|&idx| signatures[idx].fisher_info + signatures[idx].gradient_norm)
             .collect();
 
@@ -412,7 +484,12 @@ impl ResonanceClusterer {
     }
 
     /// Check stability constraints untuk group expansion
-    fn check_group_stability(&self, group: &[usize], new_neuron: usize, signatures: &[crate::core::NeuronSignature]) -> bool {
+    fn check_group_stability(
+        &self,
+        group: &[usize],
+        new_neuron: usize,
+        signatures: &[crate::core::NeuronSignature],
+    ) -> bool {
         if group.len() >= self.config.max_group_size {
             return false;
         }
@@ -420,12 +497,16 @@ impl ResonanceClusterer {
         let mut extended_group = group.to_vec();
         extended_group.push(new_neuron);
         let variance = self.compute_group_variance(&extended_group, signatures);
-        
+
         variance < self.config.stability_variance
     }
 
     /// Compute variance untuk group
-    fn compute_group_variance(&self, group: &[usize], signatures: &[crate::core::NeuronSignature]) -> f32 {
+    fn compute_group_variance(
+        &self,
+        group: &[usize],
+        signatures: &[crate::core::NeuronSignature],
+    ) -> f32 {
         if group.len() <= 1 {
             return 0.0;
         }
@@ -446,7 +527,14 @@ impl ResonanceClusterer {
     }
 
     /// Merge small group dengan nearest group
-    fn merge_small_group(&self, small_group: &mut ResonanceGroup, groups: &mut Vec<ResonanceGroup>, signatures: &[crate::core::NeuronSignature], _min_size: usize, max_size: usize) {
+    fn merge_small_group(
+        &self,
+        small_group: &mut ResonanceGroup,
+        groups: &mut Vec<ResonanceGroup>,
+        signatures: &[crate::core::NeuronSignature],
+        _min_size: usize,
+        max_size: usize,
+    ) {
         if groups.is_empty() {
             return;
         }
@@ -469,13 +557,21 @@ impl ResonanceClusterer {
         if min_distance < f32::INFINITY {
             let nearest_group = &mut groups[nearest_group_idx];
             nearest_group.neurons.append(&mut small_group.neurons);
-            nearest_group.importance_scores.extend(&small_group.importance_scores);
-            nearest_group.stability_variance = self.compute_group_variance(&nearest_group.neurons, signatures);
+            nearest_group
+                .importance_scores
+                .extend(&small_group.importance_scores);
+            nearest_group.stability_variance =
+                self.compute_group_variance(&nearest_group.neurons, signatures);
         }
     }
 
     /// Compute distance antara dua groups
-    fn compute_group_distance(&self, group1: &ResonanceGroup, group2: &ResonanceGroup, signatures: &[crate::core::NeuronSignature]) -> f32 {
+    fn compute_group_distance(
+        &self,
+        group1: &ResonanceGroup,
+        group2: &ResonanceGroup,
+        signatures: &[crate::core::NeuronSignature],
+    ) -> f32 {
         let mut distance = 0.0;
         let mut count = 0;
 
@@ -495,17 +591,25 @@ impl ResonanceClusterer {
     }
 
     /// Convert communities ke resonance groups
-    fn communities_to_groups(&self, communities: Vec<usize>, signatures: &[crate::core::NeuronSignature]) -> Result<Vec<ResonanceGroup>, ERPError> {
+    fn communities_to_groups(
+        &self,
+        communities: Vec<usize>,
+        signatures: &[crate::core::NeuronSignature],
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         let mut community_map: HashMap<usize, Vec<usize>> = HashMap::new();
 
         for (node, community) in communities.iter().enumerate() {
-            community_map.entry(*community).or_insert_with(Vec::new).push(node);
+            community_map
+                .entry(*community)
+                .or_insert_with(Vec::new)
+                .push(node);
         }
 
         let mut groups = Vec::new();
         for (_community, neurons) in community_map {
             if neurons.len() > 1 && neurons.len() <= self.config.max_group_size {
-                let importance_scores = neurons.iter()
+                let importance_scores = neurons
+                    .iter()
                     .map(|&idx| signatures[idx].fisher_info + signatures[idx].gradient_norm)
                     .collect();
 
@@ -522,7 +626,11 @@ impl ResonanceClusterer {
     }
 
     /// Helper: each node sebagai separate group
-    fn each_node_as_group(&self, n_nodes: usize, signatures: &[crate::core::NeuronSignature]) -> Result<Vec<ResonanceGroup>, ERPError> {
+    fn each_node_as_group(
+        &self,
+        n_nodes: usize,
+        signatures: &[crate::core::NeuronSignature],
+    ) -> Result<Vec<ResonanceGroup>, ERPError> {
         let mut groups = Vec::new();
 
         for i in 0..n_nodes {
@@ -553,7 +661,8 @@ impl ResonanceGraph {
 
     /// Get degree distribution
     pub fn degree_distribution(&self) -> Vec<f32> {
-        self.adjacency.iter()
+        self.adjacency
+            .iter()
             .map(|neighbors| neighbors.iter().map(|(_, weight)| weight).sum())
             .collect()
     }

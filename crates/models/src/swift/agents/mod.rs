@@ -1,28 +1,28 @@
 //! Swift Agents Module
-//! 
+//!
 //! Implementation of all NXR-SWIFT agents:
 //! - Swift Prime: Rapid processing and high-speed execution
 //! - Nano Infer: Ultra-lightweight inference engine
 //! - Fast Cache: Intelligent caching system
 //! - Edge Opt: Runtime optimization for edge conditions
 
-pub mod swift_prime;
-pub mod nano_infer;
-pub mod fast_cache;
 pub mod edge_opt;
+pub mod fast_cache;
+pub mod nano_infer;
+pub mod swift_prime;
 
-pub use swift_prime::SwiftPrimeAgent;
-pub use nano_infer::NanoInferAgent;
-pub use fast_cache::FastCacheAgent;
 pub use edge_opt::EdgeOptAgent;
+pub use fast_cache::FastCacheAgent;
+pub use nano_infer::NanoInferAgent;
+pub use swift_prime::SwiftPrimeAgent;
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Swift Agents Container
 #[derive(Debug, Clone)]

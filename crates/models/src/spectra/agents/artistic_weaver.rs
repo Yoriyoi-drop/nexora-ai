@@ -1,14 +1,14 @@
 //! Artistic Weaver Agent
-//! 
+//!
 //! Style adaptation and artistic generation agent for NXR-SPECTRA
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Artistic Weaver Agent - Style adaptation and artistic generation
 #[derive(Debug, Clone)]
@@ -231,7 +231,7 @@ impl Default for ArtisticWeaverConfig {
         style_preferences.insert("contemporary".to_string(), 0.8);
         style_preferences.insert("abstract".to_string(), 0.6);
         style_preferences.insert("minimalist".to_string(), 0.7);
-        
+
         Self {
             base_config: BaseAgentConfig::default(),
             style_preferences,
@@ -278,14 +278,8 @@ impl Default for StyleProcessing {
 impl Default for ArtisticGeneration {
     fn default() -> Self {
         Self {
-            generation_methods: vec![
-                GenerationMethod::StyleBased,
-                GenerationMethod::Hybrid,
-            ],
-            output_formats: vec![
-                "text".to_string(),
-                "json".to_string(),
-            ],
+            generation_methods: vec![GenerationMethod::StyleBased, GenerationMethod::Hybrid],
+            output_formats: vec!["text".to_string(), "json".to_string()],
             quality_metrics: QualityMetrics {
                 aesthetic_threshold: 0.6,
                 technical_threshold: 0.7,
@@ -323,26 +317,31 @@ impl BaseAgent for ArtisticWeaverAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze source content
         let source_analysis = self.analyze_source_content(&input).await?;
-        
+
         // Apply style adaptation if requested
         let adapted_content = if let Some(target_style) = &input.target_style {
-            self.apply_style_adaptation(&input.source_content, target_style).await?
+            self.apply_style_adaptation(&input.source_content, target_style)
+                .await?
         } else {
             input.source_content.clone()
         };
-        
+
         // Generate artistic content
-        let artistic_content = self.generate_artistic_content(&input, &adapted_content).await?;
-        
+        let artistic_content = self
+            .generate_artistic_content(&input, &adapted_content)
+            .await?;
+
         // Calculate quality scores
-        let quality_scores = self.calculate_quality_scores(&input, &artistic_content).await?;
-        
+        let quality_scores = self
+            .calculate_quality_scores(&input, &artistic_content)
+            .await?;
+
         // Build output
         let success_score = quality_scores.overall_quality;
         let output = ArtisticTaskOutput {
@@ -362,9 +361,9 @@ impl BaseAgent for ArtisticWeaverAgent {
                 None
             },
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -377,21 +376,19 @@ impl BaseAgent for ArtisticWeaverAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "artistic_generation".to_string(),
-                description: "Style adaptation and artistic generation".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["artistic_task".to_string()],
-                output_types: vec!["artistic_content".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.85,
-                    avg_latency: 800.0,
-                    resource_usage: 0.7,
-                    reliability: 0.9,
-                },
+        vec![AgentCapability {
+            name: "artistic_generation".to_string(),
+            description: "Style adaptation and artistic generation".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["artistic_task".to_string()],
+            output_types: vec!["artistic_content".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.85,
+                avg_latency: 800.0,
+                resource_usage: 0.7,
+                reliability: 0.9,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -433,27 +430,30 @@ impl ArtisticWeaverAgent {
     fn validate_input(&self, input: &ArtisticTaskInput) -> AgentResult<()> {
         if input.description.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Task description cannot be empty".to_string()
+                "Task description cannot be empty".to_string(),
             ));
         }
-        
+
         if input.source_content.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Source content cannot be empty".to_string()
+                "Source content cannot be empty".to_string(),
             ));
         }
-        
+
         if !self.config.artistic_domains.contains(&input.domain) {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                format!("Unsupported artistic domain: {}", input.domain)
+                format!("Unsupported artistic domain: {}", input.domain),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Analyze source content
-    async fn analyze_source_content(&self, input: &ArtisticTaskInput) -> AgentResult<SourceAnalysis> {
+    async fn analyze_source_content(
+        &self,
+        input: &ArtisticTaskInput,
+    ) -> AgentResult<SourceAnalysis> {
         // Simplified source analysis
         let detected_style = if input.source_content.contains("modern") {
             "contemporary".to_string()
@@ -462,7 +462,7 @@ impl ArtisticWeaverAgent {
         } else {
             "abstract".to_string()
         };
-        
+
         Ok(SourceAnalysis {
             detected_style,
             complexity: self.calculate_complexity(&input.source_content),
@@ -471,9 +471,13 @@ impl ArtisticWeaverAgent {
     }
 
     /// Apply style adaptation
-    async fn apply_style_adaptation(&self, content: &str, target_style: &str) -> AgentResult<String> {
+    async fn apply_style_adaptation(
+        &self,
+        content: &str,
+        target_style: &str,
+    ) -> AgentResult<String> {
         let adaptation_strength = self.config.adaptation_strength;
-        
+
         // Simplified style adaptation
         let adapted_content = match target_style {
             "contemporary" => format!("{} [Contemporary Style Applied]", content),
@@ -481,33 +485,42 @@ impl ArtisticWeaverAgent {
             "abstract" => format!("{} [Abstract Style Applied]", content),
             _ => format!("{} [{} Style Applied]", content, target_style),
         };
-        
+
         Ok(adapted_content)
     }
 
     /// Generate artistic content
-    async fn generate_artistic_content(&self, input: &ArtisticTaskInput, adapted_content: &str) -> AgentResult<String> {
+    async fn generate_artistic_content(
+        &self,
+        input: &ArtisticTaskInput,
+        adapted_content: &str,
+    ) -> AgentResult<String> {
         let domain = &input.domain;
         let description = &input.description;
-        
+
         // Simplified artistic generation
         let artistic_content = format!(
             "Artistic content for '{}' in {} domain: {} [Artistic Enhancement]",
             description, domain, adapted_content
         );
-        
+
         Ok(artistic_content)
     }
 
     /// Calculate quality scores
-    async fn calculate_quality_scores(&self, input: &ArtisticTaskInput, content: &str) -> AgentResult<QualityScores> {
+    async fn calculate_quality_scores(
+        &self,
+        input: &ArtisticTaskInput,
+        content: &str,
+    ) -> AgentResult<QualityScores> {
         let aesthetic_quality = self.calculate_aesthetic_quality(content);
         let technical_quality = self.calculate_technical_quality(content);
         let originality = self.calculate_originality(content);
         let coherence = self.calculate_coherence(content);
-        
-        let overall_quality = (aesthetic_quality + technical_quality + originality + coherence) / 4.0;
-        
+
+        let overall_quality =
+            (aesthetic_quality + technical_quality + originality + coherence) / 4.0;
+
         Ok(QualityScores {
             aesthetic_quality,
             technical_quality,
@@ -520,19 +533,22 @@ impl ArtisticWeaverAgent {
     /// Calculate complexity
     fn calculate_complexity(&self, content: &str) -> f32 {
         let word_count = content.split_whitespace().count() as f32;
-        let unique_words = content.split_whitespace().collect::<std::collections::HashSet<_>>().len() as f32;
-        
+        let unique_words = content
+            .split_whitespace()
+            .collect::<std::collections::HashSet<_>>()
+            .len() as f32;
+
         if word_count == 0.0 {
             return 0.0;
         }
-        
+
         unique_words / word_count
     }
 
     /// Extract artistic elements
     fn extract_artistic_elements(&self, content: &str) -> Vec<String> {
         let mut elements = Vec::new();
-        
+
         if content.contains("color") || content.contains("colour") {
             elements.push("color".to_string());
         }
@@ -545,7 +561,7 @@ impl ArtisticWeaverAgent {
         if content.contains("pattern") {
             elements.push("pattern".to_string());
         }
-        
+
         elements
     }
 
@@ -554,7 +570,7 @@ impl ArtisticWeaverAgent {
         // Simplified aesthetic quality calculation
         let length_score = if content.len() > 100 { 0.8 } else { 0.5 };
         let diversity_score = self.calculate_complexity(content);
-        
+
         (length_score + diversity_score) / 2.0
     }
 
@@ -565,24 +581,28 @@ impl ArtisticWeaverAgent {
         if sentence_count == 0 {
             return 0.0;
         }
-        
+
         let avg_sentence_length = content.len() / sentence_count;
         let optimal_length = 50;
-        let length_score = 1.0 - (avg_sentence_length as f32 - optimal_length as f32).abs() / optimal_length as f32;
-        
+        let length_score = 1.0
+            - (avg_sentence_length as f32 - optimal_length as f32).abs() / optimal_length as f32;
+
         length_score.max(0.0).min(1.0)
     }
 
     /// Calculate originality
     fn calculate_originality(&self, content: &str) -> f32 {
         // Simplified originality calculation
-        let unique_phrases = content.split(", ").collect::<std::collections::HashSet<_>>().len();
+        let unique_phrases = content
+            .split(", ")
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         let total_phrases = content.split(", ").count();
-        
+
         if total_phrases == 0 {
             return 0.0;
         }
-        
+
         unique_phrases as f32 / total_phrases as f32
     }
 
@@ -593,16 +613,17 @@ impl ArtisticWeaverAgent {
         if words.len() < 2 {
             return 1.0;
         }
-        
+
         let mut coherent_pairs = 0;
         for window in words.windows(2) {
             // Simple heuristic: check if words start with same letter or have similar length
-            if window[0].chars().next() == window[1].chars().next() ||
-               (window[0].len() as f32 - window[1].len() as f32).abs() < 3.0 {
+            if window[0].chars().next() == window[1].chars().next()
+                || (window[0].len() as f32 - window[1].len() as f32).abs() < 3.0
+            {
                 coherent_pairs += 1;
             }
         }
-        
+
         coherent_pairs as f32 / (words.len() - 1) as f32
     }
 }
@@ -643,7 +664,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.content.is_empty());
         assert!(output.applied_style.is_some());
@@ -654,11 +675,14 @@ mod tests {
     #[test]
     fn test_quality_calculation() {
         let agent = ArtisticWeaverAgent::default();
-        
-        let aesthetic = agent.calculate_aesthetic_quality("A beautiful piece of art with many colors and shapes");
+
+        let aesthetic = agent
+            .calculate_aesthetic_quality("A beautiful piece of art with many colors and shapes");
         assert!(aesthetic >= 0.0 && aesthetic <= 1.0);
-        
-        let technical = agent.calculate_technical_quality("This is a well-structured sentence. This is another one.");
+
+        let technical = agent.calculate_technical_quality(
+            "This is a well-structured sentence. This is another one.",
+        );
         assert!(technical >= 0.0 && technical <= 1.0);
     }
 }

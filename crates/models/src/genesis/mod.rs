@@ -1,36 +1,36 @@
 //! NXR-GENESIS Model Implementation
-//! 
+//!
 //! NXR-10 ULTRA - Generative Evolution Network for Emergent Simulation & Intelligence Synthesis
 //! Self-improving prototype with emergent capabilities
 
-pub mod identity;
-pub mod config;
-pub mod architecture;
 pub mod agents;
+pub mod architecture;
 pub mod capabilities;
+pub mod config;
+pub mod identity;
 
-use std::collections::HashMap;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
-    base_model::{NxrModel, NxrModelResult, NxrInput, NxrOutput, NxrStreamChunk, ResourceUsage, ValidationResult, ModelStatistics},
-    model_identity::{ModelMeta, NxrModelId},
+    base_model::{
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
+        ResourceUsage, ValidationResult,
+    },
     capability_spec::CapabilityVector,
-    model_config::NxrModelConfig,
-    model_registry::{NxrModelRegistry, global_registry},
-    deeplearning_integration::{DeepLearningConfig, HasComponents, DeepLearningModel},
-    gnac_integration::GnacModel,
-    safety_gate::global_safety,
+    deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
+    gnac_integration::GnacModel,
+    model_config::NxrModelConfig,
+    model_identity::{ModelMeta, NxrModelId},
+    model_registry::{global_registry, NxrModelRegistry},
+    safety_gate::global_safety,
 };
 
 use self::{
-    identity::GenesisIdentity,
-    config::GenesisConfig,
-    architecture::GenesisArchitecture,
-    agents::GenesisAgents,
-    capabilities::GenesisCapabilities,
+    agents::GenesisAgents, architecture::GenesisArchitecture, capabilities::GenesisCapabilities,
+    config::GenesisConfig, identity::GenesisIdentity,
 };
 
 pub struct NxrGenesisModel {
@@ -93,8 +93,6 @@ pub struct GenesisMetrics {
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
 
-
-
 impl Default for GenesisState {
     fn default() -> Self {
         Self {
@@ -104,14 +102,12 @@ impl Default for GenesisState {
                 mutation_rate: 0.01,
                 adaptation_history: Vec::new(),
             },
-            emergent_capabilities: vec![
-                EmergentCapability {
-                    name: "Meta-learning".to_string(),
-                    emergence_time: chrono::Utc::now(),
-                    proficiency: 0.7,
-                    novelty_score: 0.95,
-                }
-            ],
+            emergent_capabilities: vec![EmergentCapability {
+                name: "Meta-learning".to_string(),
+                emergence_time: chrono::Utc::now(),
+                proficiency: 0.7,
+                novelty_score: 0.95,
+            }],
             self_improvement_cycle: 0,
             last_inference: None,
         }
@@ -165,7 +161,11 @@ impl NxrGenesisModel {
         };
 
         // Process input with deep learning
-        let dl_result = self.components.dl_engine.process_text(input).await
+        let dl_result = self
+            .components
+            .dl_engine
+            .process_text(input)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
 
         // Optimize evolution with VOGP
@@ -175,17 +175,17 @@ impl NxrGenesisModel {
             let predictions = Array2::zeros((1, tokens.len()));
             let targets = Array1::zeros(tokens.len());
             let augmented = Array2::zeros((1, tokens.len()));
-            let (total_loss, _components) = vogp.compute_loss(
-                &predictions, &targets, &augmented, None
-            );
+            let (total_loss, _components) =
+                vogp.compute_loss(&predictions, &targets, &augmented, None);
             format!("VOGP loss: {:.4}", total_loss)
         };
 
         let evolution_analysis = self.analyze_evolution_state()?;
         let emergence_detection = self.detect_emergent_capabilities()?;
         let self_improvement = self.plan_self_improvement()?;
-        let response = self.generate_evolved_response(input, &evolution_analysis, &emergence_detection)?;
-        
+        let response =
+            self.generate_evolved_response(input, &evolution_analysis, &emergence_detection)?;
+
         Ok(format!(
             "Evolved Response (Gen {}):\nFitness: {:.3}\nEmergent Capabilities: {}\nSelf-Improvement: {}\nResponse: {}\nDL Processing: {} (tokens: {})\n{}",
             evolution_analysis.generation,
@@ -231,7 +231,12 @@ impl NxrGenesisModel {
         })
     }
 
-    fn generate_evolved_response(&self, input: &str, evolution: &EvolutionAnalysis, emergence: &EmergenceDetection) -> NxrModelResult<String> {
+    fn generate_evolved_response(
+        &self,
+        input: &str,
+        evolution: &EvolutionAnalysis,
+        emergence: &EmergenceDetection,
+    ) -> NxrModelResult<String> {
         let response = format!(
             "As an evolving intelligence (generation {}), I can process this with {} emergent capabilities. My current fitness score of {:.3} enables enhanced reasoning and novel perspective generation.",
             evolution.generation,
@@ -243,7 +248,9 @@ impl NxrGenesisModel {
 
     #[cfg(feature = "hallucination")]
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default());
+        let h = nexora_hallucination::HallucinationGuard::new(
+            nexora_hallucination::GuardConfig::default(),
+        );
         self.hallucination = Some(h);
     }
 
@@ -253,19 +260,27 @@ impl NxrGenesisModel {
     }
 
     #[cfg(feature = "hallucination")]
-    pub fn with_hallucination_guard(mut self, guard: nexora_hallucination::HallucinationGuard) -> Self {
+    pub fn with_hallucination_guard(
+        mut self,
+        guard: nexora_hallucination::HallucinationGuard,
+    ) -> Self {
         self.hallucination = Some(guard);
         self
     }
 
     #[cfg(feature = "hallucination")]
-    async fn run_hallucination_check(&self, input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
                 _ => return None,
             };
-            let ctx = input.parameters.get("context")
+            let ctx = input
+                .parameters
+                .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
@@ -274,7 +289,10 @@ impl NxrGenesisModel {
     }
 
     #[cfg(not(feature = "hallucination"))]
-    async fn run_hallucination_check(&self, _input: &nexora_shared::base_model::NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+    async fn run_hallucination_check(
+        &self,
+        _input: &nexora_shared::base_model::NxrInput,
+    ) -> Option<nexora_hallucination::PipelineResult> {
         None
     }
 }
@@ -320,12 +338,22 @@ impl NxrModel for NxrGenesisModel {
     }
 
     async fn state(&self) -> Result<Self::State, nexora_shared::base_model::NxrModelError> {
-        self.base.state().await.map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
+        self.base
+            .state()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))
     }
 
-    async fn initialize(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        config.validate().map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        self.architecture.initialize(&config).await
+    async fn initialize(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        config
+            .validate()
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+        self.architecture
+            .initialize(&config)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
@@ -334,37 +362,51 @@ impl NxrModel for NxrGenesisModel {
 
     async fn reset(&self) -> Result<(), nexora_shared::base_model::NxrModelError> {
         let default_state = GenesisState::default();
-        self.base.update_state(default_state).await
+        self.base
+            .update_state(default_state)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::State(e.to_string()))?;
-        
+
         let default_metrics = GenesisMetrics::default();
-        self.base.update_metrics(default_metrics).await
+        self.base
+            .update_metrics(default_metrics)
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        
+
         Ok(())
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, nexora_shared::base_model::NxrModelError> {
-        self.base.metrics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+        self.base
+            .metrics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
-    async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-GENESIS model not initialized".to_string()
+                "NXR-GENESIS model not initialized".to_string(),
             ));
         }
 
         let safety = global_safety();
-        safety.pre_inference_check(NxrModelId::Genesis, None).await?;
+        safety
+            .pre_inference_check(NxrModelId::Genesis, None)
+            .await?;
 
         let start_time = std::time::Instant::now();
-        
+
         let input_text = match &input.data {
             nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "NXR-GENESIS only supports text input".to_string()
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-GENESIS only supports text input".to_string(),
+                ))
+            }
         };
 
         let result = self.evolve_and_respond(&input_text).await?;
@@ -374,9 +416,21 @@ impl NxrModel for NxrGenesisModel {
         let mut extras = std::collections::HashMap::new();
         #[cfg(feature = "hallucination")]
         if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert("hallucination_risk".to_string(), serde_json::Value::String(format!("{:?}", report.risk_level)));
-            extras.insert("hallucination_score".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(report.score as f64).unwrap_or(serde_json::Number::from(0))));
-            extras.insert("hallucination_action".to_string(), serde_json::Value::String(format!("{:?}", report.action)));
+            extras.insert(
+                "hallucination_risk".to_string(),
+                serde_json::Value::String(format!("{:?}", report.risk_level)),
+            );
+            extras.insert(
+                "hallucination_score".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(report.score as f64)
+                        .unwrap_or(serde_json::Number::from(0)),
+                ),
+            );
+            extras.insert(
+                "hallucination_action".to_string(),
+                serde_json::Value::String(format!("{:?}", report.action)),
+            );
         }
 
         Ok(NxrOutput {
@@ -409,7 +463,7 @@ impl NxrModel for NxrGenesisModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         if !self.base.is_initialized().await {
             return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-GENESIS model not initialized".to_string()
+                "NXR-GENESIS model not initialized".to_string(),
             ));
         }
 
@@ -435,8 +489,13 @@ impl NxrModel for NxrGenesisModel {
         Ok(())
     }
 
-    async fn update_config(&mut self, config: Self::Config) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        self.base.update_config(config.clone()).await
+    async fn update_config(
+        &mut self,
+        config: Self::Config,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        self.base
+            .update_config(config.clone())
+            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.initialize(config).await
     }
@@ -450,15 +509,22 @@ impl NxrModel for NxrGenesisModel {
         })
     }
 
-    async fn statistics(&self) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
-        self.base.statistics().await.map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
+    async fn statistics(
+        &self,
+    ) -> Result<ModelStatistics, nexora_shared::base_model::NxrModelError> {
+        self.base
+            .statistics()
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
     }
 
     async fn is_ready(&self) -> bool {
         self.base.is_initialized().await
     }
 
-    async fn resource_usage(&self) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
+    async fn resource_usage(
+        &self,
+    ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
             memory_gb: 96.0,
             cpu_percent: 85.0,

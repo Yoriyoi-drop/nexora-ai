@@ -2,21 +2,21 @@ use std::any::Any;
 use std::sync::OnceLock;
 use tracing::info;
 
+use nexora_models::aether::agents::AetherAgents;
+use nexora_models::axiom::agents::AxiomAgents;
+use nexora_models::cipher::agents::CipherAgents;
+use nexora_models::genesis::agents::GenesisAgents;
+use nexora_models::kronos::agents::KronosAgents;
+use nexora_models::nexum::agents::NexumAgents;
 use nexora_models::omnis::agents::OmnisAgents;
 use nexora_models::swift::agents::SwiftAgents;
-use nexora_models::genesis::agents::GenesisAgents;
-use nexora_models::nexum::agents::NexumAgents;
-use nexora_models::axiom::agents::AxiomAgents;
-use nexora_models::kronos::agents::KronosAgents;
-use nexora_models::cipher::agents::CipherAgents;
-use nexora_models::aether::agents::AetherAgents;
 
+use nexora_models::axiom::config::AxiomConfig;
+use nexora_models::cipher::config::CipherConfig;
+use nexora_models::genesis::config::GenesisConfig;
+use nexora_models::kronos::config::KronosConfig;
 use nexora_models::omnis::config::OmnisConfig;
 use nexora_models::swift::config::SwiftConfig;
-use nexora_models::genesis::config::GenesisConfig;
-use nexora_models::axiom::config::AxiomConfig;
-use nexora_models::kronos::config::KronosConfig;
-use nexora_models::cipher::config::CipherConfig;
 
 #[allow(dead_code)]
 pub struct ModelAgentManager {
@@ -34,9 +34,12 @@ pub struct ModelAgentManager {
 impl ModelAgentManager {
     pub async fn new() -> Self {
         let omnis = OmnisAgents::new(&OmnisConfig::default());
-        omnis.initialize(&OmnisConfig::default()).await.unwrap_or_else(|e| {
-            info!("omnis agents initialize returned: {e}");
-        });
+        omnis
+            .initialize(&OmnisConfig::default())
+            .await
+            .unwrap_or_else(|e| {
+                info!("omnis agents initialize returned: {e}");
+            });
         info!("NXR-OMNIS agents activated (oracle_7, meta_reasoner, world_model_x, chain_executor, truth_arbiter, synth_prime) ✓");
 
         let mut swift = SwiftAgents::new(&SwiftConfig::default());
@@ -61,7 +64,9 @@ impl ModelAgentManager {
         info!("NXR-CIPHER agents activated ✓");
 
         let aether = AetherAgents::default();
-        info!("NXR-AETHER agents activated (empath_core, tone_mapper, context_weave, soul_mirror) ✓");
+        info!(
+            "NXR-AETHER agents activated (empath_core, tone_mapper, context_weave, soul_mirror) ✓"
+        );
 
         info!("NXR-SPECTRA agents active (spectrum_analyzer, spectral_mapper, spectral_processor, frequency_analyzer, creative_muse, artistic_weaver, style_adapter, innovation_engine) ✓");
 
@@ -84,7 +89,9 @@ impl ModelAgentManager {
 static MODEL_AGENTS: OnceLock<ModelAgentManager> = OnceLock::new();
 
 pub fn global_model_agents() -> &'static ModelAgentManager {
-    MODEL_AGENTS.get().expect("ModelAgentManager not initialized")
+    MODEL_AGENTS
+        .get()
+        .expect("ModelAgentManager not initialized")
 }
 
 pub async fn init_model_agents() {

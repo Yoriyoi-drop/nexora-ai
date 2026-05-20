@@ -3,15 +3,15 @@
 //! Implementasi consistency learning yang memaksa model menghasilkan prediksi
 //! mirip untuk data asli dan augmentasi, menciptakan "virtual dataset expansion".
 
-use ndarray::{Array1, Array2, ArrayView1, s};
+use ndarray::{s, Array1, Array2, ArrayView1};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Consistency Learning Component
-/// 
+///
 /// Formula: L_cons = E_{x, x~} ∥f_θ(x) - f_θ(x~)∥²_2
-/// 
+///
 /// Memaksa model konsisten terhadap augmentasi kecil, meningkatkan
 /// efektivitas dataset tanpa membuat model menghafal noise.
 #[derive(Debug, Clone)]
@@ -115,12 +115,9 @@ impl ConsistencyLearning {
         };
 
         for aug_pred in augmented_predictions {
-            let (loss, similarity) = self.compute_pairwise_consistency(
-                original_predictions,
-                aug_pred,
-                current_strength,
-            );
-            
+            let (loss, similarity) =
+                self.compute_pairwise_consistency(original_predictions, aug_pred, current_strength);
+
             total_loss += loss;
             total_similarity += similarity;
         }
@@ -128,7 +125,7 @@ impl ConsistencyLearning {
         // Update statistics
         let avg_loss = total_loss / augmented_predictions.len() as f32;
         let avg_similarity = total_similarity / augmented_predictions.len() as f32;
-        
+
         self.update_statistics(avg_loss, avg_similarity, batch_size);
 
         avg_loss
@@ -170,7 +167,7 @@ impl ConsistencyLearning {
             let diff = &orig_scaled - &aug_scaled;
             let masked_diff = diff * &mask;
             let l2_loss = masked_diff.iter().map(|x| x * x).sum::<f32>();
-            
+
             total_loss += l2_loss;
 
             // Hitung similarity untuk monitoring
@@ -194,10 +191,10 @@ impl ConsistencyLearning {
         // Convert ke probabilities (softmax approximation)
         let exp_preds = predictions.mapv(|x| x.exp());
         let sum_exp = exp_preds.sum();
-        
+
         if sum_exp > 0.0 {
             let probs = &exp_preds / sum_exp;
-            
+
             // Mask samples dengan confidence > threshold
             let max_confidence = probs.iter().fold(0.0f32, |a, &b| a.max(b));
             let mask_value = if max_confidence > self.config.confidence_threshold {
@@ -205,7 +202,7 @@ impl ConsistencyLearning {
             } else {
                 0.0
             };
-            
+
             Array1::from_elem(predictions.len(), mask_value)
         } else {
             Array1::ones(predictions.len())
@@ -214,10 +211,14 @@ impl ConsistencyLearning {
 
     /// Compute cosine similarity antara dua vektor
     fn compute_cosine_similarity(&self, vec1: &ArrayView1<f32>, vec2: &ArrayView1<f32>) -> f32 {
-        let dot_product = vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).sum::<f32>();
+        let dot_product = vec1
+            .iter()
+            .zip(vec2.iter())
+            .map(|(a, b)| a * b)
+            .sum::<f32>();
         let norm1 = vec1.iter().map(|x| x * x).sum::<f32>().sqrt();
         let norm2 = vec2.iter().map(|x| x * x).sum::<f32>().sqrt();
-        
+
         if norm1 > 0.0 && norm2 > 0.0 {
             dot_product / (norm1 * norm2)
         } else {
@@ -228,15 +229,15 @@ impl ConsistencyLearning {
     /// Update statistics consistency learning
     fn update_statistics(&mut self, loss: f32, similarity: f32, batch_size: usize) {
         self.statistics.total_samples += batch_size;
-        
+
         // Update running average
         let alpha = 0.01; // Learning rate untuk statistics
-        self.statistics.avg_consistency_loss = 
+        self.statistics.avg_consistency_loss =
             (1.0 - alpha) * self.statistics.avg_consistency_loss + alpha * loss;
-        
-        self.statistics.avg_augmentation_similarity = 
+
+        self.statistics.avg_augmentation_similarity =
             (1.0 - alpha) * self.statistics.avg_augmentation_similarity + alpha * similarity;
-        
+
         // Update expansion factor
         self.statistics.expansion_factor = 1.0 + self.config.num_augmentations as f32;
     }
@@ -244,12 +245,12 @@ impl ConsistencyLearning {
     /// Generate augmentasi untuk consistency learning
     pub fn generate_augmentations(&mut self, data: &Array2<f32>) -> Vec<Array2<f32>> {
         let mut augmentations = Vec::with_capacity(self.config.num_augmentations);
-        
+
         for _ in 0..self.config.num_augmentations {
             let aug_data = self.apply_random_augmentation(data);
             augmentations.push(aug_data);
         }
-        
+
         augmentations
     }
 
@@ -257,7 +258,7 @@ impl ConsistencyLearning {
     fn apply_random_augmentation(&self, data: &Array2<f32>) -> Array2<f32> {
         let mut rng = thread_rng();
         let augmentation_type = rng.gen_range(0..4);
-        
+
         match augmentation_type {
             0 => self.apply_gaussian_noise(data, 0.1),
             1 => self.apply_dropout(data, 0.1),
@@ -292,15 +293,16 @@ impl ConsistencyLearning {
     fn apply_random_crop(&self, data: &Array2<f32>, crop_ratio: f32) -> Array2<f32> {
         let (_, num_features) = data.dim();
         let crop_size = (num_features as f32 * crop_ratio) as usize;
-        
+
         if crop_size >= num_features {
             return data.clone();
         }
-        
+
         let mut rng = thread_rng();
         let start_idx = rng.gen_range(0..=num_features - crop_size);
-        
-        data.slice(s![.., start_idx..start_idx + crop_size]).to_owned()
+
+        data.slice(s![.., start_idx..start_idx + crop_size])
+            .to_owned()
     }
 
     /// Apply random flip augmentation
@@ -368,10 +370,10 @@ impl PseudoLabelConsistency {
 
         // Generate pseudo-labels dari confident predictions
         let pseudo_labels = self.generate_pseudo_labels(original_predictions);
-        
+
         // Apply consistency pada unlabeled data
         let augmented_unlabeled = self.base_consistency.generate_augmentations(unlabeled_data);
-        
+
         // Hitung consistency loss dengan pseudo-labels
         self.compute_consistency_with_pseudo_labels(&pseudo_labels, &augmented_unlabeled, step)
     }
@@ -385,7 +387,7 @@ impl PseudoLabelConsistency {
             } else if x < -self.pseudo_threshold {
                 -1.0
             } else {
-                0.0  // Uncertain, no pseudo-label
+                0.0 // Uncertain, no pseudo-label
             }
         })
     }
@@ -399,42 +401,48 @@ impl PseudoLabelConsistency {
     ) -> f32 {
         // Implementasi consistency dengan pseudo-labels
         // Compute consistency loss between original predictions and pseudo-labels
-        
+
         if augmented_data.is_empty() {
             return 0.0;
         }
-        
+
         let mut total_consistency = 0.0;
         let mut count = 0;
-        
+
         // Compare original pseudo-labels with augmented data predictions
         for (aug_idx, augmented_sample) in augmented_data.iter().enumerate() {
             if aug_idx < pseudo_labels.nrows() {
                 // Get original pseudo-labels for this sample
                 let original_labels = pseudo_labels.row(aug_idx);
-                
+
                 // Simulate model prediction on augmented data
                 // In practice, this would be actual model inference
-                let predicted_labels = self.simulate_augmented_prediction(augmented_sample, &original_labels);
-                
+                let predicted_labels =
+                    self.simulate_augmented_prediction(augmented_sample, &original_labels);
+
                 // Compute consistency using KL divergence or cosine similarity
-                let consistency_score = self.compute_consistency_score(&original_labels, &predicted_labels);
+                let consistency_score =
+                    self.compute_consistency_score(&original_labels, &predicted_labels);
                 total_consistency += consistency_score;
                 count += 1;
             }
         }
-        
+
         if count > 0 {
             total_consistency / count as f32
         } else {
             0.0
         }
     }
-    
+
     /// Simulate model prediction on augmented data
-    fn simulate_augmented_prediction(&self, augmented_data: &Array2<f32>, original_labels: &ArrayView1<f32>) -> Vec<f32> {
+    fn simulate_augmented_prediction(
+        &self,
+        augmented_data: &Array2<f32>,
+        original_labels: &ArrayView1<f32>,
+    ) -> Vec<f32> {
         let mut predictions = Vec::with_capacity(original_labels.len());
-        
+
         for (i, &original_label) in original_labels.iter().enumerate() {
             // Simulate augmentation effect on prediction
             let augmentation_factor = if i < augmented_data.ncols() {
@@ -444,38 +452,38 @@ impl PseudoLabelConsistency {
             } else {
                 1.0
             };
-            
+
             // Apply augmentation with temperature scaling
             let temperature = 0.8; // Temperature for softmax-like behavior
             let perturbed_label = original_label * augmentation_factor;
             let prediction = (perturbed_label / temperature).tanh();
-            
+
             predictions.push(prediction);
         }
-        
+
         predictions
     }
-    
+
     /// Compute consistency score between two label distributions
     fn compute_consistency_score(&self, original: &ArrayView1<f32>, predicted: &[f32]) -> f32 {
         if original.len() != predicted.len() {
             return 0.0;
         }
-        
+
         // Compute cosine similarity as consistency measure
         let mut dot_product = 0.0;
         let mut norm_original = 0.0;
         let mut norm_predicted = 0.0;
-        
+
         for (&orig, &pred) in original.iter().zip(predicted.iter()) {
             dot_product += orig * pred;
             norm_original += orig * orig;
             norm_predicted += pred * pred;
         }
-        
+
         norm_original = norm_original.sqrt();
         norm_predicted = norm_predicted.sqrt();
-        
+
         if norm_original > 1e-8 && norm_predicted > 1e-8 {
             dot_product / (norm_original * norm_predicted)
         } else {
@@ -546,10 +554,10 @@ mod tests {
     fn test_consistency_learning() {
         let config = ConsistencyConfig::default();
         let mut consistency = ConsistencyLearning::new(config);
-        
+
         let original = Array::from_elem((2, 3), 0.5);
         let augmented = vec![Array::from_elem((2, 3), 0.6)];
-        
+
         let loss = consistency.compute_consistency_loss(&original, &augmented, 100);
         assert!(loss >= 0.0);
     }
@@ -558,10 +566,10 @@ mod tests {
     fn test_augmentation_generation() {
         let config = ConsistencyConfig::default();
         let mut consistency = ConsistencyLearning::new(config);
-        
+
         let data = Array::from_elem((2, 10), 0.5);
         let augmentations = consistency.generate_augmentations(&data);
-        
+
         assert_eq!(augmentations.len(), 2);
         assert_eq!(augmentations[0].dim(), data.dim());
     }
@@ -570,11 +578,11 @@ mod tests {
     fn test_cosine_similarity() {
         let config = ConsistencyConfig::default();
         let consistency = ConsistencyLearning::new(config);
-        
+
         let vec1 = Array::from_vec(vec![1.0, 0.0, 0.0]);
         let vec2 = Array::from_vec(vec![1.0, 0.0, 0.0]);
         let similarity = consistency.compute_cosine_similarity(&vec1.view(), &vec2.view());
-        
+
         assert!((similarity - 1.0).abs() < 1e-6);
     }
 
@@ -583,18 +591,18 @@ mod tests {
         let mut config = ConsistencyConfig::default();
         config.enable_progressive = true;
         config.warmup_steps = 100;
-        
+
         let mut consistency = ConsistencyLearning::new(config);
-        
+
         let original = Array::from_elem((2, 3), 0.5);
         let augmented = vec![Array::from_elem((2, 3), 0.6)];
-        
+
         // Early step - lower strength
         let early_loss = consistency.compute_consistency_loss(&original, &augmented, 10);
-        
-        // Later step - higher strength  
+
+        // Later step - higher strength
         let later_loss = consistency.compute_consistency_loss(&original, &augmented, 200);
-        
+
         assert!(later_loss >= early_loss);
     }
 }

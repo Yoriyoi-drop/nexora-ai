@@ -1,9 +1,9 @@
 //! Standard Algorithm Generator
-//! 
+//!
 //! Generates standard, conventional implementations for modules.
 
 use super::{AlgorithmGenerator, AlgorithmType};
-use crate::saca::{types::*, error::*};
+use crate::saca::{error::*, types::*};
 use uuid::Uuid;
 
 /// Standard algorithm generator
@@ -33,7 +33,7 @@ impl AlgorithmGenerator for StandardAlgorithmGenerator {
             AlgorithmType::Hybrid => self.generate_hybrid_implementation(module),
             AlgorithmType::Random => self.generate_random_implementation(module),
         };
-        
+
         Ok(SamplingCandidate {
             id: Uuid::new_v4(),
             module_id: module.id.clone(),
@@ -49,31 +49,28 @@ impl AlgorithmGenerator for StandardAlgorithmGenerator {
 impl StandardAlgorithmGenerator {
     fn generate_standard_implementation(&self, module: &Module) -> String {
         let mut implementation = String::new();
-        
-        implementation.push_str(&format!(
-            "// Standard implementation for {}\n",
-            module.name
-        ));
-        
+
+        implementation.push_str(&format!("// Standard implementation for {}\n", module.name));
+
         // Add imports based on module type
         if module.name.contains("sort") {
             implementation.push_str("use std::cmp::Ordering;\n\n");
         } else if module.name.contains("search") {
             implementation.push_str("use std::collections::HashMap;\n\n");
         }
-        
+
         implementation.push_str(&format!(
             "pub fn {}_standard(input: &Input) -> Result<Output> {{\n",
             module.name.to_lowercase()
         ));
-        
+
         // Generate basic logic based on module name
         if module.name.contains("sort") {
             implementation.push_str(
                 "    // Standard sorting implementation\n\
                 let mut data = input.clone();\n\
                 data.sort();\n\
-                Ok(data)\n"
+                Ok(data)\n",
             );
         } else if module.name.contains("search") {
             implementation.push_str(
@@ -83,59 +80,63 @@ impl StandardAlgorithmGenerator {
                         return Ok(Some(i));\n\
                     }\n\
                 }\n\
-                Ok(None)\n"
+                Ok(None)\n",
             );
         } else {
             implementation.push_str(
                 "    // Standard implementation logic\n\
                 let result = process_input(input);\n\
-                Ok(result)\n"
+                Ok(result)\n",
             );
         }
-        
+
         implementation.push_str("}\n");
         implementation
     }
-    
+
     fn generate_optimized_implementation(&self, module: &Module) -> String {
         let mut implementation = String::new();
-        
+
         implementation.push_str(&format!(
             "// Optimized implementation for {}\n",
             module.name
         ));
-        
+
         // Add optimized imports
         if module.name.contains("sort") {
-            implementation.push_str("use std::cmp::Ordering;
+            implementation.push_str(
+                "use std::cmp::Ordering;
 use std::mem;
 
-");
+",
+            );
         } else if module.name.contains("search") {
-            implementation.push_str("use std::collections::HashMap;
+            implementation.push_str(
+                "use std::collections::HashMap;
 use std::sync::Arc;
 
-");
+",
+            );
         }
-        
+
         implementation.push_str(&format!(
             "pub fn {}_optimized(input: &Input) -> Result<Output> {{\n",
             module.name.to_lowercase()
         ));
-        
+
         // Generate optimized logic
         if module.name.contains("sort") {
             implementation.push_str(
                 "    // Optimized quicksort implementation\n\
                 let mut data = input.clone();\n\
                 data.sort_unstable(); // Faster than sort()\n\
-                Ok(data)\n"
+                Ok(data)\n",
             );
         } else if module.name.contains("search") {
             implementation.push_str(
                 "    // Optimized binary search implementation\n\
                 let sorted_data = prepare_sorted(input);\n\
-                binary_search(&sorted_data, target)\n"
+                binary_search(&sorted_data, target)\n",
             );
         } else {
             implementation.push_str(
@@ -149,35 +150,39 @@ use std::sync::Arc;
                 Ok(result)\n"
             );
         }
-        
+
         implementation.push_str("}\n");
         implementation
     }
-    
+
     fn generate_alternative_implementation(&self, module: &Module) -> String {
         let mut implementation = String::new();
-        
+
         implementation.push_str(&format!(
             "// Alternative implementation for {}\n",
             module.name
         ));
-        
+
         // Alternative approach imports
         if module.name.contains("sort") {
-            implementation.push_str("use std::collections::BTreeMap;
+            implementation.push_str(
+                "use std::collections::BTreeMap;
 
-");
+",
+            );
         } else if module.name.contains("search") {
-            implementation.push_str("use std::collections::HashSet;
+            implementation.push_str(
+                "use std::collections::HashSet;
 
-");
+",
+            );
         }
-        
+
         implementation.push_str(&format!(
             "pub fn {}_alternative(input: &Input) -> Result<Output> {{\n",
             module.name.to_lowercase()
         ));
-        
+
         // Generate alternative logic
         if module.name.contains("sort") {
             implementation.push_str(
@@ -190,7 +195,7 @@ use std::sync::Arc;
                 for (_, &index) in tree {\n\
                     result.push(input[index].clone());\n\
                 }\n\
-                Ok(result)\n"
+                Ok(result)\n",
             );
         } else if module.name.contains("search") {
             implementation.push_str(
@@ -204,37 +209,39 @@ use std::sync::Arc;
                         return Ok(Some(*index));\n\
                     }\n\
                 }\n\
-                Ok(None)\n"
+                Ok(None)\n",
             );
         } else {
             implementation.push_str(
                 "    // Alternative implementation logic\n\
                 let result = process_input_alternative(input);\n\
-                Ok(result)\n"
+                Ok(result)\n",
             );
         }
-        
+
         implementation.push_str("}\n");
         implementation
     }
-    
+
     fn generate_experimental_implementation(&self, module: &Module) -> String {
         let mut implementation = String::new();
-        
+
         implementation.push_str(&format!(
             "// Experimental implementation for {}\n",
             module.name
         ));
-        
-        implementation.push_str("use rand::Rng;
 
-");
-        
+        implementation.push_str(
+            "use rand::Rng;
+
+",
+        );
+
         implementation.push_str(&format!(
             "pub fn {}_experimental(input: &Input) -> Result<Output> {{\n",
             module.name.to_lowercase()
         ));
-        
+
         // Generate experimental logic
         if module.name.contains("sort") {
             implementation.push_str(
@@ -248,7 +255,7 @@ use std::sync::Arc;
                         a.cmp(b)\n\
                     }\n\
                 });\n\
-                Ok(data)\n"
+                Ok(data)\n",
             );
         } else if module.name.contains("search") {
             implementation.push_str(
@@ -269,37 +276,36 @@ use std::sync::Arc;
                         return Ok(Some(i));\n\
                     }\n\
                 }\n\
-                Ok(None)\n"
+                Ok(None)\n",
             );
         } else {
             implementation.push_str(
                 "    // Experimental implementation logic\n\
                 let result = process_input_experimental(input);\n\
-                Ok(result)\n"
+                Ok(result)\n",
             );
         }
-        
+
         implementation.push_str("}\n");
         implementation
     }
-    
+
     fn generate_hybrid_implementation(&self, module: &Module) -> String {
         let mut implementation = String::new();
-        
-        implementation.push_str(&format!(
-            "// Hybrid implementation for {}\n",
-            module.name
-        ));
-        
-        implementation.push_str("use std::collections::HashMap;
 
-");
-        
+        implementation.push_str(&format!("// Hybrid implementation for {}\n", module.name));
+
+        implementation.push_str(
+            "use std::collections::HashMap;
+
+",
+        );
+
         implementation.push_str(&format!(
             "pub fn {}_hybrid(input: &Input) -> Result<Output> {{\n",
             module.name.to_lowercase()
         ));
-        
+
         // Generate hybrid logic
         if module.name.contains("sort") {
             implementation.push_str(
@@ -317,7 +323,7 @@ use std::sync::Arc;
                     data.par_sort_unstable();\n\
                 }\n\
                 \n\
-                Ok(data)\n"
+                Ok(data)\n",
             );
         } else if module.name.contains("search") {
             implementation.push_str(
@@ -343,37 +349,36 @@ use std::sync::Arc;
                         return Ok(Some(i));\n\
                     }\n\
                 }\n\
-                Ok(None)\n"
+                Ok(None)\n",
             );
         } else {
             implementation.push_str(
                 "    // Hybrid implementation logic\n\
                 let result = process_input_hybrid(input);\n\
-                Ok(result)\n"
+                Ok(result)\n",
             );
         }
-        
+
         implementation.push_str("}\n");
         implementation
     }
-    
+
     fn generate_random_implementation(&self, module: &Module) -> String {
         let mut implementation = String::new();
-        
-        implementation.push_str(&format!(
-            "// Random implementation for {}\n",
-            module.name
-        ));
-        
-        implementation.push_str("use rand::Rng;
 
-");
-        
+        implementation.push_str(&format!("// Random implementation for {}\n", module.name));
+
+        implementation.push_str(
+            "use rand::Rng;
+
+",
+        );
+
         implementation.push_str(&format!(
             "pub fn {}_random(input: &Input) -> Result<Output> {{\n",
             module.name.to_lowercase()
         ));
-        
+
         // Generate random logic
         if module.name.contains("sort") {
             implementation.push_str(
@@ -381,7 +386,7 @@ use std::sync::Arc;
                 let mut data = input.clone();\n\
                 use rand::seq::SliceRandom;\n\
                 data.shuffle(&mut rand::thread_rng());\n\
-                Ok(data)\n"
+                Ok(data)\n",
             );
         } else if module.name.contains("search") {
             implementation.push_str(
@@ -393,16 +398,16 @@ use std::sync::Arc;
                     Ok(Some(random_index))\n\
                 } else {\n\
                     Ok(None)\n\
-                }\n"
+                }\n",
             );
         } else {
             implementation.push_str(
                 "    // Random implementation logic\n\
                 let result = process_input_random(input);\n\
-                Ok(result)\n"
+                Ok(result)\n",
             );
         }
-        
+
         implementation.push_str("}\n");
         implementation
     }

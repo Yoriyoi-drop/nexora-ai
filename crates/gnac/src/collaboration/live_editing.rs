@@ -1,5 +1,5 @@
 use crate::canvas::NeuralGraph;
-use crate::collaboration::{CollaboratorAction, CollabActionType};
+use crate::collaboration::{CollabActionType, CollaboratorAction};
 use uuid::Uuid;
 
 /// Manajer live editing multi-user
@@ -19,9 +19,11 @@ impl LiveEditingManager {
     /// Apply operasi dari user ke graf
     pub fn apply(&mut self, graph: &mut NeuralGraph, action: CollaboratorAction) {
         match action.action_type {
-            CollabActionType::NodeAdded | CollabActionType::NodeRemoved |
-            CollabActionType::NodeModified | CollabActionType::EdgeAdded |
-            CollabActionType::EdgeRemoved => {
+            CollabActionType::NodeAdded
+            | CollabActionType::NodeRemoved
+            | CollabActionType::NodeModified
+            | CollabActionType::EdgeAdded
+            | CollabActionType::EdgeRemoved => {
                 graph.version += 1;
             }
             _ => {}

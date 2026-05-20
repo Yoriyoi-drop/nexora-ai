@@ -1,10 +1,8 @@
 //! NXR-VORTEX Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-VORTEX
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-VORTEX Identity Manager
 pub struct _VortexIdentity {

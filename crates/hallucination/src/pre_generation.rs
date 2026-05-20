@@ -18,9 +18,17 @@ impl Default for PreGenConfig {
             context_threshold: 0.4,
             knowledge_cutoff: "Last updated per training data cutoff".to_string(),
             domain_list: vec![
-                "coding", "mathematics", "science", "technology",
-                "general", "reasoning", "analysis",
-            ].into_iter().map(String::from).collect(),
+                "coding",
+                "mathematics",
+                "science",
+                "technology",
+                "general",
+                "reasoning",
+                "analysis",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
         }
     }
 }
@@ -37,7 +45,8 @@ impl PreGenerationChecker {
         Self {
             config,
             ambiguity_patterns: vec![
-                Regex::new(r"(?i)\b(mungkin|maybe|perhaps|possibly|could be|sepertinya)\b").unwrap(),
+                Regex::new(r"(?i)\b(mungkin|maybe|perhaps|possibly|could be|sepertinya)\b")
+                    .unwrap(),
                 Regex::new(r"(?i)\b(tidak jelas|unclear|ambiguous|tidak pasti)\b").unwrap(),
                 Regex::new(r"\?").unwrap(),
             ],
@@ -48,20 +57,24 @@ impl PreGenerationChecker {
                 Regex::new(r"(?i)\b(menurut|according to|research|study|penelitian)\b").unwrap(),
             ],
             recency_patterns: vec![
-                Regex::new(r"(?i)\b(tahun ini|this year|recent|baru-baru|terbaru|202[4-9])\b").unwrap(),
+                Regex::new(r"(?i)\b(tahun ini|this year|recent|baru-baru|terbaru|202[4-9])\b")
+                    .unwrap(),
                 Regex::new(r"(?i)\b(saat ini|currently|now|sekarang)\b").unwrap(),
             ],
         }
     }
 
-    pub fn check(&self, input: &str, context: Option<&str>) -> Result<PreGenCheckResult, crate::HallucinationError> {
+    pub fn check(
+        &self,
+        input: &str,
+        context: Option<&str>,
+    ) -> Result<PreGenCheckResult, crate::HallucinationError> {
         let in_scope = self.check_scope(input);
         let ambiguity_score = self.compute_ambiguity(input);
         let context_sufficiency = self.compute_context_sufficiency(input, context);
         let suggestions = self.generate_suggestions(ambiguity_score, context_sufficiency);
 
-        let can_proceed = in_scope
-            && ambiguity_score < self.config.ambiguity_threshold;
+        let can_proceed = in_scope && ambiguity_score < self.config.ambiguity_threshold;
 
         Ok(PreGenCheckResult {
             can_proceed,
@@ -69,8 +82,9 @@ impl PreGenerationChecker {
             ambiguity_score,
             context_sufficiency,
             reason: if !can_proceed {
-                if !in_scope { "Out of scope".into() }
-                else if ambiguity_score >= self.config.ambiguity_threshold {
+                if !in_scope {
+                    "Out of scope".into()
+                } else if ambiguity_score >= self.config.ambiguity_threshold {
                     format!("High ambiguity ({:.2})", ambiguity_score)
                 } else {
                     format!("Insufficient context ({:.2})", context_sufficiency)
@@ -89,9 +103,14 @@ impl PreGenerationChecker {
         }
 
         let out_of_scope = vec![
-            "internal server", "proprietary", "confidential",
-            "rahasia", "internal data", "future prediction",
-            "stock price", "election result",
+            "internal server",
+            "proprietary",
+            "confidential",
+            "rahasia",
+            "internal data",
+            "future prediction",
+            "stock price",
+            "election result",
         ];
         if out_of_scope.iter().any(|k| lower.contains(k)) {
             return false;

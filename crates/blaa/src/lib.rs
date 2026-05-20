@@ -1,5 +1,5 @@
 //! BLAA (Black Language Model API) integration for Nexora AI
-//! 
+//!
 //! This crate provides integration with the BLAA API for advanced language model capabilities.
 
 use thiserror::Error;
@@ -17,22 +17,22 @@ pub use models::*;
 pub enum BlaaError {
     #[error("Authentication failed: {0}")]
     Authentication(String),
-    
+
     #[error("API request failed: {0}")]
     ApiRequest(String),
-    
+
     #[error("Rate limit exceeded: {0}")]
     RateLimit(String),
-    
+
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),
-    
+
     #[error("Network error: {0}")]
     Network(#[from] reqwest::Error),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Invalid response format: {0}")]
     InvalidResponse(String),
 }
@@ -175,7 +175,7 @@ pub mod models {
         Assistant,
         Tool,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatCompletionRequest {
         pub model: String,
@@ -192,7 +192,7 @@ pub mod models {
         pub user: Option<String>,
         pub system: Option<String>,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatMessage {
         pub role: MessageRole,
@@ -208,7 +208,7 @@ pub mod models {
         Single(String),
         Multiple(Vec<String>),
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatCompletionResponse {
         pub id: String,
@@ -218,7 +218,7 @@ pub mod models {
         pub choices: Vec<ChatChoice>,
         pub usage: Option<Usage>,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatChoice {
         pub index: u32,
@@ -238,7 +238,7 @@ pub mod models {
         pub delta: ChatDelta,
         pub finish_reason: Option<String>,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ChatCompletionChunk {
         pub id: String,
@@ -254,7 +254,7 @@ pub mod models {
         pub completion_tokens: u32,
         pub total_tokens: u32,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct EmbeddingRequest {
         pub model: String,
@@ -276,7 +276,7 @@ pub mod models {
         Float,
         Base64,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct EmbeddingResponse {
         pub object: String,
@@ -284,14 +284,14 @@ pub mod models {
         pub model: Option<String>,
         pub usage: Option<Usage>,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct EmbeddingData {
         pub object: String,
         pub embedding: Vec<f32>,
         pub index: u32,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ModelInfo {
         pub id: String,
@@ -300,12 +300,12 @@ pub mod models {
         pub created: u64,
         pub owned_by: String,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct BlaaErrorResponse {
         pub error: BlaaErrorInfo,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct BlaaErrorInfo {
         pub message: String,

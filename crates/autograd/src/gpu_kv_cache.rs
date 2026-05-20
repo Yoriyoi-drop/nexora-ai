@@ -1,4 +1,4 @@
-use crate::gpu::{GpuContext, GpuTensor, GpuError};
+use crate::gpu::{GpuContext, GpuError, GpuTensor};
 use ndarray::ArrayD;
 
 // ─── GpuPageTable ──────────────────────────────────────────────────────────────
@@ -29,9 +29,7 @@ impl GpuPageTable {
         head_dim: usize,
     ) -> Result<Self, GpuError> {
         let data = GpuTensor::zeros(&[
-            max_pages,
-            page_size,
-            2, // K and V
+            max_pages, page_size, 2, // K and V
             head_dim,
         ])?;
 
@@ -58,8 +56,6 @@ impl GpuPageTable {
             cpu_free,
         })
     }
-
-
 
     /// Number of free pages remaining.
     pub fn available_pages(&self) -> usize {
@@ -89,7 +85,9 @@ impl GpuPageTable {
         let temp = GpuTensor::from_cpu(&arr)?;
         let mut encoder = ctx
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sync_free_list") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("sync_free_list"),
+            });
         encoder.copy_buffer_to_buffer(
             temp.buffer(),
             0,
@@ -105,33 +103,39 @@ impl GpuPageTable {
 // ─── Compile pipelines ─────────────────────────────────────────────────────────
 
 pub fn compile_gather_pages_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("gather_pages_shader"),
-        source: wgpu::ShaderSource::Wgsl(GATHER_PAGES_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("gather_pages"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gather_pages_shader"),
+            source: wgpu::ShaderSource::Wgsl(GATHER_PAGES_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("gather_pages"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_scatter_pages_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("scatter_pages_shader"),
-        source: wgpu::ShaderSource::Wgsl(SCATTER_PAGES_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("scatter_pages"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("scatter_pages_shader"),
+            source: wgpu::ShaderSource::Wgsl(SCATTER_PAGES_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("scatter_pages"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub struct GpuKvCachePipelines {
@@ -173,7 +177,8 @@ pub fn dispatch_gather_pages(
         page_table.num_heads as u32,
         page_table.head_dim as u32,
     ];
-    ctx.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+    ctx.queue
+        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("gather_pages_bg"),
@@ -199,9 +204,11 @@ pub fn dispatch_gather_pages(
     });
 
     let total_elements = num_pages * page_table.page_size as u32 * 2 * page_table.head_dim as u32;
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("gather_pages_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("gather_pages_encoder"),
+        });
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("gather_pages"),
@@ -237,7 +244,8 @@ pub fn dispatch_scatter_pages(
         page_table.num_heads as u32,
         page_table.head_dim as u32,
     ];
-    ctx.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+    ctx.queue
+        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("scatter_pages_bg"),
@@ -263,9 +271,11 @@ pub fn dispatch_scatter_pages(
     });
 
     let total_elements = num_pages * page_table.page_size as u32 * 2 * page_table.head_dim as u32;
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("scatter_pages_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter_pages_encoder"),
+        });
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("scatter_pages"),

@@ -1,24 +1,20 @@
+use async_trait::async_trait;
+use rand::seq::SliceRandom;
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
-use async_trait::async_trait;
 use tokio::sync::RwLock;
-use serde_json::Value;
 use tracing::{info, warn};
-use rand::seq::SliceRandom;
 
-use nexora_transformer::{CausalLM, TransformerConfig};
 use nexora_training::{Trainer, TrainerConfig};
+use nexora_transformer::{CausalLM, TransformerConfig};
 
-use crate::shared::{
-    NxrModel, NxrModelError, NxrModelResult,
-    NxrInput, NxrOutput, InputData, OutputData,
-    NxrStreamChunk, StreamChunkData, TokenOutput,
-    ModelStatistics, ResourceUsage,
-    GenerationMetadata, PerformanceMetrics, FinishReason,
-    ModelMeta, NxrModelId, ModelTier,
-    CapabilityVector,
-};
 use crate::shared::base_model::ValidationResult;
+use crate::shared::{
+    CapabilityVector, FinishReason, GenerationMetadata, InputData, ModelMeta, ModelStatistics,
+    ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
+    NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
+};
 
 /// Byte-level tokenizer for MVP: maps bytes 0-255 to token IDs directly.
 pub struct MiniTokenizer {
@@ -43,7 +39,8 @@ impl MiniTokenizer {
     }
 
     pub fn decode(&self, token_ids: &[u32]) -> String {
-        let bytes: Vec<u8> = token_ids.iter()
+        let bytes: Vec<u8> = token_ids
+            .iter()
             .filter_map(|&id| if id < 256 { Some(id as u8) } else { None })
             .collect();
         String::from_utf8_lossy(&bytes).to_string()
@@ -63,10 +60,7 @@ pub struct CausalLmModel {
 }
 
 impl CausalLmModel {
-    pub fn new(
-        model_id: NxrModelId,
-        transformer_config: TransformerConfig,
-    ) -> Self {
+    pub fn new(model_id: NxrModelId, transformer_config: TransformerConfig) -> Self {
         let meta = ModelMeta::new(
             model_id,
             ModelTier::Core,
@@ -118,11 +112,12 @@ impl CausalLmModel {
 
     pub async fn save_checkpoint(&self, path: &str) -> NxrModelResult<()> {
         let model = self.model.read().await;
-        let model_ref = model.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
+        let model_ref = model
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         use nexora_transformer::TrainableCausalLM;
-        TrainableCausalLM::from_inference(model_ref).save_checkpoint(path)
+        TrainableCausalLM::from_inference(model_ref)
+            .save_checkpoint(path)
             .map_err(|e| NxrModelError::Inference(format!("Save failed: {}", e)))?;
         info!("Checkpoint saved to {}", path);
         Ok(())
@@ -130,9 +125,9 @@ impl CausalLmModel {
 
     pub async fn load_checkpoint(&self, path: &str) -> NxrModelResult<()> {
         let mut model = self.model.write().await;
-        let model_ref = model.as_mut().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
+        let model_ref = model
+            .as_mut()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         use nexora_transformer::TrainableCausalLM;
         TrainableCausalLM::load_checkpoint(model_ref, path)
             .map_err(|e| NxrModelError::Inference(format!("Load failed: {}", e)))?;
@@ -144,21 +139,34 @@ impl CausalLmModel {
         *self.use_gpu.write().await = enabled;
     }
 
-    pub async fn generate_text(&self, prompt: &str, max_tokens: usize, temperature: f32) -> NxrModelResult<String> {
-        self.generate_text_with_gpu(prompt, max_tokens, temperature, false).await
+    pub async fn generate_text(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+    ) -> NxrModelResult<String> {
+        self.generate_text_with_gpu(prompt, max_tokens, temperature, false)
+            .await
     }
 
-    pub async fn generate_text_with_gpu(&self, prompt: &str, max_tokens: usize, temperature: f32, use_gpu: bool) -> NxrModelResult<String> {
+    pub async fn generate_text_with_gpu(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+        use_gpu: bool,
+    ) -> NxrModelResult<String> {
         let model = self.model.read().await;
-        let model_ref = model.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
+        let model_ref = model
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
-        })?;
+        let tok_ref = tokenizer
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
         let input_ids = tok_ref.encode(prompt);
-        let (output_ids, _) = model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, 50, use_gpu);
+        let (output_ids, _) =
+            model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, 50, use_gpu);
         let text = tok_ref.decode(&output_ids);
         Ok(text)
     }
@@ -174,22 +182,32 @@ impl CausalLmModel {
         let max_steps = cfg.max_steps;
 
         let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
-        })?;
+        let tok_ref = tokenizer
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
 
-        let train_tokens: Vec<Vec<u32>> = data.iter()
+        let train_tokens: Vec<Vec<u32>> = data
+            .iter()
             .filter_map(|t| {
                 let ids = tok_ref.encode(t);
-                if ids.len() >= 2 { Some(ids) } else { None }
+                if ids.len() >= 2 {
+                    Some(ids)
+                } else {
+                    None
+                }
             })
             .collect();
 
         let val_tokens: Vec<Vec<u32>> = match val_data {
-            Some(vd) => vd.iter()
+            Some(vd) => vd
+                .iter()
                 .filter_map(|t| {
                     let ids = tok_ref.encode(t);
-                    if ids.len() >= 2 { Some(ids) } else { None }
+                    if ids.len() >= 2 {
+                        Some(ids)
+                    } else {
+                        None
+                    }
                 })
                 .collect(),
             None => Vec::new(),
@@ -197,12 +215,16 @@ impl CausalLmModel {
         drop(tokenizer);
 
         let total_tokens: usize = train_tokens.iter().map(|t| t.len()).sum();
-        info!("Training data: {} sequences, {} tokens", train_tokens.len(), total_tokens);
+        info!(
+            "Training data: {} sequences, {} tokens",
+            train_tokens.len(),
+            total_tokens
+        );
 
         let mut model = self.model.write().await;
-        let causal_lm = model.take().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
+        let causal_lm = model
+            .take()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         drop(model);
 
         let mut trainer_cfg = cfg;
@@ -225,11 +247,17 @@ impl CausalLmModel {
             epoch.shuffle(&mut rng);
 
             for sample in &epoch {
-                if trainer.step >= max_steps { break; }
+                if trainer.step >= max_steps {
+                    break;
+                }
                 for chunk in sample.chunks(seq_length + 1) {
-                    if chunk.len() < 2 { continue; }
+                    if chunk.len() < 2 {
+                        continue;
+                    }
                     let (input, target) = trainer.prepare_batch(chunk);
-                    if input.is_empty() { continue; }
+                    if input.is_empty() {
+                        continue;
+                    }
                     if let Some(loss) = trainer.train_batch(&input, &target) {
                         let step = trainer.step;
                         if step % trainer.config.report_every == 0 {
@@ -247,11 +275,16 @@ impl CausalLmModel {
                             }
                         }
                     }
-                    if trainer.step >= max_steps { break; }
+                    if trainer.step >= max_steps {
+                        break;
+                    }
                 }
             }
 
-            if !val_tokens.is_empty() && trainer.step % trainer.config.val_every_steps == 0 && trainer.step > 0 {
+            if !val_tokens.is_empty()
+                && trainer.step % trainer.config.val_every_steps == 0
+                && trainer.step > 0
+            {
                 let _val_metrics = trainer.evaluate_loss(&val_tokens, seq_length);
             }
         }
@@ -262,7 +295,11 @@ impl CausalLmModel {
 
         trainer.sync_weights();
         let trained_model = trainer.model.clone();
-        let final_loss = if trainer.step > 0 { trainer.avg_loss() } else { 0.0 };
+        let final_loss = if trainer.step > 0 {
+            trainer.avg_loss()
+        } else {
+            0.0
+        };
         let elapsed = start.elapsed();
 
         let val_loss = if !val_tokens.is_empty() {
@@ -330,8 +367,14 @@ impl NxrModel for CausalLmModel {
                 tc.get("num_layers").and_then(|v| v.as_u64()),
                 tc.get("max_seq_len").and_then(|v| v.as_u64()),
             ) {
-                let nkv = tc.get("num_kv_heads").and_then(|v| v.as_u64()).unwrap_or(nh / 4);
-                let int_size = tc.get("intermediate_size").and_then(|v| v.as_u64()).unwrap_or(hs * 4);
+                let nkv = tc
+                    .get("num_kv_heads")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(nh / 4);
+                let int_size = tc
+                    .get("intermediate_size")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(hs * 4);
                 let new_tc = TransformerConfig {
                     vocab_size: vs as usize,
                     hidden_size: hs as usize,
@@ -364,15 +407,15 @@ impl NxrModel for CausalLmModel {
 
     async fn infer(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
         let model = self.model.read().await;
-        let _model_ref = model.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
+        let _model_ref = model
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         drop(model);
 
         let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
-        })?;
+        let tok_ref = tokenizer
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
 
         let text = match &input.data {
             InputData::Text(t) => t.clone(),
@@ -382,15 +425,20 @@ impl NxrModel for CausalLmModel {
                     id: uuid::Uuid::new_v4(),
                     input_id: input.id,
                     timestamp: chrono::Utc::now(),
-                    data: OutputData::Tokens(t.iter().enumerate().map(|(i, &tid)| {
-                        let t = tok_ref.decode(&[tid]);
-                        TokenOutput {
-                            token_id: tid,
-                            text: t,
-                            log_prob: 0.0,
-                            position: i,
-                        }
-                    }).collect()),
+                    data: OutputData::Tokens(
+                        t.iter()
+                            .enumerate()
+                            .map(|(i, &tid)| {
+                                let t = tok_ref.decode(&[tid]);
+                                TokenOutput {
+                                    token_id: tid,
+                                    text: t,
+                                    log_prob: 0.0,
+                                    position: i,
+                                }
+                            })
+                            .collect(),
+                    ),
                     metadata: GenerationMetadata {
                         finish_reason: FinishReason::MaxTokens,
                         total_tokens: t.len(),
@@ -406,20 +454,27 @@ impl NxrModel for CausalLmModel {
                         cpu_utilization: 0.0,
                         network_usage_mbps: None,
                     },
-                })
+                });
             }
-            _ => return Err(NxrModelError::Inference("Unsupported input type".to_string())),
+            _ => {
+                return Err(NxrModelError::Inference(
+                    "Unsupported input type".to_string(),
+                ))
+            }
         };
 
-        let max_tokens = input.parameters
+        let max_tokens = input
+            .parameters
             .get("max_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(100) as usize;
-        let temperature = input.parameters
+        let temperature = input
+            .parameters
             .get("temperature")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.7) as f32;
-        let top_k = input.parameters
+        let top_k = input
+            .parameters
             .get("top_k")
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
@@ -433,7 +488,8 @@ impl NxrModel for CausalLmModel {
         })?;
 
         let use_gpu = *self.use_gpu.read().await;
-        let (output_ids, _cache) = model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
+        let (output_ids, _cache) =
+            model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
 
         let elapsed = start.elapsed().as_millis() as u64;
         let generated_text = tok_ref.decode(&output_ids);
@@ -449,15 +505,19 @@ impl NxrModel for CausalLmModel {
             0.0
         };
 
-        let _token_outputs: Vec<TokenOutput> = output_ids.iter().enumerate().map(|(i, &tid)| {
-            let t = tok_ref.decode(&[tid]);
-            TokenOutput {
-                token_id: tid,
-                text: t,
-                log_prob: 0.0,
-                position: input_ids.len() + i,
-            }
-        }).collect();
+        let _token_outputs: Vec<TokenOutput> = output_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &tid)| {
+                let t = tok_ref.decode(&[tid]);
+                TokenOutput {
+                    token_id: tid,
+                    text: t,
+                    log_prob: 0.0,
+                    position: input_ids.len() + i,
+                }
+            })
+            .collect();
 
         Ok(NxrOutput {
             id: uuid::Uuid::new_v4(),
@@ -510,14 +570,24 @@ impl NxrModel for CausalLmModel {
         let has_model = self.model.read().await.is_some();
         let has_tok = self.tokenizer.read().await.is_some();
         let mut errors = Vec::new();
-        if !initialized { errors.push("Not initialized".to_string()); }
-        if !has_model { errors.push("Model not loaded".to_string()); }
-        if !has_tok { errors.push("Tokenizer not loaded".to_string()); }
+        if !initialized {
+            errors.push("Not initialized".to_string());
+        }
+        if !has_model {
+            errors.push("Model not loaded".to_string());
+        }
+        if !has_tok {
+            errors.push("Tokenizer not loaded".to_string());
+        }
         Ok(ValidationResult {
             is_valid: initialized && has_model && has_tok,
             errors,
             warnings: vec![],
-            score: if initialized && has_model && has_tok { 1.0 } else { 0.0 },
+            score: if initialized && has_model && has_tok {
+                1.0
+            } else {
+                0.0
+            },
         })
     }
 
@@ -570,8 +640,11 @@ mod tests {
         let text = "Hello, World!";
         let ids = tok.encode(text);
         let decoded = tok.decode(&ids);
-        assert_eq!(text.as_bytes(), &decoded.as_bytes()[1..decoded.len() - 1],
-            "Roundtrip should preserve text (minus BOS/EOS)");
+        assert_eq!(
+            text.as_bytes(),
+            &decoded.as_bytes()[1..decoded.len() - 1],
+            "Roundtrip should preserve text (minus BOS/EOS)"
+        );
     }
 
     #[test]
@@ -588,7 +661,11 @@ mod tests {
         let ids = tok.encode(text);
         let content: Vec<u32> = ids[1..ids.len() - 1].to_vec();
         for (i, &c) in text.as_bytes().iter().enumerate() {
-            assert_eq!(content[i], c as u32, "Char '{:?}' should map to {}", c as char, c);
+            assert_eq!(
+                content[i], c as u32,
+                "Char '{:?}' should map to {}",
+                c as char, c
+            );
         }
     }
 
@@ -613,7 +690,11 @@ mod tests {
         let tok = MiniTokenizer::new(100);
         let ids = tok.encode("abc\u{ff}");
         let content: Vec<u32> = ids[1..ids.len() - 1].to_vec();
-        assert_eq!(content, vec![97, 98, 99], "Byte 255 should be skipped (>= vocab_size)");
+        assert_eq!(
+            content,
+            vec![97, 98, 99],
+            "Byte 255 should be skipped (>= vocab_size)"
+        );
     }
 
     // ── CausalLmModel tests ──
@@ -635,40 +716,56 @@ mod tests {
     #[tokio::test]
     async fn test_causal_lm_ready_after_init() {
         let cfg = TransformerConfig {
-            vocab_size: 64, hidden_size: 32, num_heads: 4,
-            num_kv_heads: 2, num_layers: 2, max_seq_len: 64,
-            intermediate_size: 64, ..Default::default()
+            vocab_size: 64,
+            hidden_size: 32,
+            num_heads: 4,
+            num_kv_heads: 2,
+            num_layers: 2,
+            max_seq_len: 64,
+            intermediate_size: 64,
+            ..Default::default()
         };
         let mut model = CausalLmModel::new(NxrModelId::Omnis, cfg.clone());
         let tok = MiniTokenizer::new(64);
         model.load_tokenizer(tok).await;
-        model.initialize(serde_json::json!({
-            "transformer_config": {
-                "vocab_size": 64, "hidden_size": 32,
-                "num_heads": 4, "num_kv_heads": 2,
-                "num_layers": 2, "max_seq_len": 64,
-            }
-        })).await.unwrap();
+        model
+            .initialize(serde_json::json!({
+                "transformer_config": {
+                    "vocab_size": 64, "hidden_size": 32,
+                    "num_heads": 4, "num_kv_heads": 2,
+                    "num_layers": 2, "max_seq_len": 64,
+                }
+            }))
+            .await
+            .unwrap();
         assert!(model.is_ready().await);
     }
 
     #[tokio::test]
     async fn test_causal_lm_reset() {
         let cfg = TransformerConfig {
-            vocab_size: 64, hidden_size: 32, num_heads: 4,
-            num_kv_heads: 2, num_layers: 2, max_seq_len: 64,
-            intermediate_size: 64, ..Default::default()
+            vocab_size: 64,
+            hidden_size: 32,
+            num_heads: 4,
+            num_kv_heads: 2,
+            num_layers: 2,
+            max_seq_len: 64,
+            intermediate_size: 64,
+            ..Default::default()
         };
         let mut model = CausalLmModel::new(NxrModelId::Omnis, cfg.clone());
         let tok = MiniTokenizer::new(64);
         model.load_tokenizer(tok).await;
-        model.initialize(serde_json::json!({
-            "transformer_config": {
-                "vocab_size": 64, "hidden_size": 32,
-                "num_heads": 4, "num_kv_heads": 2,
-                "num_layers": 2, "max_seq_len": 64,
-            }
-        })).await.unwrap();
+        model
+            .initialize(serde_json::json!({
+                "transformer_config": {
+                    "vocab_size": 64, "hidden_size": 32,
+                    "num_heads": 4, "num_kv_heads": 2,
+                    "num_layers": 2, "max_seq_len": 64,
+                }
+            }))
+            .await
+            .unwrap();
         model.reset().await.unwrap();
         assert!(!model.is_ready().await);
     }
@@ -691,12 +788,20 @@ mod tests {
     #[test]
     fn test_causal_lm_config_contains_hidden_size() {
         let cfg = TransformerConfig {
-            vocab_size: 128, hidden_size: 64, num_heads: 4,
-            num_kv_heads: 2, num_layers: 2, max_seq_len: 128,
-            intermediate_size: 128, ..Default::default()
+            vocab_size: 128,
+            hidden_size: 64,
+            num_heads: 4,
+            num_kv_heads: 2,
+            num_layers: 2,
+            max_seq_len: 128,
+            intermediate_size: 128,
+            ..Default::default()
         };
         let model = CausalLmModel::new(NxrModelId::Omnis, cfg);
         let config = model.config();
-        assert_eq!(config["transformer_config"]["hidden_size"].as_u64(), Some(64));
+        assert_eq!(
+            config["transformer_config"]["hidden_size"].as_u64(),
+            Some(64)
+        );
     }
 }

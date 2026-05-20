@@ -1,11 +1,11 @@
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use parking_lot::RwLock;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
-use crate::types::DataSample;
 use super::scanner::ShardPath;
+use crate::types::DataSample;
 
 pub struct DatasetCache {
     token_cache: Arc<RwLock<TokenizerCache>>,
@@ -34,10 +34,13 @@ impl DatasetCache {
 
     pub fn register_mmap(&self, shard: &ShardPath) {
         let mut reg = self.mmap_registry.write();
-        reg.insert(shard.path.to_string_lossy().to_string(), MmapEntry {
-            path: shard.path.clone(),
-            size: shard.size_bytes,
-        });
+        reg.insert(
+            shard.path.to_string_lossy().to_string(),
+            MmapEntry {
+                path: shard.path.clone(),
+                size: shard.size_bytes,
+            },
+        );
     }
 
     pub fn is_mmap_registered(&self, path: &str) -> bool {
@@ -50,11 +53,14 @@ impl DatasetCache {
 }
 
 #[cfg(feature = "mmap")]
-pub fn read_arrow_mmap(path: &Path, source: crate::types::SourceInfo) -> anyhow::Result<Vec<DataSample>> {
+pub fn read_arrow_mmap(
+    path: &Path,
+    source: crate::types::SourceInfo,
+) -> anyhow::Result<Vec<DataSample>> {
     use arrow::array::Array;
-    use memmap2::Mmap;
-    use arrow::ipc::reader::FileReader;
     use arrow::array::AsArray;
+    use arrow::ipc::reader::FileReader;
+    use memmap2::Mmap;
 
     let file = std::fs::File::open(path)?;
     let mmap = unsafe { Mmap::map(&file)? };
@@ -62,7 +68,8 @@ pub fn read_arrow_mmap(path: &Path, source: crate::types::SourceInfo) -> anyhow:
     let reader = FileReader::try_new(cursor, None)?;
 
     let schema = reader.schema();
-    let text_idx = schema.index_of("text")
+    let text_idx = schema
+        .index_of("text")
         .or_else(|_| schema.index_of("Text"))?;
 
     let mut samples = Vec::new();
@@ -73,7 +80,11 @@ pub fn read_arrow_mmap(path: &Path, source: crate::types::SourceInfo) -> anyhow:
         // Try StringArray (i32 offsets) first, then LargeStringArray (i64 offsets)
         if let Some(arr) = col.as_any().downcast_ref::<arrow::array::StringArray>() {
             for i in 0..arr.len() {
-                let text = if arr.is_null(i) { String::new() } else { arr.value(i).to_string() };
+                let text = if arr.is_null(i) {
+                    String::new()
+                } else {
+                    arr.value(i).to_string()
+                };
                 samples.push(DataSample {
                     id: uuid::Uuid::new_v4(),
                     text,
@@ -86,9 +97,16 @@ pub fn read_arrow_mmap(path: &Path, source: crate::types::SourceInfo) -> anyhow:
                     curriculum_level: None,
                 });
             }
-        } else if let Some(arr) = col.as_any().downcast_ref::<arrow::array::LargeStringArray>() {
+        } else if let Some(arr) = col
+            .as_any()
+            .downcast_ref::<arrow::array::LargeStringArray>()
+        {
             for i in 0..arr.len() {
-                let text = if arr.is_null(i) { String::new() } else { arr.value(i).to_string() };
+                let text = if arr.is_null(i) {
+                    String::new()
+                } else {
+                    arr.value(i).to_string()
+                };
                 samples.push(DataSample {
                     id: uuid::Uuid::new_v4(),
                     text,
@@ -106,13 +124,23 @@ pub fn read_arrow_mmap(path: &Path, source: crate::types::SourceInfo) -> anyhow:
         }
     }
 
-    info!("mmap read {} samples from {}", samples.len(), path.display());
+    info!(
+        "mmap read {} samples from {}",
+        samples.len(),
+        path.display()
+    );
     Ok(samples)
 }
 
 #[cfg(not(feature = "mmap"))]
-pub fn read_arrow_mmap(path: &Path, _source: crate::types::SourceInfo) -> anyhow::Result<Vec<DataSample>> {
-    Err(anyhow::anyhow!("mmap feature not enabled (need feature 'mmap'): {}", path.display()))
+pub fn read_arrow_mmap(
+    path: &Path,
+    _source: crate::types::SourceInfo,
+) -> anyhow::Result<Vec<DataSample>> {
+    Err(anyhow::anyhow!(
+        "mmap feature not enabled (need feature 'mmap'): {}",
+        path.display()
+    ))
 }
 
 pub struct TokenizerCache {
@@ -124,7 +152,11 @@ pub struct TokenizerCache {
 impl TokenizerCache {
     pub fn new(cache_dir: PathBuf) -> Self {
         if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-            warn!("Failed to create tokenizer cache dir {}: {}", cache_dir.display(), e);
+            warn!(
+                "Failed to create tokenizer cache dir {}: {}",
+                cache_dir.display(),
+                e
+            );
         }
         Self {
             cache_dir,
@@ -152,7 +184,8 @@ impl TokenizerCache {
 
         for sample in samples {
             if let Some(ref tokens) = sample.token_ids {
-                let line = tokens.iter()
+                let line = tokens
+                    .iter()
                     .map(|t| t.to_string())
                     .collect::<Vec<_>>()
                     .join(",");

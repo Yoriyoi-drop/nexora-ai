@@ -45,7 +45,10 @@ fn try_broadcast_shapes(a: &[usize], b: &[usize]) -> Result<Vec<usize>, Broadcas
             result.push(ai);
         } else {
             return Err(BroadcastError(format!(
-                "shapes {:?} and {:?} incompatible at dim {}", a, b, max_len - 1 - i
+                "shapes {:?} and {:?} incompatible at dim {}",
+                a,
+                b,
+                max_len - 1 - i
             )));
         }
     }
@@ -54,7 +57,10 @@ fn try_broadcast_shapes(a: &[usize], b: &[usize]) -> Result<Vec<usize>, Broadcas
 }
 
 /// Broadcast two arrays to a common shape
-pub fn broadcast_arrays(a: &ArrayD<f32>, b: &ArrayD<f32>) -> (ArrayD<f32>, ArrayD<f32>, Vec<usize>) {
+pub fn broadcast_arrays(
+    a: &ArrayD<f32>,
+    b: &ArrayD<f32>,
+) -> (ArrayD<f32>, ArrayD<f32>, Vec<usize>) {
     let a_shape = a.shape().to_vec();
     let b_shape = b.shape().to_vec();
     if a_shape == b_shape {
@@ -65,7 +71,11 @@ pub fn broadcast_arrays(a: &ArrayD<f32>, b: &ArrayD<f32>) -> (ArrayD<f32>, Array
         match a.clone().broadcast(target.as_slice()) {
             Some(view) => view.to_owned(),
             None => {
-                tracing::warn!("Cannot broadcast {:?} to {:?}, returning a clone", a_shape, target);
+                tracing::warn!(
+                    "Cannot broadcast {:?} to {:?}, returning a clone",
+                    a_shape,
+                    target
+                );
                 a.clone()
             }
         }
@@ -76,7 +86,11 @@ pub fn broadcast_arrays(a: &ArrayD<f32>, b: &ArrayD<f32>) -> (ArrayD<f32>, Array
         match b.clone().broadcast(target.as_slice()) {
             Some(view) => view.to_owned(),
             None => {
-                tracing::warn!("Cannot broadcast {:?} to {:?}, returning b clone", b_shape, target);
+                tracing::warn!(
+                    "Cannot broadcast {:?} to {:?}, returning b clone",
+                    b_shape,
+                    target
+                );
                 b.clone()
             }
         }

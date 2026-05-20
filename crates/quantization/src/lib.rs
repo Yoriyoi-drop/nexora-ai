@@ -341,13 +341,7 @@ pub fn dequantize_linear(tensor: &QuantizedTensor) -> Array2<f32> {
             dequantize_int4_packed_to_f32(&tensor.data, scale, rows, cols)
         }
         QuantizedDtype::Int4Groupwise { group_size } => {
-            dequantize_int4_groupwise_to_f32(
-                &tensor.data,
-                &tensor.scales,
-                group_size,
-                rows,
-                cols,
-            )
+            dequantize_int4_groupwise_to_f32(&tensor.data, &tensor.scales, group_size, rows, cols)
         }
     }
 }
@@ -369,12 +363,13 @@ mod tests {
     use super::*;
 
     fn test_weights() -> Array2<f32> {
-        Array2::from_shape_vec((4, 3), vec![
-            0.5, -1.2, 2.3,
-            -3.4, 4.5, -5.6,
-            6.7, -7.8, 8.9,
-            -9.0, 0.1, -0.2,
-        ]).unwrap()
+        Array2::from_shape_vec(
+            (4, 3),
+            vec![
+                0.5, -1.2, 2.3, -3.4, 4.5, -5.6, 6.7, -7.8, 8.9, -9.0, 0.1, -0.2,
+            ],
+        )
+        .unwrap()
     }
 
     #[test]
@@ -383,12 +378,13 @@ mod tests {
         let qt = quantize_linear(&w, QuantizedDtype::Int8);
         let w2 = dequantize_linear(&qt);
         let err = quantization_error(&w, &w2);
-        assert!(
-            err < 0.06,
-            "INT8 roundtrip error too high: {err}"
-        );
+        assert!(err < 0.06, "INT8 roundtrip error too high: {err}");
         assert_eq!(w2.dim(), (4, 3));
-        assert!(qt.compression_ratio() >= 3.0, "ratio={}", qt.compression_ratio());
+        assert!(
+            qt.compression_ratio() >= 3.0,
+            "ratio={}",
+            qt.compression_ratio()
+        );
     }
 
     #[test]
@@ -397,12 +393,13 @@ mod tests {
         let qt = quantize_linear(&w, QuantizedDtype::Int4Packed);
         let w2 = dequantize_linear(&qt);
         let err = quantization_error(&w, &w2);
-        assert!(
-            err < 1.0,
-            "INT4 packed roundtrip error too high: {err}"
-        );
+        assert!(err < 1.0, "INT4 packed roundtrip error too high: {err}");
         assert_eq!(qt.data.len(), (w.len() + 1) / 2);
-        assert!(qt.compression_ratio() >= 4.0, "ratio={}", qt.compression_ratio());
+        assert!(
+            qt.compression_ratio() >= 4.0,
+            "ratio={}",
+            qt.compression_ratio()
+        );
     }
 
     #[test]
@@ -411,11 +408,12 @@ mod tests {
         let qt = quantize_linear(&w, QuantizedDtype::Int4Groupwise { group_size: 4 });
         let w2 = dequantize_linear(&qt);
         let err = quantization_error(&w, &w2);
+        assert!(err < 1.0, "INT4 groupwise roundtrip error too high: {err}");
         assert!(
-            err < 1.0,
-            "INT4 groupwise roundtrip error too high: {err}"
+            qt.compression_ratio() >= 2.0,
+            "ratio={}",
+            qt.compression_ratio()
         );
-        assert!(qt.compression_ratio() >= 2.0, "ratio={}", qt.compression_ratio());
         assert_eq!(qt.scales.len(), (w.len() + 3) / 4);
     }
 
@@ -436,7 +434,12 @@ mod tests {
         for i in 0..2 {
             for j in 0..4 {
                 let diff = (result[[i, j]] - expected[[i, j]]).abs();
-                assert!(diff < 0.1, "matmul_int8 mismatch at ({i},{j}): got {}, expected {}", result[[i, j]], expected[[i, j]]);
+                assert!(
+                    diff < 0.1,
+                    "matmul_int8 mismatch at ({i},{j}): got {}, expected {}",
+                    result[[i, j]],
+                    expected[[i, j]]
+                );
             }
         }
     }

@@ -6,8 +6,8 @@
 pub use nexora_reasoning::saca::*;
 pub use nexora_reasoning::*;
 
-use nexora_shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput};
 use nexora_models::aether::NxrAetherModel;
+use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 
 /// Enhanced SACA with NXR-ÆTHER integration
 pub struct SacaAetherIntegration {
@@ -82,5 +82,7 @@ impl EnhancedReasoningResult {
 }
 
 impl Default for SacaAetherIntegration {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

@@ -1,5 +1,5 @@
-use crate::TensorDesc;
 use crate::canvas::CanvasPosition;
+use crate::TensorDesc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq)]

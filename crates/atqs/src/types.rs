@@ -1,9 +1,9 @@
 //! Common types used throughout ATQS
 
+use super::error::ATQSError;
 use ndarray::ArrayD;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use super::error::ATQSError;
 
 /// Layer information structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,21 +33,21 @@ impl LayerInfo {
             trainable: true,
         }
     }
-    
+
     pub fn get_weights(&self) -> &ArrayD<f32> {
         &self.weights
     }
-    
+
     pub fn set_weights(&mut self, weights: ArrayD<f32>) {
         let weight_count = weights.len();
         self.weights = weights;
         self.num_parameters = weight_count;
     }
-    
+
     pub fn get_biases(&self) -> Option<&ArrayD<f32>> {
         self.biases.as_ref()
     }
-    
+
     pub fn set_biases(&mut self, biases: Option<ArrayD<f32>>) {
         let bias_count = biases.as_ref().map(|b| b.len()).unwrap_or(0);
         self.biases = biases;
@@ -59,29 +59,32 @@ impl ModelLayer for LayerInfo {
     fn get_weights(&self) -> &ArrayD<f32> {
         &self.weights
     }
-    
+
     fn set_weights(&mut self, weights: ArrayD<f32>) -> Result<(), Box<dyn std::error::Error>> {
         let weight_count = weights.len();
         self.weights = weights;
         self.num_parameters = weight_count;
         Ok(())
     }
-    
+
     fn get_biases(&self) -> Option<&ArrayD<f32>> {
         self.biases.as_ref()
     }
-    
-    fn set_biases(&mut self, biases: Option<ArrayD<f32>>) -> Result<(), Box<dyn std::error::Error>> {
+
+    fn set_biases(
+        &mut self,
+        biases: Option<ArrayD<f32>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let bias_count = biases.as_ref().map(|b| b.len()).unwrap_or(0);
         self.biases = biases;
         self.num_parameters += bias_count;
         Ok(())
     }
-    
+
     fn get_layer_info(&self) -> &LayerInfo {
         self
     }
-    
+
     fn forward(&self, input: &ArrayD<f32>) -> Result<ArrayD<f32>, Box<dyn std::error::Error>> {
         match self.layer_type.as_str() {
             "dense" | "linear" => {
@@ -89,17 +92,22 @@ impl ModelLayer for LayerInfo {
                 if input.ndim() == 1 {
                     let input_vec = input.as_slice().unwrap_or(&[]);
                     let weight_vec = self.weights.as_slice().unwrap_or(&[]);
-                    
+
                     if input_vec.len() == weight_vec.len() {
-                        let dot_product: f32 = input_vec.iter().zip(weight_vec.iter())
+                        let dot_product: f32 = input_vec
+                            .iter()
+                            .zip(weight_vec.iter())
                             .map(|(x, w)| x * w)
                             .sum();
-                        
+
                         // Apply activation (ReLU)
                         let activated = dot_product.max(0.0);
                         let output = vec![activated];
-                        ArrayD::from_shape_vec(input.shape().to_vec(), output)
-                            .map_err(|_| Box::new(ATQSError::InvalidInput("Failed to create output tensor".to_string())) as Box<dyn std::error::Error>)
+                        ArrayD::from_shape_vec(input.shape().to_vec(), output).map_err(|_| {
+                            Box::new(ATQSError::InvalidInput(
+                                "Failed to create output tensor".to_string(),
+                            )) as Box<dyn std::error::Error>
+                        })
                     } else {
                         // Dimension mismatch, use identity
                         Ok(input.clone())
@@ -107,34 +115,34 @@ impl ModelLayer for LayerInfo {
                 } else {
                     Ok(input.clone())
                 }
-            },
+            }
             "conv2d" => {
                 // Convolutional layer: apply convolution-like operation
                 if input.ndim() >= 2 {
                     let mut output = input.clone();
-                    
+
                     // Simple convolution simulation
                     for elem in output.iter_mut() {
                         *elem = (*elem * 0.8).tanh(); // Apply convolution-like transformation
                     }
-                    
+
                     Ok(output)
                 } else {
                     Ok(input.clone())
                 }
-            },
+            }
             "attention" => {
                 // Attention layer: apply attention-like transformation
                 if input.ndim() == 1 {
                     let input_vec = input.as_slice().unwrap_or(&[]);
                     let seq_len = input_vec.len();
-                    
+
                     // Create attention weights (simplified)
                     let mut attention_weights = vec![0.0; seq_len];
                     for (i, &val) in input_vec.iter().enumerate() {
                         attention_weights[i] = (val as f32).tanh();
                     }
-                    
+
                     // Normalize attention weights
                     let sum: f32 = attention_weights.iter().sum();
                     if sum > 1e-8 {
@@ -142,25 +150,30 @@ impl ModelLayer for LayerInfo {
                             *weight /= sum;
                         }
                     }
-                    
+
                     // Apply attention weights
-                    let output: Vec<f32> = input_vec.iter().zip(attention_weights.iter())
+                    let output: Vec<f32> = input_vec
+                        .iter()
+                        .zip(attention_weights.iter())
                         .map(|(x, w)| x * w)
                         .collect();
-                    
-                    ArrayD::from_shape_vec(input.shape().to_vec(), output)
-                        .map_err(|_| Box::new(ATQSError::InvalidInput("Failed to create attention output tensor".to_string())) as Box<dyn std::error::Error>)
+
+                    ArrayD::from_shape_vec(input.shape().to_vec(), output).map_err(|_| {
+                        Box::new(ATQSError::InvalidInput(
+                            "Failed to create attention output tensor".to_string(),
+                        )) as Box<dyn std::error::Error>
+                    })
                 } else {
                     Ok(input.clone())
                 }
-            },
+            }
             _ => {
                 // Unknown layer type: return input unchanged
                 Ok(input.clone())
             }
         }
     }
-    
+
     fn clone_layer(&self) -> Box<dyn ModelLayer> {
         Box::new(self.clone())
     }
@@ -202,12 +215,12 @@ impl CalibrationDataset {
             },
         }
     }
-    
+
     pub fn add_sample(&mut self, input: ArrayD<f32>, target: ArrayD<f32>) {
         self.inputs.push(input);
         self.targets.push(target);
         self.metadata.total_samples = self.inputs.len();
-        
+
         // Update shapes if this is the first sample
         if self.metadata.input_shape.is_empty() && !self.inputs.is_empty() {
             self.metadata.input_shape = self.inputs[0].shape().to_vec();
@@ -216,11 +229,11 @@ impl CalibrationDataset {
             self.metadata.output_shape = self.targets[0].shape().to_vec();
         }
     }
-    
+
     pub fn len(&self) -> usize {
         self.inputs.len().min(self.targets.len())
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty() || self.targets.is_empty()
     }
@@ -240,11 +253,11 @@ impl CalibrationBatch {
             targets: Vec::new(),
         }
     }
-    
+
     pub fn batch_size(&self) -> usize {
         self.inputs.len().min(self.targets.len())
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty() || self.targets.is_empty()
     }
@@ -413,7 +426,8 @@ pub trait ModelLayer: Send + Sync {
     fn get_weights(&self) -> &ArrayD<f32>;
     fn set_weights(&mut self, weights: ArrayD<f32>) -> Result<(), Box<dyn std::error::Error>>;
     fn get_biases(&self) -> Option<&ArrayD<f32>>;
-    fn set_biases(&mut self, biases: Option<ArrayD<f32>>) -> Result<(), Box<dyn std::error::Error>>;
+    fn set_biases(&mut self, biases: Option<ArrayD<f32>>)
+        -> Result<(), Box<dyn std::error::Error>>;
     fn get_layer_info(&self) -> &LayerInfo;
     fn forward(&self, input: &ArrayD<f32>) -> Result<ArrayD<f32>, Box<dyn std::error::Error>>;
     fn clone_layer(&self) -> Box<dyn ModelLayer>;
@@ -607,7 +621,7 @@ impl TensorValidator {
     pub fn validate_numerical_stability(tensor: &ArrayD<f32>) -> ValidationResult {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for NaN values
         let nan_count = tensor.iter().filter(|&&x| x.is_nan()).count();
         if nan_count > 0 {
@@ -617,7 +631,7 @@ impl TensorValidator {
                 severity: ErrorSeverity::Critical,
             });
         }
-        
+
         // Check for infinite values
         let inf_count = tensor.iter().filter(|&&x| x.is_infinite()).count();
         if inf_count > 0 {
@@ -627,7 +641,7 @@ impl TensorValidator {
                 severity: ErrorSeverity::Critical,
             });
         }
-        
+
         // Check for very large values
         let large_count = tensor.iter().filter(|&&x| x.abs() > 1e6).count();
         if large_count > 0 {
@@ -637,14 +651,14 @@ impl TensorValidator {
                 suggestion: Some("Consider normalization".to_string()),
             });
         }
-        
+
         let is_valid = errors.is_empty();
         let numerical_stability_score = if is_valid {
             1.0 - (nan_count + inf_count) as f32 / tensor.len() as f32
         } else {
             0.0
         };
-        
+
         ValidationResult {
             is_valid,
             errors,

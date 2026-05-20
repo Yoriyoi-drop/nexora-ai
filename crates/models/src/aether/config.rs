@@ -1,10 +1,10 @@
 //! NXR-ÆTHER Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-ÆTHER
 
+use nexora_shared::{deeplearning_integration::DeepLearningConfig, model_config::NxrModelConfig};
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig};
 
 /// Macro to generate simple getter/setter pairs for nested config fields.
 macro_rules! define_accessors {
@@ -108,7 +108,10 @@ pub enum EmotionalModelType {
     /// Neural network model
     NeuralNetwork,
     /// Hybrid model
-    Hybrid { neural_weight: f32, rule_weight: f32 },
+    Hybrid {
+        neural_weight: f32,
+        rule_weight: f32,
+    },
     /// Ensemble model
     Ensemble { models: Vec<EmotionalModelType> },
 }
@@ -142,7 +145,9 @@ pub enum PsychologicalFramework {
     /// Positive psychology
     PositivePsychology,
     /// Integrative approach
-    Integrative { frameworks: Vec<PsychologicalFramework> },
+    Integrative {
+        frameworks: Vec<PsychologicalFramework>,
+    },
 }
 
 /// Assessment Method
@@ -480,9 +485,15 @@ impl Default for CulturalConfig {
                         openness: 0.8,
                         preferred_intensity: 0.7,
                         taboo_emotions: vec!["excessive anger".to_string()],
-                        celebrated_emotions: vec!["happiness".to_string(), "excitement".to_string()],
+                        celebrated_emotions: vec![
+                            "happiness".to_string(),
+                            "excitement".to_string(),
+                        ],
                     },
-                    support_preferences: vec!["direct advice".to_string(), "practical solutions".to_string()],
+                    support_preferences: vec![
+                        "direct advice".to_string(),
+                        "practical solutions".to_string(),
+                    ],
                 },
                 CulturalContext {
                     name: "Eastern".to_string(),
@@ -491,10 +502,16 @@ impl Default for CulturalConfig {
                     emotional_norms: EmotionalExpressionNorms {
                         openness: 0.5,
                         preferred_intensity: 0.4,
-                        taboo_emotions: vec!["public anger".to_string(), "direct confrontation".to_string()],
+                        taboo_emotions: vec![
+                            "public anger".to_string(),
+                            "direct confrontation".to_string(),
+                        ],
                         celebrated_emotions: vec!["respect".to_string(), "gratitude".to_string()],
                     },
-                    support_preferences: vec!["indirect guidance".to_string(), "group harmony".to_string()],
+                    support_preferences: vec![
+                        "indirect guidance".to_string(),
+                        "group harmony".to_string(),
+                    ],
                 },
             ],
             sensitivity_level: CulturalSensitivityLevel::High,
@@ -557,12 +574,16 @@ impl AetherConfig {
     }
 
     /// Update component configuration
-    pub fn update_component_config<T>(&mut self, component: String, config: T) -> Result<(), serde_json::Error>
+    pub fn update_component_config<T>(
+        &mut self,
+        component: String,
+        config: T,
+    ) -> Result<(), serde_json::Error>
     where
         T: Serialize,
     {
         let json_value = serde_json::to_value(config)?;
-        
+
         match component.as_str() {
             "emotional" => {
                 self.emotional = serde_json::from_value(json_value)?;
@@ -577,7 +598,10 @@ impl AetherConfig {
                 self.cultural = serde_json::from_value(json_value)?;
             }
             _ => {
-                return Err(SerdeError::custom(format!("unknown component: {}", component)));
+                return Err(SerdeError::custom(format!(
+                    "unknown component: {}",
+                    component
+                )));
             }
         }
 
@@ -586,12 +610,20 @@ impl AetherConfig {
 
     /// Get empathy types as strings
     pub fn get_empathy_types(&self) -> Vec<String> {
-        self.empathy.empathy_types.iter().map(|t| format!("{:?}", t)).collect()
+        self.empathy
+            .empathy_types
+            .iter()
+            .map(|t| format!("{:?}", t))
+            .collect()
     }
 
     /// Get supported cultures as strings
     pub fn get_supported_cultures(&self) -> Vec<String> {
-        self.cultural.supported_cultures.iter().map(|c| c.name.clone()).collect()
+        self.cultural
+            .supported_cultures
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
     }
 
     /// Check if tone analysis is enabled
@@ -622,30 +654,47 @@ impl AetherConfig {
     /// Remove supported culture
     pub fn remove_supported_culture(&mut self, culture_name: &str) -> bool {
         let original_len = self.cultural.supported_cultures.len();
-        self.cultural.supported_cultures.retain(|c| c.name != culture_name);
+        self.cultural
+            .supported_cultures
+            .retain(|c| c.name != culture_name);
         self.cultural.supported_cultures.len() < original_len
     }
 
     /// Get support types as strings
     pub fn get_support_types(&self) -> Vec<String> {
-        self.empathy.support_generation.support_types.iter().map(|t| format!("{:?}", t)).collect()
+        self.empathy
+            .support_generation
+            .support_types
+            .iter()
+            .map(|t| format!("{:?}", t))
+            .collect()
     }
 
     /// Add support type
     pub fn add_support_type(&mut self, support_type: SupportType) {
-        self.empathy.support_generation.support_types.push(support_type);
+        self.empathy
+            .support_generation
+            .support_types
+            .push(support_type);
     }
 
     /// Remove support type
     pub fn remove_support_type(&mut self, support_type: &SupportType) -> bool {
         let original_len = self.empathy.support_generation.support_types.len();
-        self.empathy.support_generation.support_types.retain(|t| t != support_type);
+        self.empathy
+            .support_generation
+            .support_types
+            .retain(|t| t != support_type);
         self.empathy.support_generation.support_types.len() < original_len
     }
 
     /// Get assessment methods as strings
     pub fn get_assessment_methods(&self) -> Vec<String> {
-        self.psychological.assessment_methods.iter().map(|m| format!("{:?}", m)).collect()
+        self.psychological
+            .assessment_methods
+            .iter()
+            .map(|m| format!("{:?}", m))
+            .collect()
     }
 
     /// Add assessment method
@@ -656,21 +705,103 @@ impl AetherConfig {
     /// Remove assessment method
     pub fn remove_assessment_method(&mut self, method: &AssessmentMethod) -> bool {
         let original_len = self.psychological.assessment_methods.len();
-        self.psychological.assessment_methods.retain(|m| m != method);
+        self.psychological
+            .assessment_methods
+            .retain(|m| m != method);
         self.psychological.assessment_methods.len() < original_len
     }
 
-    define_accessors!(psychological, "Get privacy level", "Set privacy level", privacy_level, PrivacyLevel, ref get_privacy_level, set_privacy_level);
-    define_accessors!(emotional, "Get emotional granularity", "Set emotional granularity", emotional_granularity, EmotionalGranularity, ref get_emotional_granularity, set_emotional_granularity);
-    define_accessors!(emotional, "Get context awareness level", "Set context awareness level", context_awareness, ContextAwarenessLevel, ref get_context_awareness_level, set_context_awareness_level);
-    define_accessors!(emotional, "Get emotional model type", "Set emotional model type", emotional_model, EmotionalModelType, ref get_emotional_model_type, set_emotional_model_type);
-    define_accessors!(psychological, "Get psychological framework", "Set psychological framework", psychological_framework, PsychologicalFramework, ref get_psychological_framework, set_psychological_framework);
-    define_accessors!(empathy, "Get empathy response style", "Set empathy response style", response_style, EmpathyResponseStyle, ref get_empathy_response_style, set_empathy_response_style);
-    define_accessors!(empathy, "Get compassion level", "Set compassion level", compassion_level, CompassionLevel, ref get_compassion_level, set_compassion_level);
-    define_accessors!(cultural, "Get cultural adaptation mode", "Set cultural adaptation mode", adaptation_mode, CulturalAdaptationMode, ref get_cultural_adaptation_mode, set_cultural_adaptation_mode);
-    define_accessors!(cultural, "Get cultural sensitivity level", "Set cultural sensitivity level", sensitivity_level, CulturalSensitivityLevel, ref get_cultural_sensitivity_level, set_cultural_sensitivity_level);
+    define_accessors!(
+        psychological,
+        "Get privacy level",
+        "Set privacy level",
+        privacy_level,
+        PrivacyLevel,
+        ref get_privacy_level,
+        set_privacy_level
+    );
+    define_accessors!(
+        emotional,
+        "Get emotional granularity",
+        "Set emotional granularity",
+        emotional_granularity,
+        EmotionalGranularity,
+        ref get_emotional_granularity,
+        set_emotional_granularity
+    );
+    define_accessors!(
+        emotional,
+        "Get context awareness level",
+        "Set context awareness level",
+        context_awareness,
+        ContextAwarenessLevel,
+        ref get_context_awareness_level,
+        set_context_awareness_level
+    );
+    define_accessors!(
+        emotional,
+        "Get emotional model type",
+        "Set emotional model type",
+        emotional_model,
+        EmotionalModelType,
+        ref get_emotional_model_type,
+        set_emotional_model_type
+    );
+    define_accessors!(
+        psychological,
+        "Get psychological framework",
+        "Set psychological framework",
+        psychological_framework,
+        PsychologicalFramework,
+        ref get_psychological_framework,
+        set_psychological_framework
+    );
+    define_accessors!(
+        empathy,
+        "Get empathy response style",
+        "Set empathy response style",
+        response_style,
+        EmpathyResponseStyle,
+        ref get_empathy_response_style,
+        set_empathy_response_style
+    );
+    define_accessors!(
+        empathy,
+        "Get compassion level",
+        "Set compassion level",
+        compassion_level,
+        CompassionLevel,
+        ref get_compassion_level,
+        set_compassion_level
+    );
+    define_accessors!(
+        cultural,
+        "Get cultural adaptation mode",
+        "Set cultural adaptation mode",
+        adaptation_mode,
+        CulturalAdaptationMode,
+        ref get_cultural_adaptation_mode,
+        set_cultural_adaptation_mode
+    );
+    define_accessors!(
+        cultural,
+        "Get cultural sensitivity level",
+        "Set cultural sensitivity level",
+        sensitivity_level,
+        CulturalSensitivityLevel,
+        ref get_cultural_sensitivity_level,
+        set_cultural_sensitivity_level
+    );
     define_accessors!(cultural, "Is cross-cultural awareness enabled", "Set cross-cultural awareness", cross_cultural_awareness, is is_cross_cultural_awareness_enabled, set_cross_cultural_awareness);
-    define_accessors!(cultural, "Get cultural learning mode", "Set cultural learning mode", learning_mode, CulturalLearningMode, ref get_cultural_learning_mode, set_cultural_learning_mode);
+    define_accessors!(
+        cultural,
+        "Get cultural learning mode",
+        "Set cultural learning mode",
+        learning_mode,
+        CulturalLearningMode,
+        ref get_cultural_learning_mode,
+        set_cultural_learning_mode
+    );
 
     /// Get support customization
     pub fn get_support_customization(&self) -> &SupportCustomization {
@@ -692,13 +823,16 @@ impl AetherConfig {
         self.empathy.support_generation.validation = validation;
     }
 
-
     /// Create configuration for specific culture
     pub fn create_culture_specific_config(&self, culture_name: &str) -> Option<AetherConfig> {
-        let culture = self.cultural.supported_cultures.iter().find(|c| c.name == culture_name)?;
-        
+        let culture = self
+            .cultural
+            .supported_cultures
+            .iter()
+            .find(|c| c.name == culture_name)?;
+
         let mut culture_config = self.clone();
-        
+
         // Adjust empathy weight based on cultural preferences
         culture_config.empathy.empathy_weight = match culture.communication_style {
             CommunicationStyle::Direct => 0.4,
@@ -708,16 +842,21 @@ impl AetherConfig {
             CommunicationStyle::Formal => 0.3,
             CommunicationStyle::Informal => 0.4,
         };
-        
+
         // Adjust emotional sensitivity based on cultural norms
         culture_config.emotional.emotional_sensitivity = culture.emotional_norms.openness;
-        
+
         Some(culture_config)
     }
 
     /// Validate cultural context
     pub fn validate_cultural_context(&self, context: &str) -> Result<(), String> {
-        if self.cultural.supported_cultures.iter().any(|c| c.name == context) {
+        if self
+            .cultural
+            .supported_cultures
+            .iter()
+            .any(|c| c.name == context)
+        {
             Ok(())
         } else {
             Err(format!("Unsupported cultural context: {}", context))
@@ -725,34 +864,37 @@ impl AetherConfig {
     }
 
     /// Get recommended empathy types for culture
-    pub fn get_recommended_empathy_types_for_culture(&self, culture_name: &str) -> Vec<EmpathyType> {
-        if let Some(culture) = self.cultural.supported_cultures.iter().find(|c| c.name == culture_name) {
+    pub fn get_recommended_empathy_types_for_culture(
+        &self,
+        culture_name: &str,
+    ) -> Vec<EmpathyType> {
+        if let Some(culture) = self
+            .cultural
+            .supported_cultures
+            .iter()
+            .find(|c| c.name == culture_name)
+        {
             match culture.communication_style {
-                CommunicationStyle::Direct => vec![
-                    EmpathyType::Cognitive,
-                    EmpathyType::Compassionate,
-                ],
-                CommunicationStyle::Indirect => vec![
-                    EmpathyType::Emotional,
-                    EmpathyType::Compassionate,
-                ],
+                CommunicationStyle::Direct => {
+                    vec![EmpathyType::Cognitive, EmpathyType::Compassionate]
+                }
+                CommunicationStyle::Indirect => {
+                    vec![EmpathyType::Emotional, EmpathyType::Compassionate]
+                }
                 CommunicationStyle::HighContext => vec![
                     EmpathyType::Emotional,
                     EmpathyType::Compassionate,
                     EmpathyType::Spiritual,
                 ],
-                CommunicationStyle::LowContext => vec![
-                    EmpathyType::Cognitive,
-                    EmpathyType::Compassionate,
-                ],
-                CommunicationStyle::Formal => vec![
-                    EmpathyType::Cognitive,
-                    EmpathyType::Compassionate,
-                ],
-                CommunicationStyle::Informal => vec![
-                    EmpathyType::Emotional,
-                    EmpathyType::Compassionate,
-                ],
+                CommunicationStyle::LowContext => {
+                    vec![EmpathyType::Cognitive, EmpathyType::Compassionate]
+                }
+                CommunicationStyle::Formal => {
+                    vec![EmpathyType::Cognitive, EmpathyType::Compassionate]
+                }
+                CommunicationStyle::Informal => {
+                    vec![EmpathyType::Emotional, EmpathyType::Compassionate]
+                }
             }
         } else {
             self.empathy.empathy_types.clone()
@@ -760,17 +902,27 @@ impl AetherConfig {
     }
 
     /// Get recommended support types for culture
-    pub fn get_recommended_support_types_for_culture(&self, culture_name: &str) -> Vec<SupportType> {
-        if let Some(culture) = self.cultural.supported_cultures.iter().find(|c| c.name == culture_name) {
-            culture.support_preferences.iter().filter_map(|pref| {
-                match pref.as_str() {
+    pub fn get_recommended_support_types_for_culture(
+        &self,
+        culture_name: &str,
+    ) -> Vec<SupportType> {
+        if let Some(culture) = self
+            .cultural
+            .supported_cultures
+            .iter()
+            .find(|c| c.name == culture_name)
+        {
+            culture
+                .support_preferences
+                .iter()
+                .filter_map(|pref| match pref.as_str() {
                     "direct advice" => Some(SupportType::PracticalAdvice),
                     "practical solutions" => Some(SupportType::PracticalAdvice),
                     "indirect guidance" => Some(SupportType::Emotional),
                     "group harmony" => Some(SupportType::Validation),
                     _ => None,
-                }
-            }).collect()
+                })
+                .collect()
         } else {
             self.empathy.support_generation.support_types.clone()
         }

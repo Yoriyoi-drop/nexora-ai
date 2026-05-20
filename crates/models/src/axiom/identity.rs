@@ -1,13 +1,13 @@
 //! NXR-AXIOM Identity
-//! 
+//!
 //! Identity and metadata for NXR-AXIOM logical reasoning and mathematical proof system
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
-    model_identity::{ModelMeta, ModelTier, NxrModelId},
     capability_spec::CapabilityVector,
+    model_identity::{ModelMeta, ModelTier, NxrModelId},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// NXR-AXIOM Identity
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -970,14 +970,33 @@ impl AxiomIdentity {
     /// Check if supports specific logic
     pub fn supports_logic(&self, logic_type: &str) -> bool {
         match logic_type {
-            "propositional" => self.logical_capabilities.propositional_logic.support_level != LogicSupportLevel::None,
-            "first_order" => self.logical_capabilities.first_order_logic.support_level != LogicSupportLevel::None,
-            "higher_order" => self.logical_capabilities.higher_order_logic.support_level != LogicSupportLevel::None,
-            "modal" => self.logical_capabilities.modal_logic.support_level != LogicSupportLevel::None,
-            "temporal" => self.logical_capabilities.temporal_logic.support_level != LogicSupportLevel::None,
-            "intuitionistic" => self.logical_capabilities.intuitionistic_logic.support_level != LogicSupportLevel::None,
-            "fuzzy" => self.logical_capabilities.fuzzy_logic.support_level != LogicSupportLevel::None,
-            "description" => self.logical_capabilities.description_logic.support_level != LogicSupportLevel::None,
+            "propositional" => {
+                self.logical_capabilities.propositional_logic.support_level
+                    != LogicSupportLevel::None
+            }
+            "first_order" => {
+                self.logical_capabilities.first_order_logic.support_level != LogicSupportLevel::None
+            }
+            "higher_order" => {
+                self.logical_capabilities.higher_order_logic.support_level
+                    != LogicSupportLevel::None
+            }
+            "modal" => {
+                self.logical_capabilities.modal_logic.support_level != LogicSupportLevel::None
+            }
+            "temporal" => {
+                self.logical_capabilities.temporal_logic.support_level != LogicSupportLevel::None
+            }
+            "intuitionistic" => {
+                self.logical_capabilities.intuitionistic_logic.support_level
+                    != LogicSupportLevel::None
+            }
+            "fuzzy" => {
+                self.logical_capabilities.fuzzy_logic.support_level != LogicSupportLevel::None
+            }
+            "description" => {
+                self.logical_capabilities.description_logic.support_level != LogicSupportLevel::None
+            }
             _ => false,
         }
     }
@@ -985,16 +1004,36 @@ impl AxiomIdentity {
     /// Check if supports specific mathematics
     pub fn supports_mathematics(&self, math_type: &str) -> bool {
         match math_type {
-            "arithmetic" => self.mathematical_capabilities.arithmetic.proficiency != MathProficiency::None,
-            "algebra" => self.mathematical_capabilities.algebra.proficiency != MathProficiency::None,
-            "geometry" => self.mathematical_capabilities.geometry.proficiency != MathProficiency::None,
-            "calculus" => self.mathematical_capabilities.calculus.proficiency != MathProficiency::None,
-            "statistics" => self.mathematical_capabilities.statistics.proficiency != MathProficiency::None,
-            "number_theory" => self.mathematical_capabilities.number_theory.proficiency != MathProficiency::None,
-            "combinatorics" => self.mathematical_capabilities.combinatorics.proficiency != MathProficiency::None,
-            "graph_theory" => self.mathematical_capabilities.graph_theory.proficiency != MathProficiency::None,
-            "topology" => self.mathematical_capabilities.topology.proficiency != MathProficiency::None,
-            "abstract_algebra" => self.mathematical_capabilities.abstract_algebra.proficiency != MathProficiency::None,
+            "arithmetic" => {
+                self.mathematical_capabilities.arithmetic.proficiency != MathProficiency::None
+            }
+            "algebra" => {
+                self.mathematical_capabilities.algebra.proficiency != MathProficiency::None
+            }
+            "geometry" => {
+                self.mathematical_capabilities.geometry.proficiency != MathProficiency::None
+            }
+            "calculus" => {
+                self.mathematical_capabilities.calculus.proficiency != MathProficiency::None
+            }
+            "statistics" => {
+                self.mathematical_capabilities.statistics.proficiency != MathProficiency::None
+            }
+            "number_theory" => {
+                self.mathematical_capabilities.number_theory.proficiency != MathProficiency::None
+            }
+            "combinatorics" => {
+                self.mathematical_capabilities.combinatorics.proficiency != MathProficiency::None
+            }
+            "graph_theory" => {
+                self.mathematical_capabilities.graph_theory.proficiency != MathProficiency::None
+            }
+            "topology" => {
+                self.mathematical_capabilities.topology.proficiency != MathProficiency::None
+            }
+            "abstract_algebra" => {
+                self.mathematical_capabilities.abstract_algebra.proficiency != MathProficiency::None
+            }
             _ => false,
         }
     }
@@ -1002,14 +1041,44 @@ impl AxiomIdentity {
     /// Get logic support level
     pub fn get_logic_support_level(&self, logic_type: &str) -> Option<LogicSupportLevel> {
         match logic_type {
-            "propositional" => Some(self.logical_capabilities.propositional_logic.support_level.clone()),
-            "first_order" => Some(self.logical_capabilities.first_order_logic.support_level.clone()),
-            "higher_order" => Some(self.logical_capabilities.higher_order_logic.support_level.clone()),
+            "propositional" => Some(
+                self.logical_capabilities
+                    .propositional_logic
+                    .support_level
+                    .clone(),
+            ),
+            "first_order" => Some(
+                self.logical_capabilities
+                    .first_order_logic
+                    .support_level
+                    .clone(),
+            ),
+            "higher_order" => Some(
+                self.logical_capabilities
+                    .higher_order_logic
+                    .support_level
+                    .clone(),
+            ),
             "modal" => Some(self.logical_capabilities.modal_logic.support_level.clone()),
-            "temporal" => Some(self.logical_capabilities.temporal_logic.support_level.clone()),
-            "intuitionistic" => Some(self.logical_capabilities.intuitionistic_logic.support_level.clone()),
+            "temporal" => Some(
+                self.logical_capabilities
+                    .temporal_logic
+                    .support_level
+                    .clone(),
+            ),
+            "intuitionistic" => Some(
+                self.logical_capabilities
+                    .intuitionistic_logic
+                    .support_level
+                    .clone(),
+            ),
             "fuzzy" => Some(self.logical_capabilities.fuzzy_logic.support_level.clone()),
-            "description" => Some(self.logical_capabilities.description_logic.support_level.clone()),
+            "description" => Some(
+                self.logical_capabilities
+                    .description_logic
+                    .support_level
+                    .clone(),
+            ),
             _ => None,
         }
     }
@@ -1017,16 +1086,46 @@ impl AxiomIdentity {
     /// Get math proficiency level
     pub fn get_math_proficiency(&self, math_type: &str) -> Option<MathProficiency> {
         match math_type {
-            "arithmetic" => Some(self.mathematical_capabilities.arithmetic.proficiency.clone()),
+            "arithmetic" => Some(
+                self.mathematical_capabilities
+                    .arithmetic
+                    .proficiency
+                    .clone(),
+            ),
             "algebra" => Some(self.mathematical_capabilities.algebra.proficiency.clone()),
             "geometry" => Some(self.mathematical_capabilities.geometry.proficiency.clone()),
             "calculus" => Some(self.mathematical_capabilities.calculus.proficiency.clone()),
-            "statistics" => Some(self.mathematical_capabilities.statistics.proficiency.clone()),
-            "number_theory" => Some(self.mathematical_capabilities.number_theory.proficiency.clone()),
-            "combinatorics" => Some(self.mathematical_capabilities.combinatorics.proficiency.clone()),
-            "graph_theory" => Some(self.mathematical_capabilities.graph_theory.proficiency.clone()),
+            "statistics" => Some(
+                self.mathematical_capabilities
+                    .statistics
+                    .proficiency
+                    .clone(),
+            ),
+            "number_theory" => Some(
+                self.mathematical_capabilities
+                    .number_theory
+                    .proficiency
+                    .clone(),
+            ),
+            "combinatorics" => Some(
+                self.mathematical_capabilities
+                    .combinatorics
+                    .proficiency
+                    .clone(),
+            ),
+            "graph_theory" => Some(
+                self.mathematical_capabilities
+                    .graph_theory
+                    .proficiency
+                    .clone(),
+            ),
             "topology" => Some(self.mathematical_capabilities.topology.proficiency.clone()),
-            "abstract_algebra" => Some(self.mathematical_capabilities.abstract_algebra.proficiency.clone()),
+            "abstract_algebra" => Some(
+                self.mathematical_capabilities
+                    .abstract_algebra
+                    .proficiency
+                    .clone(),
+            ),
             _ => None,
         }
     }
@@ -1037,14 +1136,24 @@ impl AxiomIdentity {
             if proficiency == MathProficiency::None {
                 return false;
             }
-            
+
             // Check complexity capability based on proficiency
             match proficiency {
                 MathProficiency::Complete => true,
                 MathProficiency::Master => complexity != ComplexityLevel::TheoreticalMax,
-                MathProficiency::Expert => complexity != ComplexityLevel::TheoreticalMax && complexity != ComplexityLevel::ExtremelyComplex,
-                MathProficiency::Advanced => complexity != ComplexityLevel::TheoreticalMax && complexity != ComplexityLevel::ExtremelyComplex && complexity != ComplexityLevel::VeryComplex,
-                MathProficiency::Intermediate => matches!(complexity, ComplexityLevel::Simple | ComplexityLevel::Moderate),
+                MathProficiency::Expert => {
+                    complexity != ComplexityLevel::TheoreticalMax
+                        && complexity != ComplexityLevel::ExtremelyComplex
+                }
+                MathProficiency::Advanced => {
+                    complexity != ComplexityLevel::TheoreticalMax
+                        && complexity != ComplexityLevel::ExtremelyComplex
+                        && complexity != ComplexityLevel::VeryComplex
+                }
+                MathProficiency::Intermediate => matches!(
+                    complexity,
+                    ComplexityLevel::Simple | ComplexityLevel::Moderate
+                ),
                 MathProficiency::Basic => complexity == ComplexityLevel::Simple,
                 MathProficiency::None => false,
             }
@@ -1056,12 +1165,20 @@ impl AxiomIdentity {
     /// Get reasoning depth for logic type
     pub fn get_reasoning_depth(&self, logic_type: &str) -> Option<u8> {
         match logic_type {
-            "propositional" => Some(self.logical_capabilities.propositional_logic.reasoning_depth),
+            "propositional" => Some(
+                self.logical_capabilities
+                    .propositional_logic
+                    .reasoning_depth,
+            ),
             "first_order" => Some(self.logical_capabilities.first_order_logic.reasoning_depth),
             "higher_order" => Some(self.logical_capabilities.higher_order_logic.reasoning_depth),
             "modal" => Some(self.logical_capabilities.modal_logic.reasoning_depth),
             "temporal" => Some(self.logical_capabilities.temporal_logic.reasoning_depth),
-            "intuitionistic" => Some(self.logical_capabilities.intuitionistic_logic.reasoning_depth),
+            "intuitionistic" => Some(
+                self.logical_capabilities
+                    .intuitionistic_logic
+                    .reasoning_depth,
+            ),
             "fuzzy" => Some(self.logical_capabilities.fuzzy_logic.reasoning_depth),
             "description" => Some(self.logical_capabilities.description_logic.reasoning_depth),
             _ => None,
@@ -1076,7 +1193,12 @@ impl AxiomIdentity {
             "higher_order" => Some(&self.logical_capabilities.higher_order_logic.formal_systems),
             "modal" => Some(&self.logical_capabilities.modal_logic.formal_systems),
             "temporal" => Some(&self.logical_capabilities.temporal_logic.formal_systems),
-            "intuitionistic" => Some(&self.logical_capabilities.intuitionistic_logic.formal_systems),
+            "intuitionistic" => Some(
+                &self
+                    .logical_capabilities
+                    .intuitionistic_logic
+                    .formal_systems,
+            ),
             "fuzzy" => Some(&self.logical_capabilities.fuzzy_logic.formal_systems),
             "description" => Some(&self.logical_capabilities.description_logic.formal_systems),
             _ => None,
@@ -1091,11 +1213,26 @@ impl AxiomIdentity {
             "geometry" => Some(&self.mathematical_capabilities.geometry.solution_methods),
             "calculus" => Some(&self.mathematical_capabilities.calculus.solution_methods),
             "statistics" => Some(&self.mathematical_capabilities.statistics.solution_methods),
-            "number_theory" => Some(&self.mathematical_capabilities.number_theory.solution_methods),
-            "combinatorics" => Some(&self.mathematical_capabilities.combinatorics.solution_methods),
+            "number_theory" => Some(
+                &self
+                    .mathematical_capabilities
+                    .number_theory
+                    .solution_methods,
+            ),
+            "combinatorics" => Some(
+                &self
+                    .mathematical_capabilities
+                    .combinatorics
+                    .solution_methods,
+            ),
             "graph_theory" => Some(&self.mathematical_capabilities.graph_theory.solution_methods),
             "topology" => Some(&self.mathematical_capabilities.topology.solution_methods),
-            "abstract_algebra" => Some(&self.mathematical_capabilities.abstract_algebra.solution_methods),
+            "abstract_algebra" => Some(
+                &self
+                    .mathematical_capabilities
+                    .abstract_algebra
+                    .solution_methods,
+            ),
             _ => None,
         }
     }
@@ -1108,11 +1245,31 @@ impl AxiomIdentity {
             "geometry" => Some(&self.mathematical_capabilities.geometry.theorem_knowledge),
             "calculus" => Some(&self.mathematical_capabilities.calculus.theorem_knowledge),
             "statistics" => Some(&self.mathematical_capabilities.statistics.theorem_knowledge),
-            "number_theory" => Some(&self.mathematical_capabilities.number_theory.theorem_knowledge),
-            "combinatorics" => Some(&self.mathematical_capabilities.combinatorics.theorem_knowledge),
-            "graph_theory" => Some(&self.mathematical_capabilities.graph_theory.theorem_knowledge),
+            "number_theory" => Some(
+                &self
+                    .mathematical_capabilities
+                    .number_theory
+                    .theorem_knowledge,
+            ),
+            "combinatorics" => Some(
+                &self
+                    .mathematical_capabilities
+                    .combinatorics
+                    .theorem_knowledge,
+            ),
+            "graph_theory" => Some(
+                &self
+                    .mathematical_capabilities
+                    .graph_theory
+                    .theorem_knowledge,
+            ),
             "topology" => Some(&self.mathematical_capabilities.topology.theorem_knowledge),
-            "abstract_algebra" => Some(&self.mathematical_capabilities.abstract_algebra.theorem_knowledge),
+            "abstract_algebra" => Some(
+                &self
+                    .mathematical_capabilities
+                    .abstract_algebra
+                    .theorem_knowledge,
+            ),
             _ => None,
         }
     }
@@ -1125,16 +1282,26 @@ impl AxiomIdentity {
     /// Get overall logical capability score
     pub fn get_overall_logical_score(&self) -> f32 {
         let scores = vec![
-            self.logical_capabilities.propositional_logic.performance_score,
-            self.logical_capabilities.first_order_logic.performance_score,
-            self.logical_capabilities.higher_order_logic.performance_score,
+            self.logical_capabilities
+                .propositional_logic
+                .performance_score,
+            self.logical_capabilities
+                .first_order_logic
+                .performance_score,
+            self.logical_capabilities
+                .higher_order_logic
+                .performance_score,
             self.logical_capabilities.modal_logic.performance_score,
             self.logical_capabilities.temporal_logic.performance_score,
-            self.logical_capabilities.intuitionistic_logic.performance_score,
+            self.logical_capabilities
+                .intuitionistic_logic
+                .performance_score,
             self.logical_capabilities.fuzzy_logic.performance_score,
-            self.logical_capabilities.description_logic.performance_score,
+            self.logical_capabilities
+                .description_logic
+                .performance_score,
         ];
-        
+
         scores.iter().sum::<f32>() / scores.len() as f32
     }
 
@@ -1150,39 +1317,60 @@ impl AxiomIdentity {
             self.mathematical_capabilities.combinatorics.accuracy_rate,
             self.mathematical_capabilities.graph_theory.accuracy_rate,
             self.mathematical_capabilities.topology.accuracy_rate,
-            self.mathematical_capabilities.abstract_algebra.accuracy_rate,
+            self.mathematical_capabilities
+                .abstract_algebra
+                .accuracy_rate,
         ];
-        
+
         scores.iter().sum::<f32>() / scores.len() as f32
     }
 
     /// Get overall reasoning performance score
     pub fn get_overall_reasoning_score(&self) -> f32 {
-        (self.reasoning_metrics.logical_accuracy + 
-         self.reasoning_metrics.mathematical_accuracy + 
-         self.reasoning_metrics.proof_generation_success_rate + 
-         self.reasoning_metrics.proof_verification_success_rate) / 4.0
+        (self.reasoning_metrics.logical_accuracy
+            + self.reasoning_metrics.mathematical_accuracy
+            + self.reasoning_metrics.proof_generation_success_rate
+            + self.reasoning_metrics.proof_verification_success_rate)
+            / 4.0
     }
 
     /// Get proof capability summary
     pub fn get_proof_capability_summary(&self) -> ProofCapabilitySummary {
         ProofCapabilitySummary {
             generation_success_rate: self.proof_capabilities.proof_generation.success_rate,
-            verification_accuracy: self.proof_capabilities.proof_verification.verification_accuracy,
+            verification_accuracy: self
+                .proof_capabilities
+                .proof_verification
+                .verification_accuracy,
             search_efficiency: self.proof_capabilities.proof_search.search_efficiency,
-            transformation_accuracy: self.proof_capabilities.proof_transformation.transformation_accuracy,
-            interactive_support: self.proof_capabilities.interactive_proof.hint_generation && 
-                                 self.proof_capabilities.interactive_proof.step_by_step_explanation,
-            total_methods: self.proof_capabilities.proof_generation.generation_methods.len() +
-                          self.proof_capabilities.proof_verification.verification_methods.len() +
-                          self.proof_capabilities.proof_search.search_algorithms.len(),
+            transformation_accuracy: self
+                .proof_capabilities
+                .proof_transformation
+                .transformation_accuracy,
+            interactive_support: self.proof_capabilities.interactive_proof.hint_generation
+                && self
+                    .proof_capabilities
+                    .interactive_proof
+                    .step_by_step_explanation,
+            total_methods: self
+                .proof_capabilities
+                .proof_generation
+                .generation_methods
+                .len()
+                + self
+                    .proof_capabilities
+                    .proof_verification
+                    .verification_methods
+                    .len()
+                + self.proof_capabilities.proof_search.search_algorithms.len(),
         }
     }
 
     /// Validate identity
     pub fn validate(&self) -> Result<(), String> {
         // Check that core capabilities are at least advanced
-        if self.logical_capabilities.propositional_logic.support_level < LogicSupportLevel::Advanced {
+        if self.logical_capabilities.propositional_logic.support_level < LogicSupportLevel::Advanced
+        {
             return Err("Propositional logic support level too low".to_string());
         }
 
@@ -1243,26 +1431,116 @@ impl AxiomIdentity {
             overall_mathematical_score: self.get_overall_mathematical_score(),
             overall_reasoning_score: self.get_overall_reasoning_score(),
             logical_support_levels: HashMap::from([
-                ("propositional".to_string(), self.logical_capabilities.propositional_logic.support_level.clone()),
-                ("first_order".to_string(), self.logical_capabilities.first_order_logic.support_level.clone()),
-                ("higher_order".to_string(), self.logical_capabilities.higher_order_logic.support_level.clone()),
-                ("modal".to_string(), self.logical_capabilities.modal_logic.support_level.clone()),
-                ("temporal".to_string(), self.logical_capabilities.temporal_logic.support_level.clone()),
-                ("intuitionistic".to_string(), self.logical_capabilities.intuitionistic_logic.support_level.clone()),
-                ("fuzzy".to_string(), self.logical_capabilities.fuzzy_logic.support_level.clone()),
-                ("description".to_string(), self.logical_capabilities.description_logic.support_level.clone()),
+                (
+                    "propositional".to_string(),
+                    self.logical_capabilities
+                        .propositional_logic
+                        .support_level
+                        .clone(),
+                ),
+                (
+                    "first_order".to_string(),
+                    self.logical_capabilities
+                        .first_order_logic
+                        .support_level
+                        .clone(),
+                ),
+                (
+                    "higher_order".to_string(),
+                    self.logical_capabilities
+                        .higher_order_logic
+                        .support_level
+                        .clone(),
+                ),
+                (
+                    "modal".to_string(),
+                    self.logical_capabilities.modal_logic.support_level.clone(),
+                ),
+                (
+                    "temporal".to_string(),
+                    self.logical_capabilities
+                        .temporal_logic
+                        .support_level
+                        .clone(),
+                ),
+                (
+                    "intuitionistic".to_string(),
+                    self.logical_capabilities
+                        .intuitionistic_logic
+                        .support_level
+                        .clone(),
+                ),
+                (
+                    "fuzzy".to_string(),
+                    self.logical_capabilities.fuzzy_logic.support_level.clone(),
+                ),
+                (
+                    "description".to_string(),
+                    self.logical_capabilities
+                        .description_logic
+                        .support_level
+                        .clone(),
+                ),
             ]),
             mathematical_proficiencies: HashMap::from([
-                ("arithmetic".to_string(), self.mathematical_capabilities.arithmetic.proficiency.clone()),
-                ("algebra".to_string(), self.mathematical_capabilities.algebra.proficiency.clone()),
-                ("geometry".to_string(), self.mathematical_capabilities.geometry.proficiency.clone()),
-                ("calculus".to_string(), self.mathematical_capabilities.calculus.proficiency.clone()),
-                ("statistics".to_string(), self.mathematical_capabilities.statistics.proficiency.clone()),
-                ("number_theory".to_string(), self.mathematical_capabilities.number_theory.proficiency.clone()),
-                ("combinatorics".to_string(), self.mathematical_capabilities.combinatorics.proficiency.clone()),
-                ("graph_theory".to_string(), self.mathematical_capabilities.graph_theory.proficiency.clone()),
-                ("topology".to_string(), self.mathematical_capabilities.topology.proficiency.clone()),
-                ("abstract_algebra".to_string(), self.mathematical_capabilities.abstract_algebra.proficiency.clone()),
+                (
+                    "arithmetic".to_string(),
+                    self.mathematical_capabilities
+                        .arithmetic
+                        .proficiency
+                        .clone(),
+                ),
+                (
+                    "algebra".to_string(),
+                    self.mathematical_capabilities.algebra.proficiency.clone(),
+                ),
+                (
+                    "geometry".to_string(),
+                    self.mathematical_capabilities.geometry.proficiency.clone(),
+                ),
+                (
+                    "calculus".to_string(),
+                    self.mathematical_capabilities.calculus.proficiency.clone(),
+                ),
+                (
+                    "statistics".to_string(),
+                    self.mathematical_capabilities
+                        .statistics
+                        .proficiency
+                        .clone(),
+                ),
+                (
+                    "number_theory".to_string(),
+                    self.mathematical_capabilities
+                        .number_theory
+                        .proficiency
+                        .clone(),
+                ),
+                (
+                    "combinatorics".to_string(),
+                    self.mathematical_capabilities
+                        .combinatorics
+                        .proficiency
+                        .clone(),
+                ),
+                (
+                    "graph_theory".to_string(),
+                    self.mathematical_capabilities
+                        .graph_theory
+                        .proficiency
+                        .clone(),
+                ),
+                (
+                    "topology".to_string(),
+                    self.mathematical_capabilities.topology.proficiency.clone(),
+                ),
+                (
+                    "abstract_algebra".to_string(),
+                    self.mathematical_capabilities
+                        .abstract_algebra
+                        .proficiency
+                        .clone(),
+                ),
             ]),
             specialization_domains: self.specialization_domains.clone(),
             proof_capabilities: self.get_proof_capability_summary(),

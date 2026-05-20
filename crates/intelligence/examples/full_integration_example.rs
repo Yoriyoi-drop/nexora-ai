@@ -1,50 +1,52 @@
 //! Full Integration Example
-//! 
+//!
 //! Demonstrates complete usage of all integrated models:
 //! - SACA (Systematic Adaptive Code Architecture)
 //! - ATQS (Adaptive Tensor Quantization & Sparsification)
 //! - CAFFEINE (Contrastive-Aware Fusion Framework)
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN)
 
-use nexora_model::unified_api::{UnifiedModelFactory, CodingTask, CodeSolution, TaskContext, IntegrationMode};
+use nexora_model::unified_api::{
+    CodeSolution, CodingTask, IntegrationMode, TaskContext, UnifiedModelFactory,
+};
 use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
-    
+
     println!("🚀 Nexora AI Full Integration Example");
     println!("=====================================\n");
-    
+
     // Example 1: Basic SACA
     basic_saca_example().await?;
-    
+
     println!("\n{}\n", "=".repeat(50));
-    
+
     // Example 2: SACA + ATQS (Compression)
     saca_atqs_example().await?;
-    
+
     println!("\n{}\n", "=".repeat(50));
-    
+
     // Example 3: SACA + CAFFEINE (Multimodal)
     saca_caffeine_example().await?;
-    
+
     println!("\n{}\n", "=".repeat(50));
-    
+
     // Example 4: SACA + HAS-MoE-FFN (Expert Routing)
     saca_has_moe_example().await?;
-    
+
     println!("\n{}\n", "=".repeat(50));
-    
+
     // Example 5: Full Integration (All Models)
     full_integration_example().await?;
-    
+
     println!("\n{}\n", "=".repeat(50));
-    
+
     // Example 6: Performance Comparison
     performance_comparison().await?;
-    
+
     println!("\n✅ All integration examples completed successfully!");
     Ok(())
 }
@@ -53,9 +55,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 async fn basic_saca_example() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 1: Basic SACA");
     println!("------------------------");
-    
+
     let model = UnifiedModelFactory::create_basic_coder().await.unwrap();
-    
+
     let task = CodingTask {
         description: "Create a function that implements bubble sort algorithm in Rust".to_string(),
         requirements: vec![
@@ -71,15 +73,15 @@ async fn basic_saca_example() -> std::result::Result<(), Box<dyn std::error::Err
         ],
         context: None,
     };
-    
+
     let solution = model.generate_code(&task).await.unwrap();
-    
+
     println!("📊 Results:");
     println!("  Quality Score: {:.3}", solution.quality_score);
     println!("  Execution Time: {:?}", solution.execution_time);
     println!("  Integration Mode: {:?}", solution.integration_mode);
     println!("  Models Used: Basic SACA only");
-    
+
     Ok(())
 }
 
@@ -87,11 +89,15 @@ async fn basic_saca_example() -> std::result::Result<(), Box<dyn std::error::Err
 async fn saca_atqs_example() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🗜️  Example 2: SACA + ATQS Compression");
     println!("-------------------------------------");
-    
-    let model = UnifiedModelFactory::create_compressed_coder().await.unwrap();
-    
+
+    let model = UnifiedModelFactory::create_compressed_coder()
+        .await
+        .unwrap();
+
     let task = CodingTask {
-        description: "Implement a large-scale data processing pipeline with compression optimization".to_string(),
+        description:
+            "Implement a large-scale data processing pipeline with compression optimization"
+                .to_string(),
         requirements: vec![
             "Process large datasets efficiently".to_string(),
             "Implement data compression".to_string(),
@@ -105,16 +111,19 @@ async fn saca_atqs_example() -> std::result::Result<(), Box<dyn std::error::Erro
         ],
         context: None,
     };
-    
+
     let solution = model.generate_code(&task).await.unwrap();
-    
+
     println!("📊 Results:");
     println!("  Quality Score: {:.3}", solution.quality_score);
     println!("  Execution Time: {:?}", solution.execution_time);
-    println!("  ATQS Compression Applied: {}", solution.atqs_compression_applied);
+    println!(
+        "  ATQS Compression Applied: {}",
+        solution.atqs_compression_applied
+    );
     println!("  Compression Ratio: {:.2}:1", solution.compression_ratio);
     println!("  Integration Mode: {:?}", solution.integration_mode);
-    
+
     Ok(())
 }
 
@@ -122,9 +131,11 @@ async fn saca_atqs_example() -> std::result::Result<(), Box<dyn std::error::Erro
 async fn saca_caffeine_example() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🎨 Example 3: SACA + CAFFEINE Multimodal");
     println!("--------------------------------------");
-    
-    let model = UnifiedModelFactory::create_multimodal_coder().await.unwrap();
-    
+
+    let model = UnifiedModelFactory::create_multimodal_coder()
+        .await
+        .unwrap();
+
     let task = CodingTask {
         description: "Create a computer vision application that processes images and generates analysis reports".to_string(),
         requirements: vec![
@@ -158,18 +169,21 @@ async fn saca_caffeine_example() -> std::result::Result<(), Box<dyn std::error::
             },
         }),
     };
-    
+
     let solution = model.generate_code(&task).await.unwrap();
-    
+
     println!("📊 Results:");
     println!("  Quality Score: {:.3}", solution.quality_score);
     println!("  Execution Time: {:?}", solution.execution_time);
-    println!("  CAFFEINE Multimodal Applied: {}", solution.caffeine_multimodal_applied);
+    println!(
+        "  CAFFEINE Multimodal Applied: {}",
+        solution.caffeine_multimodal_applied
+    );
     println!("  Integration Mode: {:?}", solution.integration_mode);
-    
+
     // Multimodal processing is integrated in the generation
     println!("  Multimodal Processing: ✅ Integrated");
-    
+
     Ok(())
 }
 
@@ -177,11 +191,13 @@ async fn saca_caffeine_example() -> std::result::Result<(), Box<dyn std::error::
 async fn saca_has_moe_example() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🎯 Example 4: SACA + HAS-MoE-FFN Expert Routing");
     println!("---------------------------------------------");
-    
+
     let model = UnifiedModelFactory::create_expert_coder().await.unwrap();
-    
+
     let task = CodingTask {
-        description: "Implement a complex mathematical algorithm with multiple optimization strategies".to_string(),
+        description:
+            "Implement a complex mathematical algorithm with multiple optimization strategies"
+                .to_string(),
         requirements: vec![
             "Advanced mathematical computations".to_string(),
             "Multiple optimization approaches".to_string(),
@@ -213,16 +229,19 @@ async fn saca_has_moe_example() -> std::result::Result<(), Box<dyn std::error::E
             },
         }),
     };
-    
+
     let solution = model.generate_code(&task).await.unwrap();
-    
+
     println!("📊 Results:");
     println!("  Quality Score: {:.3}", solution.quality_score);
     println!("  Execution Time: {:?}", solution.execution_time);
-    println!("  HAS-MoE Routing Applied: {}", solution.has_moe_routing_applied);
+    println!(
+        "  HAS-MoE Routing Applied: {}",
+        solution.has_moe_routing_applied
+    );
     println!("  Routing Efficiency: {:.3}", solution.routing_efficiency);
     println!("  Integration Mode: {:?}", solution.integration_mode);
-    
+
     Ok(())
 }
 
@@ -230,9 +249,11 @@ async fn saca_has_moe_example() -> std::result::Result<(), Box<dyn std::error::E
 async fn full_integration_example() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🌟 Example 5: Full Integration (All Models)");
     println!("----------------------------------------");
-    
-    let model = UnifiedModelFactory::create_full_integration().await.unwrap();
-    
+
+    let model = UnifiedModelFactory::create_full_integration()
+        .await
+        .unwrap();
+
     let stats = model.get_statistics();
     println!("📈 Model Statistics:");
     println!("  Integration Mode: {:?}", stats.integration_mode);
@@ -240,7 +261,7 @@ async fn full_integration_example() -> std::result::Result<(), Box<dyn std::erro
     println!("  ATQS Enabled: {}", stats.atqs_enabled);
     println!("  CAFFEINE Enabled: {}", stats.caffeine_enabled);
     println!("  HAS-MoE Enabled: {}", stats.has_moe_enabled);
-    
+
     let task = CodingTask {
         description: "Create an advanced AI-powered development assistant that integrates multiple AI models for optimal code generation, compression, multimodal processing, and expert routing".to_string(),
         requirements: vec![
@@ -279,22 +300,31 @@ async fn full_integration_example() -> std::result::Result<(), Box<dyn std::erro
             },
         }),
     };
-    
+
     let solution = model.generate_code(&task).await.unwrap();
-    
+
     println!("\n📊 Full Integration Results:");
     println!("  Quality Score: {:.3}", solution.quality_score);
     println!("  Execution Time: {:?}", solution.execution_time);
-    println!("  ATQS Compression Applied: {}", solution.atqs_compression_applied);
+    println!(
+        "  ATQS Compression Applied: {}",
+        solution.atqs_compression_applied
+    );
     println!("  Compression Ratio: {:.2}:1", solution.compression_ratio);
-    println!("  CAFFEINE Multimodal Applied: {}", solution.caffeine_multimodal_applied);
-    println!("  HAS-MoE Routing Applied: {}", solution.has_moe_routing_applied);
+    println!(
+        "  CAFFEINE Multimodal Applied: {}",
+        solution.caffeine_multimodal_applied
+    );
+    println!(
+        "  HAS-MoE Routing Applied: {}",
+        solution.has_moe_routing_applied
+    );
     println!("  Routing Efficiency: {:.3}", solution.routing_efficiency);
     println!("  Integration Mode: {:?}", solution.integration_mode);
-    
+
     // Multimodal processing is integrated in the generation
     println!("  Multimodal Processing: ✅ Integrated");
-    
+
     Ok(())
 }
 
@@ -302,17 +332,40 @@ async fn full_integration_example() -> std::result::Result<(), Box<dyn std::erro
 async fn performance_comparison() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("⚡ Example 6: Performance Comparison");
     println!("------------------------------------");
-    
+
     let models = vec![
-        ("Basic SACA", UnifiedModelFactory::create_basic_coder().await.unwrap()),
-        ("SACA + ATQS", UnifiedModelFactory::create_compressed_coder().await.unwrap()),
-        ("SACA + CAFFEINE", UnifiedModelFactory::create_multimodal_coder().await.unwrap()),
-        ("SACA + HAS-MoE", UnifiedModelFactory::create_expert_coder().await.unwrap()),
-        ("Full Integration", UnifiedModelFactory::create_full_integration().await.unwrap()),
+        (
+            "Basic SACA",
+            UnifiedModelFactory::create_basic_coder().await.unwrap(),
+        ),
+        (
+            "SACA + ATQS",
+            UnifiedModelFactory::create_compressed_coder()
+                .await
+                .unwrap(),
+        ),
+        (
+            "SACA + CAFFEINE",
+            UnifiedModelFactory::create_multimodal_coder()
+                .await
+                .unwrap(),
+        ),
+        (
+            "SACA + HAS-MoE",
+            UnifiedModelFactory::create_expert_coder().await.unwrap(),
+        ),
+        (
+            "Full Integration",
+            UnifiedModelFactory::create_full_integration()
+                .await
+                .unwrap(),
+        ),
     ];
-    
+
     let task = CodingTask {
-        description: "Implement a generic binary search tree with insertion, deletion, and search operations".to_string(),
+        description:
+            "Implement a generic binary search tree with insertion, deletion, and search operations"
+                .to_string(),
         requirements: vec![
             "Generic type support".to_string(),
             "Efficient operations".to_string(),
@@ -326,45 +379,73 @@ async fn performance_comparison() -> std::result::Result<(), Box<dyn std::error:
         ],
         context: None,
     };
-    
+
     println!("🏃 Running performance comparison...");
-    
+
     let mut results = Vec::new();
-    
+
     for (name, model) in models {
         print!("  {}: ", name);
-        
+
         let start_time = std::time::Instant::now();
         let solution = model.generate_code(&task.clone()).await.unwrap();
         let execution_time = start_time.elapsed();
-        
+
         let stats = model.get_statistics();
-        
-        println!("✅ {:.3}s (Quality: {:.3}, Models: {})", 
-                execution_time.as_secs_f32(), 
-                solution.quality_score,
-                stats.models_enabled);
-        
-        results.push((name, execution_time, solution.quality_score, stats.models_enabled));
+
+        println!(
+            "✅ {:.3}s (Quality: {:.3}, Models: {})",
+            execution_time.as_secs_f32(),
+            solution.quality_score,
+            stats.models_enabled
+        );
+
+        results.push((
+            name,
+            execution_time,
+            solution.quality_score,
+            stats.models_enabled,
+        ));
     }
-    
+
     println!("\n📊 Performance Summary:");
-    println!("  {:<20} {:<10} {:<10} {:<10}", "Model", "Time(s)", "Quality", "Models");
+    println!(
+        "  {:<20} {:<10} {:<10} {:<10}",
+        "Model", "Time(s)", "Quality", "Models"
+    );
     println!("{}", "-".repeat(55));
-    
+
     for (name, time, quality, models) in &results {
-        println!("  {:<20} {:<10.3} {:<10.3} {:<10}", name, time.as_secs_f32(), quality, models);
+        println!(
+            "  {:<20} {:<10.3} {:<10.3} {:<10}",
+            name,
+            time.as_secs_f32(),
+            quality,
+            models
+        );
     }
-    
+
     // Find best performers
     let fastest = results.iter().min_by_key(|(_, time, _, _)| *time).unwrap();
-    let highest_quality = results.iter().max_by(|(_, _, quality, _), (_, _, quality2, _)| quality.partial_cmp(quality2).unwrap()).unwrap();
-    let most_models = results.iter().max_by(|(_, _, _, models), (_, _, _, models2)| models.partial_cmp(models2).unwrap()).unwrap();
-    
+    let highest_quality = results
+        .iter()
+        .max_by(|(_, _, quality, _), (_, _, quality2, _)| quality.partial_cmp(quality2).unwrap())
+        .unwrap();
+    let most_models = results
+        .iter()
+        .max_by(|(_, _, _, models), (_, _, _, models2)| models.partial_cmp(models2).unwrap())
+        .unwrap();
+
     println!("\n🏆 Awards:");
     println!("  Fastest: {} ({:.3}s)", fastest.0, fastest.1.as_secs_f32());
-    println!("  Highest Quality: {} ({:.3})", highest_quality.0, highest_quality.2);
-    println!("  Most Models: {} ({} models)", most_models.0, most_models.3);
-    
+    println!(
+        "  Highest Quality: {} ({:.3})",
+        highest_quality.0, highest_quality.2
+    );
+    println!(
+        "  Most Models: {} ({} models)",
+        most_models.0, most_models.3
+    );
+
     Ok(())
 }

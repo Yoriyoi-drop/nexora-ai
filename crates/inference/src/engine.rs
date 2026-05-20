@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
-use uuid::Uuid;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::kv_cache::KVCache;
 use crate::runtime::InferenceRuntime;
@@ -14,8 +14,8 @@ use crate::streaming::StreamingEngine;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
-use nexora_transformer::{CausalLM, TransformerConfig};
 use nexora_tokenizer::BpeTokenizer;
+use nexora_transformer::{CausalLM, TransformerConfig};
 
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -28,6 +28,7 @@ pub struct InferenceConfig {
     pub enable_streaming: bool,
     pub default_timeout_seconds: u64,
     pub metrics_interval_seconds: u64,
+    pub use_gpu: bool,
 }
 
 impl Default for InferenceConfig {
@@ -42,6 +43,7 @@ impl Default for InferenceConfig {
             enable_streaming: true,
             default_timeout_seconds: 30,
             metrics_interval_seconds: 60,
+            use_gpu: false,
         }
     }
 }
@@ -223,7 +225,7 @@ impl InferenceEngine {
         let (stream_id, mut rx) = se.write().await.create_stream().await?;
         let model = self.model.clone();
         let tokenizer = self.tokenizer.clone();
-        let _cfg = self.config.clone();
+        let use_gpu = self.config.use_gpu;
         let _scheduler = self.scheduler.clone();
         let se_clone = se.clone();
         let active = self.active_requests.clone();
@@ -236,11 +238,11 @@ impl InferenceEngine {
 
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
-                    Some(tok) => {
-                        let t = tok.read();
-                        t.encode(&request.prompt)
-                    },
-                    None => request.prompt.bytes().map(|b| b as u32).collect(),
+                Some(tok) => {
+                    let t = tok.read();
+                    t.encode(&request.prompt)
+                }
+                None => request.prompt.bytes().map(|b| b as u32).collect(),
             };
 
             let mut kv_state = model.reset_cache();
@@ -251,6 +253,7 @@ impl InferenceEngine {
                 top_p,
                 ..Default::default()
             });
+            sampler.set_use_gpu(use_gpu);
 
             let max_gen = max_tokens.min(2048) as usize;
 
@@ -281,15 +284,11 @@ impl InferenceEngine {
                     Some(tok) => {
                         let t = tok.read();
                         t.decode(&[token_id])
-                    },
+                    }
                     None => token_id_to_text_fallback(token_id),
                 };
 
-                let log_prob = logits
-                    .get(token_id as usize)
-                    .copied()
-                    .unwrap_or(0.0)
-                    .ln();
+                let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
                 let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
 
                 let is_last = pos == max_gen - 1 || token_id == 0;
@@ -324,10 +323,7 @@ impl InferenceEngine {
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %request.request_id, prompt_len = request.prompt.len()))]
-    pub async fn generate_internal(
-        &self,
-        request: InferenceRequest,
-    ) -> Result<InferenceResponse> {
+    pub async fn generate_internal(&self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start = std::time::Instant::now();
         let mut response = InferenceResponse::new(request.request_id);
 
@@ -348,6 +344,7 @@ impl InferenceEngine {
             top_p: request.top_p,
             ..Default::default()
         });
+        sampler.set_use_gpu(self.config.use_gpu);
 
         for pos in 0..max_gen {
             let input: &[u32] = if pos == 0 {
@@ -362,22 +359,21 @@ impl InferenceEngine {
             let token_id = match sampler.sample(logits_slice) {
                 Ok(idx) => idx as u32,
                 Err(e) => {
-                    warn!("Sampler failed in greedy path: {:?}, falling back to argmax", e);
+                    warn!(
+                        "Sampler failed in greedy path: {:?}, falling back to argmax",
+                        e
+                    );
                     logits
                         .iter()
                         .enumerate()
                         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                         .map(|(i, _)| i as u32)
                         .unwrap_or(0)
-                },
+                }
             };
 
             let token_text = self.token_id_to_text(token_id);
-            let log_prob = logits
-                .get(token_id as usize)
-                .copied()
-                .unwrap_or(0.0)
-                .ln();
+            let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
             let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
             response.add_token(token);
             all_ids.push(token_id);
@@ -414,20 +410,21 @@ impl InferenceEngine {
                 .unwrap_or(false)
         };
         let stream = if let Some(se) = &self.streaming_engine {
-            se.write().await.cancel_stream(request_id).await.unwrap_or_else(|e| {
-                warn!("Failed to cancel stream {}: {}", request_id, e);
-                false
-            })
+            se.write()
+                .await
+                .cancel_stream(request_id)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("Failed to cancel stream {}: {}", request_id, e);
+                    false
+                })
         } else {
             false
         };
         Ok(sched || task || stream)
     }
 
-    pub async fn get_request_status(
-        &self,
-        request_id: Uuid,
-    ) -> Result<RequestStatus> {
+    pub async fn get_request_status(&self, request_id: Uuid) -> Result<RequestStatus> {
         let status = self
             .scheduler
             .read()
@@ -439,10 +436,7 @@ impl InferenceEngine {
             .unwrap_or(RequestStatus::Queued))
     }
 
-    pub async fn get_session(
-        &self,
-        session_id: Uuid,
-    ) -> Result<Arc<InferenceSession>> {
+    pub async fn get_session(&self, session_id: Uuid) -> Result<Arc<InferenceSession>> {
         let mut sessions = self.session_manager.write().await;
         if sessions.len() >= self.config.max_concurrent_requests * 2 {
             let now = chrono::Utc::now();
@@ -516,12 +510,10 @@ impl InferenceEngine {
 
     async fn start_request_loop(&self) -> Result<()> {
         info!("Starting request processing loop");
-        let mut rx = self
-            .request_rx
-            .lock()
-            .await
-            .take()
-            .ok_or_else(|| InferenceError::InternalError("Receiver already taken".to_string()))?;
+        let mut rx =
+            self.request_rx.lock().await.take().ok_or_else(|| {
+                InferenceError::InternalError("Receiver already taken".to_string())
+            })?;
 
         let mut last_cleanup = std::time::Instant::now();
 
@@ -549,6 +541,7 @@ impl InferenceEngine {
                     model: self.model.clone(),
                     tokenizer: self.tokenizer.clone(),
                     state: self.state.clone(),
+                    use_gpu: self.config.use_gpu,
                 };
                 let task = tokio::spawn(async move {
                     let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
@@ -563,17 +556,17 @@ impl InferenceEngine {
             }
 
             // No batch ready, wait for next request
-            let request = tokio::time::timeout(
-                Duration::from_millis(50),
-                rx.recv(),
-            )
-            .await;
+            let request = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
 
             match request {
                 Ok(Some(req)) => {
                     let _rid = req.request_id;
                     // Add to batch collector
-                    self.scheduler.write().await.add_to_batch_collector(&req).await;
+                    self.scheduler
+                        .write()
+                        .await
+                        .add_to_batch_collector(&req)
+                        .await;
 
                     // Try to form a batch with the newly arrived request
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
@@ -582,6 +575,7 @@ impl InferenceEngine {
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
                             state: self.state.clone(),
+                    use_gpu: self.config.use_gpu,
                         };
                         let task = tokio::spawn(async move {
                             let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
@@ -602,6 +596,7 @@ impl InferenceEngine {
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
                             state: self.state.clone(),
+                    use_gpu: self.config.use_gpu,
                         };
                         let task = tokio::spawn(async move {
                             let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
@@ -643,7 +638,7 @@ impl InferenceEngine {
             Some(tok) => {
                 let t = tok.read();
                 t.encode(prompt)
-            },
+            }
             None => prompt.bytes().map(|b| b as u32).collect(),
         }
     }
@@ -673,16 +668,19 @@ struct InferenceEngineHandle {
     model: CausalLM,
     tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
+    use_gpu: bool,
 }
 
 impl InferenceEngineHandle {
-
     /// Process a batch of requests.
     /// Each request is processed sequentially through the model (single-sequence forward).
     /// Results are fanned out to individual response channels.
     pub async fn process_batch(&self, batch: crate::batching::Batch) {
         let batch_size = batch.requests.len();
-        debug!("Processing batch {} with {} requests", batch.batch_id, batch_size);
+        debug!(
+            "Processing batch {} with {} requests",
+            batch.batch_id, batch_size
+        );
 
         for breq in &batch.requests {
             if self.is_shutdown().await {
@@ -696,8 +694,17 @@ impl InferenceEngineHandle {
                 let err_resp = response
                     .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
                     .with_inference_time(start.elapsed().as_millis() as u64);
-                if let Err(e) = self.scheduler.write().await.send_response(breq.request_id, err_resp).await {
-                    warn!("Failed to send empty-prompt error to {}: {}", breq.request_id, e);
+                if let Err(e) = self
+                    .scheduler
+                    .write()
+                    .await
+                    .send_response(breq.request_id, err_resp)
+                    .await
+                {
+                    warn!(
+                        "Failed to send empty-prompt error to {}: {}",
+                        breq.request_id, e
+                    );
                 }
                 continue;
             }
@@ -706,7 +713,7 @@ impl InferenceEngineHandle {
                 Some(tok) => {
                     let t = tok.read();
                     t.encode(&breq.prompt)
-                },
+                }
                 None => breq.prompt.bytes().map(|b| b as u32).collect(),
             };
 
@@ -720,6 +727,7 @@ impl InferenceEngineHandle {
                 top_p: breq.top_p,
                 ..Default::default()
             });
+            sampler.set_use_gpu(self.use_gpu);
 
             for pos in 0..max_gen {
                 let logits = if pos == 0 {
@@ -732,29 +740,28 @@ impl InferenceEngineHandle {
                 let token_id = match sampler.sample(&logits.to_vec()) {
                     Ok(idx) => idx as u32,
                     Err(e) => {
-                        warn!("Sampler failed in speculative path: {:?}, falling back to argmax", e);
+                        warn!(
+                            "Sampler failed in speculative path: {:?}, falling back to argmax",
+                            e
+                        );
                         logits
                             .iter()
                             .enumerate()
                             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
                             .map(|(i, _)| i as u32)
                             .unwrap_or(0)
-                    },
+                    }
                 };
 
                 let token_text: String = match &self.tokenizer {
                     Some(tok) => {
                         let t = tok.read();
                         t.decode(&[token_id])
-                    },
+                    }
                     None => token_id_to_text_fallback(token_id),
                 };
 
-                let log_prob = logits
-                    .get(token_id as usize)
-                    .copied()
-                    .unwrap_or(0.0)
-                    .ln();
+                let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
                 let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
                 response.add_token(token);
                 all_ids.push(token_id);
@@ -771,8 +778,17 @@ impl InferenceEngineHandle {
             }
             response.inference_time_ms = start.elapsed().as_millis() as u64;
 
-            if let Err(e) = self.scheduler.write().await.send_response(breq.request_id, response).await {
-                error!("Failed to send batch response for {}: {}", breq.request_id, e);
+            if let Err(e) = self
+                .scheduler
+                .write()
+                .await
+                .send_response(breq.request_id, response)
+                .await
+            {
+                error!(
+                    "Failed to send batch response for {}: {}",
+                    breq.request_id, e
+                );
             }
         }
 

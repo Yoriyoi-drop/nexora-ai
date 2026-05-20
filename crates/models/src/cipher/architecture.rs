@@ -1,10 +1,10 @@
 //! NXR-CIPHER Architecture
-//! 
+//!
 //! Implementation of Adversarial Training + Zero-Day Simulation architecture for NXR-CIPHER
 
-use std::collections::HashMap;
-use nexora_shared::base_model::NxrModelResult;
 use super::config::CipherConfig;
+use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 /// NXR-CIPHER Architecture Implementation
 pub struct CipherArchitecture {
@@ -47,7 +47,10 @@ pub enum AdversarialTrainingMethod {
     /// DeepFool
     DeepFool,
     /// Custom method
-    Custom { name: String, parameters: HashMap<String, f32> },
+    Custom {
+        name: String,
+        parameters: HashMap<String, f32>,
+    },
 }
 
 /// Attack Generation
@@ -865,26 +868,18 @@ impl CipherArchitecture {
                     AdversarialTrainingMethod::PGD,
                 ],
                 attack_generation: AttackGeneration {
-                    attack_types: vec![
-                        AttackType::Evasion,
-                        AttackType::Poisoning,
-                    ],
+                    attack_types: vec![AttackType::Evasion, AttackType::Poisoning],
                     attack_intensity: AttackIntensity::Medium,
                     attack_diversity: AttackDiversity::Multiple,
                 },
-                defense_mechanisms: vec![
-                    DefenseMechanism {
-                        name: "adversarial_training".to_string(),
-                        mechanism_type: DefenseMechanismType::AdversarialTraining,
-                        effectiveness: 0.85,
-                    },
-                ],
+                defense_mechanisms: vec![DefenseMechanism {
+                    name: "adversarial_training".to_string(),
+                    mechanism_type: DefenseMechanismType::AdversarialTraining,
+                    effectiveness: 0.85,
+                }],
                 training_data: TrainingData {
                     dataset_size: 1000000,
-                    data_sources: vec![
-                        "internal_logs".to_string(),
-                        "external_feeds".to_string(),
-                    ],
+                    data_sources: vec!["internal_logs".to_string(), "external_feeds".to_string()],
                     data_quality: 0.9,
                 },
             },
@@ -946,10 +941,7 @@ impl CipherArchitecture {
                 vulnerabilities: vec![],
                 cve_mappings: HashMap::new(),
                 update_frequency: UpdateFrequency::Hourly,
-                database_sources: vec![
-                    DatabaseSource::NVD,
-                    DatabaseSource::ExploitDB,
-                ],
+                database_sources: vec![DatabaseSource::NVD, DatabaseSource::ExploitDB],
             },
             threat_intelligence_network: ThreatIntelligenceNetwork {
                 intelligence_feeds: vec![],
@@ -988,10 +980,7 @@ impl CipherArchitecture {
                 best_practices_analysis: BestPracticesAnalysis {
                     best_practices_database: BestPracticesDatabase {
                         practice_categories: vec![],
-                        industry_standards: vec![
-                            "NIST".to_string(),
-                            "ISO27001".to_string(),
-                        ],
+                        industry_standards: vec!["NIST".to_string(), "ISO27001".to_string()],
                     },
                     gap_analysis: GapAnalysis {
                         gap_detection: GapDetection {
@@ -999,9 +988,7 @@ impl CipherArchitecture {
                             sensitivity: 0.8,
                         },
                         recommendation_engine: RecommendationEngine {
-                            algorithms: vec![
-                                RecommendationAlgorithm::RiskBased,
-                            ],
+                            algorithms: vec![RecommendationAlgorithm::RiskBased],
                             prioritization: PrioritizationMethod::RiskBased,
                         },
                     },
@@ -1029,8 +1016,18 @@ impl CipherArchitecture {
         }
 
         // Validate zero-day simulation
-        if self.zero_day_simulation.exploit_generation.safety_constraints.allow_exploitation 
-           && self.zero_day_simulation.exploit_generation.safety_constraints.system_impact_limits.allow_modification {
+        if self
+            .zero_day_simulation
+            .exploit_generation
+            .safety_constraints
+            .allow_exploitation
+            && self
+                .zero_day_simulation
+                .exploit_generation
+                .safety_constraints
+                .system_impact_limits
+                .allow_modification
+        {
             return Err("Cannot allow both exploitation and modification".into());
         }
 
@@ -1038,18 +1035,19 @@ impl CipherArchitecture {
     }
 
     /// Perform vulnerability scan
-    pub async fn vulnerability_scan(&self, target: &str) -> NxrModelResult<Vec<VulnerabilityEntry>> {
-        Ok(vec![
-            VulnerabilityEntry {
-                id: uuid::Uuid::new_v4(),
-                cve_id: Some("CVE-2024-0001".to_string()),
-                vuln_type: VulnerabilityType::SQLInjection,
-                severity: Severity::High,
-                description: "Potential SQL injection vulnerability".to_string(),
-                affected_systems: vec![target.to_string()],
-                mitigation: Some("Use parameterized queries".to_string()),
-            },
-        ])
+    pub async fn vulnerability_scan(
+        &self,
+        target: &str,
+    ) -> NxrModelResult<Vec<VulnerabilityEntry>> {
+        Ok(vec![VulnerabilityEntry {
+            id: uuid::Uuid::new_v4(),
+            cve_id: Some("CVE-2024-0001".to_string()),
+            vuln_type: VulnerabilityType::SQLInjection,
+            severity: Severity::High,
+            description: "Potential SQL injection vulnerability".to_string(),
+            affected_systems: vec![target.to_string()],
+            mitigation: Some("Use parameterized queries".to_string()),
+        }])
     }
 
     /// Perform penetration test

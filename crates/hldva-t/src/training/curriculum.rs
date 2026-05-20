@@ -1,8 +1,8 @@
 //! Curriculum Learning module for HLDVA-T training
 
+use super::Dataset;
 use crate::types::*;
 use serde::{Deserialize, Serialize};
-use super::Dataset;
 
 /// Curriculum Learning Scheduler
 pub struct CurriculumScheduler {
@@ -20,23 +20,23 @@ impl CurriculumScheduler {
             current_stage: 0,
         }
     }
-    
+
     /// Update curriculum state
     pub fn update(&mut self, epoch: usize, metrics: &TrainingMetrics) -> HLDVAResult<()> {
         self.current_epoch = epoch;
-        
+
         // Check if we should advance to next stage
         if self.should_advance_stage(metrics) {
             self.current_stage += 1;
         }
-        
+
         Ok(())
     }
-    
+
     /// Get current difficulty parameters
     pub fn get_difficulty(&self) -> CurriculumDifficulty {
         let progress = self.get_progress();
-        
+
         match self.config.strategy {
             CurriculumStrategy::Linear => CurriculumDifficulty {
                 noise_level: self.config.initial_noise_level * (1.0 - progress),
@@ -45,43 +45,49 @@ impl CurriculumScheduler {
             },
             CurriculumStrategy::Exponential => CurriculumDifficulty {
                 noise_level: self.config.initial_noise_level * (-2.0 * progress).exp(),
-                resolution_factor: 1.0 + (self.config.max_resolution_factor - 1.0) * (progress.powf(2.0)),
-                complexity_level: (progress.powf(2.0) * self.config.max_complexity_level as f32) as usize,
+                resolution_factor: 1.0
+                    + (self.config.max_resolution_factor - 1.0) * (progress.powf(2.0)),
+                complexity_level: (progress.powf(2.0) * self.config.max_complexity_level as f32)
+                    as usize,
             },
             CurriculumStrategy::Step => {
                 let step_size = 1.0 / self.config.num_stages as f32;
                 let current_step = (progress / step_size) as usize;
-                
+
                 CurriculumDifficulty {
-                    noise_level: self.config.initial_noise_level * (1.0 - current_step as f32 / self.config.num_stages as f32),
-                    resolution_factor: 1.0 + current_step as f32 * (self.config.max_resolution_factor - 1.0) / self.config.num_stages as f32,
-                    complexity_level: current_step * self.config.max_complexity_level / self.config.num_stages,
+                    noise_level: self.config.initial_noise_level
+                        * (1.0 - current_step as f32 / self.config.num_stages as f32),
+                    resolution_factor: 1.0
+                        + current_step as f32 * (self.config.max_resolution_factor - 1.0)
+                            / self.config.num_stages as f32,
+                    complexity_level: current_step * self.config.max_complexity_level
+                        / self.config.num_stages,
                 }
             }
         }
     }
-    
+
     /// Check if should advance to next stage
     fn should_advance_stage(&self, metrics: &TrainingMetrics) -> bool {
         let _current_difficulty = self.get_difficulty();
-        
+
         // Advance if performance is good enough
-        metrics.loss < self.config.stage_advancement_threshold &&
-        self.current_stage < self.config.num_stages &&
-        self.current_epoch >= self.config.min_epochs_per_stage * (self.current_stage + 1)
+        metrics.loss < self.config.stage_advancement_threshold
+            && self.current_stage < self.config.num_stages
+            && self.current_epoch >= self.config.min_epochs_per_stage * (self.current_stage + 1)
     }
-    
+
     /// Get curriculum progress
     fn get_progress(&self) -> f32 {
         (self.current_epoch as f32) / (self.config.total_epochs as f32)
     }
-    
+
     /// Reset curriculum
     pub fn reset(&mut self) {
         self.current_epoch = 0;
         self.current_stage = 0;
     }
-    
+
     /// Get current stage
     pub fn current_stage(&self) -> usize {
         self.current_stage
@@ -155,23 +161,41 @@ impl Dataset for CurriculumFiltered {
     }
 
     fn get_vae_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!("VAE batch {} not available in curriculum view. Use base dataset for VAE training.", batch_idx)))
+        Err(HLDVAError::Training(format!(
+            "VAE batch {} not available in curriculum view. Use base dataset for VAE training.",
+            batch_idx
+        )))
     }
 
     fn get_clip_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!("CLIP batch {} not available in curriculum view. Use base dataset for CLIP training.", batch_idx)))
+        Err(HLDVAError::Training(format!(
+            "CLIP batch {} not available in curriculum view. Use base dataset for CLIP training.",
+            batch_idx
+        )))
     }
 
     fn get_dit_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!("DiT batch {} not available in curriculum view. Use base dataset for DiT training.", batch_idx)))
+        Err(HLDVAError::Training(format!(
+            "DiT batch {} not available in curriculum view. Use base dataset for DiT training.",
+            batch_idx
+        )))
     }
 
-    fn get_upsampler_batch(&self, _batch_idx: usize, _stage_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training("Upsampler batch not available in curriculum view.".to_string()))
+    fn get_upsampler_batch(
+        &self,
+        _batch_idx: usize,
+        _stage_idx: usize,
+    ) -> HLDVAResult<TrainingBatch> {
+        Err(HLDVAError::Training(
+            "Upsampler batch not available in curriculum view.".to_string(),
+        ))
     }
 
     fn get_finetune_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!("Fine-tune batch {} not available in curriculum view.", batch_idx)))
+        Err(HLDVAError::Training(format!(
+            "Fine-tune batch {} not available in curriculum view.",
+            batch_idx
+        )))
     }
 }
 
@@ -180,7 +204,10 @@ pub struct CurriculumUtils;
 
 impl CurriculumUtils {
     /// Apply curriculum difficulty to batch
-    pub fn apply_difficulty(batch: &mut TrainingBatch, difficulty: &CurriculumDifficulty) -> HLDVAResult<()> {
+    pub fn apply_difficulty(
+        batch: &mut TrainingBatch,
+        difficulty: &CurriculumDifficulty,
+    ) -> HLDVAResult<()> {
         let image_data = batch.images.data_mut();
         for val in image_data.iter_mut() {
             let noise: f32 = rand::random::<f32>() * 2.0 - 1.0;

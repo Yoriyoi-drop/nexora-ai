@@ -1,26 +1,28 @@
 //! Nexora AI API Layer - Rust implementation
-//! 
+//!
 //! High-performance HTTP API server replacing runtime_http_server.c
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
-use anyhow::Result;
 
-pub mod server;
 pub mod handlers;
+pub mod metrics;
 pub mod middleware;
 pub mod routing;
-pub mod metrics;
+pub mod server;
 
-
-pub use server::ApiServer;
 pub use handlers::*;
-pub use middleware::{MiddlewareStack, AuthMiddleware, LoggingMiddleware, LogLevel, RateLimitingMiddleware, CorsMiddleware, CompressionMiddleware, SecurityMiddleware as MiddlewareSecurityMiddleware, RateLimitStatistics, create_default_middleware_stack};
-pub use routing::*;
 pub use metrics::*;
-
+pub use middleware::{
+    create_default_middleware_stack, AuthMiddleware, CompressionMiddleware, CorsMiddleware,
+    LogLevel, LoggingMiddleware, MiddlewareStack, RateLimitStatistics, RateLimitingMiddleware,
+    SecurityMiddleware as MiddlewareSecurityMiddleware,
+};
+pub use routing::*;
+pub use server::ApiServer;
 
 /// API configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +103,10 @@ impl Default for ApiConfig {
             cert_path: None,
             key_path: None,
             enable_cors: true,
-            cors_origins: vec!["http://localhost:3000".to_string(), "http://127.0.0.1:3000".to_string()],
+            cors_origins: vec![
+                "http://localhost:3000".to_string(),
+                "http://127.0.0.1:3000".to_string(),
+            ],
             enable_metrics: true,
             enable_logging: true,
         }
@@ -126,7 +131,7 @@ impl<T> ApiResponse<T> {
             },
         }
     }
-    
+
     /// Create error response
     pub fn error(code: String, message: String, request_id: String) -> Self {
         Self {
@@ -148,7 +153,7 @@ impl<T> ApiResponse<T> {
             },
         }
     }
-    
+
     /// Set processing time
     pub fn with_processing_time(mut self, time_ms: u64) -> Self {
         self.metadata.processing_time_ms = time_ms;
@@ -205,15 +210,15 @@ pub struct RouteMetrics {
 pub trait ApiHandler: Send + Sync {
     /// Handle API request
     async fn handle(&self, ctx: RequestContext, body: Vec<u8>) -> Result<Vec<u8>>;
-    
+
     /// Get handler name
     fn name(&self) -> &str;
-    
+
     /// Get handler version
     fn version(&self) -> &str {
         "1.0"
     }
-    
+
     /// Get current process memory usage in MB
     fn get_process_memory_usage(&self) -> f64 {
         nexora_infrastructure::common::get_process_memory_mb()
@@ -225,10 +230,14 @@ pub trait ApiHandler: Send + Sync {
 pub trait Middleware: Send + Sync {
     /// Process request
     async fn process_request(&self, ctx: &mut RequestContext, body: &mut Vec<u8>) -> Result<()>;
-    
+
     /// Process response
-    async fn process_response(&self, ctx: &mut RequestContext, response: &mut Vec<u8>) -> Result<()>;
-    
+    async fn process_response(
+        &self,
+        ctx: &mut RequestContext,
+        response: &mut Vec<u8>,
+    ) -> Result<()>;
+
     /// Get middleware name
     fn name(&self) -> &str;
 }
@@ -248,18 +257,18 @@ impl RateLimiter {
             counters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     pub async fn add_limit(&self, key: String, limit: RateLimit) {
         let mut limits = self.limits.write().await;
         limits.insert(key, limit);
     }
-    
+
     pub async fn check_rate_limit(&self, key: &str) -> Result<bool> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
-        
+
         let (max_requests, window_duration) = {
             let limits = self.limits.read().await;
             match limits.get(key) {
@@ -267,17 +276,17 @@ impl RateLimiter {
                 None => return Ok(true),
             }
         };
-        
+
         // Gunakan sliding window counter (bukan Vec<u64>) — O(1) per check
         let mut counters = self.counters.write().await;
         let (window_start, count) = counters.get(key).copied().unwrap_or((0, 0));
-        
+
         let new_window_start = if now >= window_start + window_duration {
             now
         } else {
             window_start
         };
-        
+
         let new_count = if new_window_start != window_start {
             // Window baru: reset
             1
@@ -286,7 +295,7 @@ impl RateLimiter {
         } else {
             return Ok(false);
         };
-        
+
         counters.insert(key.to_string(), (new_window_start, new_count));
         Ok(true)
     }
@@ -297,5 +306,3 @@ impl Default for RateLimiter {
         Self::new()
     }
 }
-
-

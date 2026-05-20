@@ -1,18 +1,18 @@
-pub mod types;
-pub mod pre_generation;
 pub mod in_generation;
+pub mod monitoring;
 pub mod post_generation;
+pub mod pre_generation;
 pub mod risk_scoring;
 pub mod system_prompt;
-pub mod monitoring;
+pub mod types;
 
-pub use types::*;
-pub use pre_generation::*;
 pub use in_generation::*;
+pub use monitoring::*;
 pub use post_generation::*;
+pub use pre_generation::*;
 pub use risk_scoring::*;
 pub use system_prompt::*;
-pub use monitoring::*;
+pub use types::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum HallucinationError {
@@ -89,11 +89,7 @@ impl HallucinationGuard {
 
         let post_check = self.post_gen.verify(input, sources).await?;
 
-        let score = self.risk.compute(
-            &pre_check,
-            &in_check,
-            &post_check,
-        );
+        let score = self.risk.compute(&pre_check, &in_check, &post_check);
 
         let risk_level = self.risk.classify(score);
         let action = self.risk.decide_action(risk_level.clone());

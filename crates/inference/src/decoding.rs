@@ -1,11 +1,11 @@
 //! Decoding Strategies
-//! 
+//!
 //! Token selection strategies untuk inference.
 
 use std::collections::HashMap;
 use tracing::{debug, warn};
 
-use crate::{Result, InferenceError, GeneratedToken};
+use crate::{GeneratedToken, InferenceError, Result};
 
 /// Configuration untuk decoding
 #[derive(Debug, Clone)]
@@ -50,10 +50,15 @@ impl Default for DecodingConfig {
 pub trait DecodingStrategy: Send + Sync {
     /// Strategy name
     fn name(&self) -> &str;
-    
+
     /// Select next token based on logits
-    fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection>;
-    
+    fn select_token(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<TokenSelection>;
+
     /// Validate configuration
     fn validate_config(&self, config: &DecodingConfig) -> Result<()>;
 }
@@ -99,20 +104,28 @@ impl DecodingStrategy for GreedyDecoding {
     fn name(&self) -> &str {
         "greedy"
     }
-    
-    fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection> {
-        debug!("Greedy decoding: selecting token from {} logits", logits.len());
-        
+
+    fn select_token(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<TokenSelection> {
+        debug!(
+            "Greedy decoding: selecting token from {} logits",
+            logits.len()
+        );
+
         // Apply penalties and biases
         let adjusted_logits = self.adjust_logits(logits, config, context)?;
-        
+
         // Find maximum logit
         let (max_index, &max_logit) = adjusted_logits
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| InferenceError::DecodingError("Empty logits".to_string()))?;
-        
+
         // Check if token is forbidden
         if context.forbidden_tokens.contains(&(max_index as u32)) {
             // Find next best token
@@ -121,11 +134,13 @@ impl DecodingStrategy for GreedyDecoding {
                 .enumerate()
                 .filter(|(i, _)| !context.forbidden_tokens.contains(&(*i as u32)))
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .ok_or_else(|| InferenceError::DecodingError("No valid tokens available".to_string()))?;
-            
+                .ok_or_else(|| {
+                    InferenceError::DecodingError("No valid tokens available".to_string())
+                })?;
+
             let log_prob = self.compute_log_prob(next_logit, config);
             let selection_prob = log_prob.exp();
-            
+
             return Ok(TokenSelection {
                 token_id: next_index as u32,
                 token_text: alloc_token_text(next_index),
@@ -134,10 +149,10 @@ impl DecodingStrategy for GreedyDecoding {
                 metadata: HashMap::new(),
             });
         }
-        
+
         let log_prob = self.compute_log_prob(max_logit, config);
         let selection_prob = log_prob.exp();
-        
+
         Ok(TokenSelection {
             token_id: max_index as u32,
             token_text: alloc_token_text(max_index),
@@ -146,7 +161,7 @@ impl DecodingStrategy for GreedyDecoding {
             metadata: HashMap::new(),
         })
     }
-    
+
     fn validate_config(&self, config: &DecodingConfig) -> Result<()> {
         if config.temperature != 1.0 {
             warn!("Greedy decoding ignores temperature parameter");
@@ -162,10 +177,15 @@ impl DecodingStrategy for GreedyDecoding {
 }
 
 impl GreedyDecoding {
-    fn adjust_logits(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<Vec<f32>> {
+    fn adjust_logits(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<Vec<f32>> {
         let mut adjusted = Vec::with_capacity(logits.len());
         adjusted.extend_from_slice(logits);
-        
+
         if config.presence_penalty != 0.0 {
             for token_id in context.token_frequencies.keys() {
                 if let Some(logit) = adjusted.get_mut(*token_id as usize) {
@@ -173,7 +193,7 @@ impl GreedyDecoding {
                 }
             }
         }
-        
+
         // Apply frequency penalty
         if config.frequency_penalty != 0.0 {
             for (token_id, &frequency) in &context.token_frequencies {
@@ -182,7 +202,7 @@ impl GreedyDecoding {
                 }
             }
         }
-        
+
         // Apply repetition penalty
         if config.repetition_penalty != 1.0 {
             for token_id in context.token_frequencies.keys() {
@@ -191,7 +211,7 @@ impl GreedyDecoding {
                 }
             }
         }
-        
+
         // Apply logit bias
         if config.enable_logit_filter {
             for (token_id, &bias) in &config.logit_bias {
@@ -200,10 +220,10 @@ impl GreedyDecoding {
                 }
             }
         }
-        
+
         Ok(adjusted)
     }
-    
+
     fn compute_log_prob(&self, logit: f32, _config: &DecodingConfig) -> f32 {
         // For greedy decoding, log_prob is just the logit
         logit
@@ -217,43 +237,50 @@ impl DecodingStrategy for TemperatureSampling {
     fn name(&self) -> &str {
         "temperature"
     }
-    
-    fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection> {
-        debug!("Temperature sampling: temp={:.2}, top_p={:.2}, top_k={}", 
-               config.temperature, config.top_p, config.top_k);
-        
+
+    fn select_token(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<TokenSelection> {
+        debug!(
+            "Temperature sampling: temp={:.2}, top_p={:.2}, top_k={}",
+            config.temperature, config.top_p, config.top_k
+        );
+
         // Adjust logits
         let adjusted_logits = self.adjust_logits(logits, config, context)?;
-        
+
         // Apply temperature
         let scaled_logits: Vec<f32> = adjusted_logits
             .iter()
             .map(|&logit| logit / config.temperature)
             .collect();
-        
+
         // Compute probabilities
         let probs: Vec<f32> = self.compute_softmax(&scaled_logits)?;
-        
+
         // Apply top-k filtering
         let filtered_probs = if config.top_k > 0 && config.top_k < probs.len() as u32 {
             self.apply_top_k(&probs, config.top_k)?
         } else {
             probs
         };
-        
+
         // Apply top-p filtering
         let final_probs = if config.top_p < 1.0 {
             self.apply_top_p(&filtered_probs, config.top_p)?
         } else {
             filtered_probs
         };
-        
+
         // Sample token
         let token_id = self.sample_token(&final_probs)?;
-        
+
         let log_prob = adjusted_logits[token_id].ln();
         let selection_prob = final_probs[token_id];
-        
+
         Ok(TokenSelection {
             token_id: token_id as u32,
             token_text: alloc_token_text(token_id),
@@ -262,13 +289,17 @@ impl DecodingStrategy for TemperatureSampling {
             metadata: HashMap::new(),
         })
     }
-    
+
     fn validate_config(&self, config: &DecodingConfig) -> Result<()> {
         if config.temperature <= 0.0 {
-            return Err(InferenceError::DecodingError("Temperature must be positive".to_string()));
+            return Err(InferenceError::DecodingError(
+                "Temperature must be positive".to_string(),
+            ));
         }
         if config.top_p <= 0.0 || config.top_p > 1.0 {
-            return Err(InferenceError::DecodingError("top_p must be in (0, 1]".to_string()));
+            return Err(InferenceError::DecodingError(
+                "top_p must be in (0, 1]".to_string(),
+            ));
         }
         Ok(())
     }
@@ -285,30 +316,34 @@ impl TemperatureSampling {
             probs.push(e);
         }
         if sum == 0.0 {
-            return Err(InferenceError::DecodingError("Softmax sum is zero".to_string()));
+            return Err(InferenceError::DecodingError(
+                "Softmax sum is zero".to_string(),
+            ));
         }
         for p in probs.iter_mut() {
             *p /= sum;
         }
         Ok(probs)
     }
-    
+
     fn apply_top_k(&self, probs: &[f32], top_k: u32) -> Result<Vec<f32>> {
         let k = std::cmp::min(top_k as usize, probs.len());
         let n = probs.len();
-        
+
         let mut indexed_probs: Vec<(usize, f32)> = Vec::with_capacity(n);
         for (i, &p) in probs.iter().enumerate() {
             indexed_probs.push((i, p));
         }
-        indexed_probs.select_nth_unstable_by(k.saturating_sub(1), |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+        indexed_probs.select_nth_unstable_by(k.saturating_sub(1), |a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         let threshold = indexed_probs[k.saturating_sub(1)].1;
         let mut filtered = vec![0.0; n];
         for &(idx, prob) in indexed_probs.iter().take(k) {
             filtered[idx] = prob;
         }
-        
+
         let sum: f32 = filtered.iter().sum();
         if sum > 0.0 {
             for prob in filtered.iter_mut() {
@@ -317,15 +352,16 @@ impl TemperatureSampling {
         }
         Ok(filtered)
     }
-    
+
     fn apply_top_p(&self, probs: &[f32], top_p: f32) -> Result<Vec<f32>> {
         let n = probs.len();
         let mut indexed_probs: Vec<(usize, f32)> = Vec::with_capacity(n);
         for (i, &p) in probs.iter().enumerate() {
             indexed_probs.push((i, p));
         }
-        indexed_probs.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+        indexed_probs
+            .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
         let mut cumulative_sum = 0.0;
         let mut cutoff_index = 0;
         for (i, (_, prob)) in indexed_probs.iter().enumerate() {
@@ -335,12 +371,12 @@ impl TemperatureSampling {
                 break;
             }
         }
-        
+
         let mut filtered = vec![0.0; n];
         for (idx, prob) in indexed_probs.iter().take(cutoff_index) {
             filtered[*idx] = *prob;
         }
-        
+
         let sum: f32 = filtered.iter().sum();
         if sum > 0.0 {
             for prob in filtered.iter_mut() {
@@ -349,13 +385,13 @@ impl TemperatureSampling {
         }
         Ok(filtered)
     }
-    
+
     fn sample_token(&self, probs: &[f32]) -> Result<usize> {
         use rand::Rng;
-        
+
         let mut rng = rand::thread_rng();
         let random_val: f32 = rng.gen();
-        
+
         let mut cumulative_sum = 0.0;
         for (i, &prob) in probs.iter().enumerate() {
             cumulative_sum += prob;
@@ -363,14 +399,19 @@ impl TemperatureSampling {
                 return Ok(i);
             }
         }
-        
+
         // Fallback to last token (shouldn't happen if probabilities sum to 1)
         Ok(probs.len() - 1)
     }
-    
-    fn adjust_logits(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<Vec<f32>> {
+
+    fn adjust_logits(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<Vec<f32>> {
         let mut adjusted = logits.to_vec();
-        
+
         // Apply penalties
         if config.presence_penalty != 0.0 {
             for token_id in context.token_frequencies.keys() {
@@ -379,7 +420,7 @@ impl TemperatureSampling {
                 }
             }
         }
-        
+
         if config.frequency_penalty != 0.0 {
             for (token_id, &frequency) in &context.token_frequencies {
                 if let Some(logit) = adjusted.get_mut(*token_id as usize) {
@@ -387,7 +428,7 @@ impl TemperatureSampling {
                 }
             }
         }
-        
+
         if config.repetition_penalty != 1.0 {
             for token_id in context.token_frequencies.keys() {
                 if let Some(logit) = adjusted.get_mut(*token_id as usize) {
@@ -395,7 +436,7 @@ impl TemperatureSampling {
                 }
             }
         }
-        
+
         // Apply logit bias
         if config.enable_logit_filter {
             for (token_id, &bias) in &config.logit_bias {
@@ -404,7 +445,7 @@ impl TemperatureSampling {
                 }
             }
         }
-        
+
         Ok(adjusted)
     }
 }
@@ -416,16 +457,23 @@ impl DecodingStrategy for NucleusSampling {
     fn name(&self) -> &str {
         "nucleus"
     }
-    
-    fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection> {
+
+    fn select_token(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<TokenSelection> {
         debug!("Nucleus sampling: top_p={:.2}", config.top_p);
-        
+
         TemperatureSampling.select_token(logits, config, context)
     }
-    
+
     fn validate_config(&self, config: &DecodingConfig) -> Result<()> {
         if config.top_p <= 0.0 || config.top_p > 1.0 {
-            return Err(InferenceError::DecodingError("top_p must be in (0, 1]".to_string()));
+            return Err(InferenceError::DecodingError(
+                "top_p must be in (0, 1]".to_string(),
+            ));
         }
         Ok(())
     }
@@ -438,16 +486,23 @@ impl DecodingStrategy for TopKSampling {
     fn name(&self) -> &str {
         "top_k"
     }
-    
-    fn select_token(&self, logits: &[f32], config: &DecodingConfig, context: &DecodingContext) -> Result<TokenSelection> {
+
+    fn select_token(
+        &self,
+        logits: &[f32],
+        config: &DecodingConfig,
+        context: &DecodingContext,
+    ) -> Result<TokenSelection> {
         debug!("Top-k sampling: top_k={}", config.top_k);
-        
+
         TemperatureSampling.select_token(logits, config, context)
     }
-    
+
     fn validate_config(&self, config: &DecodingConfig) -> Result<()> {
         if config.top_k == 0 {
-            return Err(InferenceError::DecodingError("top_k must be greater than 0".to_string()));
+            return Err(InferenceError::DecodingError(
+                "top_k must be greater than 0".to_string(),
+            ));
         }
         Ok(())
     }
@@ -456,12 +511,24 @@ impl DecodingStrategy for TopKSampling {
 /// Create default decoding strategies
 pub fn create_default_strategies() -> HashMap<String, Box<dyn DecodingStrategy>> {
     let mut strategies: HashMap<String, Box<dyn DecodingStrategy>> = HashMap::with_capacity(4);
-    
-    strategies.insert("greedy".to_string(), Box::new(GreedyDecoding) as Box<dyn DecodingStrategy>);
-    strategies.insert("temperature".to_string(), Box::new(TemperatureSampling) as Box<dyn DecodingStrategy>);
-    strategies.insert("nucleus".to_string(), Box::new(NucleusSampling) as Box<dyn DecodingStrategy>);
-    strategies.insert("top_k".to_string(), Box::new(TopKSampling) as Box<dyn DecodingStrategy>);
-    
+
+    strategies.insert(
+        "greedy".to_string(),
+        Box::new(GreedyDecoding) as Box<dyn DecodingStrategy>,
+    );
+    strategies.insert(
+        "temperature".to_string(),
+        Box::new(TemperatureSampling) as Box<dyn DecodingStrategy>,
+    );
+    strategies.insert(
+        "nucleus".to_string(),
+        Box::new(NucleusSampling) as Box<dyn DecodingStrategy>,
+    );
+    strategies.insert(
+        "top_k".to_string(),
+        Box::new(TopKSampling) as Box<dyn DecodingStrategy>,
+    );
+
     strategies
 }
 
@@ -478,7 +545,7 @@ impl DecodingContext {
             metadata: HashMap::new(),
         }
     }
-    
+
     /// Add generated token
     pub fn add_token(&mut self, token: GeneratedToken) {
         let _token_id = token.token_id as usize;
@@ -486,27 +553,27 @@ impl DecodingContext {
         self.generated_tokens.push(token);
         self.step += 1;
     }
-    
+
     /// Get token frequency
     pub fn get_token_frequency(&self, token_id: u32) -> usize {
         self.token_frequencies.get(&token_id).copied().unwrap_or(0)
     }
-    
+
     /// Add forbidden token
     pub fn add_forbidden_token(&mut self, token_id: u32) {
         self.forbidden_tokens.push(token_id);
     }
-    
+
     /// Add required token
     pub fn add_required_token(&mut self, token_id: u32) {
         self.required_tokens.push(token_id);
     }
-    
+
     /// Check if token is forbidden
     pub fn is_forbidden(&self, token_id: u32) -> bool {
         self.forbidden_tokens.contains(&token_id)
     }
-    
+
     /// Check if token is required
     pub fn is_required(&self, token_id: u32) -> bool {
         self.required_tokens.contains(&token_id)

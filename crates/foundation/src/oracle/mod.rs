@@ -5,8 +5,8 @@
 
 pub use nexora_oracle::*;
 
-use nexora_shared::base_model::NxrModel;
 use nexora_models::vortex::NxrVortexModel;
+use nexora_shared::base_model::NxrModel;
 
 /// Enhanced ORACLE with NXR-VORTEX integration
 pub struct OracleVortexIntegration {
@@ -36,14 +36,19 @@ impl OracleVortexIntegration {
     pub fn new() -> Self {
         Self {
             oracle_trainer: nexora_oracle::trainer::OracleTrainer::new(
-                nexora_oracle::trainer::OracleConfig::default(), 32_000
-            ).expect("failed to initialize ORACLE trainer"),
+                nexora_oracle::trainer::OracleConfig::default(),
+                32_000,
+            )
+            .expect("failed to initialize ORACLE trainer"),
             vortex_model: NxrVortexModel::new(),
             integration_config: OracleVortexConfig::default(),
         }
     }
 
-    pub async fn enhanced_code_analysis(&self, code: &str) -> Result<EnhancedCodeAnalysis, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn enhanced_code_analysis(
+        &self,
+        code: &str,
+    ) -> Result<EnhancedCodeAnalysis, Box<dyn std::error::Error + Send + Sync>> {
         let mut analysis = EnhancedCodeAnalysis::new();
 
         if let Ok(oracle_result) = self.oracle_trainer.analyze_code(code).await {

@@ -1,20 +1,20 @@
 //! Routing Agent
-//! 
+//!
 //! Agent untuk memilih specialist model berdasarkan intent dan context.
 
+use async_trait::async_trait;
+use rand;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_trait::async_trait;
-use uuid::Uuid;
-use serde_json::{Value, json};
 use tracing::{debug, info, warn};
-use rand;
+use uuid::Uuid;
 
 use crate::{
-    Agent, AgentError, Result, AgentMessage, AgentResponse, AgentStatus,
-    AgentContext, AgentStats, AgentConfig
+    Agent, AgentConfig, AgentContext, AgentError, AgentMessage, AgentResponse, AgentStats,
+    AgentStatus, Result,
 };
-use nexora_model::specialists::{SpecialistModel, SpecialistType, ModelCapability};
+use nexora_model::specialists::{ModelCapability, SpecialistModel, SpecialistType};
 
 /// Routing agent untuk memilih specialist model yang tepat
 pub struct RoutingAgent {
@@ -135,14 +135,14 @@ impl RoutingAgent {
             config,
         }
     }
-    
+
     /// Add routing rule
     pub fn add_routing_rule(&mut self, rule: RoutingRule) {
         self.routing_rules.push(rule);
         // Sort by priority
         self.routing_rules.sort_by_key(|r| r.priority);
     }
-    
+
     /// Route request ke appropriate specialist
     pub async fn route_request(
         &self,
@@ -151,18 +151,21 @@ impl RoutingAgent {
         content: &Value,
     ) -> Result<RoutingDecision> {
         debug!("Routing request for session: {}", context.session_id);
-        
+
         // Evaluate routing rules
         for rule in &self.routing_rules {
             if !rule.active {
                 continue;
             }
-            
-            if self.evaluate_condition(&rule.condition, context, intent, content).await? {
+
+            if self
+                .evaluate_condition(&rule.condition, context, intent, content)
+                .await?
+            {
                 debug!("Routing rule '{}' matched", rule.id);
-                
+
                 let decision = self.execute_action(&rule.action, &rule.id).await?;
-                
+
                 return Ok(RoutingDecision {
                     selected_specialists: decision.specialists,
                     rule_id: Some(rule.id.clone()),
@@ -172,16 +175,18 @@ impl RoutingAgent {
                 });
             }
         }
-        
+
         // Fallback routing
         if self.config.enable_fallback {
             warn!("No routing rule matched, using fallback");
             self.fallback_routing().await
         } else {
-            Err(AgentError::ProcessingError("No routing rule matched and fallback disabled".to_string()))
+            Err(AgentError::ProcessingError(
+                "No routing rule matched and fallback disabled".to_string(),
+            ))
         }
     }
-    
+
     /// Evaluate routing condition
     fn evaluate_condition<'a>(
         &'a self,
@@ -191,76 +196,85 @@ impl RoutingAgent {
         content: &'a Value,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool>> + Send + 'a>> {
         Box::pin(async move {
-        match condition {
-            RoutingCondition::IntentMatch(expected_intent) => {
-                if let Some(actual_intent) = intent {
-                    Ok(actual_intent == expected_intent)
-                } else {
+            match condition {
+                RoutingCondition::IntentMatch(expected_intent) => {
+                    if let Some(actual_intent) = intent {
+                        Ok(actual_intent == expected_intent)
+                    } else {
+                        Ok(false)
+                    }
+                }
+
+                RoutingCondition::PatternMatch(pattern) => {
+                    // Extract text from content
+                    let text = self.extract_text_from_content(content);
+
+                    // Implement regex pattern matching
+                    match regex::Regex::new(&pattern) {
+                        Ok(regex) => {
+                            let matches = regex.is_match(&text);
+                            debug!("Regex pattern '{}' matches: {}", pattern, matches);
+                            Ok(matches)
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Invalid regex pattern '{}': {}, falling back to simple matching",
+                                pattern, e
+                            );
+                            // Fallback to simple string matching
+                            Ok(text.to_lowercase().contains(&pattern.to_lowercase()))
+                        }
+                    }
+                }
+
+                RoutingCondition::RequiresCapability(capability) => {
+                    // Check if any specialist has required capability
+                    for specialist in self.specialist_models.values() {
+                        if specialist.has_capability(capability.clone()) {
+                            return Ok(true);
+                        }
+                    }
                     Ok(false)
                 }
-            }
-            
-            RoutingCondition::PatternMatch(pattern) => {
-                // Extract text from content
-                let text = self.extract_text_from_content(content);
-                
-                // Implement regex pattern matching
-                match regex::Regex::new(&pattern) {
-                    Ok(regex) => {
-                        let matches = regex.is_match(&text);
-                        debug!("Regex pattern '{}' matches: {}", pattern, matches);
-                        Ok(matches)
-                    }
-                    Err(e) => {
-                        warn!("Invalid regex pattern '{}': {}, falling back to simple matching", pattern, e);
-                        // Fallback to simple string matching
-                        Ok(text.to_lowercase().contains(&pattern.to_lowercase()))
+
+                RoutingCondition::ContentType(expected_type) => {
+                    if let Some(content_type) = content.get("type").and_then(|v| v.as_str()) {
+                        Ok(content_type == expected_type)
+                    } else {
+                        Ok(false)
                     }
                 }
-            }
-            
-            RoutingCondition::RequiresCapability(capability) => {
-                // Check if any specialist has required capability
-                for specialist in self.specialist_models.values() {
-                    if specialist.has_capability(capability.clone()) {
-                        return Ok(true);
+
+                RoutingCondition::UserPreference(user_id) => Ok(context.user_id == Some(*user_id)),
+
+                RoutingCondition::SessionContext(key) => {
+                    Ok(context.session_state.contains_key(key))
+                }
+
+                RoutingCondition::Complex(left, right, operator) => {
+                    let left_result = self
+                        .evaluate_condition(left, context, intent, content)
+                        .await?;
+                    let right_result = self
+                        .evaluate_condition(right, context, intent, content)
+                        .await?;
+
+                    match operator {
+                        LogicOperator::And => Ok(left_result && right_result),
+                        LogicOperator::Or => Ok(left_result || right_result),
+                        LogicOperator::Not => Ok(!right_result), // NOT only applies to right
                     }
                 }
-                Ok(false)
             }
-            
-            RoutingCondition::ContentType(expected_type) => {
-                if let Some(content_type) = content.get("type").and_then(|v| v.as_str()) {
-                    Ok(content_type == expected_type)
-                } else {
-                    Ok(false)
-                }
-            }
-            
-            RoutingCondition::UserPreference(user_id) => {
-                Ok(context.user_id == Some(*user_id))
-            }
-            
-            RoutingCondition::SessionContext(key) => {
-                Ok(context.session_state.contains_key(key))
-            }
-            
-            RoutingCondition::Complex(left, right, operator) => {
-                let left_result = self.evaluate_condition(left, context, intent, content).await?;
-                let right_result = self.evaluate_condition(right, context, intent, content).await?;
-                
-                match operator {
-                    LogicOperator::And => Ok(left_result && right_result),
-                    LogicOperator::Or => Ok(left_result || right_result),
-                    LogicOperator::Not => Ok(!right_result), // NOT only applies to right
-                }
-            }
-        }
         })
     }
-    
+
     /// Execute routing action
-    async fn execute_action(&self, action: &RoutingAction, _rule_id: &str) -> Result<RoutingActionResult> {
+    async fn execute_action(
+        &self,
+        action: &RoutingAction,
+        _rule_id: &str,
+    ) -> Result<RoutingActionResult> {
         match action {
             RoutingAction::RouteToSpecialist(specialist_id) => {
                 if self.specialist_models.contains_key(specialist_id) {
@@ -271,25 +285,32 @@ impl RoutingAgent {
                         metadata: HashMap::new(),
                     })
                 } else {
-                    Err(AgentError::ProcessingError(format!("Specialist {} not found", specialist_id)))
+                    Err(AgentError::ProcessingError(format!(
+                        "Specialist {} not found",
+                        specialist_id
+                    )))
                 }
             }
-            
+
             RoutingAction::RouteToType(specialist_type) => {
-                let matching_specialists: Vec<String> = self.specialist_models.iter()
+                let matching_specialists: Vec<String> = self
+                    .specialist_models
+                    .iter()
                     .filter(|(_, model)| model.specialist_type() == *specialist_type)
                     .map(|(id, _)| id.clone())
                     .collect();
-                
+
                 if !matching_specialists.is_empty() {
-                    let selected = if self.config.enable_load_balancing && matching_specialists.len() > 1 {
+                    let selected = if self.config.enable_load_balancing
+                        && matching_specialists.len() > 1
+                    {
                         // Simple load balancing - select randomly
                         let idx = (rand::random::<usize>() % matching_specialists.len()) as usize;
                         vec![matching_specialists[idx].clone()]
                     } else {
                         vec![matching_specialists[0].clone()]
                     };
-                    
+
                     Ok(RoutingActionResult {
                         specialists: selected,
                         confidence: 0.8,
@@ -297,29 +318,38 @@ impl RoutingAgent {
                         metadata: HashMap::new(),
                     })
                 } else {
-                    Err(AgentError::ProcessingError(format!("No specialists of type {:?}", specialist_type)))
+                    Err(AgentError::ProcessingError(format!(
+                        "No specialists of type {:?}",
+                        specialist_type
+                    )))
                 }
             }
-            
+
             RoutingAction::LoadBalance(specialist_ids) => {
-                let available_specialists: Vec<String> = specialist_ids.iter()
+                let available_specialists: Vec<String> = specialist_ids
+                    .iter()
                     .filter(|id| self.specialist_models.contains_key(*id))
                     .cloned()
                     .collect();
-                
+
                 if !available_specialists.is_empty() {
                     let idx = (rand::random::<usize>() % available_specialists.len()) as usize;
                     Ok(RoutingActionResult {
                         specialists: vec![available_specialists[idx].clone()],
                         confidence: 0.7,
-                        reasoning: format!("Load balancing across {} specialists", available_specialists.len()),
+                        reasoning: format!(
+                            "Load balancing across {} specialists",
+                            available_specialists.len()
+                        ),
                         metadata: HashMap::new(),
                     })
                 } else {
-                    Err(AgentError::ProcessingError("No available specialists for load balancing".to_string()))
+                    Err(AgentError::ProcessingError(
+                        "No available specialists for load balancing".to_string(),
+                    ))
                 }
             }
-            
+
             RoutingAction::FallbackChain(specialist_ids) => {
                 // Return all in chain for fallback logic
                 Ok(RoutingActionResult {
@@ -329,13 +359,14 @@ impl RoutingAgent {
                     metadata: HashMap::new(),
                 })
             }
-            
-            RoutingAction::Reject(reason) => {
-                Err(AgentError::ProcessingError(format!("Request rejected: {}", reason)))
-            }
+
+            RoutingAction::Reject(reason) => Err(AgentError::ProcessingError(format!(
+                "Request rejected: {}",
+                reason
+            ))),
         }
     }
-    
+
     /// Fallback routing logic
     async fn fallback_routing(&self) -> Result<RoutingDecision> {
         // Try to find any available specialist
@@ -348,10 +379,12 @@ impl RoutingAgent {
                 metadata: HashMap::new(),
             })
         } else {
-            Err(AgentError::ProcessingError("No specialists available for fallback routing".to_string()))
+            Err(AgentError::ProcessingError(
+                "No specialists available for fallback routing".to_string(),
+            ))
         }
     }
-    
+
     /// Extract text from content
     fn extract_text_from_content(&self, content: &Value) -> String {
         if let Some(text) = content.get("text").and_then(|v| v.as_str()) {
@@ -365,15 +398,16 @@ impl RoutingAgent {
             content.to_string()
         }
     }
-    
+
     /// Get available specialists by capability
     pub fn get_specialists_by_capability(&self, capability: &ModelCapability) -> Vec<String> {
-        self.specialist_models.iter()
+        self.specialist_models
+            .iter()
             .filter(|(_, model)| model.has_capability(capability.clone()))
             .map(|(id, _)| id.clone())
             .collect()
     }
-    
+
     /// Get routing statistics
     pub fn get_routing_stats(&self) -> RoutingStats {
         RoutingStats {
@@ -410,55 +444,59 @@ impl Agent for RoutingAgent {
     fn id(&self) -> Uuid {
         self.id
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn agent_type(&self) -> &str {
         "routing"
     }
-    
+
     fn status(&self) -> AgentStatus {
         self.status.clone()
     }
-    
+
     async fn initialize(&mut self, _config: AgentConfig) -> Result<()> {
         info!("Initializing RoutingAgent");
-        
+
         // Add default routing rules
         self.add_default_routing_rules();
-        
+
         self.status = AgentStatus::Ready;
         Ok(())
     }
-    
+
     async fn receive(&mut self, message: AgentMessage) -> Result<()> {
         debug!("RoutingAgent received message: {}", message.message_type);
         Ok(())
     }
-    
+
     async fn process(&mut self, context: AgentContext) -> Result<AgentResponse> {
         let start_time = std::time::Instant::now();
-        
-        debug!("RoutingAgent processing request for session: {}", context.session_id);
-        
+
+        debug!(
+            "RoutingAgent processing request for session: {}",
+            context.session_id
+        );
+
         // Extract intent and content from context
         let intent = context.parameters.get("intent").and_then(|v| v.as_str());
         let content = context.parameters.get("content").unwrap_or(&Value::Null);
-        
+
         // Route request
         let routing_decision = self.route_request(&context, intent, content).await?;
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         // Update stats
         self.stats.messages_processed += 1;
-        self.stats.avg_processing_time_ms = 
-            (self.stats.avg_processing_time_ms * (self.stats.messages_processed - 1) as f64 + 
-             processing_time as f64) / self.stats.messages_processed as f64;
+        self.stats.avg_processing_time_ms = (self.stats.avg_processing_time_ms
+            * (self.stats.messages_processed - 1) as f64
+            + processing_time as f64)
+            / self.stats.messages_processed as f64;
         self.stats.last_activity = chrono::Utc::now();
-        
+
         let response = AgentResponse::success(
             context.session_id,
             json!({
@@ -473,30 +511,30 @@ impl Agent for RoutingAgent {
             }),
             processing_time,
         );
-        
+
         Ok(response)
     }
-    
+
     async fn respond(&mut self, _response: AgentResponse) -> Result<()> {
         debug!("RoutingAgent sending response");
         Ok(())
     }
-    
+
     async fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down RoutingAgent");
         self.status = AgentStatus::Shutdown;
         Ok(())
     }
-    
+
     async fn health_check(&self) -> Result<bool> {
         // Check if we have any specialists available
         Ok(!self.specialist_models.is_empty())
     }
-    
+
     fn get_stats(&self) -> AgentStats {
         self.stats.clone()
     }
-    
+
     fn get_config(&self) -> AgentConfig {
         self.config.clone().into()
     }
@@ -513,7 +551,7 @@ impl RoutingAgent {
             action: RoutingAction::RouteToType(SpecialistType::TextGenerator),
             active: true,
         });
-        
+
         // Rule for analysis
         self.add_routing_rule(RoutingRule {
             id: "analysis".to_string(),
@@ -522,7 +560,7 @@ impl RoutingAgent {
             action: RoutingAction::RouteToType(SpecialistType::Analyzer),
             active: true,
         });
-        
+
         // Rule for coding
         self.add_routing_rule(RoutingRule {
             id: "coding".to_string(),
@@ -531,7 +569,7 @@ impl RoutingAgent {
             action: RoutingAction::RouteToType(SpecialistType::CodeGenerator),
             active: true,
         });
-        
+
         // Rule for creative writing
         self.add_routing_rule(RoutingRule {
             id: "creative".to_string(),
@@ -540,7 +578,7 @@ impl RoutingAgent {
             action: RoutingAction::RouteToType(SpecialistType::CreativeWriter),
             active: true,
         });
-        
+
         // Fallback rule
         self.add_routing_rule(RoutingRule {
             id: "fallback".to_string(),

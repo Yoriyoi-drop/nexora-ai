@@ -1,5 +1,5 @@
 //! NXR Model Configuration
-//! 
+//!
 //! Universal configuration schema for all NXR models
 
 use serde::{Deserialize, Serialize};
@@ -624,7 +624,7 @@ impl NxrModelConfig {
     pub fn for_model(model_id: crate::model_identity::NxrModelId) -> Self {
         let mut config = Self::default();
         config.model_id = model_id;
-        
+
         // Apply model-specific defaults
         match model_id {
             crate::model_identity::NxrModelId::Omnis => {
@@ -786,7 +786,7 @@ impl NxrModelConfig {
             }
             _ => {}
         }
-        
+
         config
     }
 
@@ -796,43 +796,43 @@ impl NxrModelConfig {
         if self.architecture.hidden_size == 0 {
             return Err("hidden_size must be > 0".to_string());
         }
-        
+
         if self.architecture.num_layers == 0 {
             return Err("num_layers must be > 0".to_string());
         }
-        
+
         if self.architecture.num_attention_heads == 0 {
             return Err("num_attention_heads must be > 0".to_string());
         }
-        
+
         if self.architecture.max_sequence_length == 0 {
             return Err("max_sequence_length must be > 0".to_string());
         }
-        
+
         // Validate MoE configuration
         if let Some(moe) = &self.architecture.moe_config {
             if moe.num_experts == 0 {
                 return Err("num_experts must be > 0".to_string());
             }
-            
+
             if moe.num_experts_per_token == 0 || moe.num_experts_per_token > moe.num_experts {
                 return Err("num_experts_per_token must be > 0 and <= num_experts".to_string());
             }
         }
-        
+
         // Validate inference parameters
         if self.inference.max_new_tokens == 0 {
             return Err("max_new_tokens must be > 0".to_string());
         }
-        
+
         if !(0.0..=2.0).contains(&self.inference.temperature) {
             return Err("temperature must be between 0.0 and 2.0".to_string());
         }
-        
+
         if !(0.0..=1.0).contains(&self.inference.top_p) {
             return Err("top_p must be between 0.0 and 1.0".to_string());
         }
-        
+
         Ok(())
     }
 
@@ -841,7 +841,9 @@ impl NxrModelConfig {
     where
         T: for<'de> Deserialize<'de>,
     {
-        self.custom.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+        self.custom
+            .get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
     /// Set custom configuration

@@ -1,14 +1,14 @@
 //! Security Guardian Agent
-//! 
+//!
 //! Security monitoring and threat detection
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Security Guardian Agent - Security monitoring and threat detection
 #[derive(Debug, Clone)]
@@ -148,8 +148,12 @@ impl BaseAgent for SecurityGuardianAgent {
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let threat_assessment = self.assess_threat(&input).await?;
         let detected_vulnerabilities = self.detect_vulnerabilities(&input).await?;
-        let security_recommendations = self.generate_recommendations(&input, &threat_assessment).await?;
-        let security_score = self.calculate_security_score(&input, &threat_assessment).await?;
+        let security_recommendations = self
+            .generate_recommendations(&input, &threat_assessment)
+            .await?;
+        let security_score = self
+            .calculate_security_score(&input, &threat_assessment)
+            .await?;
 
         Ok(SecurityGuardianTaskOutput {
             threat_assessment,
@@ -168,21 +172,22 @@ impl BaseAgent for SecurityGuardianAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "security_guardian".to_string(),
-                description: "Security monitoring and threat detection".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["security_event".to_string(), "system_logs".to_string()],
-                output_types: vec!["threat_assessment".to_string(), "security_recommendations".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.96,
-                    avg_latency: 2800.0,
-                    resource_usage: 0.82,
-                    reliability: 0.98,
-                },
+        vec![AgentCapability {
+            name: "security_guardian".to_string(),
+            description: "Security monitoring and threat detection".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["security_event".to_string(), "system_logs".to_string()],
+            output_types: vec![
+                "threat_assessment".to_string(),
+                "security_recommendations".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.96,
+                avg_latency: 2800.0,
+                resource_usage: 0.82,
+                reliability: 0.98,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -221,14 +226,16 @@ impl SecurityGuardianAgent {
     async fn assess_threat(&self, input: &SecurityGuardianTaskInput) -> AgentResult<String> {
         let threat_level = self.calculate_threat_level(&input.security_event).await?;
         let risk_factors = self.identify_risk_factors(&input).await?;
-        
-        Ok(format!("Threat assessment for event '{}': Level {} with factors: {}", 
-                 input.security_event, threat_level, risk_factors))
+
+        Ok(format!(
+            "Threat assessment for event '{}': Level {} with factors: {}",
+            input.security_event, threat_level, risk_factors
+        ))
     }
 
     async fn calculate_threat_level(&self, event: &str) -> AgentResult<String> {
         let event_lower = event.to_lowercase();
-        
+
         if event_lower.contains("critical") || event_lower.contains("breach") {
             Ok("CRITICAL".to_string())
         } else if event_lower.contains("warning") || event_lower.contains("suspicious") {
@@ -240,56 +247,66 @@ impl SecurityGuardianAgent {
         }
     }
 
-    async fn identify_risk_factors(&self, input: &SecurityGuardianTaskInput) -> AgentResult<String> {
+    async fn identify_risk_factors(
+        &self,
+        input: &SecurityGuardianTaskInput,
+    ) -> AgentResult<String> {
         let mut factors = Vec::new();
-        
+
         if input.system_logs.len() > 10 {
             factors.push("High log volume");
         }
-        
+
         if input.analysis_parameters.contains_key("external_source") {
             factors.push("External source involved");
         }
-        
+
         if factors.is_empty() {
             factors.push("Standard security event");
         }
-        
+
         Ok(factors.join(", "))
     }
 
-    async fn detect_vulnerabilities(&self, input: &SecurityGuardianTaskInput) -> AgentResult<Vec<String>> {
+    async fn detect_vulnerabilities(
+        &self,
+        input: &SecurityGuardianTaskInput,
+    ) -> AgentResult<Vec<String>> {
         let mut vulnerabilities = Vec::new();
-        
+
         // Analyze system logs for vulnerability patterns
         for log in &input.system_logs {
             let log_lower = log.to_lowercase();
-            
+
             if log_lower.contains("sql injection") {
                 vulnerabilities.push("SQL Injection vulnerability detected".to_string());
             }
-            
+
             if log_lower.contains("xss") {
                 vulnerabilities.push("Cross-Site Scripting vulnerability detected".to_string());
             }
-            
+
             if log_lower.contains("authentication failure") {
                 vulnerabilities.push("Authentication bypass vulnerability detected".to_string());
             }
         }
-        
+
         if vulnerabilities.is_empty() {
             vulnerabilities.push("No immediate vulnerabilities detected".to_string());
         }
-        
+
         Ok(vulnerabilities)
     }
 
-    async fn generate_recommendations(&self, input: &SecurityGuardianTaskInput, threat_assessment: &str) -> AgentResult<Vec<String>> {
+    async fn generate_recommendations(
+        &self,
+        input: &SecurityGuardianTaskInput,
+        threat_assessment: &str,
+    ) -> AgentResult<Vec<String>> {
         let mut recommendations = Vec::new();
-        
+
         recommendations.push(format!("Immediate action for: {}", threat_assessment));
-        
+
         if threat_assessment.contains("CRITICAL") {
             recommendations.push("Isolate affected systems immediately".to_string());
             recommendations.push("Activate incident response protocol".to_string());
@@ -301,18 +318,22 @@ impl SecurityGuardianAgent {
             recommendations.push("Continue normal monitoring".to_string());
             recommendations.push("Document event for future analysis".to_string());
         }
-        
+
         // Add log-based recommendations
         if input.system_logs.len() > 20 {
             recommendations.push("Implement log aggregation and analysis".to_string());
         }
-        
+
         Ok(recommendations)
     }
 
-    async fn calculate_security_score(&self, input: &SecurityGuardianTaskInput, threat_assessment: &str) -> AgentResult<f32> {
+    async fn calculate_security_score(
+        &self,
+        input: &SecurityGuardianTaskInput,
+        threat_assessment: &str,
+    ) -> AgentResult<f32> {
         let base_score = 0.8;
-        
+
         // Adjust based on threat level
         let threat_adjustment = if threat_assessment.contains("CRITICAL") {
             -0.4
@@ -323,7 +344,7 @@ impl SecurityGuardianAgent {
         } else {
             0.0
         };
-        
+
         // Adjust based on log volume
         let log_adjustment = if input.system_logs.len() > 50 {
             -0.1
@@ -332,7 +353,7 @@ impl SecurityGuardianAgent {
         } else {
             0.0
         };
-        
+
         let final_score: f32 = base_score + threat_adjustment + log_adjustment;
         Ok(final_score.max(0.0).min(1.0))
     }
@@ -367,7 +388,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.threat_assessment.is_empty());
         assert!(!output.detected_vulnerabilities.is_empty());
@@ -378,14 +399,23 @@ mod tests {
     #[tokio::test]
     async fn test_threat_level_calculation() {
         let agent = SecurityGuardianAgent::default();
-        
-        let critical_level = agent.calculate_threat_level("CRITICAL security breach").await.unwrap();
+
+        let critical_level = agent
+            .calculate_threat_level("CRITICAL security breach")
+            .await
+            .unwrap();
         assert_eq!(critical_level, "CRITICAL");
-        
-        let high_level = agent.calculate_threat_level("WARNING suspicious activity").await.unwrap();
+
+        let high_level = agent
+            .calculate_threat_level("WARNING suspicious activity")
+            .await
+            .unwrap();
         assert_eq!(high_level, "HIGH");
-        
-        let low_level = agent.calculate_threat_level("INFO normal operation").await.unwrap();
+
+        let low_level = agent
+            .calculate_threat_level("INFO normal operation")
+            .await
+            .unwrap();
         assert_eq!(low_level, "MEDIUM");
     }
 }

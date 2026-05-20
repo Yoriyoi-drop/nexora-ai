@@ -1,13 +1,13 @@
 //! Base Agent Trait
-//! 
+//!
 //! Interface standar untuk semua agent di Nexora.
 //! Semua agent harus mengikuti pattern: receive() -> process() -> respond()
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 use crate::{AgentError, Result};
 
@@ -126,43 +126,45 @@ pub struct AgentContext {
 pub trait Agent: Send + Sync {
     /// Get unique ID agent
     fn id(&self) -> Uuid;
-    
+
     /// Get nama agent
     fn name(&self) -> &str;
-    
+
     /// Get tipe agent
     fn agent_type(&self) -> &str;
-    
+
     /// Get current status
     fn status(&self) -> AgentStatus;
-    
+
     /// Initialize agent
     async fn initialize(&mut self, config: AgentConfig) -> Result<()>;
-    
+
     /// Receive message dari external atau agent lain
     async fn receive(&mut self, message: AgentMessage) -> Result<()>;
-    
+
     /// Process message yang sudah diterima
     async fn process(&mut self, context: AgentContext) -> Result<AgentResponse>;
-    
+
     /// Send response ke requester
     async fn respond(&mut self, response: AgentResponse) -> Result<()>;
-    
+
     /// Shutdown agent gracefully
     async fn shutdown(&mut self) -> Result<()>;
-    
+
     /// Health check agent
     async fn health_check(&self) -> Result<bool>;
-    
+
     /// Get agent statistics
     fn get_stats(&self) -> AgentStats;
-    
+
     /// Get agent configuration
     fn get_config(&self) -> AgentConfig;
-    
+
     /// Reset agent state (jika supported)
     async fn reset(&mut self) -> Result<()> {
-        Err(AgentError::ProcessingError("Reset not supported for this agent".to_string()))
+        Err(AgentError::ProcessingError(
+            "Reset not supported for this agent".to_string(),
+        ))
     }
 }
 
@@ -198,10 +200,7 @@ impl Default for AgentStats {
 
 impl AgentMessage {
     /// Create new message
-    pub fn new(
-        message_type: impl Into<String>,
-        payload: serde_json::Value,
-    ) -> Self {
+    pub fn new(message_type: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
             id: Uuid::new_v4(),
             message_type: message_type.into(),
@@ -212,19 +211,19 @@ impl AgentMessage {
             priority: MessagePriority::Normal,
         }
     }
-    
+
     /// Set priority
     pub fn with_priority(mut self, priority: MessagePriority) -> Self {
         self.priority = priority;
         self
     }
-    
+
     /// Set sender
     pub fn with_sender(mut self, sender: Uuid) -> Self {
         self.sender = Some(sender);
         self
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
@@ -234,11 +233,7 @@ impl AgentMessage {
 
 impl AgentResponse {
     /// Create new success response
-    pub fn success(
-        request_id: Uuid,
-        payload: serde_json::Value,
-        processing_time_ms: u64,
-    ) -> Self {
+    pub fn success(request_id: Uuid, payload: serde_json::Value, processing_time_ms: u64) -> Self {
         Self {
             id: Uuid::new_v4(),
             request_id,
@@ -249,13 +244,9 @@ impl AgentResponse {
             processing_time_ms,
         }
     }
-    
+
     /// Create new error response
-    pub fn error(
-        request_id: Uuid,
-        error: impl Into<String>,
-        processing_time_ms: u64,
-    ) -> Self {
+    pub fn error(request_id: Uuid, error: impl Into<String>, processing_time_ms: u64) -> Self {
         Self {
             id: Uuid::new_v4(),
             request_id,
@@ -266,7 +257,7 @@ impl AgentResponse {
             processing_time_ms,
         }
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
@@ -285,19 +276,19 @@ impl AgentContext {
             metadata: HashMap::new(),
         }
     }
-    
+
     /// Set user ID
     pub fn with_user_id(mut self, user_id: Uuid) -> Self {
         self.user_id = Some(user_id);
         self
     }
-    
+
     /// Add parameter
     pub fn with_parameter(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.parameters.insert(key.into(), value);
         self
     }
-    
+
     /// Add session state
     pub fn with_session_state(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.session_state.insert(key.into(), value);

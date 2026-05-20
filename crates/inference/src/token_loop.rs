@@ -1,22 +1,21 @@
 //! Token Loop
-//! 
+//!
 //! Main token generation loop untuk inference.
 
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 use tracing::{debug, info, warn};
-use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
-use crate::{
-    Result, InferenceError, InferenceRequest, InferenceResponse, GeneratedToken,
-    FinishReason
-};
-use crate::decoding::{DecodingStrategy, DecodingContext};
+use crate::decoding::{DecodingContext, DecodingStrategy};
 use crate::stop_conditions::{StopConditions, StopContext};
 use crate::streaming::StreamingEngine;
+use crate::{
+    FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
+};
 
 /// Configuration untuk token loop
 #[derive(Debug, Clone)]
@@ -158,43 +157,46 @@ impl TokenLoop {
             active_loops: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Set streaming engine
     pub fn with_streaming_engine(mut self, streaming_engine: Arc<RwLock<StreamingEngine>>) -> Self {
         self.streaming_engine = Some(streaming_engine);
         self
     }
-    
+
     /// Initialize token loop
     pub async fn initialize(&self) -> Result<()> {
         info!("Initializing token loop");
-        
+
         // Update state
         self.state.store(STATE_INITIALIZING, Ordering::Release);
-        
+
         // Initialize streaming engine if provided
         if let Some(streaming_engine) = &self.streaming_engine {
             streaming_engine.write().await.initialize().await?;
         }
-        
+
         // Update state to ready
         self.state.store(STATE_RUNNING, Ordering::Release);
-        
+
         info!("Token loop initialized successfully");
         Ok(())
     }
-    
+
     /// Run token generation loop
     pub async fn run_loop(
         &self,
         request: &InferenceRequest,
         initial_logits: Vec<Vec<f32>>,
     ) -> Result<InferenceResponse> {
-        debug!("Starting token generation loop for request: {}", request.request_id);
-        
+        debug!(
+            "Starting token generation loop for request: {}",
+            request.request_id
+        );
+
         let loop_id = Uuid::new_v4();
         let start_time = Utc::now();
-        
+
         // Create loop info
         let loop_info = LoopInfo {
             loop_id,
@@ -205,12 +207,12 @@ impl TokenLoop {
             stream_id: None,
             _metadata: request.metadata.clone(),
         };
-        
+
         // Add to active loops
         {
             let mut active_loops = self.active_loops.write().await;
             active_loops.insert(loop_id, loop_info);
-            
+
             // Update statistics
             let mut stats = self.stats.write().await;
             stats.total_loops += 1;
@@ -218,7 +220,7 @@ impl TokenLoop {
             stats.peak_concurrent_loops = stats.peak_concurrent_loops.max(stats.active_loops);
             stats.last_updated = Utc::now();
         }
-        
+
         // Create stream if streaming enabled
         let stream_id = if self.config.enable_streaming {
             if let Some(streaming_engine) = &self.streaming_engine {
@@ -236,22 +238,18 @@ impl TokenLoop {
         } else {
             None
         };
-        
+
         // Run main generation loop
-        let result = self.run_generation_loop(
-            loop_id,
-            request,
-            initial_logits,
-            stream_id,
-            start_time,
-        ).await;
-        
+        let result = self
+            .run_generation_loop(loop_id, request, initial_logits, stream_id, start_time)
+            .await;
+
         // Clean up
         self.cleanup_loop(loop_id).await;
-        
+
         result
     }
-    
+
     /// Run main generation loop
     async fn run_generation_loop(
         &self,
@@ -264,10 +262,10 @@ impl TokenLoop {
         let mut tokens = Vec::with_capacity(initial_logits.len());
         let mut token_frequencies = HashMap::with_capacity(initial_logits.len());
         let mut finish_reason = FinishReason::Unknown;
-        
+
         let mut decoding_context = DecodingContext::new(initial_logits[0].len());
         let mut last_sample_time = Utc::now();
-        
+
         for (step, logits) in initial_logits.iter().enumerate() {
             // Check loop state
             let run_state = self.state.load(Ordering::Acquire);
@@ -277,12 +275,22 @@ impl TokenLoop {
                     break;
                 }
                 if run_state == STATE_ERROR {
-                    let msg = self.state_error.read().await.as_ref().map_or_else(|| "unknown".to_string(), |s| s.clone());
-                    return Err(InferenceError::InternalError(format!("Loop error: {}", msg)));
+                    let msg = self
+                        .state_error
+                        .read()
+                        .await
+                        .as_ref()
+                        .map_or_else(|| "unknown".to_string(), |s| s.clone());
+                    return Err(InferenceError::InternalError(format!(
+                        "Loop error: {}",
+                        msg
+                    )));
                 }
-                return Err(InferenceError::InternalError("Loop not in running state".to_string()));
+                return Err(InferenceError::InternalError(
+                    "Loop not in running state".to_string(),
+                ));
             }
-            
+
             // Check stop conditions
             let current_time = if step % 10 == 0 {
                 let t = Utc::now();
@@ -297,8 +305,12 @@ impl TokenLoop {
                 current_time,
                 metadata: HashMap::new(),
             };
-            
-            if let Some(reason) = self.stop_conditions.should_stop(&tokens, &stop_context).await {
+
+            if let Some(reason) = self
+                .stop_conditions
+                .should_stop(&tokens, &stop_context)
+                .await
+            {
                 finish_reason = match reason.as_str() {
                     "Maximum tokens reached" => FinishReason::MaxTokens,
                     "Stop sequence encountered" => FinishReason::StopSequence,
@@ -308,13 +320,13 @@ impl TokenLoop {
                 };
                 break;
             }
-            
+
             // Check token limit
             if tokens.len() >= request.max_tokens as usize {
                 finish_reason = FinishReason::MaxTokens;
                 break;
             }
-            
+
             // Select next token
             let decoding_config = crate::decoding::DecodingConfig {
                 temperature: request.temperature,
@@ -324,21 +336,22 @@ impl TokenLoop {
                 frequency_penalty: request.frequency_penalty,
                 ..Default::default()
             };
-            
-            let token_selection = self.decoding_strategy.select_token(
-                logits,
-                &decoding_config,
-                &decoding_context,
-            )?;
-            
+
+            let token_selection =
+                self.decoding_strategy
+                    .select_token(logits, &decoding_config, &decoding_context)?;
+
             // Validate token if enabled
             if self.config.enable_token_validation {
                 if !self.validate_token(&token_selection).await? {
-                    warn!("Token validation failed for token {}", token_selection.token_id);
+                    warn!(
+                        "Token validation failed for token {}",
+                        token_selection.token_id
+                    );
                     continue;
                 }
             }
-            
+
             // Create generated token and store in vec first
             tokens.push(GeneratedToken::new(
                 token_selection.token_id,
@@ -347,16 +360,20 @@ impl TokenLoop {
                 step,
             ));
             let gen = tokens.last().expect("token just pushed, must exist");
-            
+
             decoding_context.add_token(gen.clone());
             *token_frequencies.entry(gen.token_id).or_insert(0) += 1;
-            
+
             if let Some(stream_id) = stream_id {
                 if let Some(streaming_engine) = &self.streaming_engine {
-                    streaming_engine.write().await.send_token(stream_id, gen.clone()).await?;
+                    streaming_engine
+                        .write()
+                        .await
+                        .send_token(stream_id, gen.clone())
+                        .await?;
                 }
             }
-            
+
             {
                 let mut active_loops = self.active_loops.write().await;
                 if let Some(info) = active_loops.get_mut(&loop_id) {
@@ -364,46 +381,56 @@ impl TokenLoop {
                     info.tokens.push(gen.clone());
                 }
             }
-            
-            let truncated_text = if gen.token_text.len() > 50 { format!("{} [truncated {} chars]", &gen.token_text[..50], gen.token_text.len()) } else { gen.token_text.to_string() };
-            debug!("Generated token {} at step {}: {}", 
-                   gen.token_id, step, truncated_text);
+
+            let truncated_text = if gen.token_text.len() > 50 {
+                format!(
+                    "{} [truncated {} chars]",
+                    &gen.token_text[..50],
+                    gen.token_text.len()
+                )
+            } else {
+                gen.token_text.to_string()
+            };
+            debug!(
+                "Generated token {} at step {}: {}",
+                gen.token_id, step, truncated_text
+            );
         }
-        
+
         // Create response
         let processing_time = (Utc::now() - start_time).num_milliseconds() as u64;
-        
+
         let response = InferenceResponse::new(request.request_id)
             .with_finish_reason(finish_reason)
             .with_inference_time(processing_time);
-        
+
         // Add tokens to response
         let mut final_response = response;
         for token in tokens {
             final_response.add_token(token);
         }
-        
+
         Ok(final_response)
     }
-    
+
     /// Cancel active loop
     pub async fn cancel_loop(&self, loop_id: Uuid) -> Result<bool> {
         debug!("Cancelling loop: {}", loop_id);
-        
+
         // Extract stream_id before acquiring locks to avoid lock inversion
         // (run_loop locks: streaming_engine -> active_loops)
         let stream_id = {
             let active_loops = self.active_loops.read().await;
             active_loops.get(&loop_id).and_then(|info| info.stream_id)
         };
-        
+
         // Cancel stream without holding active_loops lock
         if let Some(sid) = stream_id {
             if let Some(streaming_engine) = &self.streaming_engine {
                 streaming_engine.write().await.cancel_stream(sid).await?;
             }
         }
-        
+
         // Remove from active loops and update stats
         let mut active_loops = self.active_loops.write().await;
         let existed = active_loops.remove(&loop_id).is_some();
@@ -412,7 +439,7 @@ impl TokenLoop {
             stats.active_loops = active_loops.len();
             stats.cancelled_loops += 1;
         }
-        
+
         if existed {
             debug!("Loop {} cancelled successfully", loop_id);
             Ok(true)
@@ -421,36 +448,35 @@ impl TokenLoop {
             Ok(false)
         }
     }
-    
+
     /// Cancel loop by request ID
     pub async fn cancel_loop_by_request(&self, request_id: Uuid) -> Result<bool> {
         let active_loops = self.active_loops.read().await;
-        
-        let target_loop_id = active_loops.iter()
-            .find_map(|(loop_id, info)| {
-                if info.request_id == request_id {
-                    Some(*loop_id)
-                } else {
-                    None
-                }
-            });
-        
+
+        let target_loop_id = active_loops.iter().find_map(|(loop_id, info)| {
+            if info.request_id == request_id {
+                Some(*loop_id)
+            } else {
+                None
+            }
+        });
+
         drop(active_loops);
-        
+
         if let Some(loop_id) = target_loop_id {
             return self.cancel_loop(loop_id).await;
         }
-        
+
         Ok(false)
     }
-    
+
     /// Get loop status
     pub async fn get_loop_status(&self, loop_id: Uuid) -> Option<LoopStatus> {
         let active_loops = self.active_loops.read().await;
-        
+
         if let Some(info) = active_loops.get(&loop_id) {
             let duration = (Utc::now() - info.start_time).num_milliseconds() as u64;
-            
+
             Some(LoopStatus {
                 loop_id: info.loop_id,
                 request_id: info.request_id,
@@ -463,53 +489,54 @@ impl TokenLoop {
             None
         }
     }
-    
+
     /// Get loop statistics
     pub async fn get_stats(&self) -> TokenLoopStats {
         let mut stats = self.stats.read().await.clone();
-        
+
         // Update active loops count
         stats.active_loops = {
             let active_loops = self.active_loops.read().await;
             active_loops.len()
         };
-        
+
         // Calculate average tokens per loop
         if stats.total_loops > 0 {
-            stats.avg_tokens_per_loop = stats.total_tokens_generated as f64 / stats.total_loops as f64;
+            stats.avg_tokens_per_loop =
+                stats.total_tokens_generated as f64 / stats.total_loops as f64;
         }
-        
+
         stats
     }
-    
+
     /// Shutdown token loop
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down token loop");
-        
+
         // Update state
         self.state.store(STATE_CANCELLED, Ordering::Release);
-        
+
         // Cancel all active loops
         let loop_ids: Vec<Uuid> = {
             let active_loops = self.active_loops.read().await;
             active_loops.keys().cloned().collect()
         };
-        
+
         for loop_id in loop_ids {
             if let Err(e) = self.cancel_loop(loop_id).await {
                 warn!("Failed to cancel loop {}: {}", loop_id, e);
             }
         }
-        
+
         // Shutdown streaming engine
         if let Some(streaming_engine) = &self.streaming_engine {
             streaming_engine.write().await.shutdown().await?;
         }
-        
+
         info!("Token loop shutdown complete");
         Ok(())
     }
-    
+
     /// Clean up loop
     async fn cleanup_loop(&self, loop_id: Uuid) {
         // Remove from active loops
@@ -524,22 +551,22 @@ impl TokenLoop {
             }
         }
     }
-    
+
     /// Validate token
     async fn validate_token(&self, token: &crate::decoding::TokenSelection) -> Result<bool> {
         // Simple validation - check if token is reasonable
         if token.selection_prob < 0.0 || token.selection_prob > 1.0 {
             return Ok(false);
         }
-        
+
         if !token.log_prob.is_finite() {
             return Ok(false);
         }
-        
+
         if token.token_text.is_empty() {
             return Ok(false);
         }
-        
+
         Ok(true)
     }
 }

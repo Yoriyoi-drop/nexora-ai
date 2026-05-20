@@ -1,24 +1,24 @@
-pub mod manifest;
-pub mod scanner;
-pub mod compression;
-pub mod loader;
-pub mod iterator;
-pub mod shuffle;
-pub mod schema;
 pub mod cache;
+pub mod compression;
+pub mod iterator;
+pub mod loader;
+pub mod manifest;
 pub mod progress;
 pub mod registry;
+pub mod scanner;
+pub mod schema;
+pub mod shuffle;
 
-pub use manifest::*;
-pub use scanner::*;
-pub use compression::*;
-pub use loader::*;
-pub use iterator::*;
-pub use shuffle::*;
-pub use schema::*;
 pub use cache::*;
+pub use compression::*;
+pub use iterator::*;
+pub use loader::*;
+pub use manifest::*;
 pub use progress::*;
 pub use registry::*;
+pub use scanner::*;
+pub use schema::*;
+pub use shuffle::*;
 
 use serde::{Deserialize, Serialize};
 

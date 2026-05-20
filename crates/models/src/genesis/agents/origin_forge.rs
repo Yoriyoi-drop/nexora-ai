@@ -1,14 +1,14 @@
 //! Origin Forge Agent
-//! 
+//!
 //! System origin creation and foundational architecture
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Origin Forge Agent - System origin creation and foundational architecture
 #[derive(Debug, Clone)]
@@ -173,21 +173,25 @@ impl BaseAgent for OriginForgeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "origin_forge".to_string(),
-                description: "System origin creation and foundational architecture".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["system_domain".to_string(), "business_requirements".to_string()],
-                output_types: vec!["origin_architecture".to_string(), "foundational_components".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.90,
-                    avg_latency: 3800.0,
-                    resource_usage: 0.78,
-                    reliability: 0.92,
-                },
+        vec![AgentCapability {
+            name: "origin_forge".to_string(),
+            description: "System origin creation and foundational architecture".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "system_domain".to_string(),
+                "business_requirements".to_string(),
+            ],
+            output_types: vec![
+                "origin_architecture".to_string(),
+                "foundational_components".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.90,
+                avg_latency: 3800.0,
+                resource_usage: 0.78,
+                reliability: 0.92,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -223,13 +227,22 @@ impl OriginForgeAgent {
         }
     }
 
-    async fn create_origin_architecture(&self, input: &OriginForgeTaskInput) -> AgentResult<String> {
+    async fn create_origin_architecture(
+        &self,
+        input: &OriginForgeTaskInput,
+    ) -> AgentResult<String> {
         Ok(format!("Origin architecture for '{}': Clean architecture with domain-driven design, microservices style, and event-sourced persistence", input.system_domain))
     }
 
-    async fn define_foundational_components(&self, input: &OriginForgeTaskInput) -> AgentResult<Vec<String>> {
+    async fn define_foundational_components(
+        &self,
+        input: &OriginForgeTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Domain Layer: Core business logic for {}", input.system_domain),
+            format!(
+                "Domain Layer: Core business logic for {}",
+                input.system_domain
+            ),
             "Application Layer: Use cases and application services".to_string(),
             "Infrastructure Layer: External integrations and data persistence".to_string(),
             "Presentation Layer: API endpoints and user interfaces".to_string(),
@@ -240,7 +253,10 @@ impl OriginForgeAgent {
         Ok(format!("Scalability plan for '{}': Horizontal scaling with load balancing, caching strategies, and database sharding to handle growth", input.system_domain))
     }
 
-    async fn plan_implementation_phases(&self, _input: &OriginForgeTaskInput) -> AgentResult<Vec<String>> {
+    async fn plan_implementation_phases(
+        &self,
+        _input: &OriginForgeTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             "Phase 1: Core domain and infrastructure setup".to_string(),
             "Phase 2: Application layer and use case implementation".to_string(),
@@ -266,13 +282,16 @@ mod tests {
         let agent = OriginForgeAgent::default();
         let input = OriginForgeTaskInput {
             system_domain: "E-commerce platform".to_string(),
-            business_requirements: vec!["Product catalog".to_string(), "Order processing".to_string()],
+            business_requirements: vec![
+                "Product catalog".to_string(),
+                "Order processing".to_string(),
+            ],
             technical_constraints: vec!["High availability".to_string()],
         };
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.origin_architecture.is_empty());
         assert!(!output.foundational_components.is_empty());

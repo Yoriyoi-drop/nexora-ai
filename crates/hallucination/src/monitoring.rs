@@ -60,9 +60,15 @@ impl Monitor {
         };
 
         match action {
-            "Blocked" => { self.total_blocked.fetch_add(1, Ordering::Relaxed); }
-            "FlagForReview" => { self.total_flagged.fetch_add(1, Ordering::Relaxed); }
-            _ => { self.total_passed.fetch_add(1, Ordering::Relaxed); }
+            "Blocked" => {
+                self.total_blocked.fetch_add(1, Ordering::Relaxed);
+            }
+            "FlagForReview" => {
+                self.total_flagged.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {
+                self.total_passed.fetch_add(1, Ordering::Relaxed);
+            }
         }
         self.total_checked.fetch_add(1, Ordering::Relaxed);
     }
@@ -90,8 +96,9 @@ impl Monitor {
         if total == 0 {
             return 0.0;
         }
-        (self.total_blocked.load(Ordering::Relaxed)
-            + self.total_flagged.load(Ordering::Relaxed)) as f64 / total as f64
+        (self.total_blocked.load(Ordering::Relaxed) + self.total_flagged.load(Ordering::Relaxed))
+            as f64
+            / total as f64
     }
 
     pub fn is_alerting(&self) -> bool {

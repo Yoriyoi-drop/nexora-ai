@@ -18,14 +18,35 @@ pub struct MemoryQuarantine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuarantineReason {
-    AnomalyDetected { score: f64, details: String },
-    MemoryCorruption { region_id: Uuid, checksum_mismatch: bool },
-    HallucinationSpread { affected_chains: Vec<Uuid> },
-    SecurityViolation { capability: String, action: String },
-    ResourceExhaustion { resource: String, usage_pct: f64 },
-    ManualIntervention { triggered_by: String },
-    ChainContamination { source_chain: Uuid },
-    ToolAbuse { tool: ToolKind, violations: u32 },
+    AnomalyDetected {
+        score: f64,
+        details: String,
+    },
+    MemoryCorruption {
+        region_id: Uuid,
+        checksum_mismatch: bool,
+    },
+    HallucinationSpread {
+        affected_chains: Vec<Uuid>,
+    },
+    SecurityViolation {
+        capability: String,
+        action: String,
+    },
+    ResourceExhaustion {
+        resource: String,
+        usage_pct: f64,
+    },
+    ManualIntervention {
+        triggered_by: String,
+    },
+    ChainContamination {
+        source_chain: Uuid,
+    },
+    ToolAbuse {
+        tool: ToolKind,
+        violations: u32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +112,8 @@ impl QuarantineManager {
         };
 
         if self.active_quarantines.len() >= self.max_active {
-            let oldest_idx = self.active_quarantines
+            let oldest_idx = self
+                .active_quarantines
                 .iter()
                 .enumerate()
                 .min_by_key(|(_, q)| q.timestamp)
@@ -106,7 +128,10 @@ impl QuarantineManager {
     }
 
     pub fn resolve_quarantine(&mut self, quarantine_id: Uuid) -> Result<(), QuarantineError> {
-        let idx = self.active_quarantines.iter().position(|q| q.id == quarantine_id)
+        let idx = self
+            .active_quarantines
+            .iter()
+            .position(|q| q.id == quarantine_id)
             .ok_or(QuarantineError::QuarantineNotFound(quarantine_id))?;
         let mut q = self.active_quarantines.remove(idx);
         q.status = QuarantineStatus::Resolved;
@@ -115,25 +140,39 @@ impl QuarantineManager {
     }
 
     pub fn escalate_quarantine(&mut self, quarantine_id: Uuid) -> Result<(), QuarantineError> {
-        let q = self.active_quarantines.iter_mut()
+        let q = self
+            .active_quarantines
+            .iter_mut()
             .find(|q| q.id == quarantine_id)
             .ok_or(QuarantineError::QuarantineNotFound(quarantine_id))?;
         q.status = QuarantineStatus::Escalated;
-        q.metadata.insert("escalated_at".into(), chrono::Utc::now().to_rfc3339());
+        q.metadata
+            .insert("escalated_at".into(), chrono::Utc::now().to_rfc3339());
         Ok(())
     }
 
     pub fn get_active_for_agent(&self, agent_id: Uuid) -> Vec<&MemoryQuarantine> {
-        self.active_quarantines.iter().filter(|q| q.agent_id == agent_id).collect()
+        self.active_quarantines
+            .iter()
+            .filter(|q| q.agent_id == agent_id)
+            .collect()
     }
 
     pub fn is_agent_quarantined(&self, agent_id: Uuid) -> bool {
-        self.active_quarantines.iter().any(|q| q.agent_id == agent_id)
+        self.active_quarantines
+            .iter()
+            .any(|q| q.agent_id == agent_id)
     }
 
     pub fn get_critical_quarantines(&self) -> Vec<&MemoryQuarantine> {
-        self.active_quarantines.iter()
-            .filter(|q| matches!(q.severity, QuarantineSeverity::Critical | QuarantineSeverity::High))
+        self.active_quarantines
+            .iter()
+            .filter(|q| {
+                matches!(
+                    q.severity,
+                    QuarantineSeverity::Critical | QuarantineSeverity::High
+                )
+            })
             .collect()
     }
 
@@ -172,7 +211,10 @@ mod tests {
 
         let q = manager.quarantine_agent(
             agent_id,
-            QuarantineReason::AnomalyDetected { score: 0.95, details: "unusual memory access pattern".into() },
+            QuarantineReason::AnomalyDetected {
+                score: 0.95,
+                details: "unusual memory access pattern".into(),
+            },
             QuarantineSeverity::High,
             vec![],
         );

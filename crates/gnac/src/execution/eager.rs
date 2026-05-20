@@ -1,5 +1,5 @@
-use crate::DLResult;
 use crate::canvas::NeuralGraph;
+use crate::DLResult;
 
 /// Eager Execution — untuk editing visual responsif
 /// Setiap operasi dijalankan segera begitu ditambahkan ke graf
@@ -11,10 +11,11 @@ impl EagerExecutor {
         let order = graph.topological_order()?;
 
         for node_id in order {
-            let node = graph.get_node(&node_id)
-                .ok_or_else(|| crate::DeepLearningError::Configuration {
+            let node = graph.get_node(&node_id).ok_or_else(|| {
+                crate::DeepLearningError::Configuration {
                     reason: format!("Node {} not found during execution", node_id),
-                })?;
+                }
+            })?;
 
             if !node.params.enabled {
                 continue;
@@ -24,8 +25,12 @@ impl EagerExecutor {
             let (incoming, _outgoing) = graph.get_node_connections(&node_id);
             if incoming.len() < node.inputs.len() {
                 return Err(crate::DeepLearningError::Computation {
-                    reason: format!("Node {}: missing inputs (have {}, need {})",
-                        node.name, incoming.len(), node.inputs.len()),
+                    reason: format!(
+                        "Node {}: missing inputs (have {}, need {})",
+                        node.name,
+                        incoming.len(),
+                        node.inputs.len()
+                    ),
                 });
             }
         }
@@ -34,9 +39,13 @@ impl EagerExecutor {
     }
 
     /// Eksekusi dengan input tertentu
-    pub fn execute_with_input(graph: &NeuralGraph, input_shape: &[usize]) -> DLResult<Vec<Vec<usize>>> {
+    pub fn execute_with_input(
+        graph: &NeuralGraph,
+        input_shape: &[usize],
+    ) -> DLResult<Vec<Vec<usize>>> {
         let order = graph.topological_order()?;
-        let mut shapes: std::collections::HashMap<uuid::Uuid, Vec<Vec<usize>>> = std::collections::HashMap::new();
+        let mut shapes: std::collections::HashMap<uuid::Uuid, Vec<Vec<usize>>> =
+            std::collections::HashMap::new();
 
         // Set input shape
         for input_node in graph.get_input_nodes() {
@@ -44,7 +53,9 @@ impl EagerExecutor {
         }
 
         for node_id in order {
-            let node = graph.get_node(&node_id).expect("node exists during execution");
+            let node = graph
+                .get_node(&node_id)
+                .expect("node exists during execution");
             if !node.params.enabled {
                 continue;
             }

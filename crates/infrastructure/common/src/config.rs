@@ -1,5 +1,5 @@
 //! Configuration for Nexora AI
-//! 
+//!
 //! Global configuration and task analysis settings
 
 use serde::{Deserialize, Serialize};

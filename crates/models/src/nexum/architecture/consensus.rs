@@ -157,8 +157,12 @@ impl From<nexum_config::ConsensusAlgorithm> for ConsensusAlgorithm {
             nexum_config::ConsensusAlgorithm::WeightedVoting => Self::WeightedVoting,
             nexum_config::ConsensusAlgorithm::ConsensusRanking => Self::ConsensusRanking,
             nexum_config::ConsensusAlgorithm::DelphiMethod => Self::DelphiMethod,
-            nexum_config::ConsensusAlgorithm::ByzantineFaultTolerance => Self::ByzantineFaultTolerance,
-            nexum_config::ConsensusAlgorithm::PracticalByzantineFaultTolerance => Self::PracticalByzantineFaultTolerance,
+            nexum_config::ConsensusAlgorithm::ByzantineFaultTolerance => {
+                Self::ByzantineFaultTolerance
+            }
+            nexum_config::ConsensusAlgorithm::PracticalByzantineFaultTolerance => {
+                Self::PracticalByzantineFaultTolerance
+            }
             nexum_config::ConsensusAlgorithm::Raft => Self::Raft,
             nexum_config::ConsensusAlgorithm::Hybrid { algorithms } => Self::Hybrid {
                 algorithms: algorithms.into_iter().map(Into::into).collect(),

@@ -441,7 +441,9 @@ impl SQLiteConnection {
                 None => return false,
             };
             guard.execute_batch("SELECT 1").is_ok()
-        }).await.unwrap_or(false)
+        })
+        .await
+        .unwrap_or(false)
     }
 
     #[cfg(not(feature = "sqlite"))]
@@ -461,13 +463,17 @@ impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn begin_transaction(&mut self) -> Result<()> {
         if self.transaction_depth == 0 {
-            let conn = self.conn.clone()
+            let conn = self
+                .conn
+                .clone()
                 .ok_or_else(|| anyhow!("Connection not open"))?;
             tokio::task::spawn_blocking(move || {
                 let guard = conn.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
                 guard.execute_batch("BEGIN TRANSACTION")?;
                 Ok::<_, anyhow::Error>(())
-            }).await.map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
+            })
+            .await
+            .map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
         }
         self.transaction_depth += 1;
         Ok(())
@@ -483,13 +489,17 @@ impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn commit_transaction(&mut self) -> Result<()> {
         if self.transaction_depth == 1 {
-            let conn = self.conn.clone()
+            let conn = self
+                .conn
+                .clone()
                 .ok_or_else(|| anyhow!("Connection not open"))?;
             tokio::task::spawn_blocking(move || {
                 let guard = conn.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
                 guard.execute_batch("COMMIT")?;
                 Ok::<_, anyhow::Error>(())
-            }).await.map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
+            })
+            .await
+            .map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
         }
         if self.transaction_depth > 0 {
             self.transaction_depth -= 1;
@@ -507,13 +517,17 @@ impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn rollback_transaction(&mut self) -> Result<()> {
         if self.transaction_depth == 1 {
-            let conn = self.conn.clone()
+            let conn = self
+                .conn
+                .clone()
                 .ok_or_else(|| anyhow!("Connection not open"))?;
             tokio::task::spawn_blocking(move || {
                 let guard = conn.lock().map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
                 guard.execute_batch("ROLLBACK")?;
                 Ok::<_, anyhow::Error>(())
-            }).await.map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
+            })
+            .await
+            .map_err(|e| anyhow!("spawn_blocking join failed: {}", e))??;
         }
         if self.transaction_depth > 0 {
             self.transaction_depth -= 1;
@@ -746,7 +760,8 @@ impl ConnectionPool for SQLiteConnectionPool {
 
         if was_active {
             // Downcast to SQLiteConnection via as_any_mut to preserve the rusqlite::Connection
-            let sqlite_conn = connection.as_any_mut()
+            let sqlite_conn = connection
+                .as_any_mut()
                 .downcast_mut::<SQLiteConnection>()
                 .ok_or_else(|| anyhow!("Failed to downcast to SQLiteConnection"))?;
 

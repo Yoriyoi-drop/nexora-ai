@@ -1,7 +1,7 @@
-use crate::DLResult;
 use crate::canvas::NeuralGraph;
-use crate::execution::{GraphIR, ExecutionBackend};
 use crate::execution::optimizer::GraphOptimizer;
+use crate::execution::{ExecutionBackend, GraphIR};
+use crate::DLResult;
 use tracing;
 
 /// Compiled Graph Execution — untuk training final

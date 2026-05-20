@@ -36,6 +36,9 @@ impl RMSNorm {
         let n = x.len();
         let ssq = x.iter().map(|v| v * v).sum::<f32>();
         let rms = (ssq / n as f32 + self.eps).sqrt();
-        x.iter().zip(self.weight.iter()).map(|(&v, &w)| (v / rms) * w).collect()
+        x.iter()
+            .zip(self.weight.iter())
+            .map(|(&v, &w)| (v / rms) * w)
+            .collect()
     }
 }

@@ -26,10 +26,12 @@ impl ResourceEstimator {
         report.inference_latency_ms = report.total_flops as f64 * 1e-6;
 
         // Bandwidth
-        report.tensor_bandwidth_gbs = report.activation_memory_mb / (report.inference_latency_ms.max(1.0) / 1000.0) / 1000.0;
+        report.tensor_bandwidth_gbs =
+            report.activation_memory_mb / (report.inference_latency_ms.max(1.0) / 1000.0) / 1000.0;
 
         // Cloud cost
-        report.estimated_cloud_cost_per_hour = ResourceReport::estimate_cloud_cost(report.total_flops, report.total_vram_mb);
+        report.estimated_cloud_cost_per_hour =
+            ResourceReport::estimate_cloud_cost(report.total_flops, report.total_vram_mb);
 
         report
     }
@@ -37,7 +39,9 @@ impl ResourceEstimator {
     fn estimate_node(node_type: &NodeType) -> (u64, usize, usize) {
         match node_type {
             NodeType::Conv2D => (500_000_000, 64 * 3 * 3 * 3 + 64, 64 * 224 * 224 * 4),
-            NodeType::SelfAttention | NodeType::MultiHeadAttention => (200_000_000, 3 * 768 * 768, 128 * 768 * 4),
+            NodeType::SelfAttention | NodeType::MultiHeadAttention => {
+                (200_000_000, 3 * 768 * 768, 128 * 768 * 4)
+            }
             NodeType::Linear => (2 * 768 * 3072 as u64, 768 * 3072 + 3072, 3072 * 4),
             NodeType::LayerNorm | NodeType::RMSNorm => (2 * 768, 768 * 2, 768 * 4),
             NodeType::ReLU | NodeType::GELU => (768, 0, 768 * 4),

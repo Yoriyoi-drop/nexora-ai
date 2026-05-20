@@ -7,8 +7,8 @@
 //! - Custom SIMD implementation (fallback)
 //! - Auto-detection dan runtime selection
 
-use crate::{DLResult, DeepLearningError};
 use crate::fused_ops::ActivationType;
+use crate::{DLResult, DeepLearningError};
 use ndarray::{ArrayView, ArrayViewMut};
 use std::arch::x86_64::*;
 
@@ -51,7 +51,7 @@ impl BlasOperations {
     pub fn auto_detect() -> DLResult<Self> {
         let backend = Self::detect_optimal_backend()?;
         let features = Self::detect_features(backend)?;
-        
+
         Ok(Self {
             backend,
             available_features: features,
@@ -70,23 +70,23 @@ impl BlasOperations {
     /// Detect optimal BLAS backend based on system capabilities
     fn detect_optimal_backend() -> DLResult<BlasBackend> {
         // Priority order: Intel MKL > OpenBLAS > Accelerate > Custom SIMD
-        
+
         // Check for Intel MKL
         if Self::is_intel_mkl_available() {
             return Ok(BlasBackend::IntelMKL);
         }
-        
+
         // Check for OpenBLAS
         if Self::is_openblas_available() {
             return Ok(BlasBackend::OpenBLAS);
         }
-        
+
         // Check for Apple Accelerate (macOS)
         #[cfg(target_os = "macos")]
         if Self::is_accelerate_available() {
             return Ok(BlasBackend::Accelerate);
         }
-        
+
         // Fallback to custom SIMD implementation
         Ok(BlasBackend::CustomSIMD)
     }
@@ -127,24 +127,24 @@ impl BlasOperations {
                 max_threads: 1,
             },
         };
-        
+
         Ok(features)
     }
 
     /// Check Intel MKL availability
     fn is_intel_mkl_available() -> bool {
         // Check for MKL environment variables or library presence
-        std::env::var("MKLROOT").is_ok() || 
-        std::env::var("INTEL_MKL_DIR").is_ok() ||
-        Self::check_library_exists("libmkl_rt.so") ||
-        Self::check_library_exists("mkl_rt.dll")
+        std::env::var("MKLROOT").is_ok()
+            || std::env::var("INTEL_MKL_DIR").is_ok()
+            || Self::check_library_exists("libmkl_rt.so")
+            || Self::check_library_exists("mkl_rt.dll")
     }
 
     /// Check OpenBLAS availability
     fn is_openblas_available() -> bool {
-        Self::check_library_exists("libopenblas.so") ||
-        Self::check_library_exists("libopenblas.dylib") ||
-        Self::check_library_exists("openblas.dll")
+        Self::check_library_exists("libopenblas.so")
+            || Self::check_library_exists("libopenblas.dylib")
+            || Self::check_library_exists("openblas.dll")
     }
 
     /// Check Apple Accelerate availability (macOS only)
@@ -208,9 +208,15 @@ impl BlasOperations {
 
         match self.backend {
             BlasBackend::IntelMKL => self.batched_gemm_mkl(alpha, a_batch, b_batch, beta, c_batch),
-            BlasBackend::OpenBLAS => self.batched_gemm_openblas(alpha, a_batch, b_batch, beta, c_batch),
-            BlasBackend::Accelerate => self.batched_gemm_accelerate(alpha, a_batch, b_batch, beta, c_batch),
-            BlasBackend::CustomSIMD => self.batched_gemm_fallback(alpha, a_batch, b_batch, beta, c_batch),
+            BlasBackend::OpenBLAS => {
+                self.batched_gemm_openblas(alpha, a_batch, b_batch, beta, c_batch)
+            }
+            BlasBackend::Accelerate => {
+                self.batched_gemm_accelerate(alpha, a_batch, b_batch, beta, c_batch)
+            }
+            BlasBackend::CustomSIMD => {
+                self.batched_gemm_fallback(alpha, a_batch, b_batch, beta, c_batch)
+            }
         }
     }
 
@@ -225,10 +231,10 @@ impl BlasOperations {
     ) -> DLResult<()> {
         // Perform GEMM first
         self.gemm(alpha, a, b, 0.0, output.view_mut())?;
-        
+
         // Apply activation in-place
         self.apply_activation_inplace(output.view_mut(), activation)?;
-        
+
         Ok(())
     }
 
@@ -241,7 +247,9 @@ impl BlasOperations {
         match activation {
             ActivationType::ReLU => {
                 if self.available_features.supports_avx2 {
-                    unsafe { self.relu_avx2(output.view_mut())?; }
+                    unsafe {
+                        self.relu_avx2(output.view_mut())?;
+                    }
                 } else {
                     self.relu_scalar(output.view_mut())?;
                 }
@@ -254,7 +262,9 @@ impl BlasOperations {
             }
             ActivationType::Tanh => {
                 if self.available_features.supports_avx2 {
-                    unsafe { self.tanh_avx2(output.view_mut())?; }
+                    unsafe {
+                        self.tanh_avx2(output.view_mut())?;
+                    }
                 } else {
                     self.tanh_scalar(output.view_mut())?;
                 }
@@ -263,25 +273,32 @@ impl BlasOperations {
                 self.swish_scalar(output.view_mut())?;
             }
         }
-        
+
         Ok(())
     }
 
     // Backend-specific implementations
-    fn gemm_mkl(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, b: ArrayView<f32, ndarray::Ix2>, beta: f32, mut c: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
+    fn gemm_mkl(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        mut c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
         // Intel MKL SGEMM implementation
         // In production, use actual MKL C bindings
-        
+
         let (m, k) = a.dim();
         let (k2, n) = b.dim();
-        
+
         if k != k2 {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![k],
                 actual: vec![k2],
             });
         }
-        
+
         let (m2, n2) = c.dim();
         if m != m2 || n != n2 {
             return Err(DeepLearningError::ShapeMismatch {
@@ -289,42 +306,63 @@ impl BlasOperations {
                 actual: vec![m2, n2],
             });
         }
-        
+
         // For now, fallback to ndarray implementation
         // In production, call cblas_sgemm from MKL
         let mut result = a.dot(&b) * alpha;
         result = result + beta * c.to_owned();
-        
+
         for ((i, j), &val) in result.indexed_iter() {
             c[[i, j]] = val;
         }
-        
+
         Ok(())
     }
 
-    fn gemm_openblas(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, b: ArrayView<f32, ndarray::Ix2>, beta: f32, c: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
+    fn gemm_openblas(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
         // OpenBLAS SGEMM implementation
         // Similar to MKL but with OpenBLAS C bindings
         self.gemm_mkl(alpha, a, b, beta, c) // Fallback for now
     }
 
-    fn gemm_accelerate(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, b: ArrayView<f32, ndarray::Ix2>, beta: f32, c: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
+    fn gemm_accelerate(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
         // Apple Accelerate vDSP BLAS implementation
         self.gemm_mkl(alpha, a, b, beta, c) // Fallback for now
     }
 
-    fn gemm_simd(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, b: ArrayView<f32, ndarray::Ix2>, beta: f32, c: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
+    fn gemm_simd(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
         // Custom SIMD implementation
         let (_m, k) = a.dim();
         let (k2, _n) = b.dim();
-        
+
         if k != k2 {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![k],
                 actual: vec![k2],
             });
         }
-        
+
         if self.available_features.supports_avx2 {
             unsafe { self.gemm_simd_avx2(alpha, a, b, beta, c) }
         } else {
@@ -345,16 +383,16 @@ impl BlasOperations {
     ) -> DLResult<()> {
         let (m, k) = a.dim();
         let (_, n) = b.dim();
-        
+
         let a_slice = a.as_slice().expect("tensor should be contiguous");
         let b_slice = b.as_slice().expect("tensor should be contiguous");
         let c_slice = c.as_slice_mut().expect("tensor should be contiguous");
-        
+
         // AVX2 implementation
         for i in 0..m {
             for j in 0..n {
                 let mut sum = 0.0f32;
-                
+
                 // Vectorized inner product
                 let mut l = 0;
                 while l + 8 <= k {
@@ -364,24 +402,31 @@ impl BlasOperations {
                     sum += horizontal_sum_avx2(product);
                     l += 8;
                 }
-                
+
                 // Handle remaining elements
                 for l in l..k {
                     sum += a[[i, l]] * b[[l, j]];
                 }
-                
+
                 c_slice[i * n + j] = alpha * sum + beta * c_slice[i * n + j];
             }
         }
-        
+
         Ok(())
     }
 
-    fn gemm_simd_scalar(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, b: ArrayView<f32, ndarray::Ix2>, beta: f32, mut c: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
+    fn gemm_simd_scalar(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        mut c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
         // Scalar fallback implementation
         let (m, k) = a.dim();
         let (_, n) = b.dim();
-        
+
         for i in 0..m {
             for j in 0..n {
                 let mut sum = 0.0f32;
@@ -391,30 +436,37 @@ impl BlasOperations {
                 c[[i, j]] = alpha * sum + beta * c[[i, j]];
             }
         }
-        
+
         Ok(())
     }
 
     // Vector operations
-    fn gemv_mkl(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, x: ArrayView<f32, ndarray::Ix1>, beta: f32, mut y: ArrayViewMut<f32, ndarray::Ix1>) -> DLResult<()> {
+    fn gemv_mkl(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        x: ArrayView<f32, ndarray::Ix1>,
+        beta: f32,
+        mut y: ArrayViewMut<f32, ndarray::Ix1>,
+    ) -> DLResult<()> {
         let (m, n) = a.dim();
         let n2 = x.len();
         let m2 = y.len();
-        
+
         if n != n2 {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![n],
                 actual: vec![n2],
             });
         }
-        
+
         if m != m2 {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![m],
                 actual: vec![m2],
             });
         }
-        
+
         // Compute y = alpha * A * x + beta * y
         for i in 0..m {
             let mut sum = 0.0f32;
@@ -423,19 +475,40 @@ impl BlasOperations {
             }
             y[i] = alpha * sum + beta * y[i];
         }
-        
+
         Ok(())
     }
 
-    fn gemv_openblas(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, x: ArrayView<f32, ndarray::Ix1>, beta: f32, y: ArrayViewMut<f32, ndarray::Ix1>) -> DLResult<()> {
+    fn gemv_openblas(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        x: ArrayView<f32, ndarray::Ix1>,
+        beta: f32,
+        y: ArrayViewMut<f32, ndarray::Ix1>,
+    ) -> DLResult<()> {
         self.gemv_mkl(alpha, a, x, beta, y) // Fallback
     }
 
-    fn gemv_accelerate(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, x: ArrayView<f32, ndarray::Ix1>, beta: f32, y: ArrayViewMut<f32, ndarray::Ix1>) -> DLResult<()> {
+    fn gemv_accelerate(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        x: ArrayView<f32, ndarray::Ix1>,
+        beta: f32,
+        y: ArrayViewMut<f32, ndarray::Ix1>,
+    ) -> DLResult<()> {
         self.gemv_mkl(alpha, a, x, beta, y) // Fallback
     }
 
-    fn gemv_simd(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, x: ArrayView<f32, ndarray::Ix1>, beta: f32, y: ArrayViewMut<f32, ndarray::Ix1>) -> DLResult<()> {
+    fn gemv_simd(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        x: ArrayView<f32, ndarray::Ix1>,
+        beta: f32,
+        y: ArrayViewMut<f32, ndarray::Ix1>,
+    ) -> DLResult<()> {
         if self.available_features.supports_avx2 {
             unsafe { self.gemv_simd_avx2(alpha, a, x, beta, y) }
         } else {
@@ -445,15 +518,22 @@ impl BlasOperations {
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn gemv_simd_avx2(&self, alpha: f32, a: ArrayView<f32, ndarray::Ix2>, x: ArrayView<f32, ndarray::Ix1>, beta: f32, mut y: ArrayViewMut<f32, ndarray::Ix1>) -> DLResult<()> {
+    unsafe fn gemv_simd_avx2(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        x: ArrayView<f32, ndarray::Ix1>,
+        beta: f32,
+        mut y: ArrayViewMut<f32, ndarray::Ix1>,
+    ) -> DLResult<()> {
         let (m, n) = a.dim();
         let x_slice = x.as_slice().expect("tensor should be contiguous");
         let y_slice = y.as_slice_mut().expect("tensor should be contiguous");
-        
+
         for i in 0..m {
             let mut sum = 0.0f32;
             let mut j = 0;
-            
+
             // Vectorized dot product
             while j + 8 <= n {
                 let a_vec = _mm256_loadu_ps(a.as_ptr().add(i * n + j));
@@ -462,41 +542,69 @@ impl BlasOperations {
                 sum += horizontal_sum_avx2(product);
                 j += 8;
             }
-            
+
             // Handle remaining elements
             for j in j..n {
                 sum += a[[i, j]] * x[j];
             }
-            
+
             y_slice[i] = alpha * sum + beta * y_slice[i];
         }
-        
+
         Ok(())
     }
 
     // Batched operations
-    fn batched_gemm_mkl(&self, alpha: f32, a_batch: &[ArrayView<f32, ndarray::Ix2>], b_batch: &[ArrayView<f32, ndarray::Ix2>], beta: f32, c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>]) -> DLResult<()> {
+    fn batched_gemm_mkl(
+        &self,
+        alpha: f32,
+        a_batch: &[ArrayView<f32, ndarray::Ix2>],
+        b_batch: &[ArrayView<f32, ndarray::Ix2>],
+        beta: f32,
+        c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>],
+    ) -> DLResult<()> {
         for (a, b, c) in itertools::izip!(a_batch, b_batch, c_batch) {
             self.gemm_mkl(alpha, *a, *b, beta, c.into())?;
         }
         Ok(())
     }
 
-    fn batched_gemm_openblas(&self, alpha: f32, a_batch: &[ArrayView<f32, ndarray::Ix2>], b_batch: &[ArrayView<f32, ndarray::Ix2>], beta: f32, c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>]) -> DLResult<()> {
+    fn batched_gemm_openblas(
+        &self,
+        alpha: f32,
+        a_batch: &[ArrayView<f32, ndarray::Ix2>],
+        b_batch: &[ArrayView<f32, ndarray::Ix2>],
+        beta: f32,
+        c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>],
+    ) -> DLResult<()> {
         for (a, b, c) in itertools::izip!(a_batch, b_batch, c_batch) {
             self.gemm_openblas(alpha, *a, *b, beta, c.into())?;
         }
         Ok(())
     }
 
-    fn batched_gemm_accelerate(&self, alpha: f32, a_batch: &[ArrayView<f32, ndarray::Ix2>], b_batch: &[ArrayView<f32, ndarray::Ix2>], beta: f32, c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>]) -> DLResult<()> {
+    fn batched_gemm_accelerate(
+        &self,
+        alpha: f32,
+        a_batch: &[ArrayView<f32, ndarray::Ix2>],
+        b_batch: &[ArrayView<f32, ndarray::Ix2>],
+        beta: f32,
+        c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>],
+    ) -> DLResult<()> {
         for (a, b, c) in itertools::izip!(a_batch, b_batch, c_batch) {
             self.gemm_accelerate(alpha, *a, *b, beta, c.into())?;
         }
         Ok(())
     }
 
-    fn batched_gemm_fallback(&self, alpha: f32, a_batch: &[ArrayView<f32, ndarray::Ix2>], b_batch: &[ArrayView<f32, ndarray::Ix2>], beta: f32, c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>]) -> DLResult<()> {
+    fn batched_gemm_fallback(
+        &self,
+        alpha: f32,
+        a_batch: &[ArrayView<f32, ndarray::Ix2>],
+        b_batch: &[ArrayView<f32, ndarray::Ix2>],
+        beta: f32,
+        c_batch: &mut [ArrayViewMut<f32, ndarray::Ix2>],
+    ) -> DLResult<()> {
         for (a, b, c) in itertools::izip!(a_batch, b_batch, c_batch) {
             self.gemm_simd(alpha, *a, *b, beta, c.into())?;
         }
@@ -508,11 +616,11 @@ impl BlasOperations {
     unsafe fn relu_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
         let (m, n) = output.dim();
         let slice = output.as_slice_mut().expect("tensor should be contiguous");
-        
+
         for i in 0..(m * n) {
             slice[i] = slice[i].max(0.0);
         }
-        
+
         Ok(())
     }
 
@@ -573,13 +681,13 @@ unsafe fn horizontal_sum_avx2(v: std::arch::x86_64::__m256) -> f32 {
     let v128_hi = std::arch::x86_64::_mm256_extractf128_ps(v, 1);
     let v128_lo = std::arch::x86_64::_mm256_castps256_ps128(v);
     let v128_sum = std::arch::x86_64::_mm_add_ps(v128_lo, v128_hi);
-    
+
     let v64_hi = std::arch::x86_64::_mm_movehl_ps(v128_sum, v128_sum);
     let v64_sum = std::arch::x86_64::_mm_add_ps(v128_sum, v64_hi);
-    
+
     let v32_hi = std::arch::x86_64::_mm_shuffle_ps(v64_sum, v64_sum, 0x1);
     let v32_sum = std::arch::x86_64::_mm_add_ss(v64_sum, v32_hi);
-    
+
     std::arch::x86_64::_mm_cvtss_f32(v32_sum)
 }
 
@@ -588,9 +696,8 @@ static GLOBAL_BLAS: std::sync::OnceLock<BlasOperations> = std::sync::OnceLock::n
 
 /// Get global BLAS operations instance
 pub fn get_blas_operations() -> &'static BlasOperations {
-    GLOBAL_BLAS.get_or_init(|| {
-        BlasOperations::auto_detect().expect("Failed to initialize BLAS backend")
-    })
+    GLOBAL_BLAS
+        .get_or_init(|| BlasOperations::auto_detect().expect("Failed to initialize BLAS backend"))
 }
 
 /// Initialize BLAS with specific backend (for testing)

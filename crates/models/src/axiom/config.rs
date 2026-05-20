@@ -1,10 +1,13 @@
 //! NXR-AXIOM Configuration
-//! 
+//!
 //! Configuration settings for NXR-AXIOM logical reasoning and mathematical proof system
 
+use nexora_shared::{
+    deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig,
+    model_config::NxrModelConfig,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-AXIOM Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +65,10 @@ pub enum ReasoningMode {
     /// Bidirectional reasoning
     Bidirectional,
     /// Mixed reasoning
-    Mixed { forward_weight: f32, backward_weight: f32 },
+    Mixed {
+        forward_weight: f32,
+        backward_weight: f32,
+    },
     /// Adaptive reasoning
     Adaptive,
     /// Interactive reasoning
@@ -502,7 +508,11 @@ pub enum TheoremDatabase {
     /// Online database
     Online { url: String },
     /// Hybrid database
-    Hybrid { built_in: bool, external: Option<String>, online: Option<String> },
+    Hybrid {
+        built_in: bool,
+        external: Option<String>,
+        online: Option<String>,
+    },
 }
 
 /// Theorem Application Strategy
@@ -983,9 +993,15 @@ pub enum RulePriority {
     /// Static priority
     Static { priority: u8 },
     /// Dynamic priority
-    Dynamic { base_priority: u8, adjustment_factor: f32 },
+    Dynamic {
+        base_priority: u8,
+        adjustment_factor: f32,
+    },
     /// Learned priority
-    Learned { initial_priority: u8, learning_rate: f32 },
+    Learned {
+        initial_priority: u8,
+        learning_rate: f32,
+    },
     /// Context-dependent priority
     ContextDependent { priorities: HashMap<String, u8> },
 }
@@ -1006,7 +1022,9 @@ pub enum ConflictResolutionStrategy {
     /// Learning-based
     LearningBased,
     /// Hybrid strategy
-    Hybrid { strategies: Vec<ConflictResolutionStrategy> },
+    Hybrid {
+        strategies: Vec<ConflictResolutionStrategy>,
+    },
 }
 
 /// Memory Management Configuration
@@ -1116,7 +1134,10 @@ pub enum KnowledgeSource {
     /// Database knowledge
     Database { connection_string: String },
     /// Online knowledge
-    Online { url: String, api_key: Option<String> },
+    Online {
+        url: String,
+        api_key: Option<String>,
+    },
     /// User-provided knowledge
     UserProvided,
     /// Hybrid sources
@@ -1643,10 +1664,7 @@ impl AxiomConfig {
             symbolic_computation: SymbolicComputationConfig {
                 symbolic_engine: SymbolicEngine::ComputerAlgebraSystem,
                 simplification_level: SimplificationLevel::Moderate,
-                normalization_methods: vec![
-                    NormalizationMethod::CNF,
-                    NormalizationMethod::DNF,
-                ],
+                normalization_methods: vec![NormalizationMethod::CNF, NormalizationMethod::DNF],
                 expression_optimization: true,
                 pattern_matching: true,
                 term_rewriting: true,
@@ -1754,14 +1772,19 @@ impl AxiomConfig {
             inference_algorithm: InferenceAlgorithm::Resolution,
             search_algorithm: SearchAlgorithm::AStar,
             inference_rules: Vec::new(),
-            rule_priority: RulePriority::Dynamic { base_priority: 5, adjustment_factor: 0.1 },
+            rule_priority: RulePriority::Dynamic {
+                base_priority: 5,
+                adjustment_factor: 0.1,
+            },
             conflict_resolution: ConflictResolutionStrategy::PriorityBased,
             memory_management: MemoryManagementConfig {
                 memory_limit_mb: 4096,
                 garbage_collection: GarbageCollectionConfig {
                     gc_algorithm: GCAlgorithm::Generational,
                     gc_threshold: 0.8,
-                    gc_frequency: GCFrequency::ThresholdBased { memory_usage_threshold: 0.75 },
+                    gc_frequency: GCFrequency::ThresholdBased {
+                        memory_usage_threshold: 0.75,
+                    },
                 },
                 caching_strategy: CachingStrategy::LRU,
                 memory_optimization: MemoryOptimizationConfig {
@@ -1776,9 +1799,9 @@ impl AxiomConfig {
         let knowledge_base = KnowledgeBaseConfig {
             knowledge_sources: vec![
                 KnowledgeSource::BuiltIn,
-                KnowledgeSource::File { 
-                    path: "knowledge/axiom_knowledge.json".to_string(), 
-                    format: FileFormat::JSON 
+                KnowledgeSource::File {
+                    path: "knowledge/axiom_knowledge.json".to_string(),
+                    format: FileFormat::JSON,
                 },
             ],
             knowledge_representation: KnowledgeRepresentation::Hybrid,
@@ -1830,10 +1853,12 @@ impl AxiomConfig {
                 metrics_collection: MetricsCollectionConfig {
                     metrics_enabled: true,
                     collection_interval_ms: 60000, // 1 minute
-                    metrics_retention_hours: 168, // 7 days
+                    metrics_retention_hours: 168,  // 7 days
                     metrics_export: MetricsExportConfig {
                         export_format: ExportFormat::JSON,
-                        export_destination: ExportDestination::File { path: "metrics/axiom_metrics.json".to_string() },
+                        export_destination: ExportDestination::File {
+                            path: "metrics/axiom_metrics.json".to_string(),
+                        },
                         export_interval_minutes: 60,
                     },
                 },
@@ -1947,28 +1972,28 @@ impl AxiomConfig {
     pub fn update_from_performance(&mut self, performance_feedback: &PerformanceFeedback) {
         // Adjust reasoning depth based on performance
         if performance_feedback.reasoning_speed < 0.5 {
-            self.logical_reasoning.reasoning_depth_limit = 
+            self.logical_reasoning.reasoning_depth_limit =
                 (self.logical_reasoning.reasoning_depth_limit / 2).max(1);
         } else if performance_feedback.reasoning_speed > 0.9 {
-            self.logical_reasoning.reasoning_depth_limit = 
+            self.logical_reasoning.reasoning_depth_limit =
                 (self.logical_reasoning.reasoning_depth_limit * 2).min(20);
         }
 
         // Adjust cache size based on hit rate
         if performance_feedback.cache_hit_rate < 0.7 {
-            self.performance.caching.cache_size_mb = 
+            self.performance.caching.cache_size_mb =
                 (self.performance.caching.cache_size_mb * 2).min(4096);
         } else if performance_feedback.cache_hit_rate > 0.95 {
-            self.performance.caching.cache_size_mb = 
+            self.performance.caching.cache_size_mb =
                 (self.performance.caching.cache_size_mb / 2).max(128);
         }
 
         // Adjust thread count based on CPU utilization
         if performance_feedback.cpu_utilization > 0.9 {
-            self.performance.parallel_processing.num_threads = 
+            self.performance.parallel_processing.num_threads =
                 (self.performance.parallel_processing.num_threads / 2).max(1);
         } else if performance_feedback.cpu_utilization < 0.5 {
-            self.performance.parallel_processing.num_threads = 
+            self.performance.parallel_processing.num_threads =
                 (self.performance.parallel_processing.num_threads * 2).min(32);
         }
     }

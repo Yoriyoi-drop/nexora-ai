@@ -1,14 +1,14 @@
 //! Truth Validator Agent
-//! 
+//!
 //! Truth verification and validation systems
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Truth Validator Agent - Truth verification and validation systems
 #[derive(Debug, Clone)]
@@ -169,21 +169,19 @@ impl BaseAgent for TruthValidatorAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "truth_validation".to_string(),
-                description: "Truth verification and validation systems".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["statement".to_string(), "evidence_sources".to_string()],
-                output_types: vec!["truth_score".to_string(), "validation_result".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.92,
-                    avg_latency: 2400.0,
-                    resource_usage: 0.55,
-                    reliability: 0.94,
-                },
+        vec![AgentCapability {
+            name: "truth_validation".to_string(),
+            description: "Truth verification and validation systems".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["statement".to_string(), "evidence_sources".to_string()],
+            output_types: vec!["truth_score".to_string(), "validation_result".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.92,
+                avg_latency: 2400.0,
+                resource_usage: 0.55,
+                reliability: 0.94,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -224,11 +222,15 @@ impl TruthValidatorAgent {
         let evidence_count = input.evidence_sources.len() as f32;
         let base_score = 0.5;
         let evidence_bonus = (evidence_count / 10.0).min(0.4);
-        
+
         Ok(base_score + evidence_bonus)
     }
 
-    async fn generate_validation_result(&self, input: &TruthValidatorTaskInput, truth_score: f32) -> AgentResult<String> {
+    async fn generate_validation_result(
+        &self,
+        input: &TruthValidatorTaskInput,
+        truth_score: f32,
+    ) -> AgentResult<String> {
         let result = if truth_score >= 0.8 {
             "Highly likely true"
         } else if truth_score >= 0.6 {
@@ -239,18 +241,24 @@ impl TruthValidatorAgent {
             "Unlikely to be true"
         };
 
-        Ok(format!("Statement '{}' is {} based on available evidence", input.statement, result))
+        Ok(format!(
+            "Statement '{}' is {} based on available evidence",
+            input.statement, result
+        ))
     }
 
     async fn assess_confidence(&self, input: &TruthValidatorTaskInput) -> AgentResult<f32> {
         let source_count = input.evidence_sources.len() as f32;
         let base_confidence = 0.6;
         let source_bonus = (source_count / 15.0).min(0.3);
-        
+
         Ok(base_confidence + source_bonus)
     }
 
-    async fn identify_supporting_evidence(&self, input: &TruthValidatorTaskInput) -> AgentResult<Vec<String>> {
+    async fn identify_supporting_evidence(
+        &self,
+        input: &TruthValidatorTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(input.evidence_sources.clone())
     }
 }
@@ -280,7 +288,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(output.truth_score > 0.0);
         assert!(!output.validation_result.is_empty());

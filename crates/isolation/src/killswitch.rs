@@ -87,7 +87,12 @@ impl KillSwitch {
         }
     }
 
-    pub fn kill_agent(&mut self, agent_id: Uuid, reason: &str, trigger: KillTrigger) -> Result<KillEvent, KillSwitchError> {
+    pub fn kill_agent(
+        &mut self,
+        agent_id: Uuid,
+        reason: &str,
+        trigger: KillTrigger,
+    ) -> Result<KillEvent, KillSwitchError> {
         if !self.enabled {
             return Err(KillSwitchError::KillSwitchDisabled);
         }
@@ -111,7 +116,12 @@ impl KillSwitch {
         Ok(event)
     }
 
-    pub fn kill_mode(&mut self, mode_id: ModeId, reason: &str, trigger: KillTrigger) -> Result<KillEvent, KillSwitchError> {
+    pub fn kill_mode(
+        &mut self,
+        mode_id: ModeId,
+        reason: &str,
+        trigger: KillTrigger,
+    ) -> Result<KillEvent, KillSwitchError> {
         if !self.enabled {
             return Err(KillSwitchError::KillSwitchDisabled);
         }
@@ -144,7 +154,9 @@ impl KillSwitch {
             id: Uuid::new_v4(),
             target: KillTarget::Cluster,
             reason: reason.to_string(),
-            triggered_by: KillTrigger::Manual { user: "system".into() },
+            triggered_by: KillTrigger::Manual {
+                user: "system".into(),
+            },
             timestamp: chrono::Utc::now(),
             status: KillStatus::Pending,
             affected_agents: Vec::new(),
@@ -174,7 +186,9 @@ impl KillSwitch {
     }
 
     pub fn unprotect_agent(&mut self, agent_id: Uuid) {
-        self.protection.protected_agents.retain(|id| *id != agent_id);
+        self.protection
+            .protected_agents
+            .retain(|id| *id != agent_id);
     }
 
     pub fn get_recent_kills(&self, count: usize) -> Vec<&KillEvent> {
@@ -182,10 +196,9 @@ impl KillSwitch {
     }
 
     pub fn get_kills_by_trigger(&self, trigger: &KillTrigger) -> Vec<&KillEvent> {
-        self.history.iter()
-            .filter(|e| {
-                std::mem::discriminant(&e.triggered_by) == std::mem::discriminant(trigger)
-            })
+        self.history
+            .iter()
+            .filter(|e| std::mem::discriminant(&e.triggered_by) == std::mem::discriminant(trigger))
             .collect()
     }
 
@@ -226,7 +239,15 @@ mod tests {
     fn test_kill_agent() {
         let mut ks = KillSwitch::new();
         let agent_id = Uuid::new_v4();
-        let event = ks.kill_agent(agent_id, "Anomaly detected", KillTrigger::AutoQuarantine { anomaly_score: 0.95 }).unwrap();
+        let event = ks
+            .kill_agent(
+                agent_id,
+                "Anomaly detected",
+                KillTrigger::AutoQuarantine {
+                    anomaly_score: 0.95,
+                },
+            )
+            .unwrap();
         assert_eq!(event.status, KillStatus::Pending);
         assert_eq!(event.affected_agents, vec![agent_id]);
     }
@@ -235,7 +256,13 @@ mod tests {
     fn test_kill_mode() {
         let mut ks = KillSwitch::new();
         let mode_id = ModeId::new("research");
-        let event = ks.kill_mode(mode_id, "Memory corruption outbreak", KillTrigger::HallucinationOutbreak { chain_count: 15 }).unwrap();
+        let event = ks
+            .kill_mode(
+                mode_id,
+                "Memory corruption outbreak",
+                KillTrigger::HallucinationOutbreak { chain_count: 15 },
+            )
+            .unwrap();
         assert_eq!(event.status, KillStatus::Pending);
     }
 
@@ -243,7 +270,13 @@ mod tests {
     fn test_protected_mode_rejected() {
         let mut ks = KillSwitch::new();
         let system_mode = ModeId::new("system");
-        let result = ks.kill_mode(system_mode, "test", KillTrigger::Manual { user: "admin".into() });
+        let result = ks.kill_mode(
+            system_mode,
+            "test",
+            KillTrigger::Manual {
+                user: "admin".into(),
+            },
+        );
         assert!(matches!(result, Err(KillSwitchError::ModeProtected(_))));
     }
 
@@ -251,7 +284,15 @@ mod tests {
     fn test_kill_completion() {
         let mut ks = KillSwitch::new();
         let agent_id = Uuid::new_v4();
-        let event = ks.kill_agent(agent_id, "test", KillTrigger::Manual { user: "admin".into() }).unwrap();
+        let event = ks
+            .kill_agent(
+                agent_id,
+                "test",
+                KillTrigger::Manual {
+                    user: "admin".into(),
+                },
+            )
+            .unwrap();
         ks.complete_kill(event.id, vec![agent_id], 150);
         let recent = ks.get_recent_kills(1);
         assert!(matches!(recent[0].status, KillStatus::Completed));
@@ -260,8 +301,22 @@ mod tests {
     #[test]
     fn test_kill_chaining() {
         let mut ks = KillSwitch::new();
-        let first = ks.kill_agent(Uuid::new_v4(), "primary", KillTrigger::AutoQuarantine { anomaly_score: 0.9 }).unwrap();
-        let second = ks.kill_agent(Uuid::new_v4(), "secondary", KillTrigger::KillChain { parent_event: first.id }).unwrap();
+        let first = ks
+            .kill_agent(
+                Uuid::new_v4(),
+                "primary",
+                KillTrigger::AutoQuarantine { anomaly_score: 0.9 },
+            )
+            .unwrap();
+        let second = ks
+            .kill_agent(
+                Uuid::new_v4(),
+                "secondary",
+                KillTrigger::KillChain {
+                    parent_event: first.id,
+                },
+            )
+            .unwrap();
         assert!(matches!(second.triggered_by, KillTrigger::KillChain { .. }));
     }
 }

@@ -5,10 +5,10 @@
 
 pub use nexora_multimodal::*;
 
+use nexora_models::spectra::NxrSpectraModel;
 use nexora_multimodal::caffeine::MultiModalInputs as CaffeineInputs;
 use nexora_multimodal::caffeine::TextInput;
-use nexora_shared::base_model::{NxrModel, NxrInput, InputData, NxrOutput};
-use nexora_models::spectra::NxrSpectraModel;
+use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 
 /// Enhanced CAFFEINE with NXR-SPECTRA integration
 pub struct CaffeineSpectraIntegration {
@@ -61,10 +61,12 @@ impl EnhancedMultimodalResult {
 
     pub fn combine_results(&mut self) {
         if let Some(ref _caf) = self.caffeine_processing {
-            self.combined_insights.push("CAFFEINE processing completed".to_string());
+            self.combined_insights
+                .push("CAFFEINE processing completed".to_string());
         }
         if self.spectra_synthesis.is_some() {
-            self.combined_insights.push("SPECTRA synthesis completed".to_string());
+            self.combined_insights
+                .push("SPECTRA synthesis completed".to_string());
         }
     }
 
@@ -89,11 +91,18 @@ impl CaffeineSpectraIntegration {
         }
     }
 
-    pub async fn enhanced_multimodal_processing(&self, inputs: &MultimodalInputs) -> std::result::Result<EnhancedMultimodalResult, Box<dyn std::error::Error>> {
+    pub async fn enhanced_multimodal_processing(
+        &self,
+        inputs: &MultimodalInputs,
+    ) -> std::result::Result<EnhancedMultimodalResult, Box<dyn std::error::Error>> {
         let mut result = EnhancedMultimodalResult::new();
 
         let caffeine_inputs = self.to_caffeine_inputs(inputs);
-        if let Ok(caffeine_result) = self.caffeine_processor.process_multimodal(&caffeine_inputs).await {
+        if let Ok(caffeine_result) = self
+            .caffeine_processor
+            .process_multimodal(&caffeine_inputs)
+            .await
+        {
             result.caffeine_processing = Some(caffeine_result);
         }
         if self.integration_config.enable_creative_synthesis {
@@ -143,5 +152,7 @@ impl CaffeineSpectraIntegration {
 }
 
 impl Default for CaffeineSpectraIntegration {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

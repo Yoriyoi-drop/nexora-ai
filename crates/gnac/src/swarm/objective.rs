@@ -1,6 +1,6 @@
 use crate::canvas::NeuralGraph;
-use crate::swarm::SwarmConfig;
 use crate::rce::ResourceEstimator;
+use crate::swarm::SwarmConfig;
 
 /// Hitung fitness: J(A) = α·Acc − β·Latency − γ·Memory − δ·Energy
 pub fn compute_fitness(graph: &NeuralGraph, accuracy: f32, config: &SwarmConfig) -> f32 {

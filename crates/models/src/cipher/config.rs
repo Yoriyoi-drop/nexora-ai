@@ -1,9 +1,12 @@
 //! NXR-CIPHER Configuration
-//! 
+//!
 //! Model-specific configuration for NXR-CIPHER
 
+use nexora_shared::{
+    deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig,
+    model_config::NxrModelConfig,
+};
 use serde::{Deserialize, Serialize};
-use nexora_shared::{model_config::NxrModelConfig, deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig};
 
 /// NXR-CIPHER Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,9 +139,15 @@ pub enum VulnerabilityDatabase {
     /// Built-in database
     BuiltIn,
     /// External database
-    External { url: String, api_key: Option<String> },
+    External {
+        url: String,
+        api_key: Option<String>,
+    },
     /// Hybrid database
-    Hybrid { built_in: bool, external: Option<String> },
+    Hybrid {
+        built_in: bool,
+        external: Option<String>,
+    },
 }
 
 /// False Positive Handling
@@ -266,7 +275,10 @@ pub enum IntelligenceSource {
     /// Community sources
     Community,
     /// Commercial sources
-    Commercial { provider: String, api_key: Option<String> },
+    Commercial {
+        provider: String,
+        api_key: Option<String>,
+    },
 }
 
 /// Update Frequency
@@ -551,10 +563,7 @@ impl Default for PenetrationTestingConfig {
 impl Default for ThreatIntelligenceConfig {
     fn default() -> Self {
         Self {
-            intelligence_sources: vec![
-                IntelligenceSource::Internal,
-                IntelligenceSource::Community,
-            ],
+            intelligence_sources: vec![IntelligenceSource::Internal, IntelligenceSource::Community],
             update_frequency: UpdateFrequency::Hourly,
             threat_scoring: ThreatScoring {
                 scoring_methodology: ScoringMethodology::CVSS,
@@ -657,18 +666,31 @@ impl CipherConfig {
         self.base.validate()?;
 
         // Validate security analysis configuration
-        if matches!(self.security_analysis.reporting_detail, ReportingDetail::Minimal) {
+        if matches!(
+            self.security_analysis.reporting_detail,
+            ReportingDetail::Minimal
+        ) {
             return Err("Reporting detail cannot be minimal".to_string());
         }
 
         // Validate penetration testing configuration
-        if self.penetration_testing.exploitation_limits.exploitation_depth == ExploitationDepth::Full 
-           && !self.penetration_testing.exploitation_limits.allow_exploitation {
+        if self
+            .penetration_testing
+            .exploitation_limits
+            .exploitation_depth
+            == ExploitationDepth::Full
+            && !self
+                .penetration_testing
+                .exploitation_limits
+                .allow_exploitation
+        {
             return Err("Full exploitation requires allow_exploitation to be true".to_string());
         }
 
         // Validate threat intelligence configuration
-        if self.threat_intelligence.alert_thresholds.critical_threshold < self.threat_intelligence.alert_thresholds.high_threshold {
+        if self.threat_intelligence.alert_thresholds.critical_threshold
+            < self.threat_intelligence.alert_thresholds.high_threshold
+        {
             return Err("Critical threshold must be >= high threshold".to_string());
         }
 
@@ -678,10 +700,16 @@ impl CipherConfig {
     /// Get configuration for specific agent
     pub fn get_agent_config(&self, agent_name: &str) -> Option<serde_json::Value> {
         match agent_name {
-            "pentest_bot" => Some(serde_json::to_value(&self.agents.pentest_bot).unwrap_or_default()),
+            "pentest_bot" => {
+                Some(serde_json::to_value(&self.agents.pentest_bot).unwrap_or_default())
+            }
             "vuln_scan" => Some(serde_json::to_value(&self.agents.vuln_scan).unwrap_or_default()),
-            "firewall_ai" => Some(serde_json::to_value(&self.agents.firewall_ai).unwrap_or_default()),
-            "threat_hunt" => Some(serde_json::to_value(&self.agents.threat_hunt).unwrap_or_default()),
+            "firewall_ai" => {
+                Some(serde_json::to_value(&self.agents.firewall_ai).unwrap_or_default())
+            }
+            "threat_hunt" => {
+                Some(serde_json::to_value(&self.agents.threat_hunt).unwrap_or_default())
+            }
             _ => None,
         }
     }

@@ -3,9 +3,9 @@ use rand::Rng;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use super::tape;
 use super::device::{Device, Storage};
 use super::mixed_precision::DType;
+use super::tape;
 
 static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -15,8 +15,6 @@ pub fn next_tensor_id() -> usize {
 
 #[derive(Clone)]
 pub struct Tensor(Arc<Mutex<TensorInner>>);
-
-
 
 impl std::fmt::Debug for Tensor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,11 +68,17 @@ impl Tensor {
     }
 
     pub fn set_requires_grad(&self, val: bool) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).requires_grad = val;
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .requires_grad = val;
     }
 
     pub fn requires_grad(&self) -> bool {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).requires_grad
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .requires_grad
     }
 
     pub fn id(&self) -> usize {
@@ -82,7 +86,11 @@ impl Tensor {
     }
 
     pub fn device(&self) -> Device {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).device.clone()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .device
+            .clone()
     }
 
     pub fn dtype(&self) -> DType {
@@ -90,27 +98,51 @@ impl Tensor {
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).storage.shape()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .storage
+            .shape()
     }
 
     pub fn ndim(&self) -> usize {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).storage.ndim()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .storage
+            .ndim()
     }
 
     pub fn numel(&self) -> usize {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).storage.numel()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .storage
+            .numel()
     }
 
     pub fn storage(&self) -> Storage {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).storage.clone()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .storage
+            .clone()
     }
 
     pub fn data(&self) -> ArrayD<f32> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).storage.to_cpu()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .storage
+            .to_cpu()
     }
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).grad.clone()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .grad
+            .clone()
     }
 
     /// Move tensor to a specific device.
@@ -157,7 +189,10 @@ impl Tensor {
     pub fn is_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]
         {
-            matches!(self.0.lock().unwrap_or_else(|e| e.into_inner()).device, Device::Gpu(_))
+            matches!(
+                self.0.lock().unwrap_or_else(|e| e.into_inner()).device,
+                Device::Gpu(_)
+            )
         }
         #[cfg(not(feature = "gpu"))]
         {
@@ -168,14 +203,19 @@ impl Tensor {
     pub fn randn(shape: &[usize], requires_grad: bool) -> Self {
         let len: usize = shape.iter().product();
         let mut rng = rand::thread_rng();
-        let data: Vec<f32> = (0..len).step_by(2).flat_map(|_| {
-            let u1: f32 = rng.gen::<f32>().max(1e-38);
-            let u2: f32 = rng.gen::<f32>().max(1e-38);
-            let r = (-2.0 * u1.ln()).sqrt();
-            let theta = 2.0 * std::f32::consts::PI * u2;
-            [r * theta.cos(), r * theta.sin()]
-        }).collect();
-        let data = if len % 2 == 0 { data } else {
+        let data: Vec<f32> = (0..len)
+            .step_by(2)
+            .flat_map(|_| {
+                let u1: f32 = rng.gen::<f32>().max(1e-38);
+                let u2: f32 = rng.gen::<f32>().max(1e-38);
+                let r = (-2.0 * u1.ln()).sqrt();
+                let theta = 2.0 * std::f32::consts::PI * u2;
+                [r * theta.cos(), r * theta.sin()]
+            })
+            .collect();
+        let data = if len % 2 == 0 {
+            data
+        } else {
             let u: f32 = rng.gen::<f32>().max(1e-38);
             let v: f32 = rng.gen::<f32>().max(1e-38);
             let r = (-2.0 * u.ln()).sqrt();
@@ -242,9 +282,8 @@ impl Tensor {
         backward: Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>>,
         gpu_backward: Option<crate::tape::GpuBackwardFn>,
     ) -> Self {
-        let grad_fn_idx = crate::tape::register_gpu_grad_fn(
-            inputs, saved, saved_gpu, backward, gpu_backward,
-        );
+        let grad_fn_idx =
+            crate::tape::register_gpu_grad_fn(inputs, saved, saved_gpu, backward, gpu_backward);
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(Mutex::new(TensorInner {
             id,

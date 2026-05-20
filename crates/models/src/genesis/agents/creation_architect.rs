@@ -1,14 +1,14 @@
 //! Creation Architect Agent
-//! 
+//!
 //! Creative design and innovative solution generation
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Creation Architect Agent - Creative design and innovative solution generation
 #[derive(Debug, Clone)]
@@ -150,7 +150,9 @@ impl BaseAgent for CreationArchitectAgent {
         let creative_solutions = self.generate_creative_solutions(&input).await?;
         let innovation_score = self.calculate_innovation_score(&creative_solutions).await?;
         let feasibility_assessment = self.assess_feasibility(&input, &creative_solutions).await?;
-        let implementation_roadmap = self.create_implementation_roadmap(&creative_solutions).await?;
+        let implementation_roadmap = self
+            .create_implementation_roadmap(&creative_solutions)
+            .await?;
 
         Ok(CreationArchitectTaskOutput {
             creative_solutions,
@@ -169,21 +171,22 @@ impl BaseAgent for CreationArchitectAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "creation_architecture".to_string(),
-                description: "Creative design and innovative solution generation".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["problem_statement".to_string(), "constraints".to_string()],
-                output_types: vec!["creative_solutions".to_string(), "innovation_score".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.86,
-                    avg_latency: 3500.0,
-                    resource_usage: 0.7,
-                    reliability: 0.88,
-                },
+        vec![AgentCapability {
+            name: "creation_architecture".to_string(),
+            description: "Creative design and innovative solution generation".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["problem_statement".to_string(), "constraints".to_string()],
+            output_types: vec![
+                "creative_solutions".to_string(),
+                "innovation_score".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.86,
+                avg_latency: 3500.0,
+                resource_usage: 0.7,
+                reliability: 0.88,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -219,7 +222,10 @@ impl CreationArchitectAgent {
         }
     }
 
-    async fn generate_creative_solutions(&self, input: &CreationArchitectTaskInput) -> AgentResult<Vec<String>> {
+    async fn generate_creative_solutions(
+        &self,
+        input: &CreationArchitectTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             format!("Innovative solution for: {}", input.problem_statement),
             "Alternative approach using design thinking".to_string(),
@@ -231,11 +237,18 @@ impl CreationArchitectAgent {
         Ok(0.78)
     }
 
-    async fn assess_feasibility(&self, _input: &CreationArchitectTaskInput, _solutions: &[String]) -> AgentResult<String> {
+    async fn assess_feasibility(
+        &self,
+        _input: &CreationArchitectTaskInput,
+        _solutions: &[String],
+    ) -> AgentResult<String> {
         Ok("High feasibility with moderate resource requirements".to_string())
     }
 
-    async fn create_implementation_roadmap(&self, _solutions: &[String]) -> AgentResult<Vec<String>> {
+    async fn create_implementation_roadmap(
+        &self,
+        _solutions: &[String],
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             "Phase 1: Research and analysis".to_string(),
             "Phase 2: Prototype development".to_string(),
@@ -266,7 +279,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.creative_solutions.is_empty());
         assert!(output.innovation_score > 0.0);

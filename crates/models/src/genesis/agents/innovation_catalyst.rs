@@ -1,14 +1,14 @@
 //! Innovation Catalyst Agent
-//! 
+//!
 //! Innovation acceleration and transformation leadership
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Innovation Catalyst Agent - Innovation acceleration and transformation leadership
 #[derive(Debug, Clone)]
@@ -169,21 +169,22 @@ impl BaseAgent for InnovationCatalystAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "innovation_catalyst".to_string(),
-                description: "Innovation acceleration and transformation leadership".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["current_state".to_string(), "target_state".to_string()],
-                output_types: vec!["innovation_strategy".to_string(), "transformation_roadmap".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.89,
-                    avg_latency: 3200.0,
-                    resource_usage: 0.75,
-                    reliability: 0.91,
-                },
+        vec![AgentCapability {
+            name: "innovation_catalyst".to_string(),
+            description: "Innovation acceleration and transformation leadership".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["current_state".to_string(), "target_state".to_string()],
+            output_types: vec![
+                "innovation_strategy".to_string(),
+                "transformation_roadmap".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.89,
+                avg_latency: 3200.0,
+                resource_usage: 0.75,
+                reliability: 0.91,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -219,12 +220,18 @@ impl InnovationCatalystAgent {
         }
     }
 
-    async fn develop_innovation_strategy(&self, input: &InnovationCatalystTaskInput) -> AgentResult<String> {
+    async fn develop_innovation_strategy(
+        &self,
+        input: &InnovationCatalystTaskInput,
+    ) -> AgentResult<String> {
         Ok(format!("Innovation strategy to transform from '{}' to '{}': Implement disruptive innovation through digital transformation and open innovation approaches", 
                  input.current_state, input.target_state))
     }
 
-    async fn create_transformation_roadmap(&self, _input: &InnovationCatalystTaskInput) -> AgentResult<Vec<String>> {
+    async fn create_transformation_roadmap(
+        &self,
+        _input: &InnovationCatalystTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             "Phase 1: Innovation assessment and opportunity identification".to_string(),
             "Phase 2: Strategy development and stakeholder alignment".to_string(),
@@ -233,16 +240,25 @@ impl InnovationCatalystAgent {
         ])
     }
 
-    async fn identify_innovation_opportunities(&self, input: &InnovationCatalystTaskInput) -> AgentResult<Vec<String>> {
+    async fn identify_innovation_opportunities(
+        &self,
+        input: &InnovationCatalystTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
-            format!("Digital transformation opportunities for: {}", input.current_state),
+            format!(
+                "Digital transformation opportunities for: {}",
+                input.current_state
+            ),
             "Open innovation through ecosystem partnerships".to_string(),
             "Business model innovation and revenue diversification".to_string(),
             "Process innovation and operational excellence".to_string(),
         ])
     }
 
-    async fn define_success_metrics(&self, _input: &InnovationCatalystTaskInput) -> AgentResult<Vec<String>> {
+    async fn define_success_metrics(
+        &self,
+        _input: &InnovationCatalystTaskInput,
+    ) -> AgentResult<Vec<String>> {
         Ok(vec![
             "Innovation success rate: >= 70%".to_string(),
             "Time to market: < 6 months".to_string(),
@@ -274,7 +290,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.innovation_strategy.is_empty());
         assert!(!output.transformation_roadmap.is_empty());

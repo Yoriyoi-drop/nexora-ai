@@ -1,5 +1,5 @@
-use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -81,7 +81,8 @@ impl ProgressTracker {
             return Duration::from_secs(0);
         }
         let remaining = (self.total_samples - self.samples_processed) as f64
-            + (self.total_epochs - self.current_epoch).saturating_sub(1) as f64 * self.total_samples as f64;
+            + (self.total_epochs - self.current_epoch).saturating_sub(1) as f64
+                * self.total_samples as f64;
         Duration::from_secs_f64(remaining / speed)
     }
 
@@ -97,9 +98,14 @@ impl ProgressTracker {
 
         info!(
             "Epoch {}/{} | {}/{} samples ({:.1}%) | {:.0} samples/s | elapsed: {:?} | ETA: {:?}",
-            self.current_epoch, self.total_epochs,
-            self.samples_processed, self.total_samples, pct,
-            speed, elapsed, eta,
+            self.current_epoch,
+            self.total_epochs,
+            self.samples_processed,
+            self.total_samples,
+            pct,
+            speed,
+            elapsed,
+            eta,
         );
     }
 }
@@ -148,16 +154,13 @@ impl ResumeState {
     pub fn save(&self, path: &std::path::Path) -> Result<(), ResumeError> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| ResumeError::Serialize(e.to_string()))?;
-        std::fs::write(path, content)
-            .map_err(|e| ResumeError::Io(e.to_string()))?;
+        std::fs::write(path, content).map_err(|e| ResumeError::Io(e.to_string()))?;
         Ok(())
     }
 
     pub fn load(path: &std::path::Path) -> Result<Self, ResumeError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ResumeError::Io(e.to_string()))?;
-        serde_json::from_str(&content)
-            .map_err(|e| ResumeError::Parse(e.to_string()))
+        let content = std::fs::read_to_string(path).map_err(|e| ResumeError::Io(e.to_string()))?;
+        serde_json::from_str(&content).map_err(|e| ResumeError::Parse(e.to_string()))
     }
 }
 

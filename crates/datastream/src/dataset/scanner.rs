@@ -89,19 +89,34 @@ impl ShardScanner {
             let compression = Compression::None;
             let size = std::fs::metadata(path).ok().map(|m| m.len()).unwrap_or(0);
             let split = detect_split(&fname);
-            return Some(ShardPath { path: path.to_path_buf(), compression, size_bytes: size, split });
+            return Some(ShardPath {
+                path: path.to_path_buf(),
+                compression,
+                size_bytes: size,
+                split,
+            });
         }
 
         let full_name = path.file_name()?.to_string_lossy().to_lowercase();
         if full_name.ends_with(".arrow.zst") || full_name.ends_with(".arrow.zstd") {
             let size = std::fs::metadata(path).ok().map(|m| m.len()).unwrap_or(0);
             let split = detect_split(&fname);
-            return Some(ShardPath { path: path.to_path_buf(), compression: Compression::Zstd, size_bytes: size, split });
+            return Some(ShardPath {
+                path: path.to_path_buf(),
+                compression: Compression::Zstd,
+                size_bytes: size,
+                split,
+            });
         }
         if full_name.ends_with(".arrow.lz4") {
             let size = std::fs::metadata(path).ok().map(|m| m.len()).unwrap_or(0);
             let split = detect_split(&fname);
-            return Some(ShardPath { path: path.to_path_buf(), compression: Compression::Lz4, size_bytes: size, split });
+            return Some(ShardPath {
+                path: path.to_path_buf(),
+                compression: Compression::Lz4,
+                size_bytes: size,
+                split,
+            });
         }
 
         None
@@ -110,11 +125,19 @@ impl ShardScanner {
 
 fn detect_split(fname: &str) -> String {
     let lower = fname.to_lowercase();
-    if lower.contains("train") { "train".into() }
-    else if lower.contains("val") || lower.contains("validation") { "val".into() }
-    else if lower.contains("test") { "test".into() }
-    else if lower.contains("reinforcement") || lower.contains("rl") { "reinforcement".into() }
-    else if lower.contains("synthetic") || lower.contains("synth") { "synthetic".into() }
-    else if lower.contains("instruct") { "instruction".into() }
-    else { "train".into() }
+    if lower.contains("train") {
+        "train".into()
+    } else if lower.contains("val") || lower.contains("validation") {
+        "val".into()
+    } else if lower.contains("test") {
+        "test".into()
+    } else if lower.contains("reinforcement") || lower.contains("rl") {
+        "reinforcement".into()
+    } else if lower.contains("synthetic") || lower.contains("synth") {
+        "synthetic".into()
+    } else if lower.contains("instruct") {
+        "instruction".into()
+    } else {
+        "train".into()
+    }
 }

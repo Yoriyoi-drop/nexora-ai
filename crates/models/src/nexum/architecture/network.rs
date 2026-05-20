@@ -322,7 +322,13 @@ impl From<nexum_config::CommunicationProtocol> for CommunicationProtocol {
             nexum_config::CommunicationProtocol::EventDriven => Self::EventDriven,
             nexum_config::CommunicationProtocol::MessageQueue => Self::MessageQueue,
             nexum_config::CommunicationProtocol::PubSub => Self::PubSub,
-            nexum_config::CommunicationProtocol::Hybrid { sync_weight, async_weight } => Self::Hybrid { sync_weight, async_weight },
+            nexum_config::CommunicationProtocol::Hybrid {
+                sync_weight,
+                async_weight,
+            } => Self::Hybrid {
+                sync_weight,
+                async_weight,
+            },
         }
     }
 }

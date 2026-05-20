@@ -116,7 +116,7 @@ impl PolicyModel {
     pub fn new(model_id: Uuid, param_dim: (usize, usize)) -> Self {
         let parameters = Array2::zeros(param_dim);
         let reference_params = parameters.clone();
-        
+
         Self {
             model_id,
             parameters,
@@ -124,11 +124,11 @@ impl PolicyModel {
             is_teacher: false,
         }
     }
-    
+
     pub fn set_as_teacher(&mut self) {
         self.is_teacher = true;
     }
-    
+
     pub fn log_probability(&self, input: &str, output: &str) -> Result<f32> {
         if output.is_empty() {
             return Ok(f32::NEG_INFINITY);
@@ -158,7 +158,7 @@ impl PolicyModel {
         let per_token = score / output.len() as f32;
         Ok(per_token.clamp(-20.0, 0.0))
     }
-    
+
     pub fn reference_log_probability(&self, input: &str, output: &str) -> Result<f32> {
         self.log_probability(input, output)
     }
@@ -166,7 +166,13 @@ impl PolicyModel {
     /// Apply gradient descent update to model parameters.
     /// Uses real gradient of log_probability w.r.t. each parameter.
     /// d(log_prob)/d(w[i,j]) = input_feat[i] * output_feat[j] / (255 * 255 * output_len)
-    pub fn apply_gradient(&mut self, input: &str, output: &str, grad_loss: f32, learning_rate: f32) -> Result<()> {
+    pub fn apply_gradient(
+        &mut self,
+        input: &str,
+        output: &str,
+        grad_loss: f32,
+        learning_rate: f32,
+    ) -> Result<()> {
         if output.is_empty() {
             return Ok(());
         }
@@ -183,7 +189,8 @@ impl PolicyModel {
             let i_feat = if input_bytes.is_empty() {
                 1.0
             } else {
-                let idx = (i * input_bytes.len() / output_bytes.len().max(1)).min(input_bytes.len() - 1);
+                let idx =
+                    (i * input_bytes.len() / output_bytes.len().max(1)).min(input_bytes.len() - 1);
                 input_bytes[idx] as f32 / 255.0
             };
             for j in 0..cols.min(output_bytes.len()) {

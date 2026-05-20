@@ -1,18 +1,18 @@
 //! Enhanced Async Task Executor dengan Proper Concurrency
-//! 
+//!
 //! Implementasi task executor dengan thread pool, priority queue, dan resource management
 
-use crate::types::ModelId;
 use crate::error::{CoreError, CoreResult};
-use std::sync::Arc;
-use std::collections::{BinaryHeap, HashMap};
-use tokio::sync::{RwLock, Semaphore, mpsc};
+use crate::types::ModelId;
 use parking_lot::Mutex;
-use uuid::Uuid;
-use tracing::{debug, info, error};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, RwLock, Semaphore};
+use tracing::{debug, error, info};
+use uuid::Uuid;
 
 /// Task dengan priority untuk execution
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -40,12 +40,12 @@ impl AsyncTask {
             max_retries: 3,
         }
     }
-    
+
     pub fn with_dependencies(mut self, dependencies: Vec<String>) -> Self {
         self.dependencies = dependencies;
         self
     }
-    
+
     pub fn with_max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = max_retries;
         self
@@ -59,7 +59,7 @@ pub enum TaskPriority {
     High = 1,       // User interactive tasks
     Normal = 2,     // Regular processing
     Low = 3,        // Background tasks
-    Background = 4,  // Maintenance tasks
+    Background = 4, // Maintenance tasks
 }
 
 impl TaskPriority {
@@ -72,7 +72,7 @@ impl TaskPriority {
             _ => TaskPriority::Background,
         }
     }
-    
+
     pub fn as_u8(&self) -> u8 {
         match self {
             TaskPriority::Critical => 0,
@@ -137,7 +137,7 @@ impl Default for ExecutorConfig {
         Self {
             max_concurrent_tasks: 10,
             max_queue_size: 1000,
-            task_timeout_ms: 30000, // 30 seconds
+            task_timeout_ms: 30000,      // 30 seconds
             heartbeat_interval_ms: 5000, // 5 seconds
             enable_metrics: true,
         }
@@ -197,7 +197,7 @@ pub struct ExecutorMetrics {
 impl AsyncTaskExecutor {
     pub fn new(config: ExecutorConfig) -> Self {
         let (task_sender, task_receiver) = mpsc::channel(config.max_queue_size);
-        
+
         Self {
             config: config.clone(),
             task_queue: Arc::new(Mutex::new(BinaryHeap::new())),
@@ -211,24 +211,27 @@ impl AsyncTaskExecutor {
             notifier: Arc::new(tokio::sync::Notify::new()),
         }
     }
-    
+
     /// Start the executor
     pub async fn start(&self) -> CoreResult<()> {
-        info!("Starting async task executor with max_concurrent_tasks={}", self.config.max_concurrent_tasks);
-        
+        info!(
+            "Starting async task executor with max_concurrent_tasks={}",
+            self.config.max_concurrent_tasks
+        );
+
         let receiver = {
             let mut recv_guard = self.task_receiver.write().await;
-            recv_guard.take().ok_or_else(|| {
-                CoreError::TaskExecution("Executor already started".to_string())
-            })?
+            recv_guard
+                .take()
+                .ok_or_else(|| CoreError::TaskExecution("Executor already started".to_string()))?
         };
-        
+
         // Start main worker loop
         let executor = self.clone();
         tokio::spawn(async move {
             executor.worker_loop(receiver).await;
         });
-        
+
         // Start metrics collection if enabled
         if self.config.enable_metrics {
             let executor = self.clone();
@@ -236,15 +239,15 @@ impl AsyncTaskExecutor {
                 executor.metrics_loop().await;
             });
         }
-        
+
         info!("Async task executor started successfully");
         Ok(())
     }
-    
+
     /// Submit task for execution
     pub async fn submit_task(&self, task: AsyncTask) -> CoreResult<String> {
         let task_id = task.id.clone();
-        
+
         // Check queue size limit
         {
             let queue = self.task_queue.lock();
@@ -252,7 +255,7 @@ impl AsyncTaskExecutor {
                 return Err(CoreError::TaskExecution("Task queue is full".to_string()));
             }
         }
-        
+
         // Update metrics
         {
             let mut metrics = self.metrics.write().await;
@@ -262,7 +265,7 @@ impl AsyncTaskExecutor {
                 metrics.peak_queue_size = metrics.current_queue_size;
             }
         }
-        
+
         // Add task to queue
         {
             let mut queue = self.task_queue.lock();
@@ -275,13 +278,13 @@ impl AsyncTaskExecutor {
         debug!("Task submitted: {}", task_id);
         Ok(task_id)
     }
-    
+
     /// Get task result
     pub async fn get_task_result(&self, task_id: &str) -> Option<TaskResult> {
         let completed = self.completed_tasks.read().await;
         completed.get(task_id).cloned()
     }
-    
+
     /// Cancel task
     pub async fn cancel_task(&self, task_id: &str) -> CoreResult<()> {
         // Try to remove from queue
@@ -289,7 +292,7 @@ impl AsyncTaskExecutor {
             let mut queue = self.task_queue.lock();
             queue.retain(|task| task.id != task_id);
         }
-        
+
         // Update status if active
         {
             let mut active = self.active_tasks.write().await;
@@ -297,66 +300,66 @@ impl AsyncTaskExecutor {
                 task_info.status = TaskStatus::Cancelled;
             }
         }
-        
+
         // Update metrics
         {
             let mut metrics = self.metrics.write().await;
             metrics.total_tasks_cancelled += 1;
         }
-        
+
         info!("Task cancelled: {}", task_id);
         Ok(())
     }
-    
+
     /// Get current metrics
     pub async fn get_metrics(&self) -> ExecutorMetrics {
         self.metrics.read().await.clone()
     }
-    
+
     /// Shutdown executor
     pub async fn shutdown(&self) {
         info!("Shutting down async task executor");
-        
+
         *self.shutdown.write().await = true;
-        
+
         // Cancel all pending tasks
         {
             let mut queue = self.task_queue.lock();
             let pending_count = queue.len();
             queue.clear();
-            
+
             let mut metrics = self.metrics.write().await;
             metrics.total_tasks_cancelled += pending_count as u64;
             metrics.current_queue_size = 0;
         }
-        
+
         info!("Async task executor shutdown completed");
     }
-    
+
     /// Main worker loop
     async fn worker_loop(&self, mut receiver: mpsc::Receiver<AsyncTask>) {
         info!("Worker loop started");
-        
+
         loop {
             // Check for shutdown
             if *self.shutdown.read().await {
                 info!("Worker loop shutting down");
                 break;
             }
-            
+
             // Try to get a task from queue or receiver
             let task = tokio::select! {
                 task_from_queue = self.get_next_task() => task_from_queue,
                 task_from_receiver = receiver.recv() => task_from_receiver,
             };
-            
+
             match task {
                 Some(task) => {
                     // Acquire semaphore permit
                     match self.semaphore.acquire().await {
                         Ok(permit) => {
                             let task_id = task.id.clone();
-                            
+
                             // Execute task directly without spawning to avoid lifetime issues
                             debug!("Executing task {} with permit", task_id);
                             self.execute_task_with_permit(task, permit).await;
@@ -373,20 +376,24 @@ impl AsyncTaskExecutor {
             }
         }
     }
-    
+
     /// Get next task from priority queue
     async fn get_next_task(&self) -> Option<AsyncTask> {
         let mut queue = self.task_queue.lock();
         queue.pop()
     }
-    
+
     /// Execute task with semaphore permit
-    async fn execute_task_with_permit(&self, task: AsyncTask, _permit: tokio::sync::SemaphorePermit<'_>) {
+    async fn execute_task_with_permit(
+        &self,
+        task: AsyncTask,
+        _permit: tokio::sync::SemaphorePermit<'_>,
+    ) {
         let task_id = task.id.clone();
         let start_time = Instant::now();
-        
+
         debug!("Starting task execution: {}", task_id);
-        
+
         // Add to active tasks
         {
             let mut active = self.active_tasks.write().await;
@@ -398,7 +405,7 @@ impl AsyncTaskExecutor {
                 last_retry_at: None,
             };
             active.insert(task_id.clone(), task_info);
-            
+
             // Update metrics
             let mut metrics = self.metrics.write().await;
             metrics.current_queue_size = metrics.current_queue_size.saturating_sub(1);
@@ -407,13 +414,14 @@ impl AsyncTaskExecutor {
                 metrics.peak_active_tasks = metrics.current_active_tasks;
             }
         }
-        
+
         // Execute task with timeout
         let execution_result = tokio::time::timeout(
             Duration::from_millis(self.config.task_timeout_ms),
-            self.execute_task_internal(&task)
-        ).await;
-        
+            self.execute_task_internal(&task),
+        )
+        .await;
+
         let execution_time = start_time.elapsed().as_millis() as u64;
         let result = match execution_result {
             Ok(result) => result,
@@ -430,32 +438,31 @@ impl AsyncTaskExecutor {
                 }
             }
         };
-        
+
         // Handle retry logic if failed
         let final_result = if !result.success && result.retry_count < task.max_retries {
             self.handle_retry(&task, &result).await
         } else {
             result
         };
-        
+
         // Store result and update metrics
         self.complete_task(final_result.clone()).await;
-        
-        debug!("Task execution completed: {} (success: {})", task_id, final_result.success);
+
+        debug!(
+            "Task execution completed: {} (success: {})",
+            task_id, final_result.success
+        );
     }
-    
+
     /// Internal task execution
     async fn execute_task_internal(&self, task: &AsyncTask) -> TaskResult {
         let start_time = Instant::now();
-        
-        let output = format!(
-            "[{:?}] Processed: {}",
-            task.model,
-            task.input,
-        );
-        
+
+        let output = format!("[{:?}] Processed: {}", task.model, task.input,);
+
         let execution_time = start_time.elapsed().as_millis() as u64;
-        
+
         TaskResult {
             task_id: task.id.clone(),
             model: task.model,
@@ -466,72 +473,80 @@ impl AsyncTaskExecutor {
             retry_count: 0,
         }
     }
-    
+
     /// Handle task retry
     async fn handle_retry(&self, task: &AsyncTask, previous_result: &TaskResult) -> TaskResult {
         let retry_count = previous_result.retry_count + 1;
-        
-        info!("Retrying task: {} (attempt {}/{})", task.id, retry_count, task.max_retries);
-        
+
+        info!(
+            "Retrying task: {} (attempt {}/{})",
+            task.id, retry_count, task.max_retries
+        );
+
         // Wait before retry (exponential backoff)
         let delay_ms = 1000 * (1 << retry_count.min(5));
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-        
+
         // Execute retry
         let mut retry_result = self.execute_task_internal(task).await;
         retry_result.retry_count = retry_count;
-        
+
         retry_result
     }
-    
+
     /// Complete task and update metrics
     async fn complete_task(&self, result: TaskResult) {
         // Remove from active tasks
         {
             let mut active = self.active_tasks.write().await;
             active.remove(&result.task_id);
-            
+
             // Update metrics
             let mut metrics = self.metrics.write().await;
             metrics.current_active_tasks = metrics.current_active_tasks.saturating_sub(1);
-            
+
             if result.success {
                 metrics.total_tasks_completed += 1;
-                
+
                 // Update average execution time
                 let total_completed = metrics.total_tasks_completed;
                 let current_avg = metrics.avg_execution_time_ms;
-                let new_avg = (current_avg * (total_completed - 1) as f64 + result.execution_time_ms as f64) / total_completed as f64;
+                let new_avg = (current_avg * (total_completed - 1) as f64
+                    + result.execution_time_ms as f64)
+                    / total_completed as f64;
                 metrics.avg_execution_time_ms = new_avg;
             } else {
                 metrics.total_tasks_failed += 1;
             }
         }
-        
+
         // Store in completed tasks
         {
             let mut completed = self.completed_tasks.write().await;
             completed.insert(result.task_id.clone(), result.clone());
         }
     }
-    
+
     /// Metrics collection loop
     async fn metrics_loop(&self) {
-        let mut interval = tokio::time::interval(Duration::from_millis(self.config.heartbeat_interval_ms));
-        
+        let mut interval =
+            tokio::time::interval(Duration::from_millis(self.config.heartbeat_interval_ms));
+
         loop {
             if *self.shutdown.read().await {
                 break;
             }
-            
+
             interval.tick().await;
-            
+
             let metrics = self.get_metrics().await;
-            debug!("Executor metrics: queue={}, active={}, completed={}, failed={}", 
-                  metrics.current_queue_size,
-                  metrics.current_active_tasks,
-                  metrics.total_tasks_completed,
-                  metrics.total_tasks_failed);
+            debug!(
+                "Executor metrics: queue={}, active={}, completed={}, failed={}",
+                metrics.current_queue_size,
+                metrics.current_active_tasks,
+                metrics.total_tasks_completed,
+                metrics.total_tasks_failed
+            );
         }
     }
 }
@@ -563,7 +578,7 @@ impl Default for AsyncTaskExecutor {
 mod tests {
     use super::*;
     use crate::types::ModelId;
-    
+
     #[tokio::test]
     async fn test_async_task_executor() {
         let config = ExecutorConfig {
@@ -573,60 +588,60 @@ mod tests {
             heartbeat_interval_ms: 1000,
             enable_metrics: false,
         };
-        
+
         let executor = AsyncTaskExecutor::new(config);
         executor.start().await.unwrap();
-        
+
         // Submit some tasks
         let task1 = AsyncTask::new(
             ModelId::Coding,
             "test input 1".to_string(),
             "test context".to_string(),
-            TaskPriority::High
+            TaskPriority::High,
         );
-        
+
         let task2 = AsyncTask::new(
             ModelId::Logic,
             "test input 2".to_string(),
             "test context".to_string(),
-            TaskPriority::Normal
+            TaskPriority::Normal,
         );
-        
+
         let task1_id = executor.submit_task(task1).await.unwrap();
         let task2_id = executor.submit_task(task2).await.unwrap();
-        
+
         // Wait for completion
         tokio::time::sleep(Duration::from_millis(2000)).await;
-        
+
         // Check results
         let result1 = executor.get_task_result(&task1_id).await;
         let result2 = executor.get_task_result(&task2_id).await;
-        
+
         assert!(result1.is_some());
         assert!(result2.is_some());
-        
+
         let metrics = executor.get_metrics().await;
         assert!(metrics.total_tasks_submitted >= 2);
-        
+
         executor.shutdown().await;
     }
-    
+
     #[test]
     fn test_task_priority_ordering() {
         let critical_task = AsyncTask::new(
             ModelId::Controller,
             "critical".to_string(),
             "".to_string(),
-            TaskPriority::Critical
+            TaskPriority::Critical,
         );
-        
+
         let low_task = AsyncTask::new(
             ModelId::Controller,
             "low".to_string(),
             "".to_string(),
-            TaskPriority::Low
+            TaskPriority::Low,
         );
-        
+
         // Critical task should come first (lower priority value)
         assert!(critical_task < low_task);
     }

@@ -1,10 +1,8 @@
 //! NXR-SPECTRA Identity
-//! 
+//!
 //! Model identity, metadata, and versioning for NXR-SPECTRA
 
-use nexora_shared::{
-    model_identity::{ModelMeta, NxrModelId, ModelTier},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-SPECTRA Identity Manager
 pub struct _SpectraIdentity {

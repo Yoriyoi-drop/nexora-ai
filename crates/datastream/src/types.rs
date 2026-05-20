@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +71,9 @@ impl Domain {
     pub fn curriculum_level(&self) -> CurriculumLevel {
         match self {
             Domain::Conversation | Domain::Instruction => CurriculumLevel::BasicGrammar,
-            Domain::Knowledge | Domain::Creative | Domain::General => CurriculumLevel::BasicInstruction,
+            Domain::Knowledge | Domain::Creative | Domain::General => {
+                CurriculumLevel::BasicInstruction
+            }
             Domain::Code | Domain::Memory | Domain::Math => CurriculumLevel::MediumReasoning,
             Domain::Science | Domain::Architecture => CurriculumLevel::ChainOfThought,
             Domain::Reasoning => CurriculumLevel::AgenticPlanning,

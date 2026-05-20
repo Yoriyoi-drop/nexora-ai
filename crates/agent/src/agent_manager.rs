@@ -1,23 +1,22 @@
 //! Agent Manager
-//! 
+//!
 //! Supervisor untuk semua agent dalam sistem Nexora.
 //! Bertanggung jawab untuk spawn, stop, dan monitoring agent.
 
 use std::collections::HashMap;
-use std::sync::Arc as StdArc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::{RwLock, mpsc, oneshot};
+use std::sync::Arc as StdArc;
+use tokio::sync::{mpsc, oneshot, RwLock};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use tracing::{info, warn, error, debug};
 
-use crate::{
-    Agent, AgentError, Result, AgentMessage, AgentResponse, AgentStatus,
-    AgentStats, AgentConfig
-};
-use crate::registry::AgentRegistry;
-use crate::lifecycle::LifecycleManager;
 use crate::communication::MessageBus;
+use crate::lifecycle::LifecycleManager;
+use crate::registry::AgentRegistry;
 use crate::state::AgentState;
+use crate::{
+    Agent, AgentConfig, AgentError, AgentMessage, AgentResponse, AgentStats, AgentStatus, Result,
+};
 
 /// Konfigurasi untuk AgentManager
 #[derive(Debug, Clone)]
@@ -121,7 +120,7 @@ impl AgentManager {
     /// Create new agent manager
     pub fn new(config: AgentManagerConfig) -> Self {
         let (command_tx, command_rx) = mpsc::channel(256);
-        
+
         Self {
             registry: StdArc::new(AgentRegistry::new()),
             lifecycle: StdArc::new(LifecycleManager::new(config.clone())),
@@ -134,16 +133,16 @@ impl AgentManager {
             is_running: StdArc::new(AtomicBool::new(true)),
         }
     }
-    
+
     /// Get command sender untuk external communication
     pub fn command_sender(&self) -> mpsc::Sender<ManagerCommand> {
         (*self.command_tx).clone()
     }
-    
+
     /// Start agent manager
     pub async fn start(&self) -> Result<()> {
         info!("Starting AgentManager with config: {:?}", self.config);
-        
+
         // Start background tasks
         let manager = self.clone();
         tokio::spawn(async move {
@@ -152,7 +151,7 @@ impl AgentManager {
                 error!("AgentManager command loop panicked: {:?}", e);
             }
         });
-        
+
         // Start health check loop
         if self.config.health_check_interval_seconds > 0 {
             let manager = self.clone();
@@ -163,227 +162,261 @@ impl AgentManager {
                 }
             });
         }
-        
+
         info!("AgentManager started successfully");
         Ok(())
     }
-    
+
     /// Main command processing loop
     async fn run_command_loop(&self) {
         info!("Starting command loop");
-        
+
         let mut rx_guard = self.command_rx.write().await;
         if let Some(mut rx) = rx_guard.take() {
             while let Some(command) = rx.recv().await {
-            debug!("Received command: {:?}", std::mem::discriminant(&command));
-            
-            match command {
-                ManagerCommand::SpawnAgent { agent_type, config, response_tx } => {
-                    let result = self.spawn_agent_internal(agent_type, config).await;
-                    if response_tx.send(result).is_err() {
-                        warn!("SpawnAgent response channel closed");
+                debug!("Received command: {:?}", std::mem::discriminant(&command));
+
+                match command {
+                    ManagerCommand::SpawnAgent {
+                        agent_type,
+                        config,
+                        response_tx,
+                    } => {
+                        let result = self.spawn_agent_internal(agent_type, config).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("SpawnAgent response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::StopAgent { agent_id, response_tx } => {
-                    let result = self.stop_agent_internal(agent_id).await;
-                    if response_tx.send(result).is_err() {
-                        warn!("StopAgent response channel closed");
+                    ManagerCommand::StopAgent {
+                        agent_id,
+                        response_tx,
+                    } => {
+                        let result = self.stop_agent_internal(agent_id).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("StopAgent response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::RestartAgent { agent_id, response_tx } => {
-                    let result = self.restart_agent_internal(agent_id).await;
-                    if response_tx.send(result).is_err() {
-                        warn!("RestartAgent response channel closed");
+                    ManagerCommand::RestartAgent {
+                        agent_id,
+                        response_tx,
+                    } => {
+                        let result = self.restart_agent_internal(agent_id).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("RestartAgent response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::SendMessage { agent_id, message, response_tx } => {
-                    let result = self.send_message_internal(agent_id, message).await;
-                    if response_tx.send(result).is_err() {
-                        warn!("SendMessage response channel closed");
+                    ManagerCommand::SendMessage {
+                        agent_id,
+                        message,
+                        response_tx,
+                    } => {
+                        let result = self.send_message_internal(agent_id, message).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("SendMessage response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::GetStatus { agent_id, response_tx } => {
-                    let result = self.get_status_internal(agent_id).await;
-                    if response_tx.send(result).is_err() {
-                        warn!("GetStatus response channel closed");
+                    ManagerCommand::GetStatus {
+                        agent_id,
+                        response_tx,
+                    } => {
+                        let result = self.get_status_internal(agent_id).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("GetStatus response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::GetStats { agent_id, response_tx } => {
-                    let result = self.get_stats_internal(agent_id).await;
-                    if response_tx.send(result).is_err() {
-                        warn!("GetStats response channel closed");
+                    ManagerCommand::GetStats {
+                        agent_id,
+                        response_tx,
+                    } => {
+                        let result = self.get_stats_internal(agent_id).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("GetStats response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::ListAgents { response_tx } => {
-                    let result = self.list_agents_internal().await;
-                    if response_tx.send(result).is_err() {
-                        warn!("ListAgents response channel closed");
+                    ManagerCommand::ListAgents { response_tx } => {
+                        let result = self.list_agents_internal().await;
+                        if response_tx.send(result).is_err() {
+                            warn!("ListAgents response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::HealthCheck { response_tx } => {
-                    let result = self.health_check_all_internal().await;
-                    if response_tx.send(result).is_err() {
-                        warn!("HealthCheck response channel closed");
+                    ManagerCommand::HealthCheck { response_tx } => {
+                        let result = self.health_check_all_internal().await;
+                        if response_tx.send(result).is_err() {
+                            warn!("HealthCheck response channel closed");
+                        }
                     }
-                }
-                ManagerCommand::Shutdown { response_tx } => {
-                    let result = self.shutdown_internal().await;
-                    if response_tx.send(result).is_err() {
-                        warn!("Shutdown response channel closed");
+                    ManagerCommand::Shutdown { response_tx } => {
+                        let result = self.shutdown_internal().await;
+                        if response_tx.send(result).is_err() {
+                            warn!("Shutdown response channel closed");
+                        }
+                        break;
                     }
-                    break;
                 }
             }
         }
-        }
-        
+
         info!("Command loop ended");
     }
-    
+
     /// Health check loop (cancellable via is_running flag)
     async fn run_health_check_loop(&self) {
         info!("Starting health check loop");
-        
+
         let interval = tokio::time::Duration::from_secs(self.config.health_check_interval_seconds);
         let mut interval_timer = tokio::time::interval(interval);
-        
+
         while self.is_running.load(Ordering::Relaxed) {
             interval_timer.tick().await;
-            
+
             if !self.is_running.load(Ordering::Relaxed) {
                 break;
             }
-            
+
             if let Err(e) = self.perform_health_check().await {
                 error!("Health check failed: {}", e);
             }
         }
-        
+
         info!("Health check loop ended");
     }
-    
+
     /// Internal spawn agent implementation
     async fn spawn_agent_internal(&self, agent_type: String, config: AgentConfig) -> Result<Uuid> {
         info!("Spawning agent of type: {}", agent_type);
-        
+
         // Check concurrent agent limit
         if self.registry.agent_count().await >= self.config.max_concurrent_agents {
-            return Err(AgentError::ProcessingError(
-                format!("Maximum concurrent agents ({}) reached", self.config.max_concurrent_agents)
-            ));
+            return Err(AgentError::ProcessingError(format!(
+                "Maximum concurrent agents ({}) reached",
+                self.config.max_concurrent_agents
+            )));
         }
-        
+
         // Create agent instance based on type
         let mut agent = self.create_agent_instance(&agent_type).await?;
         let agent_id = agent.id();
-        
+
         // Initialize agent before wrapping
         agent.initialize(config.clone()).await?;
-        
+
         // Register agent (wraps in Arc<Mutex> internally)
-        self.registry.register_agent(agent_id, agent_type.clone(), agent).await?;
-        
+        self.registry
+            .register_agent(agent_id, agent_type.clone(), agent)
+            .await?;
+
         // Start agent lifecycle
         self.lifecycle.start_agent(agent_id).await?;
-        
-        info!("Agent {} (type: {}) spawned successfully", agent_id, agent_type);
+
+        info!(
+            "Agent {} (type: {}) spawned successfully",
+            agent_id, agent_type
+        );
         Ok(agent_id)
     }
-    
+
     /// Internal stop agent implementation
     async fn stop_agent_internal(&self, agent_id: Uuid) -> Result<()> {
         info!("Stopping agent: {}", agent_id);
-        
+
         // Stop lifecycle
         self.lifecycle.stop_agent(agent_id).await?;
-        
+
         // Unregister agent
         self.registry.unregister_agent(agent_id).await?;
-        
+
         info!("Agent {} stopped successfully", agent_id);
         Ok(())
     }
-    
+
     /// Internal restart agent implementation
     async fn restart_agent_internal(&self, agent_id: Uuid) -> Result<()> {
         info!("Restarting agent: {}", agent_id);
-        
+
         // Get agent info before stopping
-        let agent_info = self.registry.get_agent_info(agent_id).await?
+        let agent_info = self
+            .registry
+            .get_agent_info(agent_id)
+            .await?
             .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))?;
-        
+
         // Stop agent
         self.stop_agent_internal(agent_id).await?;
-        
+
         // Spawn new agent with same config
-        self.spawn_agent_internal(agent_info.agent_type, agent_info.config).await?;
-        
+        self.spawn_agent_internal(agent_info.agent_type, agent_info.config)
+            .await?;
+
         info!("Agent {} restarted successfully", agent_id);
         Ok(())
     }
-    
+
     /// Internal send message implementation
-    async fn send_message_internal(&self, agent_id: Uuid, message: AgentMessage) -> Result<AgentResponse> {
+    async fn send_message_internal(
+        &self,
+        agent_id: Uuid,
+        message: AgentMessage,
+    ) -> Result<AgentResponse> {
         debug!("Sending message to agent: {}", agent_id);
-        
+
         let agent_handle = self.registry.get_agent(agent_id).await?;
         let mut agent = agent_handle.lock().await;
         agent.receive(message).await?;
-        
+
         // Create context
         let context = crate::AgentContext::new(Uuid::new_v4());
-        
+
         // Process message
         let response = agent.process(context).await?;
-        
+
         // Send response
         agent.respond(response.clone()).await?;
-        
+
         debug!("Message processed successfully for agent: {}", agent_id);
         Ok(response)
     }
-    
+
     /// Internal get status implementation
     async fn get_status_internal(&self, agent_id: Uuid) -> Result<AgentStatus> {
         let agent_handle = self.registry.get_agent(agent_id).await?;
         let agent = agent_handle.lock().await;
         Ok(agent.status())
     }
-    
+
     /// Internal get stats implementation
     async fn get_stats_internal(&self, agent_id: Uuid) -> Result<AgentStats> {
         let agent_handle = self.registry.get_agent(agent_id).await?;
         let agent = agent_handle.lock().await;
         Ok(agent.get_stats())
     }
-    
+
     /// Internal list agents implementation
     async fn list_agents_internal(&self) -> Result<Vec<(Uuid, String, AgentStatus)>> {
         self.registry.list_agents().await
     }
-    
+
     /// Internal health check all implementation
     async fn health_check_all_internal(&self) -> Result<HashMap<Uuid, bool>> {
         let agents = self.registry.list_agents().await?;
         let mut results = HashMap::new();
-        
+
         for (agent_id, _, _) in agents {
             let agent_handle = self.registry.get_agent(agent_id).await?;
             let agent = agent_handle.lock().await;
             let healthy = agent.health_check().await.unwrap_or(false);
             results.insert(agent_id, healthy);
         }
-        
+
         Ok(results)
     }
-    
+
     /// Internal shutdown implementation
     async fn shutdown_internal(&self) -> Result<()> {
         info!("Shutting down AgentManager");
-        
+
         // Signal health check loop to stop
         self.is_running.store(false, Ordering::Relaxed);
-        
+
         // Stop all agents
         let agents = self.registry.list_agents().await?;
         for (agent_id, _, _) in agents {
@@ -391,21 +424,21 @@ impl AgentManager {
                 warn!("Failed to stop agent {}: {}", agent_id, e);
             }
         }
-        
+
         info!("AgentManager shutdown complete");
         Ok(())
     }
-    
+
     /// Perform health check
     async fn perform_health_check(&self) -> Result<()> {
         debug!("Performing health check");
-        
+
         let health_results = self.health_check_all_internal().await?;
-        
+
         for (agent_id, healthy) in health_results {
             if !healthy {
                 warn!("Agent {} failed health check", agent_id);
-                
+
                 if self.config.auto_restart_failed_agents {
                     info!("Attempting to restart failed agent: {}", agent_id);
                     if let Err(e) = self.restart_agent_internal(agent_id).await {
@@ -414,10 +447,10 @@ impl AgentManager {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Create agent instance based on type
     async fn create_agent_instance(&self, agent_type: &str) -> Result<Box<dyn Agent>> {
         // Implement agent factory based on type
@@ -444,7 +477,8 @@ impl AgentManager {
             }
             "memory" => {
                 // Create memory agent
-                let memory_store = StdArc::new(tokio::sync::RwLock::new(nexora_memory::MemoryLayers::new()));
+                let memory_store =
+                    StdArc::new(tokio::sync::RwLock::new(nexora_memory::MemoryLayers::new()));
                 let config = crate::memory_agent::MemoryAgentConfig::default();
                 let agent = crate::memory_agent::MemoryAgent::new(memory_store, config);
                 Ok(Box::new(agent))
@@ -467,12 +501,13 @@ impl AgentManager {
                 let agent = crate::validation_agent::ValidationAgent::new(config);
                 Ok(Box::new(agent))
             }
-            _ => Err(AgentError::ProcessingError(
-                format!("Unknown agent type: {}", agent_type)
-            ))
+            _ => Err(AgentError::ProcessingError(format!(
+                "Unknown agent type: {}",
+                agent_type
+            ))),
         }
     }
-    
+
     /// Get memory store singleton (no longer creates new instance per call)
     fn get_memory_store(&self) -> StdArc<nexora_memory::MemoryLayers> {
         self.memory_store.clone()

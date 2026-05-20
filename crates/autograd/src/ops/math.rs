@@ -3,17 +3,16 @@ use ndarray::ArrayD;
 use super::super::broadcast;
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
-use crate::{Storage, tensor::next_tensor_id};
+use crate::gpu::{ElemOp, GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
-use crate::gpu::{GpuContext, GpuTensor, ElemOp};
+use crate::{tensor::next_tensor_id, Storage};
 
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_))
-            && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
         if on_gpu {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
@@ -27,16 +26,26 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                 }
                                 let a_shape = a.shape();
                                 let b_shape = b.shape();
-                                let a_shape_saved = ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap();
-                                let b_shape_saved = ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap();
+                                let a_shape_saved = ArrayD::from_shape_vec(
+                                    vec![a_shape.len()],
+                                    a_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
+                                let b_shape_saved = ArrayD::from_shape_vec(
+                                    vec![b_shape.len()],
+                                    b_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![],
                                     Box::new(|grad, saved| {
-                                        let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
-                                        let b_shape: Vec<usize> = saved[1].iter().map(|&x| x as usize).collect();
+                                        let a_shape: Vec<usize> =
+                                            saved[0].iter().map(|&x| x as usize).collect();
+                                        let b_shape: Vec<usize> =
+                                            saved[1].iter().map(|&x| x as usize).collect();
                                         let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
                                         let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
                                         vec![da, db]
@@ -66,8 +75,16 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
         result,
         vec![a.clone(), b.clone()],
         vec![
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![a_shape.len()],
+                a_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![b_shape.len()],
+                b_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -84,8 +101,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_))
-            && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
         if on_gpu {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
@@ -99,16 +115,26 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                 }
                                 let a_shape = a.shape();
                                 let b_shape = b.shape();
-                                let a_shape_saved = ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap();
-                                let b_shape_saved = ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap();
+                                let a_shape_saved = ArrayD::from_shape_vec(
+                                    vec![a_shape.len()],
+                                    a_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
+                                let b_shape_saved = ArrayD::from_shape_vec(
+                                    vec![b_shape.len()],
+                                    b_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![],
                                     Box::new(|grad, saved| {
-                                        let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
-                                        let b_shape: Vec<usize> = saved[1].iter().map(|&x| x as usize).collect();
+                                        let a_shape: Vec<usize> =
+                                            saved[0].iter().map(|&x| x as usize).collect();
+                                        let b_shape: Vec<usize> =
+                                            saved[1].iter().map(|&x| x as usize).collect();
                                         let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
                                         let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
                                         vec![da, -db]
@@ -138,8 +164,16 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
         result,
         vec![a.clone(), b.clone()],
         vec![
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![a_shape.len()],
+                a_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![b_shape.len()],
+                b_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -156,8 +190,7 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_))
-            && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
         if on_gpu {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
@@ -173,16 +206,26 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                 let b_shape = b.shape();
                                 let ga_clone = ga.clone();
                                 let gb_clone = gb.clone();
-                                let a_shape_saved = ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap();
-                                let b_shape_saved = ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap();
+                                let a_shape_saved = ArrayD::from_shape_vec(
+                                    vec![a_shape.len()],
+                                    a_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
+                                let b_shape_saved = ArrayD::from_shape_vec(
+                                    vec![b_shape.len()],
+                                    b_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![ga_clone, gb_clone],
                                     Box::new(|grad, saved| {
-                                        let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
-                                        let b_shape: Vec<usize> = saved[1].iter().map(|&x| x as usize).collect();
+                                        let a_shape: Vec<usize> =
+                                            saved[0].iter().map(|&x| x as usize).collect();
+                                        let b_shape: Vec<usize> =
+                                            saved[1].iter().map(|&x| x as usize).collect();
                                         let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
                                         let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
                                         vec![da, db]
@@ -214,8 +257,16 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
         vec![
             a_bc.clone(),
             b_bc.clone(),
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![a_shape.len()],
+                a_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![b_shape.len()],
+                b_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_val = &saved[0];
@@ -234,8 +285,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_))
-            && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
         if on_gpu {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
@@ -251,16 +301,26 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                 let b_shape = b.shape();
                                 let ga_clone = ga.clone();
                                 let gb_clone = gb.clone();
-                                let a_shape_saved = ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).unwrap();
-                                let b_shape_saved = ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).unwrap();
+                                let a_shape_saved = ArrayD::from_shape_vec(
+                                    vec![a_shape.len()],
+                                    a_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
+                                let b_shape_saved = ArrayD::from_shape_vec(
+                                    vec![b_shape.len()],
+                                    b_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![ga_clone, gb_clone],
                                     Box::new(|grad, saved| {
-                                        let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
-                                        let b_shape: Vec<usize> = saved[1].iter().map(|&x| x as usize).collect();
+                                        let a_shape: Vec<usize> =
+                                            saved[0].iter().map(|&x| x as usize).collect();
+                                        let b_shape: Vec<usize> =
+                                            saved[1].iter().map(|&x| x as usize).collect();
                                         let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
                                         let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
                                         vec![da, db]
@@ -292,8 +352,16 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
         vec![
             a_bc.clone(),
             b_bc.clone(),
-            ArrayD::from_shape_vec(vec![a_shape.len()], a_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
-            ArrayD::from_shape_vec(vec![b_shape.len()], b_shape.iter().map(|&x| x as f32).collect()).expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![a_shape.len()],
+                a_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
+            ArrayD::from_shape_vec(
+                vec![b_shape.len()],
+                b_shape.iter().map(|&x| x as f32).collect(),
+            )
+            .expect("data length matches shape"),
         ],
         Box::new(|grad, saved| {
             let a_val = &saved[0];
@@ -301,7 +369,10 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
             let a_shape: Vec<usize> = saved[2].iter().map(|&x| x as usize).collect();
             let b_shape: Vec<usize> = saved[3].iter().map(|&x| x as usize).collect();
             let da = broadcast::reduce_grad_for_shape(&(grad.clone() / b_val), &a_shape);
-            let db = broadcast::reduce_grad_for_shape(&(grad.clone() * (-a_val) / (b_val * b_val)), &b_shape);
+            let db = broadcast::reduce_grad_for_shape(
+                &(grad.clone() * (-a_val) / (b_val * b_val)),
+                &b_shape,
+            );
             vec![da, db]
         }),
     )
@@ -409,7 +480,8 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
         let storage = input.storage();
         if let Storage::Gpu(gpu_input) = &storage {
             if let Ok(ctx) = GpuContext::global() {
-                let exp_tensor = GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], exponent)).unwrap();
+                let exp_tensor =
+                    GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], exponent)).unwrap();
                 match ctx.elementwise_binary(gpu_input, &exp_tensor, ElemOp::Powf) {
                     Ok(gpu_result) => {
                         if !input.requires_grad() {
@@ -425,8 +497,11 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             Box::new(move |grad, saved| {
                                 let x = &saved[0];
                                 let dx = x.mapv(|v| {
-                                    if v == 0.0 && exponent < 1.0 { 0.0 }
-                                    else { exponent * v.powf(exponent - 1.0) }
+                                    if v == 0.0 && exponent < 1.0 {
+                                        0.0
+                                    } else {
+                                        exponent * v.powf(exponent - 1.0)
+                                    }
                                 });
                                 vec![grad.clone() * dx]
                             }),

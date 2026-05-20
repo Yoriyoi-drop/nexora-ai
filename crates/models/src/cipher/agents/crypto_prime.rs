@@ -1,14 +1,14 @@
 //! Crypto Prime Agent
-//! 
+//!
 //! Advanced cryptography and secure communication
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Crypto Prime Agent - Advanced cryptography and secure communication
 #[derive(Debug, Clone)]
@@ -165,21 +165,22 @@ impl BaseAgent for CryptoPrimeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "crypto_prime".to_string(),
-                description: "Advanced cryptography and secure communication".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["operation".to_string(), "data".to_string()],
-                output_types: vec!["processed_data".to_string(), "security_metadata".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.98,
-                    avg_latency: 3200.0,
-                    resource_usage: 0.85,
-                    reliability: 0.99,
-                },
+        vec![AgentCapability {
+            name: "crypto_prime".to_string(),
+            description: "Advanced cryptography and secure communication".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["operation".to_string(), "data".to_string()],
+            output_types: vec![
+                "processed_data".to_string(),
+                "security_metadata".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.98,
+                avg_latency: 3200.0,
+                resource_usage: 0.85,
+                reliability: 0.99,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -217,14 +218,27 @@ impl CryptoPrimeAgent {
 
     async fn process_crypto_operation(&self, input: &CryptoPrimeTaskInput) -> AgentResult<Vec<u8>> {
         match input.operation.as_str() {
-            "encrypt" => self.encrypt_data(&input.data, &input.security_parameters).await,
-            "decrypt" => self.decrypt_data(&input.data, &input.security_parameters).await,
-            "hash" => self.hash_data(&input.data, &input.security_parameters).await,
+            "encrypt" => {
+                self.encrypt_data(&input.data, &input.security_parameters)
+                    .await
+            }
+            "decrypt" => {
+                self.decrypt_data(&input.data, &input.security_parameters)
+                    .await
+            }
+            "hash" => {
+                self.hash_data(&input.data, &input.security_parameters)
+                    .await
+            }
             _ => Ok(input.data.clone()),
         }
     }
 
-    async fn encrypt_data(&self, data: &[u8], _params: &HashMap<String, String>) -> AgentResult<Vec<u8>> {
+    async fn encrypt_data(
+        &self,
+        data: &[u8],
+        _params: &HashMap<String, String>,
+    ) -> AgentResult<Vec<u8>> {
         // Simple XOR encryption for demonstration
         let key = 0x42;
         let mut encrypted = Vec::with_capacity(data.len());
@@ -234,7 +248,11 @@ impl CryptoPrimeAgent {
         Ok(encrypted)
     }
 
-    async fn decrypt_data(&self, data: &[u8], _params: &HashMap<String, String>) -> AgentResult<Vec<u8>> {
+    async fn decrypt_data(
+        &self,
+        data: &[u8],
+        _params: &HashMap<String, String>,
+    ) -> AgentResult<Vec<u8>> {
         // Simple XOR decryption for demonstration
         let key = 0x42;
         let mut decrypted = Vec::with_capacity(data.len());
@@ -244,7 +262,11 @@ impl CryptoPrimeAgent {
         Ok(decrypted)
     }
 
-    async fn hash_data(&self, data: &[u8], _params: &HashMap<String, String>) -> AgentResult<Vec<u8>> {
+    async fn hash_data(
+        &self,
+        data: &[u8],
+        _params: &HashMap<String, String>,
+    ) -> AgentResult<Vec<u8>> {
         // Simple hash for demonstration
         let mut hash = 0u64;
         for &byte in data {
@@ -253,38 +275,51 @@ impl CryptoPrimeAgent {
         Ok(hash.to_le_bytes().to_vec())
     }
 
-    async fn generate_security_metadata(&self, input: &CryptoPrimeTaskInput) -> AgentResult<HashMap<String, String>> {
+    async fn generate_security_metadata(
+        &self,
+        input: &CryptoPrimeTaskInput,
+    ) -> AgentResult<HashMap<String, String>> {
         let mut metadata = HashMap::new();
-        
+
         metadata.insert("operation".to_string(), input.operation.clone());
         metadata.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
         metadata.insert("data_size".to_string(), input.data.len().to_string());
         metadata.insert("crypto_model".to_string(), "HybridEncryption".to_string());
-        metadata.insert("security_approach".to_string(), "MultiLayerSecurity".to_string());
-        
+        metadata.insert(
+            "security_approach".to_string(),
+            "MultiLayerSecurity".to_string(),
+        );
+
         Ok(metadata)
     }
 
-    async fn create_encryption_details(&self, input: &CryptoPrimeTaskInput) -> AgentResult<HashMap<String, String>> {
+    async fn create_encryption_details(
+        &self,
+        input: &CryptoPrimeTaskInput,
+    ) -> AgentResult<HashMap<String, String>> {
         let mut details = HashMap::new();
-        
+
         details.insert("algorithm".to_string(), "aes_256_gcm".to_string());
         details.insert("key_size".to_string(), "256".to_string());
         details.insert("mode".to_string(), "gcm".to_string());
         details.insert("padding".to_string(), "pkcs7".to_string());
-        
+
         if input.security_parameters.contains_key("custom_params") {
             details.insert("custom_params".to_string(), "applied".to_string());
         }
-        
+
         Ok(details)
     }
 
     async fn calculate_security_level(&self, input: &CryptoPrimeTaskInput) -> AgentResult<f32> {
         let base_security = 0.8;
-        let parameter_bonus = if input.security_parameters.len() > 0 { 0.1 } else { 0.0 };
+        let parameter_bonus = if input.security_parameters.len() > 0 {
+            0.1
+        } else {
+            0.0
+        };
         let data_size_factor = if input.data.len() > 100 { 0.05 } else { 0.0 };
-        
+
         Ok(base_security + parameter_bonus + data_size_factor)
     }
 }
@@ -314,7 +349,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.processed_data.is_empty());
         assert!(!output.security_metadata.is_empty());
@@ -326,25 +361,25 @@ mod tests {
     async fn test_encryption_decryption() {
         let agent = CryptoPrimeAgent::default();
         let original_data = b"Test message".to_vec();
-        
+
         let encrypt_input = CryptoPrimeTaskInput {
             operation: "encrypt".to_string(),
             data: original_data.clone(),
             security_parameters: HashMap::new(),
         };
-        
+
         let encrypt_result = agent.process(encrypt_input).await.unwrap();
         let encrypted_data = encrypt_result.processed_data;
-        
+
         let decrypt_input = CryptoPrimeTaskInput {
             operation: "decrypt".to_string(),
             data: encrypted_data,
             security_parameters: HashMap::new(),
         };
-        
+
         let decrypt_result = agent.process(decrypt_input).await.unwrap();
         let decrypted_data = decrypt_result.processed_data;
-        
+
         assert_eq!(original_data, decrypted_data);
     }
 

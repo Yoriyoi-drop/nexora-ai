@@ -34,7 +34,10 @@ impl PostGenerationVerifier {
             citation_pattern: Regex::new(r"(?i)\[(\d+|citation|sumber|source)\]").unwrap(),
             number_pattern: Regex::new(r"\b\d{2,}(\.\d+)?%?\b").unwrap(),
             contradiction_markers: vec![
-                Regex::new(r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b").unwrap(),
+                Regex::new(
+                    r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b",
+                )
+                .unwrap(),
                 Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b").unwrap(),
             ],
             config,
@@ -46,7 +49,8 @@ impl PostGenerationVerifier {
         text: &str,
         sources: Option<Vec<String>>,
     ) -> Result<PostGenCheckResult, crate::HallucinationError> {
-        let sentences: Vec<&str> = text.split(|c: char| c == '.' || c == '!' || c == '?')
+        let sentences: Vec<&str> = text
+            .split(|c: char| c == '.' || c == '!' || c == '?')
             .map(|s| s.trim())
             .filter(|s| s.len() > 15)
             .collect();
@@ -56,8 +60,7 @@ impl PostGenerationVerifier {
         let contradiction_count = self.detect_contradictions(text);
 
         let internal_consistency = if total_claims > 0 {
-            (1.0 - contradiction_count as f32 / total_claims.max(1) as f32)
-                .max(0.0)
+            (1.0 - contradiction_count as f32 / total_claims.max(1) as f32).max(0.0)
         } else {
             1.0
         };
@@ -93,9 +96,7 @@ impl PostGenerationVerifier {
             if self.number_pattern.find_iter(s).count() > 2 {
                 risk += 0.4;
             }
-            if !self.citation_pattern.is_match(s)
-                && self.number_pattern.is_match(s)
-            {
+            if !self.citation_pattern.is_match(s) && self.number_pattern.is_match(s) {
                 risk += 0.3;
             }
             if s.to_lowercase().contains("menurut") && !s.to_lowercase().contains("saya") {
@@ -112,9 +113,13 @@ impl PostGenerationVerifier {
         let lower = text.to_lowercase();
         let mut contradictions = 0;
         let yes_no_pairs = vec![
-            ("ya", "tidak"), ("yes", "no"), ("benar", "salah"),
-            ("true", "false"), ("setuju", "menolak"),
-            (" always", " never"), ("semua", "tidak ada"),
+            ("ya", "tidak"),
+            ("yes", "no"),
+            ("benar", "salah"),
+            ("true", "false"),
+            ("setuju", "menolak"),
+            (" always", " never"),
+            ("semua", "tidak ada"),
         ];
 
         for (a, b) in &yes_no_pairs {
@@ -135,7 +140,8 @@ impl PostGenerationVerifier {
     fn check_source_grounding(&self, _text: &str, sources: &Option<Vec<String>>) -> f32 {
         match sources {
             Some(src) if !src.is_empty() => {
-                let grounded: f32 = src.iter()
+                let grounded: f32 = src
+                    .iter()
                     .map(|s| s.split_whitespace().count() as f32)
                     .sum();
                 (grounded / 100.0).min(1.0)
@@ -152,9 +158,13 @@ impl PostGenerationVerifier {
             let sentences: Vec<&str> = lower.split('.').collect();
             for sent in &sentences {
                 let sent = sent.trim();
-                if sent.len() < 20 { continue; }
+                if sent.len() < 20 {
+                    continue;
+                }
                 let words: Vec<&str> = sent.split_whitespace().collect();
-                if words.len() < 5 { continue; }
+                if words.len() < 5 {
+                    continue;
+                }
                 let key = words[..5.min(words.len())].join(" ");
                 let entry = key_claims.entry(key).or_default();
                 entry.push(true);

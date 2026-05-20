@@ -1,4 +1,4 @@
-use crate::gpu::{GpuContext, GpuTensor, GpuError};
+use crate::gpu::{GpuContext, GpuError, GpuTensor};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GpuDType {
@@ -118,93 +118,111 @@ impl GpuLossScaler {
 // ─── Pipeline compilation ──────────────────────────────────────────────────────
 
 pub fn compile_f32_to_f16_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("f32_to_f16_shader"),
-        source: wgpu::ShaderSource::Wgsl(F32_TO_F16_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("f32_to_f16"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("f32_to_f16_shader"),
+            source: wgpu::ShaderSource::Wgsl(F32_TO_F16_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("f32_to_f16"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_f16_to_f32_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("f16_to_f32_shader"),
-        source: wgpu::ShaderSource::Wgsl(F16_TO_F32_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("f16_to_f32"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("f16_to_f32_shader"),
+            source: wgpu::ShaderSource::Wgsl(F16_TO_F32_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("f16_to_f32"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_f32_to_bf16_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("f32_to_bf16_shader"),
-        source: wgpu::ShaderSource::Wgsl(F32_TO_BF16_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("f32_to_bf16"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("f32_to_bf16_shader"),
+            source: wgpu::ShaderSource::Wgsl(F32_TO_BF16_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("f32_to_bf16"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_bf16_to_f32_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("bf16_to_f32_shader"),
-        source: wgpu::ShaderSource::Wgsl(BF16_TO_F32_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("bf16_to_f32"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("bf16_to_f32_shader"),
+            source: wgpu::ShaderSource::Wgsl(BF16_TO_F32_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("bf16_to_f32"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_scale_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("scale_shader"),
-        source: wgpu::ShaderSource::Wgsl(SCALE_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("scale"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("scale_shader"),
+            source: wgpu::ShaderSource::Wgsl(SCALE_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("scale"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_unscale_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("unscale_shader"),
-        source: wgpu::ShaderSource::Wgsl(UNSCALE_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("unscale"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("unscale_shader"),
+            source: wgpu::ShaderSource::Wgsl(UNSCALE_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("unscale"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 // ─── Mixed precision pipeline set ──────────────────────────────────────────────
@@ -218,9 +236,7 @@ pub struct MixedPrecisionPipelines {
     pub unscale: wgpu::ComputePipeline,
 }
 
-pub fn compile_mixed_pipelines(
-    ctx: &GpuContext,
-) -> MixedPrecisionPipelines {
+pub fn compile_mixed_pipelines(ctx: &GpuContext) -> MixedPrecisionPipelines {
     MixedPrecisionPipelines {
         f32_to_f16: compile_f32_to_f16_pipeline(ctx),
         f16_to_f32: compile_f16_to_f32_pipeline(ctx),
@@ -269,9 +285,11 @@ pub fn dispatch_f32_to_f16(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("f32_to_f16_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("f32_to_f16_encoder"),
+        });
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("f32_to_f16"),
@@ -325,9 +343,11 @@ pub fn dispatch_f16_to_f32(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("f16_to_f32_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("f16_to_f32_encoder"),
+        });
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("f16_to_f32"),
@@ -370,9 +390,11 @@ pub fn dispatch_scale_inplace(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("scale_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scale_encoder"),
+        });
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("scale"),
@@ -412,9 +434,11 @@ pub fn dispatch_unscale_inplace(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("unscale_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("unscale_encoder"),
+        });
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("unscale"),

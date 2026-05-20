@@ -2,7 +2,7 @@
 //! Axum's built-in Router handles all routing.
 //! These types are kept for API compatibility.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Rate limit configuration for routes
 #[derive(Debug, Clone, Serialize, Deserialize)]

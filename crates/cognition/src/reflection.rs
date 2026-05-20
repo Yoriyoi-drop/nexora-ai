@@ -1,8 +1,8 @@
 //! Reflection Module - Self-reflection and meta-cognition
 
 use async_trait::async_trait;
-use serde::{Serialize, Deserialize};
 use nexora_foundation::FoundationResult;
+use serde::{Deserialize, Serialize};
 
 /// Reflection result from self-analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,8 +33,15 @@ pub enum ReflectionType {
 /// Reflection engine trait
 #[async_trait]
 pub trait ReflectionEngine: Send + Sync {
-    async fn reflect(&self, actions: &[Action], context: &str) -> FoundationResult<ReflectionResult>;
-    async fn suggest_improvements(&self, reflection: &ReflectionResult) -> FoundationResult<Vec<String>>;
+    async fn reflect(
+        &self,
+        actions: &[Action],
+        context: &str,
+    ) -> FoundationResult<ReflectionResult>;
+    async fn suggest_improvements(
+        &self,
+        reflection: &ReflectionResult,
+    ) -> FoundationResult<Vec<String>>;
     async fn update_model(&self, reflection: &ReflectionResult) -> FoundationResult<()>;
     async fn stats(&self) -> FoundationResult<ReflectionStats>;
 }
@@ -76,7 +83,11 @@ impl Default for DefaultReflector {
 
 #[async_trait]
 impl ReflectionEngine for DefaultReflector {
-    async fn reflect(&self, actions: &[Action], context: &str) -> FoundationResult<ReflectionResult> {
+    async fn reflect(
+        &self,
+        actions: &[Action],
+        context: &str,
+    ) -> FoundationResult<ReflectionResult> {
         let mut errors = Vec::with_capacity(actions.len());
         let mut improvements = Vec::with_capacity(actions.len());
         let mut insights = Vec::with_capacity(2);
@@ -84,14 +95,18 @@ impl ReflectionEngine for DefaultReflector {
         for action in actions {
             if !action.success {
                 errors.push(format!("{} failed: {}", action.action_type, action.output));
-                improvements.push(format!("Retry {} with adjusted parameters", action.action_type));
+                improvements.push(format!(
+                    "Retry {} with adjusted parameters",
+                    action.action_type
+                ));
             }
         }
 
         if actions.is_empty() {
             insights.push("No actions to reflect on".to_string());
         } else {
-            let success_rate = actions.iter().filter(|a| a.success).count() as f32 / actions.len() as f32;
+            let success_rate =
+                actions.iter().filter(|a| a.success).count() as f32 / actions.len() as f32;
             insights.push(format!("Success rate: {:.1}%", success_rate * 100.0));
             if success_rate < 0.5 {
                 improvements.push("Increase validation before action execution".to_string());
@@ -111,7 +126,11 @@ impl ReflectionEngine for DefaultReflector {
             improvements_suggested: improvements,
             learning_insights: insights,
             metadata: ReflectionMetadata {
-                reflection_type: if has_errors { ReflectionType::ErrorAnalysis } else { ReflectionType::Performance },
+                reflection_type: if has_errors {
+                    ReflectionType::ErrorAnalysis
+                } else {
+                    ReflectionType::Performance
+                },
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -131,8 +150,13 @@ impl ReflectionEngine for DefaultReflector {
         Ok(result)
     }
 
-    async fn suggest_improvements(&self, reflection: &ReflectionResult) -> FoundationResult<Vec<String>> {
-        let mut suggestions = Vec::with_capacity(2 + reflection.improvements_suggested.len() + reflection.learning_insights.len());
+    async fn suggest_improvements(
+        &self,
+        reflection: &ReflectionResult,
+    ) -> FoundationResult<Vec<String>> {
+        let mut suggestions = Vec::with_capacity(
+            2 + reflection.improvements_suggested.len() + reflection.learning_insights.len(),
+        );
 
         if reflection.confidence < 0.3 {
             suggestions.push("Consider using a different approach entirely".to_string());

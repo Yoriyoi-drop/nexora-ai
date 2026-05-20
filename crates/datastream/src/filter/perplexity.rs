@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use super::traits::Filter;
-use crate::types::{DataSample, FilterResult, FilterAction};
+use crate::types::{DataSample, FilterAction, FilterResult};
 
 #[derive(Debug, Clone)]
 pub struct PerplexityFilter {
@@ -20,7 +20,10 @@ impl Default for PerplexityFilter {
 
 impl PerplexityFilter {
     pub fn new(min: f64, max: f64) -> Self {
-        Self { min_perplexity: min, max_perplexity: max }
+        Self {
+            min_perplexity: min,
+            max_perplexity: max,
+        }
     }
 
     fn estimate_perplexity(&self, text: &str) -> f64 {
@@ -29,7 +32,8 @@ impl PerplexityFilter {
             return 100.0;
         }
 
-        let mut char_freq: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
+        let mut char_freq: std::collections::HashMap<char, usize> =
+            std::collections::HashMap::new();
         for &c in &chars {
             *char_freq.entry(c).or_insert(0) += 1;
         }
@@ -38,7 +42,8 @@ impl PerplexityFilter {
         let mut log_prob_sum = 0.0;
         let mut ngram_count = 0;
 
-        let mut trigram_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut trigram_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for window in chars.windows(3) {
             let trigram: String = window.iter().collect();
             *trigram_counts.entry(trigram).or_insert(0) += 1;

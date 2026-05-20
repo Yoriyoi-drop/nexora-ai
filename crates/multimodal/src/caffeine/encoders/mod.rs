@@ -1,25 +1,25 @@
 //! Multi-modal encoders for CAFFEINE
-//! 
+//!
 //! Implements Stage 1: Multi-Scale Contrastive Encoding
 //! - Regional Contrastive Visual Encoder (dari CLIP)
 //! - Audio encoder (Whisper-based)
 //! - Video encoder (3D Vision Transformer)
 //! - Text encoder (BERT-based)
 
-pub mod image_encoder;
 pub mod audio_encoder;
-pub mod video_encoder;
-pub mod text_encoder;
+pub mod image_encoder;
 pub mod regional_alignment;
+pub mod text_encoder;
+pub mod video_encoder;
 
-pub use image_encoder::*;
 pub use audio_encoder::*;
-pub use video_encoder::*;
-pub use text_encoder::*;
+pub use image_encoder::*;
 pub use regional_alignment::*;
+pub use text_encoder::*;
+pub use video_encoder::*;
 
-use crate::caffeine::types::*;
 use crate::caffeine::error::Result;
+use crate::caffeine::types::*;
 
 /// Multi-modal encoder collection
 pub struct MultiModalEncoders {
@@ -39,7 +39,7 @@ impl MultiModalEncoders {
         let video_encoder = VideoEncoder::new(config.video_encoder.clone())?;
         let text_encoder = TextEncoder::new(config.text_encoder.clone())?;
         let regional_aligner = RegionalAlignment::new(config.num_regional_patches)?;
-        
+
         Ok(Self {
             image_encoder,
             audio_encoder,
@@ -49,7 +49,7 @@ impl MultiModalEncoders {
             config,
         })
     }
-    
+
     /// Encode multi-modal inputs
     pub fn encode(&mut self, inputs: &MultiModalInputs) -> Result<EncodedFeatures> {
         let mut image_features = None;
@@ -57,37 +57,39 @@ impl MultiModalEncoders {
         let mut video_features = None;
         let mut text_features = None;
         let mut regional_features = None;
-        
+
         // Encode image if present
         if let Some(ref image_input) = inputs.image {
             let features = self.image_encoder.encode(image_input)?;
             image_features = Some(features.clone());
-            
+
             // Extract regional features if enabled
             if self.config.enable_regional_alignment {
-                let regional = self.regional_aligner.extract_regional_features(&features, image_input)?;
+                let regional = self
+                    .regional_aligner
+                    .extract_regional_features(&features, image_input)?;
                 regional_features = Some(regional);
             }
         }
-        
+
         // Encode audio if present
         if let Some(ref audio_input) = inputs.audio {
             let features = self.audio_encoder.encode(audio_input)?;
             audio_features = Some(features);
         }
-        
+
         // Encode video if present
         if let Some(ref video_input) = inputs.video {
             let features = self.video_encoder.encode(video_input)?;
             video_features = Some(features);
         }
-        
+
         // Encode text if present
         if let Some(ref text_input) = inputs.text {
             let features = self.text_encoder.encode(text_input)?;
             text_features = Some(features);
         }
-        
+
         Ok(EncodedFeatures {
             image_features,
             audio_features,
@@ -96,7 +98,7 @@ impl MultiModalEncoders {
             regional_features,
         })
     }
-    
+
     /// Get encoder statistics
     pub fn get_stats(&self) -> EncoderStats {
         EncoderStats {

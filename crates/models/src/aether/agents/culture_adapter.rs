@@ -1,14 +1,14 @@
 //! Culture Adapter Agent
-//! 
+//!
 //! Cultural adaptation agent for NXR-ÆTHER
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Culture Adapter Agent - Cultural adaptation
 #[derive(Debug, Clone)]
@@ -468,25 +468,33 @@ impl BaseAgent for CultureAdapterAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze cultural context
         let cultural_analysis = self.analyze_cultural_context(&input).await?;
-        
+
         // Perform cultural adaptation
-        let adapted_content = self.perform_cultural_adaptation(&input, &cultural_analysis).await?;
-        
+        let adapted_content = self
+            .perform_cultural_adaptation(&input, &cultural_analysis)
+            .await?;
+
         // Generate adaptation analysis
-        let adaptation_analysis = self.generate_adaptation_analysis(&input, &adapted_content, &cultural_analysis).await?;
-        
+        let adaptation_analysis = self
+            .generate_adaptation_analysis(&input, &adapted_content, &cultural_analysis)
+            .await?;
+
         // Generate cultural insights
-        let cultural_insights = self.generate_cultural_insights(&input, &cultural_analysis).await?;
-        
+        let cultural_insights = self
+            .generate_cultural_insights(&input, &cultural_analysis)
+            .await?;
+
         // Assess adaptation quality
-        let adaptation_quality = self.assess_adaptation_quality(&input, &adapted_content, &adaptation_analysis).await?;
-        
+        let adaptation_quality = self
+            .assess_adaptation_quality(&input, &adapted_content, &adaptation_analysis)
+            .await?;
+
         // Build output
         let output = CulturalAdaptationTaskOutput {
             adapted_content,
@@ -495,9 +503,9 @@ impl BaseAgent for CultureAdapterAgent {
             adaptation_quality,
             metadata: HashMap::new(),
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -510,21 +518,20 @@ impl BaseAgent for CultureAdapterAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "cultural_adaptation".to_string(),
-                description: "Advanced cultural adaptation and cross-cultural communication".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["cultural_adaptation_task".to_string()],
-                output_types: vec!["culturally_adapted_content".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.87,
-                    avg_latency: 600.0,
-                    resource_usage: 0.6,
-                    reliability: 0.9,
-                },
+        vec![AgentCapability {
+            name: "cultural_adaptation".to_string(),
+            description: "Advanced cultural adaptation and cross-cultural communication"
+                .to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["cultural_adaptation_task".to_string()],
+            output_types: vec!["culturally_adapted_content".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.87,
+                avg_latency: 600.0,
+                resource_usage: 0.6,
+                reliability: 0.9,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -566,43 +573,48 @@ impl CultureAdapterAgent {
     fn validate_input(&self, input: &CulturalAdaptationTaskInput) -> AgentResult<()> {
         if input.content.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Content to adapt cannot be empty".to_string()
+                "Content to adapt cannot be empty".to_string(),
             ));
         }
-        
+
         if input.source_culture.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Source culture cannot be empty".to_string()
+                "Source culture cannot be empty".to_string(),
             ));
         }
-        
+
         if input.target_culture.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Target culture cannot be empty".to_string()
+                "Target culture cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Analyze cultural context
-    async fn analyze_cultural_context(&self, input: &CulturalAdaptationTaskInput) -> AgentResult<CulturalAnalysis> {
+    async fn analyze_cultural_context(
+        &self,
+        input: &CulturalAdaptationTaskInput,
+    ) -> AgentResult<CulturalAnalysis> {
         // Get source cultural model
         let source_model = self.get_cultural_model(&input.source_culture);
-        
+
         // Get target cultural model
         let target_model = self.get_cultural_model(&input.target_culture);
-        
+
         // Analyze cultural differences
         let cultural_differences = self.analyze_cultural_differences(&source_model, &target_model);
-        
+
         // Analyze cultural similarities
-        let cultural_similarities = self.analyze_cultural_similarities(&source_model, &target_model);
-        
+        let cultural_similarities =
+            self.analyze_cultural_similarities(&source_model, &target_model);
+
         // Determine adaptation requirements
         let adaptation_requirements = self.determine_adaptation_requirements(&cultural_differences);
-        
-        let cultural_differences_values: HashMap<String, (f32, f32)> = cultural_differences.iter()
+
+        let cultural_differences_values: HashMap<String, (f32, f32)> = cultural_differences
+            .iter()
             .filter_map(|d| {
                 let source_val = source_model.cultural_dimensions.get(&d.difference_type)?;
                 let target_val = target_model.cultural_dimensions.get(&d.difference_type)?;
@@ -621,31 +633,43 @@ impl CultureAdapterAgent {
     }
 
     /// Perform cultural adaptation
-    async fn perform_cultural_adaptation(&self, input: &CulturalAdaptationTaskInput,
-                                         cultural_analysis: &CulturalAnalysis) -> AgentResult<String> {
+    async fn perform_cultural_adaptation(
+        &self,
+        input: &CulturalAdaptationTaskInput,
+        cultural_analysis: &CulturalAnalysis,
+    ) -> AgentResult<String> {
         let mut adapted_content = input.content.clone();
-        
+
         // Apply cultural adaptations based on analysis
         for difference in &cultural_analysis.cultural_differences {
-            adapted_content = self.apply_cultural_adaptation(&adapted_content, difference).await?;
+            adapted_content = self
+                .apply_cultural_adaptation(&adapted_content, difference)
+                .await?;
         }
-        
+
         // Apply communication style adaptation
-        adapted_content = self.adapt_communication_style(&adapted_content, cultural_analysis).await?;
-        
+        adapted_content = self
+            .adapt_communication_style(&adapted_content, cultural_analysis)
+            .await?;
+
         // Apply value alignment
-        adapted_content = self.apply_value_alignment(&adapted_content, cultural_analysis).await?;
-        
+        adapted_content = self
+            .apply_value_alignment(&adapted_content, cultural_analysis)
+            .await?;
+
         Ok(adapted_content)
     }
 
     /// Generate adaptation analysis
-    async fn generate_adaptation_analysis(&self, input: &CulturalAdaptationTaskInput,
-                                         adapted_content: &str,
-                                         cultural_analysis: &CulturalAnalysis) -> AgentResult<AdaptationAnalysis> {
+    async fn generate_adaptation_analysis(
+        &self,
+        input: &CulturalAdaptationTaskInput,
+        adapted_content: &str,
+        cultural_analysis: &CulturalAnalysis,
+    ) -> AgentResult<AdaptationAnalysis> {
         let mut adaptations_made = Vec::new();
         let mut cultural_adjustments = Vec::new();
-        
+
         // Track adaptations made
         for difference in &cultural_analysis.cultural_differences {
             adaptations_made.push(AdaptationMade {
@@ -656,9 +680,10 @@ impl CultureAdapterAgent {
                 confidence: 0.8,
             });
         }
-        
+
         // Track cultural adjustments
-        for (dimension, &(source_val, target_val)) in &cultural_analysis.cultural_differences_values {
+        for (dimension, &(source_val, target_val)) in &cultural_analysis.cultural_differences_values
+        {
             cultural_adjustments.push(CulturalAdjustment {
                 adjustment_type: "dimension_adjustment".to_string(),
                 cultural_dimension: dimension.clone(),
@@ -667,14 +692,17 @@ impl CultureAdapterAgent {
                 impact: "improved_cultural_fit".to_string(),
             });
         }
-        
+
         // Analyze preservation
         let preservation_analysis = PreservationAnalysis {
             preserved_elements: vec!["core_meaning".to_string(), "intent".to_string()],
-            modified_elements: vec!["expression_style".to_string(), "communication_approach".to_string()],
+            modified_elements: vec![
+                "expression_style".to_string(),
+                "communication_approach".to_string(),
+            ],
             preservation_score: 0.85,
         };
-        
+
         Ok(AdaptationAnalysis {
             adaptations_made,
             cultural_adjustments,
@@ -683,36 +711,48 @@ impl CultureAdapterAgent {
     }
 
     /// Generate cultural insights
-    async fn generate_cultural_insights(&self, input: &CulturalAdaptationTaskInput,
-                                       cultural_analysis: &CulturalAnalysis) -> AgentResult<CulturalInsights> {
+    async fn generate_cultural_insights(
+        &self,
+        input: &CulturalAdaptationTaskInput,
+        cultural_analysis: &CulturalAnalysis,
+    ) -> AgentResult<CulturalInsights> {
         let mut cultural_differences = Vec::new();
         let mut cultural_similarities = Vec::new();
         let mut adaptation_recommendations = Vec::new();
-        
+
         // Generate cultural differences insights
         for difference in &cultural_analysis.cultural_differences {
             cultural_differences.push(CulturalDifference {
                 difference_type: difference.difference_type.clone(),
-                source_characteristic: format!("{}: {}", input.source_culture, difference.difference_type),
-                target_characteristic: format!("{}: {}", input.target_culture, difference.difference_type),
+                source_characteristic: format!(
+                    "{}: {}",
+                    input.source_culture, difference.difference_type
+                ),
+                target_characteristic: format!(
+                    "{}: {}",
+                    input.target_culture, difference.difference_type
+                ),
                 adaptation_needed: true,
             });
         }
-        
+
         // Generate cultural similarities insights
         for similarity in &cultural_analysis.cultural_similarities {
             cultural_similarities.push(CulturalSimilarity {
                 similarity_type: similarity.clone(),
-                shared_characteristic: format!("Shared between {} and {}", input.source_culture, input.target_culture),
+                shared_characteristic: format!(
+                    "Shared between {} and {}",
+                    input.source_culture, input.target_culture
+                ),
                 similarity_strength: 0.7,
             });
         }
-        
+
         // Generate adaptation recommendations
         adaptation_recommendations.push("Consider local communication norms".to_string());
         adaptation_recommendations.push("Respect cultural value systems".to_string());
         adaptation_recommendations.push("Adapt to local social etiquette".to_string());
-        
+
         Ok(CulturalInsights {
             cultural_differences,
             cultural_similarities,
@@ -721,15 +761,21 @@ impl CultureAdapterAgent {
     }
 
     /// Assess adaptation quality
-    async fn assess_adaptation_quality(&self, input: &CulturalAdaptationTaskInput,
-                                      adapted_content: &str,
-                                      adaptation_analysis: &AdaptationAnalysis) -> AgentResult<AdaptationQuality> {
-        let cultural_appropriateness = self.assess_cultural_appropriateness(adapted_content, &input.target_culture);
+    async fn assess_adaptation_quality(
+        &self,
+        input: &CulturalAdaptationTaskInput,
+        adapted_content: &str,
+        adaptation_analysis: &AdaptationAnalysis,
+    ) -> AgentResult<AdaptationQuality> {
+        let cultural_appropriateness =
+            self.assess_cultural_appropriateness(adapted_content, &input.target_culture);
         let semantic_preservation = adaptation_analysis.preservation_analysis.preservation_score;
-        let pragmatic_effectiveness = self.assess_pragmatic_effectiveness(adapted_content, &input.target_culture);
-        
-        let overall_quality = (cultural_appropriateness + semantic_preservation + pragmatic_effectiveness) / 3.0;
-        
+        let pragmatic_effectiveness =
+            self.assess_pragmatic_effectiveness(adapted_content, &input.target_culture);
+
+        let overall_quality =
+            (cultural_appropriateness + semantic_preservation + pragmatic_effectiveness) / 3.0;
+
         Ok(AdaptationQuality {
             cultural_appropriateness,
             semantic_preservation,
@@ -748,14 +794,14 @@ impl CultureAdapterAgent {
                 dims.insert("power_distance".to_string(), 0.3);
                 dims.insert("uncertainty_avoidance".to_string(), 0.4);
                 dims
-            },
+            }
             "eastern" => {
                 let mut dims = HashMap::new();
                 dims.insert("individualism".to_string(), 0.2);
                 dims.insert("power_distance".to_string(), 0.7);
                 dims.insert("uncertainty_avoidance".to_string(), 0.6);
                 dims
-            },
+            }
             _ => {
                 let mut dims = HashMap::new();
                 dims.insert("individualism".to_string(), 0.5);
@@ -764,7 +810,7 @@ impl CultureAdapterAgent {
                 dims
             }
         };
-        
+
         CulturalModel {
             id: format!("model_{}", culture),
             culture: culture.to_string(),
@@ -774,9 +820,13 @@ impl CultureAdapterAgent {
         }
     }
 
-    fn analyze_cultural_differences(&self, source: &CulturalModel, target: &CulturalModel) -> Vec<CulturalDifference> {
+    fn analyze_cultural_differences(
+        &self,
+        source: &CulturalModel,
+        target: &CulturalModel,
+    ) -> Vec<CulturalDifference> {
         let mut differences = Vec::new();
-        
+
         for (dimension, &source_val) in &source.cultural_dimensions {
             if let Some(&target_val) = target.cultural_dimensions.get(dimension) {
                 let diff = (source_val - target_val).abs();
@@ -790,13 +840,17 @@ impl CultureAdapterAgent {
                 }
             }
         }
-        
+
         differences
     }
 
-    fn analyze_cultural_similarities(&self, source: &CulturalModel, target: &CulturalModel) -> Vec<String> {
+    fn analyze_cultural_similarities(
+        &self,
+        source: &CulturalModel,
+        target: &CulturalModel,
+    ) -> Vec<String> {
         let mut similarities = Vec::new();
-        
+
         for (dimension, &source_val) in &source.cultural_dimensions {
             if let Some(&target_val) = target.cultural_dimensions.get(dimension) {
                 let diff = (source_val - target_val).abs();
@@ -805,21 +859,25 @@ impl CultureAdapterAgent {
                 }
             }
         }
-        
+
         similarities
     }
 
     fn determine_adaptation_requirements(&self, differences: &[CulturalDifference]) -> Vec<String> {
         let mut requirements = Vec::new();
-        
+
         for difference in differences {
             requirements.push(format!("Adapt for {}", difference.difference_type));
         }
-        
+
         requirements
     }
 
-    async fn apply_cultural_adaptation(&self, content: &str, difference: &CulturalDifference) -> AgentResult<String> {
+    async fn apply_cultural_adaptation(
+        &self,
+        content: &str,
+        difference: &CulturalDifference,
+    ) -> AgentResult<String> {
         // Simplified cultural adaptation
         let adapted_content = match difference.difference_type.as_str() {
             "individualism" => {
@@ -828,29 +886,43 @@ impl CultureAdapterAgent {
                 } else {
                     content.to_string()
                 }
-            },
+            }
             "power_distance" => {
                 if content.contains("direct") {
                     content.replace("direct", "respectful")
                 } else {
                     content.to_string()
                 }
-            },
+            }
             _ => content.to_string(),
         };
-        
+
         Ok(adapted_content)
     }
 
-    async fn adapt_communication_style(&self, content: &str, cultural_analysis: &CulturalAnalysis) -> AgentResult<String> {
+    async fn adapt_communication_style(
+        &self,
+        content: &str,
+        cultural_analysis: &CulturalAnalysis,
+    ) -> AgentResult<String> {
         // Simplified communication style adaptation
-        let adapted_content = format!("{} [Culturally adapted for {}]", content, cultural_analysis.target_model.culture);
+        let adapted_content = format!(
+            "{} [Culturally adapted for {}]",
+            content, cultural_analysis.target_model.culture
+        );
         Ok(adapted_content)
     }
 
-    async fn apply_value_alignment(&self, content: &str, cultural_analysis: &CulturalAnalysis) -> AgentResult<String> {
+    async fn apply_value_alignment(
+        &self,
+        content: &str,
+        cultural_analysis: &CulturalAnalysis,
+    ) -> AgentResult<String> {
         // Simplified value alignment
-        let adapted_content = format!("{} [Value aligned with {} culture]", content, cultural_analysis.target_model.culture);
+        let adapted_content = format!(
+            "{} [Value aligned with {} culture]",
+            content, cultural_analysis.target_model.culture
+        );
         Ok(adapted_content)
     }
 
@@ -919,37 +991,46 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.adapted_content.is_empty());
         assert!(output.adaptation_quality.overall_quality > 0.0);
-        assert!(!output.cultural_insights.adaptation_recommendations.is_empty());
+        assert!(!output
+            .cultural_insights
+            .adaptation_recommendations
+            .is_empty());
     }
 
     #[test]
     fn test_cultural_model_creation() {
         let agent = CultureAdapterAgent::default();
-        
+
         let western_model = agent.get_cultural_model("western");
         assert_eq!(western_model.culture, "western");
-        assert!(western_model.cultural_dimensions.contains_key("individualism"));
-        
+        assert!(western_model
+            .cultural_dimensions
+            .contains_key("individualism"));
+
         let eastern_model = agent.get_cultural_model("eastern");
         assert_eq!(eastern_model.culture, "eastern");
-        assert!(eastern_model.cultural_dimensions.contains_key("individualism"));
+        assert!(eastern_model
+            .cultural_dimensions
+            .contains_key("individualism"));
     }
 
     #[test]
     fn test_cultural_differences_analysis() {
         let agent = CultureAdapterAgent::default();
-        
+
         let western_model = agent.get_cultural_model("western");
         let eastern_model = agent.get_cultural_model("eastern");
-        
+
         let differences = agent.analyze_cultural_differences(&western_model, &eastern_model);
         assert!(!differences.is_empty());
-        
-        let individualism_diff = differences.iter().find(|d| d.difference_type == "individualism");
+
+        let individualism_diff = differences
+            .iter()
+            .find(|d| d.difference_type == "individualism");
         assert!(individualism_diff.is_some());
         assert!(individualism_diff.unwrap().adaptation_needed);
     }

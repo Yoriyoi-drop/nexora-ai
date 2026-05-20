@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetManifest {
@@ -29,17 +29,15 @@ pub struct ShardInfo {
 
 impl DatasetManifest {
     pub fn from_path(path: &Path) -> Result<Self, ManifestError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ManifestError::Io(e.to_string()))?;
-        serde_json::from_str(&content)
-            .map_err(|e| ManifestError::Parse(e.to_string()))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ManifestError::Io(e.to_string()))?;
+        serde_json::from_str(&content).map_err(|e| ManifestError::Parse(e.to_string()))
     }
 
     pub fn save(&self, path: &Path) -> Result<(), ManifestError> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| ManifestError::Serialize(e.to_string()))?;
-        std::fs::write(path, content)
-            .map_err(|e| ManifestError::Io(e.to_string()))
+        std::fs::write(path, content).map_err(|e| ManifestError::Io(e.to_string()))
     }
 
     pub fn shards_for_split(&self, split: &str) -> Vec<&ShardInfo> {
@@ -47,7 +45,8 @@ impl DatasetManifest {
     }
 
     pub fn total_for_split(&self, split: &str) -> u64 {
-        self.shards.iter()
+        self.shards
+            .iter()
             .filter(|s| s.split == split)
             .map(|s| s.samples)
             .sum()

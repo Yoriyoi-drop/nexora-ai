@@ -1,7 +1,7 @@
 //! Utility functions for validation framework
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Validation utility functions
 pub struct ValidationUtils;
@@ -96,8 +96,14 @@ mod tests {
 
     #[test]
     fn test_validate_string_format_contains() {
-        assert!(ValidationUtils::validate_string_format("hello world", "world"));
-        assert!(!ValidationUtils::validate_string_format("hello world", "xyz"));
+        assert!(ValidationUtils::validate_string_format(
+            "hello world",
+            "world"
+        ));
+        assert!(!ValidationUtils::validate_string_format(
+            "hello world",
+            "xyz"
+        ));
     }
 
     #[test]
@@ -116,7 +122,10 @@ mod tests {
 
     #[test]
     fn test_validation_rule_range_valid() {
-        let rule = ValidationRule::Range { min: 0.0, max: 100.0 };
+        let rule = ValidationRule::Range {
+            min: 0.0,
+            max: 100.0,
+        };
         assert!(rule.validate("50"));
         assert!(!rule.validate("200"));
     }

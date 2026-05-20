@@ -1,4 +1,4 @@
-use crate::intervention::detector::{DetectedAnomaly, AnomalyType};
+use crate::intervention::detector::{AnomalyType, DetectedAnomaly};
 
 /// Saran intervensi dari Diagnostic Assistant
 #[derive(Debug, Clone)]
@@ -39,40 +39,52 @@ impl DiagnosticAssistant {
             AnomalyType::ExplodingGradient => {
                 "Gradients have grown very large, causing numerical instability. \
                 This often happens when the learning rate is too high or the network \
-                depth is too large without proper normalization.".to_string()
+                depth is too large without proper normalization."
+                    .to_string()
             }
             AnomalyType::VanishingGradient => {
                 "Gradients are becoming very small, preventing effective learning in \
                 earlier layers. Consider using residual connections, different activation \
-                functions (e.g., ReLU instead of sigmoid), or layer normalization.".to_string()
+                functions (e.g., ReLU instead of sigmoid), or layer normalization."
+                    .to_string()
             }
             AnomalyType::DeadActivation => {
                 "Neurons are producing near-zero outputs (dead activations). This is \
                 common with ReLU activations when too many units become permanently inactive. \
-                Consider using LeakyReLU, PReLU, or ELU activations.".to_string()
+                Consider using LeakyReLU, PReLU, or ELU activations."
+                    .to_string()
             }
             AnomalyType::UnstableAttention => {
                 "Attention distributions are chaotic, indicating the model cannot \
                 focus on relevant features. Try adjusting temperature, adding dropout, \
-                or using attention normalization.".to_string()
+                or using attention normalization."
+                    .to_string()
             }
             AnomalyType::ModeCollapse => {
                 "The model is collapsing to a single output mode, common in GANs and \
                 certain generative architectures. Consider diversity-promoting loss terms \
-                or architectural changes.".to_string()
+                or architectural changes."
+                    .to_string()
             }
             AnomalyType::SaturatedActivation => {
                 "Activations are saturated at extreme values, preventing gradient flow. \
-                Consider normalization layers or reducing weight initialization scale.".to_string()
+                Consider normalization layers or reducing weight initialization scale."
+                    .to_string()
             }
         }
     }
 
     fn suggest_auto_fix(anomaly: &DetectedAnomaly) -> Option<String> {
         match anomaly.anomaly_type {
-            AnomalyType::ExplodingGradient => Some("Apply gradient clipping (max_norm=1.0)".to_string()),
-            AnomalyType::DeadActivation => Some("Replace ReLU with LeakyReLU (negative_slope=0.01)".to_string()),
-            AnomalyType::SaturatedActivation => Some("Add BatchNormalization or LayerNormalization".to_string()),
+            AnomalyType::ExplodingGradient => {
+                Some("Apply gradient clipping (max_norm=1.0)".to_string())
+            }
+            AnomalyType::DeadActivation => {
+                Some("Replace ReLU with LeakyReLU (negative_slope=0.01)".to_string())
+            }
+            AnomalyType::SaturatedActivation => {
+                Some("Add BatchNormalization or LayerNormalization".to_string())
+            }
             _ => None,
         }
     }
@@ -107,14 +119,12 @@ impl DiagnosticAssistant {
                     description: "Add residual connections".to_string(),
                 },
             ],
-            _ => vec![
-                TuningSuggestion {
-                    parameter: "learning_rate".to_string(),
-                    current_value: 0.001,
-                    suggested_value: 0.0005,
-                    description: "Slightly reduce learning rate".to_string(),
-                },
-            ],
+            _ => vec![TuningSuggestion {
+                parameter: "learning_rate".to_string(),
+                current_value: 0.001,
+                suggested_value: 0.0005,
+                description: "Slightly reduce learning rate".to_string(),
+            }],
         }
     }
 }

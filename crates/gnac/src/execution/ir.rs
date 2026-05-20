@@ -1,4 +1,4 @@
-use crate::canvas::{NeuralGraph, GraphNode};
+use crate::canvas::{GraphNode, NeuralGraph};
 use crate::execution::ExecutionBackend;
 use uuid::Uuid;
 
@@ -66,16 +66,24 @@ impl GraphIR {
             let op = IROperation {
                 id: node.id,
                 op_type: Self::map_node_type(node),
-                inputs: node.inputs.iter().map(|p| IRValue {
-                    name: format!("{}_{}", node.name, p.name),
-                    shape: p.tensor.shape.clone(),
-                    is_tensor: true,
-                }).collect(),
-                outputs: node.outputs.iter().map(|p| IRValue {
-                    name: format!("{}_{}", node.name, p.name),
-                    shape: p.tensor.shape.clone(),
-                    is_tensor: true,
-                }).collect(),
+                inputs: node
+                    .inputs
+                    .iter()
+                    .map(|p| IRValue {
+                        name: format!("{}_{}", node.name, p.name),
+                        shape: p.tensor.shape.clone(),
+                        is_tensor: true,
+                    })
+                    .collect(),
+                outputs: node
+                    .outputs
+                    .iter()
+                    .map(|p| IRValue {
+                        name: format!("{}_{}", node.name, p.name),
+                        shape: p.tensor.shape.clone(),
+                        is_tensor: true,
+                    })
+                    .collect(),
                 attributes: node.params.hyperparameters.clone(),
             };
             ir.operations.push(op);

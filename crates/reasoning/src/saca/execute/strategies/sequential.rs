@@ -1,9 +1,9 @@
 //! Sequential Execution Strategy
-//! 
+//!
 //! Implements sequential execution of candidates one by one.
 
-use crate::saca::{types::*, error::*};
 use super::super::engine::ExecuteEngine;
+use crate::saca::{error::*, types::*};
 
 /// Sequential execution strategy
 pub struct SequentialExecutionStrategy;
@@ -15,12 +15,14 @@ impl SequentialExecutionStrategy {
         context: &RepositoryContext,
     ) -> SACAResult<Vec<SACAExecutionResult>> {
         let mut results = Vec::new();
-        
+
         for candidate in candidates {
-            let result = engine.execute_candidate_with_fix_loop(candidate, context).await?;
+            let result = engine
+                .execute_candidate_with_fix_loop(candidate, context)
+                .await?;
             results.push(result);
         }
-        
+
         Ok(results)
     }
 }

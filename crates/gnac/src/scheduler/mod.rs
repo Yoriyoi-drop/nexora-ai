@@ -4,14 +4,13 @@
 //! gradient accumulation, dan VRAM reuse. Tujuannya memungkinkan graf besar
 //! berjalan bahkan pada perangkat dengan resource terbatas.
 
-pub mod memory;
 pub mod async_exec;
+pub mod memory;
 pub mod paging;
 
-pub use memory::*;
 pub use async_exec::*;
+pub use memory::*;
 pub use paging::*;
-
 
 /// Konfigurasi tensor scheduler
 #[derive(Debug, Clone)]

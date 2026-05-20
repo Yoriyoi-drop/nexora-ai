@@ -1,14 +1,14 @@
 //! Consensus Builder Agent
-//! 
+//!
 //! Builds consensus from diverse or conflicting agent outputs
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Consensus Builder Agent - Builds consensus from agent outputs
 #[derive(Debug, Clone)]
@@ -449,7 +449,9 @@ impl Default for ConsensusBuilderConfig {
             base_config: BaseAgentConfig::default(),
             consensus_strategy: ConsensusStrategy::Hybrid {
                 strategies: vec![
-                    ConsensusStrategy::WeightedVoting { weights: HashMap::new() },
+                    ConsensusStrategy::WeightedVoting {
+                        weights: HashMap::new(),
+                    },
                     ConsensusStrategy::DelphiMethod,
                 ],
             },
@@ -564,22 +566,24 @@ impl BaseAgent for ConsensusBuilderAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze disagreements
         let disagreement_analysis = self.analyze_disagreements(&input).await?;
-        
+
         // Evaluate reasoning
         let reasoning_evaluation = self.evaluate_reasoning(&input).await?;
-        
+
         // Build consensus
-        let consensus_result = self.build_consensus(&input, &disagreement_analysis, &reasoning_evaluation).await?;
-        
+        let consensus_result = self
+            .build_consensus(&input, &disagreement_analysis, &reasoning_evaluation)
+            .await?;
+
         // Validate consensus
         let validation_result = self.validate_consensus(&consensus_result).await?;
-        
+
         // Build output
         let output = ConsensusTaskOutput {
             consensus_output: consensus_result.consensus_text,
@@ -589,9 +593,9 @@ impl BaseAgent for ConsensusBuilderAgent {
             confidence_final: consensus_result.confidence,
             metadata: HashMap::new(),
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -604,21 +608,19 @@ impl BaseAgent for ConsensusBuilderAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "consensus_building".to_string(),
-                description: "Builds consensus from diverse agent outputs".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["agent_outputs".to_string(), "reasoning_traces".to_string()],
-                output_types: vec!["consensus_output".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.88,
-                    avg_latency: 600.0,
-                    resource_usage: 0.7,
-                    reliability: 0.92,
-                },
+        vec![AgentCapability {
+            name: "consensus_building".to_string(),
+            description: "Builds consensus from diverse agent outputs".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["agent_outputs".to_string(), "reasoning_traces".to_string()],
+            output_types: vec!["consensus_output".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.88,
+                avg_latency: 600.0,
+                resource_usage: 0.7,
+                reliability: 0.92,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -660,46 +662,53 @@ impl ConsensusBuilderAgent {
     fn validate_input(&self, input: &ConsensusTaskInput) -> AgentResult<()> {
         if input.agent_outputs.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "At least one agent output must be provided".to_string()
+                "At least one agent output must be provided".to_string(),
             ));
         }
-        
+
         if input.reasoning_traces.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "At least one reasoning trace must be provided".to_string()
+                "At least one reasoning trace must be provided".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Analyze disagreements between agent outputs
-    async fn analyze_disagreements(&self, input: &ConsensusTaskInput) -> AgentResult<DisagreementResult> {
+    async fn analyze_disagreements(
+        &self,
+        input: &ConsensusTaskInput,
+    ) -> AgentResult<DisagreementResult> {
         let mut conflicts = Vec::new();
         let mut overall_disagreement = 0.0;
-        
+
         // Analyze pairwise disagreements
         for (i, output1) in input.agent_outputs.iter().enumerate() {
             for (j, output2) in input.agent_outputs.iter().enumerate() {
                 if i < j {
                     let disagreement_score = self.calculate_disagreement_score(output1, output2);
                     overall_disagreement += disagreement_score;
-                    
+
                     if disagreement_score > self.config.disagreement_tolerance {
                         conflicts.push(Conflict {
                             conflict_id: format!("conflict_{}_{}", i, j),
                             agents: vec![output1.agent_id.clone(), output2.agent_id.clone()],
                             conflict_type: ConflictType::DirectContradiction,
-                            description: format!("Disagreement between {} and {}", output1.agent_id, output2.agent_id),
+                            description: format!(
+                                "Disagreement between {} and {}",
+                                output1.agent_id, output2.agent_id
+                            ),
                             evidence: vec![],
                         });
                     }
                 }
             }
         }
-        
-        overall_disagreement /= (input.agent_outputs.len() * (input.agent_outputs.len() - 1) / 2) as f32;
-        
+
+        overall_disagreement /=
+            (input.agent_outputs.len() * (input.agent_outputs.len() - 1) / 2) as f32;
+
         Ok(DisagreementResult {
             conflicts,
             overall_disagreement,
@@ -708,16 +717,21 @@ impl ConsensusBuilderAgent {
     }
 
     /// Evaluate reasoning quality
-    async fn evaluate_reasoning(&self, input: &ConsensusTaskInput) -> AgentResult<ReasoningEvaluation> {
+    async fn evaluate_reasoning(
+        &self,
+        input: &ConsensusTaskInput,
+    ) -> AgentResult<ReasoningEvaluation> {
         let mut reasoning_scores = HashMap::with_capacity(input.reasoning_traces.len());
-        
+
         for trace in &input.reasoning_traces {
             let score = self.evaluate_reasoning_quality(trace);
             reasoning_scores.insert(trace.agent_id.clone(), score);
         }
-        
-        let overall_quality = reasoning_scores.values().sum::<f32>() / reasoning_scores.len() as f32;
-        let best_reasoning = reasoning_scores.iter()
+
+        let overall_quality =
+            reasoning_scores.values().sum::<f32>() / reasoning_scores.len() as f32;
+        let best_reasoning = reasoning_scores
+            .iter()
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(id, _)| id.clone())
             .unwrap_or_default();
@@ -730,30 +744,40 @@ impl ConsensusBuilderAgent {
     }
 
     /// Build consensus from inputs
-    async fn build_consensus(&self, input: &ConsensusTaskInput,
-                           disagreement: &DisagreementResult,
-                           reasoning: &ReasoningEvaluation) -> AgentResult<ConsensusResult> {
+    async fn build_consensus(
+        &self,
+        input: &ConsensusTaskInput,
+        disagreement: &DisagreementResult,
+        reasoning: &ReasoningEvaluation,
+    ) -> AgentResult<ConsensusResult> {
         match &self.config.consensus_strategy {
             ConsensusStrategy::WeightedVoting { weights } => {
-                self.build_weighted_consensus(input, disagreement, reasoning, weights).await
-            },
+                self.build_weighted_consensus(input, disagreement, reasoning, weights)
+                    .await
+            }
             ConsensusStrategy::DelphiMethod => {
-                self.build_delphi_consensus(input, disagreement, reasoning).await
-            },
+                self.build_delphi_consensus(input, disagreement, reasoning)
+                    .await
+            }
             ConsensusStrategy::Hybrid { strategies } => {
-                self.build_hybrid_consensus(input, disagreement, reasoning, strategies).await
-            },
+                self.build_hybrid_consensus(input, disagreement, reasoning, strategies)
+                    .await
+            }
             _ => {
-                self.build_simple_consensus(input, disagreement, reasoning).await
+                self.build_simple_consensus(input, disagreement, reasoning)
+                    .await
             }
         }
     }
 
     /// Validate consensus result
-    async fn validate_consensus(&self, consensus: &ConsensusResult) -> AgentResult<ValidationResult> {
+    async fn validate_consensus(
+        &self,
+        consensus: &ConsensusResult,
+    ) -> AgentResult<ValidationResult> {
         let is_valid = consensus.agreement_level >= self.config.confidence_threshold;
         let quality_score = self.calculate_consensus_quality(consensus);
-        
+
         Ok(ValidationResult {
             is_valid,
             quality_score,
@@ -773,11 +797,15 @@ impl ConsensusBuilderAgent {
         let lower2 = output2.content.to_lowercase();
         let words1: std::collections::HashSet<_> = lower1.split_whitespace().collect();
         let words2: std::collections::HashSet<_> = lower2.split_whitespace().collect();
-        
+
         let intersection = words1.intersection(&words2).count();
         let union = words1.union(&words2).count();
-        
-        if union == 0 { 0.0 } else { 1.0 - (intersection as f32 / union as f32) }
+
+        if union == 0 {
+            0.0
+        } else {
+            1.0 - (intersection as f32 / union as f32)
+        }
     }
 
     /// Estimate resolution difficulty
@@ -793,29 +821,35 @@ impl ConsensusBuilderAgent {
     }
 
     /// Build weighted consensus
-    async fn build_weighted_consensus(&self, input: &ConsensusTaskInput,
-                                    _disagreement: &DisagreementResult,
-                                    reasoning: &ReasoningEvaluation,
-                                    weights: &HashMap<String, f32>) -> AgentResult<ConsensusResult> {
+    async fn build_weighted_consensus(
+        &self,
+        input: &ConsensusTaskInput,
+        _disagreement: &DisagreementResult,
+        reasoning: &ReasoningEvaluation,
+        weights: &HashMap<String, f32>,
+    ) -> AgentResult<ConsensusResult> {
         let mut weighted_outputs = Vec::new();
-        
+
         for output in &input.agent_outputs {
             let weight = weights.get(&output.agent_id).unwrap_or(&0.5);
-            let reasoning_score = reasoning.reasoning_scores.get(&output.agent_id).unwrap_or(&0.5);
+            let reasoning_score = reasoning
+                .reasoning_scores
+                .get(&output.agent_id)
+                .unwrap_or(&0.5);
             let combined_weight = weight * reasoning_score;
-            
+
             weighted_outputs.push((output, combined_weight));
         }
-        
+
         // Sort by weight and select best elements
         weighted_outputs.sort_by(|a, b| b.1.total_cmp(&a.1));
-        
+
         let consensus_text = if let Some((best_output, _)) = weighted_outputs.first() {
             best_output.content.clone()
         } else {
             "No consensus reached".to_string()
         };
-        
+
         Ok(ConsensusResult {
             consensus_text,
             agreement_level: 0.75,
@@ -826,23 +860,26 @@ impl ConsensusBuilderAgent {
     }
 
     /// Build Delphi consensus
-    async fn build_delphi_consensus(&self, input: &ConsensusTaskInput,
-                                  _disagreement: &DisagreementResult,
-                                  reasoning: &ReasoningEvaluation) -> AgentResult<ConsensusResult> {
+    async fn build_delphi_consensus(
+        &self,
+        input: &ConsensusTaskInput,
+        _disagreement: &DisagreementResult,
+        reasoning: &ReasoningEvaluation,
+    ) -> AgentResult<ConsensusResult> {
         // Simplified Delphi method - iterate towards consensus
         let mut iteration = 0;
         let max_iterations = 3;
-        
+
         let mut current_outputs = input.agent_outputs.clone();
-        
+
         while iteration < max_iterations {
             iteration += 1;
-            
+
             // In real implementation, this would involve feedback rounds
             // For now, return a simplified result
             break;
         }
-        
+
         Ok(ConsensusResult {
             consensus_text: "Delphi consensus result".to_string(),
             agreement_level: 0.85,
@@ -853,55 +890,67 @@ impl ConsensusBuilderAgent {
     }
 
     /// Build hybrid consensus
-    async fn build_hybrid_consensus(&self, input: &ConsensusTaskInput,
-                                   disagreement: &DisagreementResult,
-                                   reasoning: &ReasoningEvaluation,
-                                   strategies: &[ConsensusStrategy]) -> AgentResult<ConsensusResult> {
+    async fn build_hybrid_consensus(
+        &self,
+        input: &ConsensusTaskInput,
+        disagreement: &DisagreementResult,
+        reasoning: &ReasoningEvaluation,
+        strategies: &[ConsensusStrategy],
+    ) -> AgentResult<ConsensusResult> {
         // Try multiple strategies and pick best result
         let mut best_result = None;
         let mut best_score = 0.0;
-        
+
         for strategy in strategies {
             let result = match strategy {
                 ConsensusStrategy::WeightedVoting { weights } => {
-                    self.build_weighted_consensus(input, disagreement, reasoning, weights).await?
-                },
+                    self.build_weighted_consensus(input, disagreement, reasoning, weights)
+                        .await?
+                }
                 ConsensusStrategy::DelphiMethod => {
-                    self.build_delphi_consensus(input, disagreement, reasoning).await?
-                },
+                    self.build_delphi_consensus(input, disagreement, reasoning)
+                        .await?
+                }
                 _ => continue,
             };
-            
+
             let score = result.agreement_level * result.confidence;
             if score > best_score {
                 best_score = score;
                 best_result = Some(result);
             }
         }
-        
-        best_result.ok_or_else(|| nexora_shared::agent_types::AgentError::ProcessingFailed(
-            "No valid consensus strategy found".to_string()
-        ))
+
+        best_result.ok_or_else(|| {
+            nexora_shared::agent_types::AgentError::ProcessingFailed(
+                "No valid consensus strategy found".to_string(),
+            )
+        })
     }
 
     /// Build simple consensus
-    async fn build_simple_consensus(&self, input: &ConsensusTaskInput,
-                                   _disagreement: &DisagreementResult,
-                                   reasoning: &ReasoningEvaluation) -> AgentResult<ConsensusResult> {
+    async fn build_simple_consensus(
+        &self,
+        input: &ConsensusTaskInput,
+        _disagreement: &DisagreementResult,
+        reasoning: &ReasoningEvaluation,
+    ) -> AgentResult<ConsensusResult> {
         // Simple majority vote
-        let mut vote_counts: HashMap<String, usize> = HashMap::with_capacity(input.agent_outputs.len());
-        
+        let mut vote_counts: HashMap<String, usize> =
+            HashMap::with_capacity(input.agent_outputs.len());
+
         for output in &input.agent_outputs {
             *vote_counts.entry(output.content.clone()).or_insert(0) += 1;
         }
-        
-        let (consensus_text, votes) = vote_counts.iter()
+
+        let (consensus_text, votes) = vote_counts
+            .iter()
             .max_by_key(|(_, count)| *count)
             .map(|(text, count)| (text.clone(), *count))
             .unwrap_or_else(|| ("No consensus".to_string(), 0));
-        
+
         let agreement_level = votes as f32 / input.agent_outputs.len() as f32;
-        
+
         Ok(ConsensusResult {
             consensus_text,
             agreement_level,
@@ -1006,7 +1055,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.consensus_output.is_empty());
         assert!(output.consensus_level > 0.0);
@@ -1015,21 +1064,21 @@ mod tests {
     #[test]
     fn test_disagreement_calculation() {
         let agent = ConsensusBuilderAgent::default();
-        
+
         let output1 = AgentOutput {
             agent_id: "agent1".to_string(),
             content: "Solution A is best".to_string(),
             output_type: "recommendation".to_string(),
             metadata: HashMap::new(),
         };
-        
+
         let output2 = AgentOutput {
             agent_id: "agent2".to_string(),
             content: "Solution B is better".to_string(),
             output_type: "recommendation".to_string(),
             metadata: HashMap::new(),
         };
-        
+
         let disagreement = agent.calculate_disagreement_score(&output1, &output2);
         assert!(disagreement > 0.0);
         assert!(disagreement <= 1.0);
@@ -1042,7 +1091,10 @@ mod tests {
             ..Default::default()
         };
         let agent = ConsensusBuilderAgent::new(config);
-        
-        assert!(matches!(agent.config.consensus_strategy, ConsensusStrategy::DelphiMethod));
+
+        assert!(matches!(
+            agent.config.consensus_strategy,
+            ConsensusStrategy::DelphiMethod
+        ));
     }
 }

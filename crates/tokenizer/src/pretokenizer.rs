@@ -1,10 +1,10 @@
 //! Pre-tokenizer - Rust implementation
-//! 
+//!
 //! Pre-tokenization logic untuk breaking text into manageable pieces
 
-use std::collections::HashMap;
 use anyhow::Result;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Pre-tokenized text piece
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,14 +23,14 @@ impl PreTokenizedPiece {
 /// Types of pre-tokenized pieces
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum PieceType {
-    Word,           // Regular word
-    Punctuation,    // Punctuation marks
-    Whitespace,     // Space, tab, newline
-    Number,         // Numeric values
-    String,         // Quoted strings
-    Comment,        // Code comments
-    Operator,       // Multi-character operators
-    Unknown,        // Unrecognized
+    Word,        // Regular word
+    Punctuation, // Punctuation marks
+    Whitespace,  // Space, tab, newline
+    Number,      // Numeric values
+    String,      // Quoted strings
+    Comment,     // Code comments
+    Operator,    // Multi-character operators
+    Unknown,     // Unrecognized
 }
 
 /// Pre-tokenized result
@@ -50,7 +50,7 @@ impl PreTokenized {
             total_length,
         }
     }
-    
+
     pub fn add_piece(&mut self, start: usize, end: usize, piece_type: PieceType) {
         self.pieces.push(PreTokenizedPiece {
             start,
@@ -58,11 +58,14 @@ impl PreTokenized {
             piece_type,
         });
     }
-    
+
     pub fn get_piece_lengths(&self) -> Vec<usize> {
-        self.pieces.iter().map(|p| p.text(&self.original).len()).collect()
+        self.pieces
+            .iter()
+            .map(|p| p.text(&self.original).len())
+            .collect()
     }
-    
+
     pub fn get_piece_texts(&self) -> Vec<&str> {
         self.pieces.iter().map(|p| p.text(&self.original)).collect()
     }
@@ -86,7 +89,7 @@ impl Default for PreTokenizerConfig {
         custom_patterns.insert("->".to_string(), PieceType::Operator);
         custom_patterns.insert("::".to_string(), PieceType::Operator);
         custom_patterns.insert("**".to_string(), PieceType::Operator);
-        
+
         Self {
             preserve_whitespace: false,
             preserve_case: true,
@@ -108,130 +111,177 @@ pub struct PreTokenizer {
 impl PreTokenizer {
     pub fn new(config: PreTokenizerConfig) -> Self {
         let mut multi_char_operators = vec![
-            "->".to_string(), "::".to_string(), "**".to_string(), "//".to_string(), "/*".to_string(), "*/".to_string(), "<=".to_string(), ">=".to_string(), "!=".to_string(), "==".to_string(),
-            "&&".to_string(), "||".to_string(), "<<".to_string(), ">>".to_string(), "+=".to_string(), "-=".to_string(), "*=".to_string(), "/=".to_string(), "%=".to_string(),
-            "&=".to_string(), "|=".to_string(), "^=".to_string(), "++".to_string(), "--".to_string(), "...".to_string(), "=>".to_string(), ":::".to_string(), "??".to_string(),
+            "->".to_string(),
+            "::".to_string(),
+            "**".to_string(),
+            "//".to_string(),
+            "/*".to_string(),
+            "*/".to_string(),
+            "<=".to_string(),
+            ">=".to_string(),
+            "!=".to_string(),
+            "==".to_string(),
+            "&&".to_string(),
+            "||".to_string(),
+            "<<".to_string(),
+            ">>".to_string(),
+            "+=".to_string(),
+            "-=".to_string(),
+            "*=".to_string(),
+            "/=".to_string(),
+            "%=".to_string(),
+            "&=".to_string(),
+            "|=".to_string(),
+            "^=".to_string(),
+            "++".to_string(),
+            "--".to_string(),
+            "...".to_string(),
+            "=>".to_string(),
+            ":::".to_string(),
+            "??".to_string(),
         ];
-        
+
         // Add custom patterns
         for pattern in config.custom_patterns.keys() {
             if pattern.len() > 1 && !multi_char_operators.contains(&pattern) {
                 multi_char_operators.push(pattern.clone());
             }
         }
-        
+
         // Sort by length (longer patterns first)
         multi_char_operators.sort_by(|a, b| b.len().cmp(&a.len()));
-        
+
         Self {
             config,
             multi_char_operators,
         }
     }
-    
+
     pub fn with_default_config() -> Self {
         Self::new(PreTokenizerConfig::default())
     }
-    
+
     /// Pre-tokenize input text
     pub fn pretokenize(&self, text: &str) -> Result<PreTokenized> {
         let mut result = PreTokenized::new(text.to_string());
         let mut i = 0;
         let chars: Vec<char> = text.chars().collect();
         let n = chars.len();
-        
+
         while i < n {
             let (piece, next_i) = self.extract_next_piece(&chars, i, n)?;
-            
+
             if piece.start != piece.end {
                 result.add_piece(piece.start, piece.end, piece.piece_type);
             }
-            
+
             i = next_i;
         }
-        
+
         Ok(result)
     }
-    
+
     /// Extract the next piece from the character array
-    fn extract_next_piece(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
+    fn extract_next_piece(
+        &self,
+        chars: &[char],
+        start: usize,
+        n: usize,
+    ) -> Result<(PreTokenizedPiece, usize)> {
         let i = start;
-        
+
         if i >= n {
-            return Ok((PreTokenizedPiece {
-                start: i,
-                end: i,
-                piece_type: PieceType::Unknown,
-            }, i));
+            return Ok((
+                PreTokenizedPiece {
+                    start: i,
+                    end: i,
+                    piece_type: PieceType::Unknown,
+                },
+                i,
+            ));
         }
-        
+
         let c = chars[i];
-        
+
         // Handle whitespace
         if c.is_whitespace() {
             let mut end = i + 1;
             while end < n && chars[end].is_whitespace() {
                 end += 1;
             }
-            
-            return Ok((PreTokenizedPiece {
-                start: i,
+
+            return Ok((
+                PreTokenizedPiece {
+                    start: i,
+                    end,
+                    piece_type: PieceType::Whitespace,
+                },
                 end,
-                piece_type: PieceType::Whitespace,
-            }, end));
+            ));
         }
-        
+
         // Handle strings
         if self.config.split_strings && (c == '"' || c == '\'') {
             return self.extract_string(chars, i, n);
         }
-        
+
         // Handle comments
         if self.config.split_comments && c == '/' {
             return self.extract_comment(chars, i, n);
         }
-        
+
         // Handle numbers (before operators, so '-' or '+' followed by digit is treated as number)
         if self.config.split_numbers && self.is_number_start(c, chars, i, n) {
             return self.extract_number(chars, i, n);
         }
-        
+
         // Handle multi-character operators
         if self.config.merge_operators && self.is_operator_char(c) {
             return self.extract_operator(chars, i, n);
         }
-        
+
         // Handle punctuation
         if self.is_punctuation(c) {
-            return Ok((PreTokenizedPiece {
-                start: i,
-                end: i + 1,
-                piece_type: PieceType::Punctuation,
-            }, i + 1));
+            return Ok((
+                PreTokenizedPiece {
+                    start: i,
+                    end: i + 1,
+                    piece_type: PieceType::Punctuation,
+                },
+                i + 1,
+            ));
         }
-        
+
         // Handle words
         if self.is_word_char(c) {
             return self.extract_word(chars, i, n);
         }
-        
+
         // Unknown character
-        Ok((PreTokenizedPiece {
-            start: i,
-            end: i + 1,
-            piece_type: PieceType::Unknown,
-        }, i + 1))
+        Ok((
+            PreTokenizedPiece {
+                start: i,
+                end: i + 1,
+                piece_type: PieceType::Unknown,
+            },
+            i + 1,
+        ))
     }
-    
+
     /// Extract string literal
-    fn extract_string(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
+    fn extract_string(
+        &self,
+        chars: &[char],
+        start: usize,
+        n: usize,
+    ) -> Result<(PreTokenizedPiece, usize)> {
         let quote_char = chars[start];
         let mut i = start + 1;
         let mut escaped = false;
-        
+
         while i < n {
             let c = chars[i];
-            
+
             if escaped {
                 escaped = false;
             } else if c == '\\' {
@@ -240,46 +290,60 @@ impl PreTokenizer {
                 i += 1; // Include closing quote
                 break;
             }
-            
+
             i += 1;
         }
-        
+
         if i > n {
             // Unterminated string
             i = n;
         }
-        
-        Ok((PreTokenizedPiece {
-            start,
-            end: i,
-            piece_type: PieceType::String,
-        }, i))
-    }
-    
-    /// Extract comment
-    fn extract_comment(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
-        if start + 1 >= n {
-            return Ok((PreTokenizedPiece {
+
+        Ok((
+            PreTokenizedPiece {
                 start,
-                end: start + 1,
-                piece_type: PieceType::Unknown,
-            }, start + 1));
+                end: i,
+                piece_type: PieceType::String,
+            },
+            i,
+        ))
+    }
+
+    /// Extract comment
+    fn extract_comment(
+        &self,
+        chars: &[char],
+        start: usize,
+        n: usize,
+    ) -> Result<(PreTokenizedPiece, usize)> {
+        if start + 1 >= n {
+            return Ok((
+                PreTokenizedPiece {
+                    start,
+                    end: start + 1,
+                    piece_type: PieceType::Unknown,
+                },
+                start + 1,
+            ));
         }
-        
+
         let next_char = chars[start + 1];
-        
+
         if next_char == '/' {
             // Single line comment
             let mut i = start + 2;
             while i < n && chars[i] != '\n' {
                 i += 1;
             }
-            
-            Ok((PreTokenizedPiece {
-                start,
-                end: i,
-                piece_type: PieceType::Comment,
-            }, i))
+
+            Ok((
+                PreTokenizedPiece {
+                    start,
+                    end: i,
+                    piece_type: PieceType::Comment,
+                },
+                i,
+            ))
         } else if next_char == '*' {
             // Multi-line comment
             let mut i = start + 2;
@@ -290,24 +354,35 @@ impl PreTokenizer {
                 }
                 i += 1;
             }
-            
-            Ok((PreTokenizedPiece {
-                start,
-                end: i,
-                piece_type: PieceType::Comment,
-            }, i))
+
+            Ok((
+                PreTokenizedPiece {
+                    start,
+                    end: i,
+                    piece_type: PieceType::Comment,
+                },
+                i,
+            ))
         } else {
             // Just a slash
-            Ok((PreTokenizedPiece {
-                start,
-                end: start + 1,
-                piece_type: PieceType::Operator,
-            }, start + 1))
+            Ok((
+                PreTokenizedPiece {
+                    start,
+                    end: start + 1,
+                    piece_type: PieceType::Operator,
+                },
+                start + 1,
+            ))
         }
     }
-    
+
     /// Extract multi-character operator
-    fn extract_operator(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
+    fn extract_operator(
+        &self,
+        chars: &[char],
+        start: usize,
+        n: usize,
+    ) -> Result<(PreTokenizedPiece, usize)> {
         // Try to match the longest possible operator
         for op in &self.multi_char_operators {
             let op_chars: Vec<char> = op.chars().collect();
@@ -319,39 +394,50 @@ impl PreTokenizer {
                         break;
                     }
                 }
-                
+
                 if matches {
-                    return Ok((PreTokenizedPiece {
-                        start,
-                        end: start + op_chars.len(),
-                        piece_type: PieceType::Operator,
-                    }, start + op_chars.len()));
+                    return Ok((
+                        PreTokenizedPiece {
+                            start,
+                            end: start + op_chars.len(),
+                            piece_type: PieceType::Operator,
+                        },
+                        start + op_chars.len(),
+                    ));
                 }
             }
         }
-        
+
         // Single character operator
-        Ok((PreTokenizedPiece {
-            start,
-            end: start + 1,
-            piece_type: PieceType::Operator,
-        }, start + 1))
+        Ok((
+            PreTokenizedPiece {
+                start,
+                end: start + 1,
+                piece_type: PieceType::Operator,
+            },
+            start + 1,
+        ))
     }
-    
+
     /// Extract number
-    fn extract_number(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
+    fn extract_number(
+        &self,
+        chars: &[char],
+        start: usize,
+        n: usize,
+    ) -> Result<(PreTokenizedPiece, usize)> {
         let mut i = start;
-        
+
         // Handle sign
         if i < n && (chars[i] == '+' || chars[i] == '-') {
             i += 1;
         }
-        
+
         // Handle digits before decimal point
         while i < n && chars[i].is_ascii_digit() {
             i += 1;
         }
-        
+
         // Handle decimal point and digits after
         if i < n && chars[i] == '.' {
             i += 1;
@@ -359,7 +445,7 @@ impl PreTokenizer {
                 i += 1;
             }
         }
-        
+
         // Handle exponent
         if i < n && (chars[i] == 'e' || chars[i] == 'E') {
             i += 1;
@@ -370,46 +456,92 @@ impl PreTokenizer {
                 i += 1;
             }
         }
-        
-        Ok((PreTokenizedPiece {
-            start,
-            end: i,
-            piece_type: PieceType::Number,
-        }, i))
+
+        Ok((
+            PreTokenizedPiece {
+                start,
+                end: i,
+                piece_type: PieceType::Number,
+            },
+            i,
+        ))
     }
-    
+
     /// Extract word
-    fn extract_word(&self, chars: &[char], start: usize, n: usize) -> Result<(PreTokenizedPiece, usize)> {
+    fn extract_word(
+        &self,
+        chars: &[char],
+        start: usize,
+        n: usize,
+    ) -> Result<(PreTokenizedPiece, usize)> {
         let mut i = start;
-        
+
         while i < n && self.is_word_char(chars[i]) {
             i += 1;
         }
-        
-        Ok((PreTokenizedPiece {
-            start,
-            end: i,
-            piece_type: PieceType::Word,
-        }, i))
+
+        Ok((
+            PreTokenizedPiece {
+                start,
+                end: i,
+                piece_type: PieceType::Word,
+            },
+            i,
+        ))
     }
-    
+
     /// Check if character is punctuation
     fn is_punctuation(&self, c: char) -> bool {
-        matches!(c, 
-            '(' | ')' | '{' | '}' | '[' | ']' | ';' | ',' |
-            ':' | '.' | '!' | '?' | '=' | '+' | '-' | '*' |
-            '/' | '%' | '&' | '|' | '^' | '~' | '<' | '>'
+        matches!(
+            c,
+            '(' | ')'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | ';'
+                | ','
+                | ':'
+                | '.'
+                | '!'
+                | '?'
+                | '='
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '%'
+                | '&'
+                | '|'
+                | '^'
+                | '~'
+                | '<'
+                | '>'
         )
     }
-    
+
     /// Check if character can be part of operator
     fn is_operator_char(&self, c: char) -> bool {
-        matches!(c,
-            '=' | '!' | '<' | '>' | '+' | '-' | '*' | '/' |
-            '&' | '|' | '^' | ':' | '.' | '~' | '%' | ';'
+        matches!(
+            c,
+            '=' | '!'
+                | '<'
+                | '>'
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '&'
+                | '|'
+                | '^'
+                | ':'
+                | '.'
+                | '~'
+                | '%'
+                | ';'
         )
     }
-    
+
     /// Check if character can be start of a number
     fn is_number_start(&self, c: char, chars: &[char], pos: usize, n: usize) -> bool {
         if c.is_ascii_digit() {
@@ -423,40 +555,66 @@ impl PreTokenizer {
         }
         false
     }
-    
+
     /// Check if character can be part of number
     fn is_number_char(&self, c: char) -> bool {
         c.is_ascii_digit() || c == '.' || c == '+' || c == '-' || c == 'e' || c == 'E'
     }
-    
+
     /// Check if character can be part of word
     fn is_word_char(&self, c: char) -> bool {
         c.is_alphabetic() || c == '_' || (c.is_ascii_digit() && !self.config.split_numbers)
     }
-    
+
     /// Get configuration
     pub fn config(&self) -> &PreTokenizerConfig {
         &self.config
     }
-    
+
     /// Update configuration
     pub fn update_config(&mut self, config: PreTokenizerConfig) {
         self.config = config.clone();
-        
+
         // Rebuild multi-character operators list
         self.multi_char_operators = vec![
-            "->".to_string(), "::".to_string(), "**".to_string(), "//".to_string(), "/*".to_string(), "*/".to_string(), "<=".to_string(), ">=".to_string(), "!=".to_string(), "==".to_string(),
-            "&&".to_string(), "||".to_string(), "<<".to_string(), ">>".to_string(), "+=".to_string(), "-=".to_string(), "*=".to_string(), "/=".to_string(), "%=".to_string(),
-            "&=".to_string(), "|=".to_string(), "^=".to_string(), "++".to_string(), "--".to_string(), "...".to_string(), "=>".to_string(), ":::".to_string(), "??".to_string(),
+            "->".to_string(),
+            "::".to_string(),
+            "**".to_string(),
+            "//".to_string(),
+            "/*".to_string(),
+            "*/".to_string(),
+            "<=".to_string(),
+            ">=".to_string(),
+            "!=".to_string(),
+            "==".to_string(),
+            "&&".to_string(),
+            "||".to_string(),
+            "<<".to_string(),
+            ">>".to_string(),
+            "+=".to_string(),
+            "-=".to_string(),
+            "*=".to_string(),
+            "/=".to_string(),
+            "%=".to_string(),
+            "&=".to_string(),
+            "|=".to_string(),
+            "^=".to_string(),
+            "++".to_string(),
+            "--".to_string(),
+            "...".to_string(),
+            "=>".to_string(),
+            ":::".to_string(),
+            "??".to_string(),
         ];
-        
+
         for pattern in self.config.custom_patterns.keys() {
             if pattern.len() > 1 && !self.multi_char_operators.contains(&pattern) {
                 self.multi_char_operators.push(pattern.clone());
             }
         }
-        
-        self.multi_char_operators.sort_by(|a, b| b.len().cmp(&a.len()));
+
+        self.multi_char_operators
+            .sort_by(|a, b| b.len().cmp(&a.len()));
     }
 }
 
@@ -475,110 +633,119 @@ pub fn pretokenize_with_config(text: &str, config: PreTokenizerConfig) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_simple_pretokenization() {
         let result = pretokenize("Hello, world!").unwrap();
         assert_eq!(result.pieces.len(), 5);
-        
+
         let piece_types: Vec<PieceType> = result.pieces.iter().map(|p| p.piece_type).collect();
-        assert_eq!(piece_types, vec![
-            PieceType::Word,
-            PieceType::Punctuation,
-            PieceType::Whitespace,
-            PieceType::Word,
-            PieceType::Operator,
-        ]);
+        assert_eq!(
+            piece_types,
+            vec![
+                PieceType::Word,
+                PieceType::Punctuation,
+                PieceType::Whitespace,
+                PieceType::Word,
+                PieceType::Operator,
+            ]
+        );
     }
-    
+
     #[test]
     fn test_number_extraction() {
         let result = pretokenize("The value is 42.5 and -10").unwrap();
-        
-        let numbers: Vec<&str> = result.pieces
+
+        let numbers: Vec<&str> = result
+            .pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Number)
             .map(|p| p.text(&result.original))
             .collect();
-        
+
         assert_eq!(numbers, vec!["42.5", "-10"]);
     }
-    
+
     #[test]
     fn test_string_extraction() {
         let result = pretokenize(r#"print("Hello, \"world\"!")"#).unwrap();
-        
-        let strings: Vec<&str> = result.pieces
+
+        let strings: Vec<&str> = result
+            .pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::String)
             .map(|p| p.text(&result.original))
             .collect();
-        
+
         assert_eq!(strings, vec![r#""Hello, \"world\"!""#]);
     }
-    
+
     #[test]
     fn test_operator_extraction() {
         let result = pretokenize("a <= b && c >= d").unwrap();
-        
-        let operators: Vec<&str> = result.pieces
+
+        let operators: Vec<&str> = result
+            .pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Operator)
             .map(|p| p.text(&result.original))
             .collect();
-        
+
         assert_eq!(operators, vec!["<=", "&&", ">="]);
     }
-    
+
     #[test]
     fn test_comment_extraction() {
         let result = pretokenize("x = 5 // This is a comment\ny = 10").unwrap();
-        
-        let comments: Vec<&str> = result.pieces
+
+        let comments: Vec<&str> = result
+            .pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Comment)
             .map(|p| p.text(&result.original))
             .collect();
-        
+
         assert_eq!(comments, vec!["// This is a comment"]);
     }
-    
+
     #[test]
     fn test_case_preservation() {
         let config = PreTokenizerConfig {
             preserve_case: true,
             ..Default::default()
         };
-        
+
         let result = pretokenize_with_config("Hello WORLD", config).unwrap();
-        
-        let words: Vec<&str> = result.pieces
+
+        let words: Vec<&str> = result
+            .pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Word)
             .map(|p| p.text(&result.original))
             .collect();
-        
+
         assert_eq!(words, vec!["Hello", "WORLD"]);
     }
-    
+
     #[test]
     fn test_custom_patterns() {
         let mut custom_patterns = HashMap::new();
         custom_patterns.insert(":::".to_string(), PieceType::Operator);
-        
+
         let config = PreTokenizerConfig {
             custom_patterns,
             ..Default::default()
         };
-        
+
         let result = pretokenize_with_config("Module:::Function", config).unwrap();
-        
-        let operators: Vec<&str> = result.pieces
+
+        let operators: Vec<&str> = result
+            .pieces
             .iter()
             .filter(|p| p.piece_type == PieceType::Operator)
             .map(|p| p.text(&result.original))
             .collect();
-        
+
         assert_eq!(operators, vec![":::"]);
     }
 }

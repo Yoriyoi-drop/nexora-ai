@@ -1,11 +1,13 @@
 //! NXR-SPECTRA Capabilities
-//! 
+//!
 //! Capability vector and specifications for NXR-SPECTRA
 
 use std::collections::HashMap;
 
 use nexora_shared::{
-    capability_spec::{CapabilityVector, CapabilitySpec, CapabilityDomain, CapabilityLevel, ResourceRequirements},
+    capability_spec::{
+        CapabilityDomain, CapabilityLevel, CapabilitySpec, CapabilityVector, ResourceRequirements,
+    },
     model_identity::NxrModelId,
 };
 
@@ -52,7 +54,7 @@ impl _SpectraCapabilities {
             avg_response_time_ms: 420.0,
             resource_utilization: 0.78,
         };
-        
+
         let resource_requirements = ResourceRequirements {
             min_memory_gb: 32.0,
             min_compute_units: 64,
@@ -88,182 +90,195 @@ impl _SpectraCapabilities {
     fn create_capability_vector() -> CapabilityVector {
         CapabilityVector::new(NxrModelId::Spectra)
             // Creative capabilities - Transcendent level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Creative, CapabilityLevel::Transcendent)
-                .with_sub_capabilities(vec![
-                    "creative synthesis".to_string(),
-                    "artistic generation".to_string(),
-                    "style adaptation".to_string(),
-                    "concept generation".to_string(),
-                    "multimodal creativity".to_string(),
-                    "cross-modal synthesis".to_string(),
-                    "innovative thinking".to_string(),
-                    "aesthetic assessment".to_string(),
-                    "creative collaboration".to_string(),
-                    "artistic expression".to_string(),
-                ])
-                .with_metric("creativity_score".to_string(), 0.948)
-                .with_metric("originality_score".to_string(), 0.91)
-                .with_metric("context_window".to_string(), 1_000_000.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 32.0,
-                    min_compute_units: 64,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(24.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1000),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Creative, CapabilityLevel::Transcendent)
+                    .with_sub_capabilities(vec![
+                        "creative synthesis".to_string(),
+                        "artistic generation".to_string(),
+                        "style adaptation".to_string(),
+                        "concept generation".to_string(),
+                        "multimodal creativity".to_string(),
+                        "cross-modal synthesis".to_string(),
+                        "innovative thinking".to_string(),
+                        "aesthetic assessment".to_string(),
+                        "creative collaboration".to_string(),
+                        "artistic expression".to_string(),
+                    ])
+                    .with_metric("creativity_score".to_string(), 0.948)
+                    .with_metric("originality_score".to_string(), 0.91)
+                    .with_metric("context_window".to_string(), 1_000_000.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 32.0,
+                        min_compute_units: 64,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(24.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1000),
+                    }),
+            )
             // Multimedia capabilities - Master level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Multimedia, CapabilityLevel::Master)
-                .with_sub_capabilities(vec![
-                    "visual generation".to_string(),
-                    "audio generation".to_string(),
-                    "video synthesis".to_string(),
-                    "3D content creation".to_string(),
-                    "interactive media".to_string(),
-                    "multimodal fusion".to_string(),
-                    "cross-modal attention".to_string(),
-                    "media adaptation".to_string(),
-                ])
-                .with_metric("multimedia_quality".to_string(), 0.94)
-                .with_metric("synthesis_accuracy".to_string(), 0.89)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 28.0,
-                    min_compute_units: 56,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(22.0),
-                    requires_network: true,
-                    max_latency_ms: Some(1200),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Multimedia, CapabilityLevel::Master)
+                    .with_sub_capabilities(vec![
+                        "visual generation".to_string(),
+                        "audio generation".to_string(),
+                        "video synthesis".to_string(),
+                        "3D content creation".to_string(),
+                        "interactive media".to_string(),
+                        "multimodal fusion".to_string(),
+                        "cross-modal attention".to_string(),
+                        "media adaptation".to_string(),
+                    ])
+                    .with_metric("multimedia_quality".to_string(), 0.94)
+                    .with_metric("synthesis_accuracy".to_string(), 0.89)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 28.0,
+                        min_compute_units: 56,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(22.0),
+                        requires_network: true,
+                        max_latency_ms: Some(1200),
+                    }),
+            )
             // Style capabilities - Expert level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Style, CapabilityLevel::Expert)
-                .with_sub_capabilities(vec![
-                    "style recognition".to_string(),
-                    "style adaptation".to_string(),
-                    "style synthesis".to_string(),
-                    "style learning".to_string(),
-                    "cross-style creativity".to_string(),
-                    "historical style awareness".to_string(),
-                    "cultural style understanding".to_string(),
-                    "style evolution".to_string(),
-                ])
-                .with_metric("style_accuracy".to_string(), 0.91)
-                .with_metric("adaptation_speed".to_string(), 0.85)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 24.0,
-                    min_compute_units: 48,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(20.0),
-                    requires_network: true,
-                    max_latency_ms: Some(800),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Style, CapabilityLevel::Expert)
+                    .with_sub_capabilities(vec![
+                        "style recognition".to_string(),
+                        "style adaptation".to_string(),
+                        "style synthesis".to_string(),
+                        "style learning".to_string(),
+                        "cross-style creativity".to_string(),
+                        "historical style awareness".to_string(),
+                        "cultural style understanding".to_string(),
+                        "style evolution".to_string(),
+                    ])
+                    .with_metric("style_accuracy".to_string(), 0.91)
+                    .with_metric("adaptation_speed".to_string(), 0.85)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 24.0,
+                        min_compute_units: 48,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(20.0),
+                        requires_network: true,
+                        max_latency_ms: Some(800),
+                    }),
+            )
             // Innovation capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Innovation, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "concept generation".to_string(),
-                    "novelty evaluation".to_string(),
-                    "innovation synthesis".to_string(),
-                    "cross-domain innovation".to_string(),
-                    "disruptive thinking".to_string(),
-                    "creative problem solving".to_string(),
-                    "idea generation".to_string(),
-                ])
-                .with_metric("innovation_score".to_string(), 0.87)
-                .with_metric("novelty_score".to_string(), 0.83)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 20.0,
-                    min_compute_units: 40,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(18.0),
-                    requires_network: false,
-                    max_latency_ms: Some(600),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Innovation, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "concept generation".to_string(),
+                        "novelty evaluation".to_string(),
+                        "innovation synthesis".to_string(),
+                        "cross-domain innovation".to_string(),
+                        "disruptive thinking".to_string(),
+                        "creative problem solving".to_string(),
+                        "idea generation".to_string(),
+                    ])
+                    .with_metric("innovation_score".to_string(), 0.87)
+                    .with_metric("novelty_score".to_string(), 0.83)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 20.0,
+                        min_compute_units: 40,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(18.0),
+                        requires_network: false,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             // Communication capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Communication, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "artistic communication".to_string(),
-                    "creative expression".to_string(),
-                    "visual storytelling".to_string(),
-                    "multimedia communication".to_string(),
-                    "aesthetic communication".to_string(),
-                    "creative collaboration".to_string(),
-                ])
-                .with_metric("communication_quality".to_string(), 0.89)
-                .with_metric("expression_clarity".to_string(), 0.86)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 16.0,
-                    min_compute_units: 32,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(16.0),
-                    requires_network: false,
-                    max_latency_ms: Some(500),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Communication, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "artistic communication".to_string(),
+                        "creative expression".to_string(),
+                        "visual storytelling".to_string(),
+                        "multimedia communication".to_string(),
+                        "aesthetic communication".to_string(),
+                        "creative collaboration".to_string(),
+                    ])
+                    .with_metric("communication_quality".to_string(), 0.89)
+                    .with_metric("expression_clarity".to_string(), 0.86)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 16.0,
+                        min_compute_units: 32,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(16.0),
+                        requires_network: false,
+                        max_latency_ms: Some(500),
+                    }),
+            )
             // Logic capabilities - Intermediate level (not primary focus)
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Intermediate)
-                .with_sub_capabilities(vec![
-                    "creative reasoning".to_string(),
-                    "artistic logic".to_string(),
-                    "aesthetic reasoning".to_string(),
-                ])
-                .with_metric("logic_accuracy".to_string(), 0.78)
-                .with_metric("reasoning_depth".to_string(), 5.0)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 12.0,
-                    min_compute_units: 24,
-                    requires_gpu: false,
-                    min_gpu_memory_gb: None,
-                    requires_network: false,
-                    max_latency_ms: Some(400),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Logic, CapabilityLevel::Intermediate)
+                    .with_sub_capabilities(vec![
+                        "creative reasoning".to_string(),
+                        "artistic logic".to_string(),
+                        "aesthetic reasoning".to_string(),
+                    ])
+                    .with_metric("logic_accuracy".to_string(), 0.78)
+                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 12.0,
+                        min_compute_units: 24,
+                        requires_gpu: false,
+                        min_gpu_memory_gb: None,
+                        requires_network: false,
+                        max_latency_ms: Some(400),
+                    }),
+            )
             // Knowledge capabilities - Advanced level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
-                .with_sub_capabilities(vec![
-                    "artistic knowledge".to_string(),
-                    "style knowledge".to_string(),
-                    "cultural knowledge".to_string(),
-                    "creative techniques".to_string(),
-                    "art history".to_string(),
-                    "design principles".to_string(),
-                ])
-                .with_metric("knowledge_accuracy".to_string(), 0.88)
-                .with_metric("knowledge_coverage".to_string(), 0.85)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 18.0,
-                    min_compute_units: 36,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(17.0),
-                    requires_network: true,
-                    max_latency_ms: Some(900),
-                }))
-            
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Knowledge, CapabilityLevel::Advanced)
+                    .with_sub_capabilities(vec![
+                        "artistic knowledge".to_string(),
+                        "style knowledge".to_string(),
+                        "cultural knowledge".to_string(),
+                        "creative techniques".to_string(),
+                        "art history".to_string(),
+                        "design principles".to_string(),
+                    ])
+                    .with_metric("knowledge_accuracy".to_string(), 0.88)
+                    .with_metric("knowledge_coverage".to_string(), 0.85)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 18.0,
+                        min_compute_units: 36,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(17.0),
+                        requires_network: true,
+                        max_latency_ms: Some(900),
+                    }),
+            )
             // Support capabilities - Intermediate level
-            .with_capability(CapabilitySpec::new(CapabilityDomain::Support, CapabilityLevel::Intermediate)
-                .with_sub_capabilities(vec![
-                    "creative guidance".to_string(),
-                    "artistic advice".to_string(),
-                    "style recommendations".to_string(),
-                    "creative inspiration".to_string(),
-                ])
-                .with_metric("support_quality".to_string(), 0.82)
-                .with_metric("guidance_effectiveness".to_string(), 0.79)
-                .with_resources(ResourceRequirements {
-                    min_memory_gb: 14.0,
-                    min_compute_units: 28,
-                    requires_gpu: true,
-                    min_gpu_memory_gb: Some(14.0),
-                    requires_network: false,
-                    max_latency_ms: Some(600),
-                }))
+            .with_capability(
+                CapabilitySpec::new(CapabilityDomain::Support, CapabilityLevel::Intermediate)
+                    .with_sub_capabilities(vec![
+                        "creative guidance".to_string(),
+                        "artistic advice".to_string(),
+                        "style recommendations".to_string(),
+                        "creative inspiration".to_string(),
+                    ])
+                    .with_metric("support_quality".to_string(), 0.82)
+                    .with_metric("guidance_effectiveness".to_string(), 0.79)
+                    .with_resources(ResourceRequirements {
+                        min_memory_gb: 14.0,
+                        min_compute_units: 28,
+                        requires_gpu: true,
+                        min_gpu_memory_gb: Some(14.0),
+                        requires_network: false,
+                        max_latency_ms: Some(600),
+                    }),
+            )
             .calculate_score()
     }
 
     /// Check if model supports specific capability
-    pub fn supports_capability(&self, domain: &CapabilityDomain, min_level: CapabilityLevel) -> bool {
+    pub fn supports_capability(
+        &self,
+        domain: &CapabilityDomain,
+        min_level: CapabilityLevel,
+    ) -> bool {
         self.vector.has_capability(domain, min_level)
     }
 
@@ -291,20 +306,26 @@ impl _SpectraCapabilities {
     }
 
     /// Get resource requirements for domain
-    pub fn get_resource_requirements(&self, domain: &CapabilityDomain) -> Option<&ResourceRequirements> {
-        self.vector.get_capability(domain).map(|cap| &cap.resource_requirements)
+    pub fn get_resource_requirements(
+        &self,
+        domain: &CapabilityDomain,
+    ) -> Option<&ResourceRequirements> {
+        self.vector
+            .get_capability(domain)
+            .map(|cap| &cap.resource_requirements)
     }
 
     /// Validate capabilities
     pub fn validate(&self) -> Result<(), String> {
         // Check that core capabilities are at transcendent level
-        let core_domains = vec![
-            CapabilityDomain::Creative,
-        ];
+        let core_domains = vec![CapabilityDomain::Creative];
 
         for domain in core_domains {
             if !self.supports_capability(&domain, CapabilityLevel::Transcendent) {
-                return Err(format!("Core capability {:?} not at transcendent level", domain));
+                return Err(format!(
+                    "Core capability {:?} not at transcendent level",
+                    domain
+                ));
             }
         }
 
@@ -329,7 +350,10 @@ impl _SpectraCapabilities {
     pub fn update_capability(&mut self, domain: CapabilityDomain, performance_score: f32) {
         // This would update the capability based on actual performance
         // For now, just log the update
-        println!("Updating capability {:?} with score: {}", domain, performance_score);
+        println!(
+            "Updating capability {:?} with score: {}",
+            domain, performance_score
+        );
     }
 
     /// Get capability summary
@@ -382,8 +406,10 @@ impl _SpectraCapabilities {
                 metrics: capability.metrics.clone(),
                 resource_requirements: capability.resource_requirements.clone(),
             };
-            
-            breakdown.capabilities.insert(domain.clone(), capability_detail);
+
+            breakdown
+                .capabilities
+                .insert(domain.clone(), capability_detail);
         }
 
         breakdown
@@ -396,7 +422,7 @@ impl _SpectraCapabilities {
         for domain in &self.vector.specializations {
             let self_score = self.get_capability_score(domain);
             let other_score = other.get_capability_score(domain);
-            
+
             comparison.domain_comparisons.insert(
                 domain.clone(),
                 DomainComparison {
@@ -406,13 +432,12 @@ impl _SpectraCapabilities {
                     difference: self_score - other_score,
                     self_level: self.vector.get_capability(domain).map(|c| c.level.clone()),
                     other_level: other.vector.get_capability(domain).map(|c| c.level.clone()),
-                }
+                },
             );
         }
 
         comparison.overall_difference = self.overall_score() - other.overall_score();
         comparison
-
     }
 
     /// Update performance metrics
@@ -430,8 +455,16 @@ impl _SpectraCapabilities {
                 suggestions.push(OptimizationSuggestion {
                     domain: domain.clone(),
                     suggestion_type: SuggestionType::ImproveCapability,
-                    description: format!("Capability {:?} is underperforming with score {:.2}", domain, capability.score()),
-                    priority: if capability.score() < 0.6 { SuggestionPriority::High } else { SuggestionPriority::Medium },
+                    description: format!(
+                        "Capability {:?} is underperforming with score {:.2}",
+                        domain,
+                        capability.score()
+                    ),
+                    priority: if capability.score() < 0.6 {
+                        SuggestionPriority::High
+                    } else {
+                        SuggestionPriority::Medium
+                    },
                     estimated_improvement: 0.15,
                     resource_cost: ResourceCost::Medium,
                 });
@@ -454,17 +487,22 @@ impl _SpectraCapabilities {
     }
 
     /// Apply capability improvement
-    pub fn apply_improvement(&self, improvements: &HashMap<CapabilityDomain, f32>) -> _SpectraCapabilities {
+    pub fn apply_improvement(
+        &self,
+        improvements: &HashMap<CapabilityDomain, f32>,
+    ) -> _SpectraCapabilities {
         let mut new_capabilities = self.clone();
-        
+
         for (domain, improvement) in improvements {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
                 // Simulate improvement by increasing score
                 let current_score = capability.score();
                 let new_score = (current_score + improvement).min(1.0_f32);
-                
+
                 // Update capability metrics
-                capability.metrics.insert("improved_score".to_string(), new_score);
+                capability
+                    .metrics
+                    .insert("improved_score".to_string(), new_score);
             }
         }
 
@@ -479,7 +517,8 @@ impl _SpectraCapabilities {
             multimodal_synthesis: self.performance_metrics.multimodal_synthesis_quality,
             innovation_generation: self.performance_metrics.innovation_generation_quality,
             artistic_quality: self.performance_metrics.artistic_quality_score,
-            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0)) as f32,
+            response_efficiency: ((1000.0 / self.performance_metrics.avg_response_time_ms).min(1.0))
+                as f32,
         }
     }
 
@@ -487,10 +526,16 @@ impl _SpectraCapabilities {
     pub fn get_multimedia_capabilities(&self) -> MultimediaCapabilitiesBreakdown {
         let mut breakdown = MultimediaCapabilitiesBreakdown::default();
 
-        if let Some(multimedia_capability) = self.vector.get_capability(&CapabilityDomain::Multimedia) {
+        if let Some(multimedia_capability) =
+            self.vector.get_capability(&CapabilityDomain::Multimedia)
+        {
             breakdown.supported_modalities = multimedia_capability.sub_capabilities.clone();
             breakdown.synthesis_quality = self.performance_metrics.multimodal_synthesis_quality;
-            breakdown.fusion_accuracy = multimedia_capability.metrics.get("synthesis_accuracy").copied().unwrap_or(0.0);
+            breakdown.fusion_accuracy = multimedia_capability
+                .metrics
+                .get("synthesis_accuracy")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         breakdown
@@ -503,7 +548,11 @@ impl _SpectraCapabilities {
         if let Some(style_capability) = self.vector.get_capability(&CapabilityDomain::Style) {
             capabilities.adaptation_accuracy = self.performance_metrics.style_adaptation_accuracy;
             capabilities.adaptation_methods = style_capability.sub_capabilities.clone();
-            capabilities.adaptation_speed = style_capability.metrics.get("adaptation_speed").copied().unwrap_or(0.0);
+            capabilities.adaptation_speed = style_capability
+                .metrics
+                .get("adaptation_speed")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -513,10 +562,16 @@ impl _SpectraCapabilities {
     pub fn get_innovation_capabilities(&self) -> InnovationCapabilitiesBreakdown {
         let mut breakdown = InnovationCapabilitiesBreakdown::default();
 
-        if let Some(innovation_capability) = self.vector.get_capability(&CapabilityDomain::Innovation) {
+        if let Some(innovation_capability) =
+            self.vector.get_capability(&CapabilityDomain::Innovation)
+        {
             breakdown.innovation_quality = self.performance_metrics.innovation_generation_quality;
             breakdown.innovation_methods = innovation_capability.sub_capabilities.clone();
-            breakdown.novelty_score = innovation_capability.metrics.get("novelty_score").copied().unwrap_or(0.0);
+            breakdown.novelty_score = innovation_capability
+                .metrics
+                .get("novelty_score")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         breakdown
@@ -527,9 +582,14 @@ impl _SpectraCapabilities {
         let mut capabilities = CreativeGenerationCapabilities::default();
 
         if let Some(creative_capability) = self.vector.get_capability(&CapabilityDomain::Creative) {
-            capabilities.generation_accuracy = self.performance_metrics.creative_generation_accuracy;
+            capabilities.generation_accuracy =
+                self.performance_metrics.creative_generation_accuracy;
             capabilities.generation_methods = creative_capability.sub_capabilities.clone();
-            capabilities.creativity_score = creative_capability.metrics.get("creativity_score").copied().unwrap_or(0.0);
+            capabilities.creativity_score = creative_capability
+                .metrics
+                .get("creativity_score")
+                .copied()
+                .unwrap_or(0.0);
         }
 
         capabilities
@@ -582,8 +642,10 @@ impl CapabilitySummary {
             advanced: self.advanced_domains.len(),
             intermediate: self.intermediate_domains.len(),
             basic: self.basic_domains.len(),
-            total: self.expert_domains.len() + self.advanced_domains.len() + 
-                   self.intermediate_domains.len() + self.basic_domains.len(),
+            total: self.expert_domains.len()
+                + self.advanced_domains.len()
+                + self.intermediate_domains.len()
+                + self.basic_domains.len(),
         }
     }
 
@@ -591,7 +653,7 @@ impl CapabilitySummary {
     pub fn efficiency_rating(&self) -> f32 {
         let capability_score = self.overall_score;
         let resource_efficiency = 1.0 - (self.performance_metrics.resource_utilization - 0.5).abs();
-        
+
         (capability_score + resource_efficiency) / 2.0
     }
 
@@ -600,11 +662,12 @@ impl CapabilitySummary {
         if self.specializations.is_empty() {
             0.0
         } else {
-            let total_score: f32 = self.specializations
+            let total_score: f32 = self
+                .specializations
                 .iter()
                 .map(|domain| self.get_domain_score(domain))
                 .sum();
-            
+
             total_score / self.specializations.len() as f32
         }
     }
@@ -665,23 +728,29 @@ pub struct DetailedCapabilityBreakdown {
 }
 
 impl DetailedCapabilityBreakdown {
-
     /// Get capability by domain
     pub fn get_capability(&self, domain: &CapabilityDomain) -> Option<&CapabilityDetail> {
         self.capabilities.get(domain)
     }
 
     /// Get top capabilities
-    pub fn get_top_capabilities(&self, limit: usize) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
+    pub fn get_top_capabilities(
+        &self,
+        limit: usize,
+    ) -> Vec<(&CapabilityDomain, &CapabilityDetail)> {
         let mut capabilities: Vec<_> = self.capabilities.iter().collect();
-        capabilities.sort_by(|a, b| b.1.score.partial_cmp(&a.1.score).unwrap_or(std::cmp::Ordering::Equal));
+        capabilities.sort_by(|a, b| {
+            b.1.score
+                .partial_cmp(&a.1.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         capabilities.into_iter().take(limit).collect()
     }
 
     /// Get capability statistics
     pub fn get_statistics(&self) -> CapabilityStatistics {
         let mut stats = CapabilityStatistics::default();
-        
+
         for capability in self.capabilities.values() {
             match capability.level {
                 CapabilityLevel::Transcendent => stats.transcendent_count += 1,
@@ -695,7 +764,8 @@ impl DetailedCapabilityBreakdown {
         }
 
         stats.total_capabilities = self.capabilities.len();
-        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>() / self.capabilities.len() as f32;
+        stats.average_score = self.capabilities.values().map(|c| c.score).sum::<f32>()
+            / self.capabilities.len() as f32;
 
         stats
     }
@@ -742,13 +812,21 @@ impl CapabilityComparison {
                 opportunities.push(ImprovementOpportunity {
                     domain: domain.clone(),
                     gap: -comparison.difference,
-                    priority: if comparison.difference < -0.3 { OpportunityPriority::High } else { OpportunityPriority::Medium },
+                    priority: if comparison.difference < -0.3 {
+                        OpportunityPriority::High
+                    } else {
+                        OpportunityPriority::Medium
+                    },
                     potential_improvement: 0.2,
                 });
             }
         }
 
-        opportunities.sort_by(|a, b| b.gap.partial_cmp(&a.gap).unwrap_or(std::cmp::Ordering::Equal));
+        opportunities.sort_by(|a, b| {
+            b.gap
+                .partial_cmp(&a.gap)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         opportunities
     }
 }

@@ -1,56 +1,69 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use crate::gpu::{GpuContext, GpuTensor};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub fn compile_nan_check_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("nan_check_shader"),
-        source: wgpu::ShaderSource::Wgsl(NAN_CHECK_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("nan_check"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("nan_check_shader"),
+            source: wgpu::ShaderSource::Wgsl(NAN_CHECK_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("nan_check"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_nan_check_reduce_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("nan_check_reduce_shader"),
-        source: wgpu::ShaderSource::Wgsl(NAN_CHECK_REDUCE_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("nan_check_reduce"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("nan_check_reduce_shader"),
+            source: wgpu::ShaderSource::Wgsl(NAN_CHECK_REDUCE_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("nan_check_reduce"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn compile_nan_check_final_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("nan_check_final_shader"),
-        source: wgpu::ShaderSource::Wgsl(NAN_CHECK_FINAL_WGSL.into()),
-    });
-    ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("nan_check_final"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-        cache: None,
-    })
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("nan_check_final_shader"),
+            source: wgpu::ShaderSource::Wgsl(NAN_CHECK_FINAL_WGSL.into()),
+        });
+    ctx.device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("nan_check_final"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
 }
 
 pub fn has_nan_or_inf_gpu(
     ctx: &GpuContext,
     tensor: &GpuTensor,
-    pipelines: &(wgpu::ComputePipeline, wgpu::ComputePipeline, wgpu::ComputePipeline),
+    pipelines: &(
+        wgpu::ComputePipeline,
+        wgpu::ComputePipeline,
+        wgpu::ComputePipeline,
+    ),
 ) -> bool {
     let (flag_pipeline, reduce_pipeline, final_pipeline) = pipelines;
 
@@ -83,9 +96,11 @@ pub fn has_nan_or_inf_gpu(
         ],
     });
 
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("nan_check_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("nan_check_encoder"),
+        });
 
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -118,7 +133,8 @@ pub fn has_nan_or_inf_gpu(
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            ctx.queue.write_buffer(&n_buf, 0, bytemuck::bytes_of(&remaining));
+            ctx.queue
+                .write_buffer(&n_buf, 0, bytemuck::bytes_of(&remaining));
 
             let reduce_bg = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("nan_reduce_bg"),
@@ -157,12 +173,10 @@ pub fn has_nan_or_inf_gpu(
         let final_bg = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("nan_final_bg"),
             layout: &final_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: src_buf.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: src_buf.as_entire_binding(),
+            }],
         });
 
         {
@@ -183,9 +197,11 @@ pub fn has_nan_or_inf_gpu(
                 mapped_at_creation: false,
             });
 
-            let mut encoder2 = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("nan_final_copy"),
-            });
+            let mut encoder2 = ctx
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("nan_final_copy"),
+                });
             encoder2.copy_buffer_to_buffer(&src_buf, 0, &result_buf, 0, 4);
 
             let _ = std::mem::replace(&mut encoder, encoder2);
@@ -194,7 +210,10 @@ pub fn has_nan_or_inf_gpu(
 
             let slice = result_buf.slice(..);
             slice.map_async(wgpu::MapMode::Read, |_| {});
-            ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+            ctx.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            });
 
             let data = slice.get_mapped_range();
             let flag = data[0] != 0;
@@ -208,12 +227,10 @@ pub fn has_nan_or_inf_gpu(
         let final_bg = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("nan_final_bg"),
             layout: &final_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: flag_buf.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: flag_buf.as_entire_binding(),
+            }],
         });
 
         {
@@ -238,7 +255,10 @@ pub fn has_nan_or_inf_gpu(
 
         let slice = result_buf.slice(..);
         slice.map_async(wgpu::MapMode::Read, |_| {});
-        ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+        ctx.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
 
         let data = slice.get_mapped_range();
         let flag = data[0] != 0;
@@ -289,7 +309,12 @@ impl GpuNanDetector {
         let has_nan = has_nan_or_inf_gpu(ctx, tensor, pipelines);
         if has_nan {
             self.nan_detected.store(true, Ordering::SeqCst);
-            eprintln!("[GPU NaN DETECTED] in '{}' (size={}, shape={:?})", label, tensor.numel(), tensor.shape());
+            eprintln!(
+                "[GPU NaN DETECTED] in '{}' (size={}, shape={:?})",
+                label,
+                tensor.numel(),
+                tensor.shape()
+            );
             if self.abort_on_nan {
                 panic!("GPU NaN detected in '{}' — aborting", label);
             }

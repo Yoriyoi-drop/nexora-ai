@@ -13,7 +13,6 @@ pub use metadata::*;
 pub use propagation::*;
 pub use visualization::*;
 
-
 /// Entri kalkulasi shape propagation yang telah di-cache
 #[derive(Debug, Clone)]
 pub struct ShapePropEntry {
