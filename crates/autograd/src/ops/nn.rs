@@ -493,7 +493,37 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                 vec![ndarray::ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
                                     .expect("data length matches shape")]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(bce)/dx = g * (p - t) / (p * (1-p))  where p = clamp(x, 1e-7, 1-1e-7)
+                                // clamp via relu trick: min(max(x, lo), hi) = hi - relu(hi - x - relu(x - lo))
+                                let x = &saved_gpu[0];
+                                let t = &saved_gpu[1];
+                                let shape = x.shape();
+                                let eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7)).unwrap();
+                                let one_minus_eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7)).unwrap();
+                                // max(x, 1e-7) = relu(x - 1e-7) + 1e-7
+                                let x_minus_eps = ctx.sub(x, &eps).unwrap();
+                                let r = ctx.relu(&x_minus_eps).unwrap();
+                                let p = ctx.add(&r, &eps).unwrap();
+                                // min(p, 1-1e-7) = (1-1e-7) - relu((1-1e-7) - p)
+                                let diff = ctx.sub(&one_minus_eps, &p).unwrap();
+                                let r2 = ctx.relu(&diff).unwrap();
+                                let p = ctx.sub(&one_minus_eps, &r2).unwrap();
+                                // numerator = grad * (p - t)
+                                let p_minus_t = ctx.sub(&p, t).unwrap();
+                                let num = ctx.mul(grad_gpu, &p_minus_t).unwrap();
+                                // denominator = p * (1-p), clamped to 1e-12
+                                let ones = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0)).unwrap();
+                                let one_minus_p = ctx.sub(&ones, &p).unwrap();
+                                let denom = ctx.mul(&p, &one_minus_p).unwrap();
+                                let eps2 = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12)).unwrap();
+                                // max(denom, 1e-12) = relu(denom - 1e-12) + 1e-12
+                                let denom_minus_eps2 = ctx.sub(&denom, &eps2).unwrap();
+                                let r3 = ctx.relu(&denom_minus_eps2).unwrap();
+                                let denom = ctx.add(&r3, &eps2).unwrap();
+                                // result = num / denom
+                                vec![ctx.div(&num, &denom).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}

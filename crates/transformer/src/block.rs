@@ -1,6 +1,6 @@
 use ndarray::{Array1, Array2};
 
-use super::gqa::{KVCacheEntry, PagedCacheReader, GQA};
+use super::gqa::{GpuKVCacheEntry, KVCacheEntry, PagedCacheReader, GQA};
 use super::rms_norm::RMSNorm;
 use super::swiglu::SwiGLU;
 
@@ -101,6 +101,36 @@ impl TransformerBlock {
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
         let attn_out = self.attention.forward_gpu(
             &normed, cache, layer_idx, cos, sin,
+        )?;
+        // Residual: x + attn_out
+        let after_attn = ctx.add(x_gpu, &attn_out)?;
+
+        // 2. FFN sub-block: RMSNorm -> SwiGLU -> residual add
+        let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
+        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        // Residual: after_attn + ffn_out
+        ctx.add(&after_attn, &ffn_out)
+    }
+
+    /// GPU forward with GPU-resident KV cache.
+    /// No CPU round-trip for K/V cache — uses GpuKVCacheEntry.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut [GpuKVCacheEntry],
+        layer_idx: usize,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuContext;
+
+        let ctx = GpuContext::global()?;
+
+        // 1. Attention sub-block: RMSNorm -> GQA -> residual add
+        let normed = self.attention_norm.forward_gpu(x_gpu)?;
+        let attn_out = self.attention.forward_gpu_with_cache(
+            &normed, &mut cache[layer_idx], cos, sin,
         )?;
         // Residual: x + attn_out
         let after_attn = ctx.add(x_gpu, &attn_out)?;

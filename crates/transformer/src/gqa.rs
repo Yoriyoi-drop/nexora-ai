@@ -14,6 +14,125 @@ pub(crate) struct GqaGpuWeights {
     pub wo_t: nexora_autograd::gpu::GpuTensor,
 }
 
+/// GPU-resident KV cache entry.
+/// Stores K/V directly on GPU without CPU round-trip.
+/// Pre-allocated to max_seq_len with append via GPU buffer copy.
+#[cfg(feature = "gpu")]
+pub struct GpuKVCacheEntry {
+    pub k: nexora_autograd::gpu::GpuTensor,  // [capacity, kv_heads, head_dim]
+    pub v: nexora_autograd::gpu::GpuTensor,  // [capacity, kv_heads, head_dim]
+    pub seq_len: usize,
+    pub capacity: usize,
+    pub kv_heads: usize,
+    pub head_dim: usize,
+}
+
+#[cfg(feature = "gpu")]
+impl GpuKVCacheEntry {
+    /// Allocate a new GPU KV cache entry with pre-allocated zero-filled buffers.
+    pub fn new(
+        kv_heads: usize,
+        head_dim: usize,
+        max_seq: usize,
+    ) -> Self {
+        use nexora_autograd::gpu::GpuTensor;
+        Self {
+            k: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])
+                .expect("GpuKVCacheEntry::new: alloc k"),
+            v: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])
+                .expect("GpuKVCacheEntry::new: alloc v"),
+            seq_len: 0,
+            capacity: max_seq,
+            kv_heads,
+            head_dim,
+        }
+    }
+
+    /// Append new K and V (each shape [1, kv_heads, head_dim]) to the GPU cache.
+    /// Uses batch_dispatch for GPU-side buffer copy — no CPU round-trip.
+    pub fn append(
+        &mut self,
+        ctx: &nexora_autograd::gpu::GpuContext,
+        new_k: &nexora_autograd::gpu::GpuTensor,
+        new_v: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        let kv_elems = self.kv_heads * self.head_dim;
+        let byte_size = (kv_elems * 4) as u64;
+        let offset = (self.seq_len * kv_elems * 4) as u64;
+
+        ctx.batch_dispatch(|enc| {
+            // Copy new K to cache at position seq_len
+            enc.copy_buffer_to_buffer(new_k.buffer(), 0, &self.k.buffer, offset, byte_size);
+            // Copy new V to cache at position seq_len
+            enc.copy_buffer_to_buffer(new_v.buffer(), 0, &self.v.buffer, offset, byte_size);
+            Ok(())
+        })?;
+
+        self.seq_len += 1;
+        Ok(())
+    }
+
+    /// Returns a view of K up to seq_len as [seq_len, kv_heads, head_dim].
+    /// Zero-copy: shares the same wgpu::Buffer handle.
+    pub fn k_view(&self) -> nexora_autograd::gpu::GpuTensor {
+        nexora_autograd::gpu::GpuTensor {
+            shape: vec![self.seq_len, self.kv_heads, self.head_dim],
+            buffer: self.k.buffer.clone(),
+            dtype: nexora_autograd::gpu::GpuDtype::F32,
+        }
+    }
+
+    /// Returns a view of V up to seq_len as [seq_len, kv_heads, head_dim].
+    pub fn v_view(&self) -> nexora_autograd::gpu::GpuTensor {
+        nexora_autograd::gpu::GpuTensor {
+            shape: vec![self.seq_len, self.kv_heads, self.head_dim],
+            buffer: self.v.buffer.clone(),
+            dtype: nexora_autograd::gpu::GpuDtype::F32,
+        }
+    }
+
+    /// Get K/V repeated to q_heads for fused_attention.
+    /// Returns (k_repeated, v_repeated) as [seq_len, q_heads, head_dim].
+    pub fn get_repeated_kv(
+        &self,
+        ctx: &nexora_autograd::gpu::GpuContext,
+        q_heads: u32,
+    ) -> Result<
+        (nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuTensor),
+        nexora_autograd::gpu::GpuError,
+    > {
+        let dim = self.head_dim as u32;
+        let kv_heads = self.kv_heads as u32;
+        let k_repeated = ctx.repeat_heads(&self.k_view(), kv_heads, q_heads, dim)?;
+        let v_repeated = ctx.repeat_heads(&self.v_view(), kv_heads, q_heads, dim)?;
+        Ok((k_repeated, v_repeated))
+    }
+
+    /// Clear the cache (reset sequence length).
+    /// Does NOT deallocate buffers — memset to zero.
+    pub fn clear(&mut self, ctx: &nexora_autograd::gpu::GpuContext) -> Result<(), nexora_autograd::gpu::GpuError> {
+        ctx.fill_zero(&self.k)?;
+        ctx.fill_zero(&self.v)?;
+        self.seq_len = 0;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Clone for GpuKVCacheEntry {
+    fn clone(&self) -> Self {
+        // Shallow clone — shares the same wgpu::Buffer handles
+        Self {
+            k: self.k.clone(),
+            v: self.v.clone(),
+            seq_len: self.seq_len,
+            capacity: self.capacity,
+            kv_heads: self.kv_heads,
+            head_dim: self.head_dim,
+        }
+    }
+}
+
 /// Minimal paged cache interface — avoids hard dependency on the inference crate.
 /// Inference crate's PagedKVCache implements this trait.
 pub trait PagedCacheReader {
@@ -480,7 +599,97 @@ impl GQA {
         output.dot(&self.wo.t())
     }
 
-    #[cfg(feature = "gpu")]
+}
+
+#[cfg(feature = "gpu")]
+impl GQA {
+    /// GPU forward with GPU-resident KV cache.
+    /// No CPU round-trip for K/V cache operations.
+    pub fn forward_gpu_with_cache(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut GpuKVCacheEntry,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+
+        // 1. Lazy-init cached GPU weights
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_none() {
+            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
+                let shape = vec![arr.shape()[0], arr.shape()[1]];
+                let data = arr.as_slice().ok_or_else(|| {
+                    GpuError::Unsupported("non-contiguous weight".into())
+                })?.to_vec();
+                Ok(GpuTensor::from_cpu(
+                    &ndarray::ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                )?)
+            };
+            let wq = mk(&self.wq)?;
+            let wk = mk(&self.wk)?;
+            let wv = mk(&self.wv)?;
+            let wo = mk(&self.wo)?;
+            *guard = Some(GqaGpuWeights {
+                wq_t: ctx.transpose(&wq)?,
+                wk_t: ctx.transpose(&wk)?,
+                wv_t: ctx.transpose(&wv)?,
+                wo_t: ctx.transpose(&wo)?,
+            });
+        }
+        let cached = guard.as_ref().unwrap();
+
+        // 2. QKV projection on GPU
+        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+
+        // 3. Upload cos/sin for RoPE
+        let half = cos.len();
+        let cos_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(vec![1, half], cos.to_vec())
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+        let sin_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(vec![1, half], sin.to_vec())
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+
+        // Apply RoPE on GPU for Q and K
+        let q_rotated = ctx.rotary_embedding(&q_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+
+        // 4. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
+        let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
+
+        // 5. Append K/V to GPU-resident cache
+        let k_3d = k_rotated.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
+        let v_3d = v_proj.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
+        cache.append(&ctx, &k_3d, &v_3d)?;
+
+        // 6. Get repeated K/V from GPU cache
+        let (k_repeated, v_repeated) = cache.get_repeated_kv(&ctx, self.num_heads as u32)?;
+        let total_seq = cache.seq_len;
+
+        // 7. Reshape K/V to 4D for fused_attention
+        let k_4d = k_repeated.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
+        let v_4d = v_repeated.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
+
+        // 8. Fused attention on GPU
+        let attn_output_4d = ctx.fused_attention(&q_4d, &k_4d, &v_4d, self.head_dim_rs, false)?;
+
+        // 9. Reshape attention output
+        let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
+
+        // 10. Output projection on GPU
+        ctx.matmul(&attn_flat, &cached.wo_t)
+    }
+
+    /// Legacy GPU forward with CPU-side KV cache (Vec<KVCacheEntry>).
+    /// Use forward_gpu_with_cache for GPU-resident cache.
     pub fn forward_gpu(
         &self,
         x_gpu: &nexora_autograd::gpu::GpuTensor,
@@ -495,7 +704,7 @@ impl GQA {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
 
-        // 1. Lazy-init cached GPU weights (pre-transposed for matmul)
+        // 1. Lazy-init cached GPU weights
         let mut guard = self.gpu_weights.lock().unwrap();
         if guard.is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
@@ -572,12 +781,6 @@ impl GQA {
         let entry = &cache[layer_idx];
         let total_seq = entry.k.shape()[0];
 
-        // Build K/V with head repeating for GQA:
-        // If num_heads != num_kv_heads, repeat K/V heads so fused_attention
-        // sees [B, num_heads, S, D] for both Q and K/V.
-        // Always use num_heads for the repeated head dimension (Q has num_heads heads).
-        // When num_heads == num_kv_heads, groups=1 so kv_h = h/1 = h (identity).
-        // When num_heads > num_kv_heads, each group of query heads maps to the same KV head.
         let eff_heads = self.num_heads;
 
         let k_slice = entry.k.as_slice().unwrap();

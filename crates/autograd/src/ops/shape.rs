@@ -50,21 +50,23 @@ pub fn transpose(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let gpu_clone = gpu_result.clone();
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![input.clone()],
-                            vec![],
-                            vec![gpu_clone],
-                            Box::new(|grad, _| {
-                                let grad_mat = grad
-                                    .view()
-                                    .into_dimensionality::<ndarray::Ix2>()
-                                    .expect("grad must be 2D");
-                                vec![grad_mat.t().to_owned().into_dyn()]
-                            }),
-                            None,
-                        );
+                        let gpu_clone = gpu_result.clone();                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![],
+                                vec![gpu_clone],
+                                Box::new(|grad, _| {
+                                    let grad_mat = grad
+                                        .view()
+                                        .into_dimensionality::<ndarray::Ix2>()
+                                        .expect("grad must be 2D");
+                                    vec![grad_mat.t().to_owned().into_dyn()]
+                                }),
+                                Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                    // d(transpose(x))/dx = transpose(grad)
+                                    vec![ctx.transpose(grad_gpu).unwrap()]
+                                })),
+                            );
                     }
                     Err(_) => {}
                 }

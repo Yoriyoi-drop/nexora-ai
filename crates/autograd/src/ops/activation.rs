@@ -27,20 +27,15 @@ pub fn relu(input: &Tensor) -> Tensor {
                                 let mask = x.mapv(|v| if v > 0.0 { 1.0 } else { 0.0 });
                                 vec![grad.clone() * mask]
                             }),
-                            Some(Box::new(|saved_gpu, grad_gpu, ctx| {
-                                let gpu_x = &saved_gpu[0];
-                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
-                                    gpu_x.shape(),
-                                    1.0,
-                                ))
-                                .unwrap();
-                                let mask = ctx.elementwise_unary(gpu_x, ElemOp::Relu).unwrap();
-                                let grad = ctx.elementwise_unary(grad_gpu, ElemOp::Neg).unwrap();
-                                let zeroed = ctx.add(&grad, &ones).unwrap();
-                                let valid = ctx
-                                    .elementwise_binary(grad_gpu, &mask, ElemOp::Mul)
-                                    .unwrap();
-                                vec![valid]
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(relu(x))/dx = 1 if x > 0 else 0
+                                // mask = relu(x) / (relu(x) + eps)  (≈1 for positive, 0 for zero)
+                                let x = &saved_gpu[0];
+                                let relu_out = ctx.elementwise_unary(x, ElemOp::Relu).unwrap();
+                                let eps = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(x.shape(), 1e-12)).unwrap();
+                                let denom = ctx.add(&relu_out, &eps).unwrap();
+                                let mask = ctx.div(&relu_out, &denom).unwrap();
+                                vec![ctx.mul(grad_gpu, &mask).unwrap()]
                             })),
                         );
                     }
@@ -153,17 +148,25 @@ pub fn tanh(input: &Tensor) -> Tensor {
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
                         let result_cpu = gpu_result.to_cpu();
+                        let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
                             vec![result_cpu],
-                            vec![],
+                            vec![gpu_saved],
                             Box::new(|grad, saved| {
                                 let t = &saved[0];
                                 let grad_t = t.mapv(|v| 1.0 - v * v);
                                 vec![grad.clone() * grad_t]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(tanh(x))/dx = 1 - tanh(x)^2 = 1 - y^2
+                                let y = &saved_gpu[0];
+                                let y2 = ctx.mul(y, y).unwrap();
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(y.shape(), 1.0)).unwrap();
+                                let local = ctx.sub(&ones, &y2).unwrap();
+                                vec![ctx.mul(grad_gpu, &local).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}
@@ -252,17 +255,25 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
                         let result_cpu = gpu_result.to_cpu();
+                        let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
                             vec![result_cpu],
-                            vec![],
+                            vec![gpu_saved],
                             Box::new(|grad, saved| {
                                 let sig = &saved[0];
                                 let sig_grad = sig.mapv(|s| s * (1.0 - s));
                                 vec![grad.clone() * sig_grad]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(sigmoid(x))/dx = sigmoid(x) * (1 - sigmoid(x)) = y * (1 - y)
+                                let y = &saved_gpu[0];
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(y.shape(), 1.0)).unwrap();
+                                let one_minus_y = ctx.sub(&ones, y).unwrap();
+                                let dy = ctx.mul(y, &one_minus_y).unwrap();
+                                vec![ctx.mul(grad_gpu, &dy).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}
@@ -324,7 +335,17 @@ pub fn silu(input: &Tensor) -> Tensor {
                                 let silu_grad = &sig + x * &sig * (1.0 - &sig);
                                 vec![grad.clone() * silu_grad]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(silu(x))/dx = sig + x * sig * (1 - sig) where sig = sigmoid(x)
+                                let x = &saved_gpu[0];
+                                let sig = ctx.elementwise_unary(x, ElemOp::Sigmoid).unwrap();
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(x.shape(), 1.0)).unwrap();
+                                let one_minus_sig = ctx.sub(&ones, &sig).unwrap();
+                                let x_sig = ctx.mul(x, &sig).unwrap();
+                                let term2 = ctx.mul(&x_sig, &one_minus_sig).unwrap();
+                                let local_grad = ctx.add(&sig, &term2).unwrap();
+                                vec![ctx.mul(grad_gpu, &local_grad).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}

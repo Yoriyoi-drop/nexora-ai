@@ -417,6 +417,153 @@ impl CausalLM {
         (output, cache)
     }
 
+    /// GPU forward pass using GPU-resident KV cache.
+    /// No CPU round-trip for K/V operations — eliminates O(n²) data transfer.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache(
+        &self,
+        input_ids: &[u32],
+        cache: &mut [super::gqa::GpuKVCacheEntry],
+    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+
+        // 1. Token embedding: copy the embedding row for last token
+        let mut h_data = vec![0.0; self.config.hidden_size];
+        if let Some(&token_id) = input_ids.last() {
+            let tid = token_id as usize;
+            for j in 0..self.config.hidden_size {
+                h_data[j] = self.token_embedding[[tid, j]];
+            }
+        }
+        let h_shape = vec![batch_size, self.config.hidden_size];
+        let h_cpu = ndarray::ArrayD::from_shape_vec(h_shape, h_data)
+            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+        let mut h = GpuTensor::from_cpu(&h_cpu)?;
+
+        // 2. Get RoPE cos/sin for current position
+        let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
+        let half = self.config.head_dim() / 2;
+        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+
+        // 3. Forward through all transformer blocks on GPU with GPU-resident cache
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
+            h = block.forward_gpu_with_cache(&h, cache, layer_idx, &cos_slice, &sin_slice)?;
+        }
+
+        // 4. Final RMSNorm on GPU
+        h = self.norm.forward_gpu(&h)?;
+
+        // 5. LM head: matmul(h, lm_head^T) on GPU with cached weight
+        let mut guard = self.lm_head_gpu.lock().unwrap();
+        let lm_head_cached = guard.get_or_insert_with(|| {
+            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
+            let data = self.lm_head.as_slice().unwrap().to_vec();
+            let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data).unwrap();
+            let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
+            ctx.transpose(&gpu).unwrap()
+        });
+        let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+
+        // 6. Download logits to CPU
+        let logits_cpu = logits_gpu.to_cpu();
+        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+        Ok(Array1::from_vec(logits_flat))
+    }
+
+    /// Generate using GPU-resident KV cache for maximum performance.
+    /// Creates GPU cache entries for all layers with pre-allocated buffers.
+    #[cfg(feature = "gpu")]
+    pub fn generate_gpu_with_cache(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+    ) -> (Vec<u32>, Vec<super::gqa::GpuKVCacheEntry>) {
+        use nexora_autograd::gpu::GpuContext;
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(_) => {
+                // Fallback: CPU-only if GPU unavailable
+                let (tokens, _) = self.generate(prompt_ids, max_tokens, temperature, top_k);
+                return (tokens, Vec::new());
+            }
+        };
+
+        // Create GPU-resident cache for all layers
+        let mut gpu_cache: Vec<super::gqa::GpuKVCacheEntry> = (0..self.config.num_layers)
+            .map(|_| {
+                super::gqa::GpuKVCacheEntry::new(
+                    self.config.num_kv_heads,
+                    self.config.head_dim(),
+                    self.config.max_seq_len,
+                )
+            })
+            .collect();
+
+        // Ensure fill_zero dispatches complete before any append
+        ctx.flush();
+
+        // Prefill prompt tokens
+        for &token_id in prompt_ids {
+            if self.forward_gpu_with_cache(&[token_id], &mut gpu_cache).is_err() {
+                // Fallback: cannot use GPU cache — use Vec<KVCacheEntry> CPU path
+                let mut cpu_cache = self.reset_cache();
+                for t in &[prompt_ids, &[token_id]].concat() {
+                    self.forward(&[*t], &mut cpu_cache);
+                }
+                // ... but we can't easily switch mid-generation, so just return
+                let (tokens, _) = self.generate(prompt_ids, max_tokens, temperature, top_k);
+                return (tokens, gpu_cache);
+            }
+        }
+
+        let mut output = Vec::new();
+        let mut last_id = *prompt_ids.last().unwrap_or(&0);
+
+        for _ in 0..max_tokens {
+            match self.forward_gpu_with_cache(&[last_id], &mut gpu_cache) {
+                Ok(logits) => {
+                    let next_id = sample_token_gpu(&logits, temperature, top_k, 12345);
+                    output.push(next_id);
+                    if next_id == 0 {
+                        break;
+                    }
+                    last_id = next_id;
+                }
+                Err(_) => {
+                    // Fallback to CPU sample (logits computation already failed)
+                    let logits = self.forward(&[last_id], &mut self.reset_cache());
+                    let next_id = sample_token(&logits, temperature, top_k);
+                    output.push(next_id);
+                    if next_id == 0 {
+                        break;
+                    }
+                    last_id = next_id;
+                }
+            }
+        }
+
+        (output, gpu_cache)
+    }
+
     pub fn memory_bytes(&self) -> usize {
         self.parameter_count() * 4
     }

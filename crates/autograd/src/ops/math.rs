@@ -391,16 +391,21 @@ pub fn exp(input: &Tensor) -> Tensor {
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
                         let result_cpu = gpu_result.to_cpu();
+                        let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
                             vec![result_cpu],
-                            vec![],
+                            vec![gpu_saved],
                             Box::new(|grad, saved| {
                                 let e = &saved[0];
                                 vec![grad.clone() * e]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(exp(x))/dx = exp(x) = y
+                                let y = &saved_gpu[0];
+                                vec![ctx.mul(grad_gpu, y).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}
@@ -448,7 +453,11 @@ pub fn ln(input: &Tensor) -> Tensor {
                                 let dx = x.mapv(|v| 1.0 / v.max(1e-38));
                                 vec![grad.clone() * dx]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(ln(x))/dx = 1/x
+                                let x = &saved_gpu[0];
+                                vec![ctx.div(grad_gpu, x).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}
@@ -550,17 +559,24 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
                         let result_cpu = gpu_result.to_cpu();
+                        let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
                             vec![result_cpu],
-                            vec![],
+                            vec![gpu_saved],
                             Box::new(|grad, saved| {
                                 let s = &saved[0];
                                 let dx = s.mapv(|v| 0.5 / v.max(1e-38));
                                 vec![grad.clone() * dx]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                // d(sqrt(x))/dx = 0.5 / sqrt(x) = 0.5 / y
+                                let y = &saved_gpu[0];
+                                let half = GpuTensor::from_cpu(&ArrayD::from_elem(y.shape(), 0.5)).unwrap();
+                                let inv = ctx.div(&half, y).unwrap();
+                                vec![ctx.mul(grad_gpu, &inv).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}
@@ -604,7 +620,10 @@ pub fn neg(a: &Tensor) -> Tensor {
                             vec![],
                             vec![],
                             Box::new(|grad, _| vec![-grad.clone()]),
-                            None,
+                            Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                // d(-x)/dx = -1 → grad * -1 = -grad
+                                vec![ctx.elementwise_unary(grad_gpu, ElemOp::Neg).unwrap()]
+                            })),
                         );
                     }
                     Err(_) => {}
