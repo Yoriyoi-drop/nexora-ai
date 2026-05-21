@@ -139,6 +139,45 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
 }
 
 pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &storage {
+            if axis == input.ndim() - 1 && input.ndim() == 2 {
+                if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                    // GPU: softmax(input) then ln = log_softmax
+                    match ctx.softmax(gpu_input) {
+                        Ok(soft) => match ctx.elementwise_unary(&soft, crate::gpu::ElemOp::Ln) {
+                            Ok(gpu_result) => {
+                                let requires_grad = input.requires_grad();
+                                if !requires_grad {
+                                    let id = crate::tensor::next_tensor_id();
+                                    return Tensor::from_gpu(gpu_result, id, false);
+                                }
+                                let soft_cpu = soft.to_cpu();
+                                let shape = soft_cpu.shape().to_vec();
+                                return Tensor::from_gpu_with_grad_fn(
+                                    gpu_result,
+                                    vec![input.clone()],
+                                    vec![soft_cpu],
+                                    vec![],
+                                    Box::new(move |grad, saved| {
+                                        let soft = &saved[0];
+                                        let sum_g = grad.sum_axis(ndarray::Axis(axis)).into_dyn();
+                                        let dx = grad - soft * &sum_g;
+                                        vec![dx]
+                                    }),
+                                    None,
+                                );
+                            }
+                            Err(_) => {}
+                        },
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+    }
     let sm = softmax(input, axis);
     let data = sm.data();
     let result = data.mapv(|x| x.max(1e-38).ln());
@@ -424,6 +463,44 @@ pub fn layer_norm_2d(
 }
 
 pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let in_storage = input.storage();
+        let t_storage = target.storage();
+        if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_t)) = (&in_storage, &t_storage) {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                match ctx.elementwise_binary(gpu_in, gpu_t, crate::gpu::ElemOp::BinaryCrossEntropy) {
+                    Ok(gpu_result) => {
+                        if !input.requires_grad() {
+                            let id = crate::tensor::next_tensor_id();
+                            return Tensor::from_gpu(gpu_result, id, false);
+                        }
+                        let data_cpu = gpu_in.to_cpu();
+                        let tgt_cpu = gpu_t.to_cpu();
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_result,
+                            vec![input.clone()],
+                            vec![data_cpu, tgt_cpu],
+                            vec![gpu_in.clone(), gpu_t.clone()],
+                            Box::new(move |grad, saved| {
+                                let x = &saved[0];
+                                let t = &saved[1];
+                                let mut dx_data = vec![0.0f32; x.len()];
+                                for (i, (&g, (&xv, &tv))) in grad.iter().zip(x.iter().zip(t.iter())).enumerate() {
+                                    let p = xv.clamp(1e-7, 1.0 - 1e-7);
+                                    dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
+                                }
+                                vec![ndarray::ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
+                                    .expect("data length matches shape")]
+                            }),
+                            None,
+                        );
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
     let data = input.data();
     let tgt = target.data();
     assert_eq!(data.shape(), tgt.shape(), "BCE: shape mismatch");

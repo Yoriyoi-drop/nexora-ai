@@ -1,19 +1,58 @@
 use ndarray::{Array1, Array2};
 
+#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
+pub(crate) struct RmsNormGpuWeights {
+    pub weight: nexora_autograd::gpu::GpuTensor,
+}
+
+#[derive(Debug)]
 pub struct RMSNorm {
     pub weight: Array1<f32>,
     pub eps: f32,
+    #[cfg(feature = "gpu")]
+    pub(crate) gpu_weights: std::sync::Mutex<Option<RmsNormGpuWeights>>,
+}
+
+#[cfg(not(feature = "gpu"))]
+impl Clone for RMSNorm {
+    fn clone(&self) -> Self {
+        Self {
+            weight: self.weight.clone(),
+            eps: self.eps.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Clone for RMSNorm {
+    fn clone(&self) -> Self {
+        Self {
+            weight: self.weight.clone(),
+            eps: self.eps,
+            gpu_weights: std::sync::Mutex::new(None),
+        }
+    }
 }
 
 impl RMSNorm {
     pub fn new(hidden_size: usize, eps: f32) -> Self {
         let weight = Array1::from_shape_fn(hidden_size, |_| 1.0);
-        Self { weight, eps }
+        Self {
+            weight,
+            eps,
+            #[cfg(feature = "gpu")]
+            gpu_weights: std::sync::Mutex::new(None),
+        }
     }
 
     pub fn from_weights(weight: Array1<f32>, eps: f32) -> Self {
-        Self { weight, eps }
+        Self {
+            weight,
+            eps,
+            #[cfg(feature = "gpu")]
+            gpu_weights: std::sync::Mutex::new(None),
+        }
     }
 
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
@@ -40,5 +79,26 @@ impl RMSNorm {
             .zip(self.weight.iter())
             .map(|(&v, &w)| (v / rms) * w)
             .collect()
+    }
+
+    /// GPU forward: runs RMSNorm on GPU via GpuContext::rms_norm.
+    /// x: [batch, dim] on GPU, returns normalized output on GPU.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global()?;
+        let mut guard = self.gpu_weights.lock().unwrap();
+        let cached = guard.get_or_insert_with(|| {
+            let weight_shape = vec![self.weight.len()];
+            let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, self.weight.to_vec())
+                .unwrap();
+            RmsNormGpuWeights {
+                weight: GpuTensor::from_cpu(&weight_arr).unwrap(),
+            }
+        });
+        ctx.rms_norm(x, &cached.weight, self.eps)
     }
 }

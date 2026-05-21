@@ -85,7 +85,7 @@ pub fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32
     (probs.len() - 1) as u32
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CausalLM {
     pub config: TransformerConfig,
     pub token_embedding: Array2<f32>,
@@ -95,6 +95,41 @@ pub struct CausalLM {
     pub rope: RoPE,
     pub precomputed_cos: Array1<f32>,
     pub precomputed_sin: Array1<f32>,
+    #[cfg(feature = "gpu")]
+    pub(crate) lm_head_gpu: std::sync::Mutex<Option<nexora_autograd::gpu::GpuTensor>>,
+}
+
+#[cfg(not(feature = "gpu"))]
+impl Clone for CausalLM {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            token_embedding: self.token_embedding.clone(),
+            blocks: self.blocks.clone(),
+            norm: self.norm.clone(),
+            lm_head: self.lm_head.clone(),
+            rope: self.rope.clone(),
+            precomputed_cos: self.precomputed_cos.clone(),
+            precomputed_sin: self.precomputed_sin.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Clone for CausalLM {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            token_embedding: self.token_embedding.clone(),
+            blocks: self.blocks.clone(),
+            norm: self.norm.clone(),
+            lm_head: self.lm_head.clone(),
+            rope: self.rope.clone(),
+            precomputed_cos: self.precomputed_cos.clone(),
+            precomputed_sin: self.precomputed_sin.clone(),
+            lm_head_gpu: std::sync::Mutex::new(None),
+        }
+    }
 }
 
 impl CausalLM {
@@ -145,6 +180,8 @@ impl CausalLM {
             rope,
             precomputed_cos,
             precomputed_sin,
+            #[cfg(feature = "gpu")]
+            lm_head_gpu: std::sync::Mutex::new(None),
         }
     }
 
@@ -331,8 +368,128 @@ impl CausalLM {
         Ok(model)
     }
 
+    #[cfg(feature = "gpu")]
+    fn generate_gpu_impl(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        use nexora_autograd::gpu::GpuContext;
+
+        let mut cache = self.reset_cache();
+
+        // Prefill prompt tokens (use GPU forward)
+        for &token_id in prompt_ids {
+            if self.forward_gpu(&[token_id], &mut cache).is_err() {
+                // Fallback to CPU if GPU fails
+                self.forward(&[token_id], &mut cache);
+            }
+        }
+
+        let mut output = Vec::new();
+        let mut last_id = *prompt_ids.last().unwrap_or(&0);
+
+        for _ in 0..max_tokens {
+            match self.forward_gpu(&[last_id], &mut cache) {
+                Ok(logits) => {
+                    let next_id = sample_token_gpu(&logits, temperature, top_k, 12345);
+                    output.push(next_id);
+                    if next_id == 0 {
+                        break;
+                    }
+                    last_id = next_id;
+                }
+                Err(_) => {
+                    // Fallback to CPU
+                    let logits = self.forward(&[last_id], &mut cache);
+                    let next_id = sample_token(&logits, temperature, top_k);
+                    output.push(next_id);
+                    if next_id == 0 {
+                        break;
+                    }
+                    last_id = next_id;
+                }
+            }
+        }
+
+        (output, cache)
+    }
+
     pub fn memory_bytes(&self) -> usize {
         self.parameter_count() * 4
+    }
+
+    /// GPU forward pass: returns logits on CPU.
+    /// Handles token embedding, all transformer blocks, final norm + lm_head on GPU.
+    /// Falls back to CPU if GPU is unavailable.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut Vec<KVCacheEntry>,
+    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+
+        // 1. Token embedding: copy the embedding row for last token
+        let mut h_data = vec![0.0; self.config.hidden_size];
+        if let Some(&token_id) = input_ids.last() {
+            let tid = token_id as usize;
+            for j in 0..self.config.hidden_size {
+                h_data[j] = self.token_embedding[[tid, j]];
+            }
+        }
+        let h_shape = vec![batch_size, self.config.hidden_size];
+        let h_cpu = ArrayD::from_shape_vec(h_shape, h_data)
+            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+        let mut h = GpuTensor::from_cpu(&h_cpu)?;
+
+        // 2. Get RoPE cos/sin for current position
+        let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+        let half = self.config.head_dim() / 2;
+        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+
+        // 3. Forward through all transformer blocks on GPU
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
+            h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
+        }
+
+        // 4. Final RMSNorm on GPU
+        h = self.norm.forward_gpu(&h)?;
+
+        // 5. LM head: matmul(h, lm_head^T) on GPU with cached weight
+        let mut guard = self.lm_head_gpu.lock().unwrap();
+        let lm_head_cached = guard.get_or_insert_with(|| {
+            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
+            let data = self.lm_head.as_slice().unwrap().to_vec();
+            let cpu_arr = ArrayD::from_shape_vec(shape, data).unwrap();
+            let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
+            ctx.transpose(&gpu).unwrap()
+        });
+        let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+
+        // 6. Download logits to CPU
+        let logits_cpu = logits_gpu.to_cpu();
+        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+        Ok(Array1::from_vec(logits_flat))
     }
 
     pub fn generate(
@@ -354,6 +511,13 @@ impl CausalLM {
         use_gpu: bool,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
         let mut cache = self.reset_cache();
+
+        if use_gpu {
+            #[cfg(feature = "gpu")]
+            {
+                return self.generate_gpu_impl(prompt_ids, max_tokens, temperature, top_k);
+            }
+        }
 
         for &token_id in prompt_ids {
             self.forward(&[token_id], &mut cache);

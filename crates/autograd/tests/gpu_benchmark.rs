@@ -69,7 +69,12 @@ mod tests {
         }
 
         fn default() -> Self {
-            Self::new(5, 20)
+            Self::new(10, 20) // Increased warmup from 5 to 10 to reduce variance
+        }
+
+        /// Lighter harness for long benchmark suites (runs in CI-friendly time when used with --ignored).
+        fn quick() -> Self {
+            Self::new(3, 5)
         }
 
         fn run<F, E>(&self, mut f: F) -> Result<BenchmarkStats, E>
@@ -264,10 +269,51 @@ mod tests {
         println!("GPU fill_zero OK");
     }
 
+    /// Quick matmul smoke benchmark (always runs in default `cargo test`).
     #[test]
+    fn test_gpu_matmul_benchmark_quick() {
+        let ctx = GpuContext::init().expect("GPU context init failed");
+        let harness = BenchmarkHarness::quick();
+        let n = 512usize;
+        let a_data =
+            ArrayD::from_shape_vec(vec![n, n], (0..n * n).map(|i| (i % 100) as f32).collect())
+                .unwrap();
+        let b_data = ArrayD::from_shape_vec(
+            vec![n, n],
+            (0..n * n).map(|i| ((i * 3) % 100) as f32).collect(),
+        )
+        .unwrap();
+        let ga = GpuTensor::from_cpu(&a_data).unwrap();
+        let gb = GpuTensor::from_cpu(&b_data).unwrap();
+        let iterations = 10usize;
+        let stats = harness
+            .run(|| {
+                for _ in 0..iterations {
+                    let _ = ctx.matmul(&ga, &gb).unwrap();
+                }
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+        let ops_per_iter = 2.0 * (n as f64).powi(3);
+        let median_per_iter = stats.median.as_secs_f64() / iterations as f64;
+        let gflops = ops_per_iter / median_per_iter / 1e9;
+        println!(
+            "GPU matmul quick [{n}x{n}] x {iterations} | median={:?} | {gflops:.2} GFLOPS",
+            stats.median
+        );
+        assert!(
+            gflops > 1.0,
+            "expected >1 GFLOPS on quick matmul smoke, got {gflops:.2}"
+        );
+    }
+
+    /// Full benchmark: measures kernel performance with multiple iterations.
+    /// Marked as ignored due to long runtime. Run with: cargo test test_gpu_matmul_benchmark -- --ignored
+    #[test]
+    #[ignore = "slow full GPU matmul sweep"]
     fn test_gpu_matmul_benchmark() {
         let ctx = GpuContext::init().expect("GPU context init failed");
-        let harness = BenchmarkHarness::default();
+        let harness = BenchmarkHarness::quick();
         let sizes = [128, 256, 512, 1024];
         for &n in &sizes {
             let a_data =
@@ -280,10 +326,10 @@ mod tests {
             .unwrap();
 
             let iterations = match n {
-                128 => 100,
-                256 => 50,
-                512 => 20,
-                1024 => 5,
+                128 => 40,
+                256 => 20,
+                512 => 10,
+                1024 => 3,
                 _ => 1,
             };
 
@@ -299,8 +345,10 @@ mod tests {
                 Ok::<(), ()>(())
             }).unwrap();
 
-            let ops = 2.0 * (n as f64).powi(3);
-            let gflops = ops / stats.median.as_secs_f64() / 1e9;
+            // Fix: median is time for ALL iterations, need to divide by iterations
+            let ops_per_iter = 2.0 * (n as f64).powi(3);
+            let median_per_iter = stats.median.as_secs_f64() / iterations as f64;
+            let gflops = ops_per_iter / median_per_iter / 1e9;
             println!(
                 "GPU matmul [{n:>4}x{n:>4}] x {iterations:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (kernel only, no readback)",
                 stats.median, stats.mean, stats.stddev
@@ -308,10 +356,13 @@ mod tests {
         }
     }
 
+    /// Benchmark with GPU timestamp query for accurate kernel timing.
+    /// Marked as ignored due to long runtime. Run with: cargo test test_gpu_matmul_benchmark_with_timestamp -- --ignored
     #[test]
+    #[ignore = "slow full GPU timestamp matmul sweep"]
     fn test_gpu_matmul_benchmark_with_timestamp() {
         let ctx = GpuContext::init().expect("GPU context init failed");
-        let harness = BenchmarkHarness::default();
+        let harness = BenchmarkHarness::quick();
         let sizes = [128, 256, 512, 1024];
         for &n in &sizes {
             let a_data =
@@ -328,10 +379,10 @@ mod tests {
             let gb = GpuTensor::from_cpu(&b_data).unwrap();
 
             let iterations = match n {
-                128 => 100,
-                256 => 50,
-                512 => 20,
-                1024 => 5,
+                128 => 40,
+                256 => 20,
+                512 => 10,
+                1024 => 3,
                 _ => 1,
             };
 
@@ -343,8 +394,10 @@ mod tests {
                 Ok::<(), ()>(())
             }).unwrap();
 
-            let ops = 2.0 * (n as f64).powi(3);
-            let gflops = ops / stats.median.as_secs_f64() / 1e9;
+            // Fix: median is time for ALL iterations, need to divide by iterations
+            let ops_per_iter = 2.0 * (n as f64).powi(3);
+            let median_per_iter = stats.median.as_secs_f64() / iterations as f64;
+            let gflops = ops_per_iter / median_per_iter / 1e9;
             println!(
                 "GPU matmul [{n:>4}x{n:>4}] x {iterations:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (GPU timestamp query)",
                 stats.median, stats.mean, stats.stddev
@@ -381,25 +434,29 @@ mod tests {
 
             let stats = harness.run(|| {
                 // Use batch dispatch with single timestamp query
+                // Note: matmul_batch_with_timestamp now requires &mut self
                 let _ = ctx.matmul_batch_with_timestamp(&ga, &gb, batch_size).unwrap();
                 Ok::<(), ()>(())
             }).unwrap();
 
-            let ops = 2.0 * (n as f64).powi(3) * batch_size as f64;
-            let gflops = ops / stats.median.as_secs_f64() / 1e9;
+            // Fix: median is time for ALL iterations, need to divide by batch_size
+            let ops_per_iter = 2.0 * (n as f64).powi(3);
+            let median_per_iter = stats.median.as_secs_f64() / batch_size as f64;
+            let gflops = ops_per_iter / median_per_iter / 1e9;
             println!(
-                "GPU matmul batch [{n:>4}x{n:>4}] x {batch_size:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (batch dispatch, single timestamp)",
+                "GPU matmul batch [{n:>4}x{n:>4}] x {batch_size:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (per-iteration, batch-dispatch)",
                 stats.median, stats.mean, stats.stddev
             );
         }
     }
 
-    /// Microbenchmark: kernel-only benchmark without any readback
-    /// This measures pure GPU compute performance without synchronization overhead
+    /// Microbenchmark: kernel-only benchmark without any readback.
+    /// Marked as ignored due to long runtime. Run with: cargo test test_gpu_matmul_microbenchmark -- --ignored
     #[test]
+    #[ignore = "slow GPU microbenchmark sweep"]
     fn test_gpu_matmul_microbenchmark() {
-        let ctx = GpuContext::init().expect("GPU context init failed");
-        let harness = BenchmarkHarness::default();
+        let mut ctx = GpuContext::init().expect("GPU context init failed");
+        let harness = BenchmarkHarness::quick();
         let sizes = [128, 256, 512, 1024];
         for &n in &sizes {
             let a_data =
@@ -416,10 +473,10 @@ mod tests {
             let gb = GpuTensor::from_cpu(&b_data).unwrap();
 
             let batch_size = match n {
-                128 => 200,
-                256 => 100,
-                512 => 50,
-                1024 => 20,
+                128 => 80,
+                256 => 40,
+                512 => 20,
+                1024 => 8,
                 _ => 1,
             };
 
@@ -429,28 +486,31 @@ mod tests {
                 Ok::<(), ()>(())
             }).unwrap();
 
-            let ops = 2.0 * (n as f64).powi(3) * batch_size as f64;
-            let gflops = ops / stats.median.as_secs_f64() / 1e9;
+            // Fix: median is time for ALL iterations, need to divide by batch_size
+            let ops_per_iter = 2.0 * (n as f64).powi(3);
+            let median_per_iter = stats.median.as_secs_f64() / batch_size as f64;
+            let gflops = ops_per_iter / median_per_iter / 1e9;
             println!(
-                "GPU matmul micro [{n:>4}x{n:>4}] x {batch_size:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (kernel-only, no readback)",
+                "GPU matmul micro [{n:>4}x{n:>4}] x {batch_size:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (per-iteration, kernel-only)",
                 stats.median, stats.mean, stats.stddev
             );
         }
     }
 
-    /// Pipeline benchmark: end-to-end benchmark with upload, compute, and readback
-    /// This measures real-world performance including data transfer overhead
+    /// Pipeline benchmark: end-to-end benchmark with upload, compute, and readback.
+    /// Marked as ignored due to long runtime. Run with: cargo test test_gpu_matmul_pipeline_benchmark -- --ignored
     #[test]
+    #[ignore = "slow GPU pipeline e2e sweep"]
     fn test_gpu_matmul_pipeline_benchmark() {
         let ctx = GpuContext::init().expect("GPU context init failed");
-        let harness = BenchmarkHarness::default();
+        let harness = BenchmarkHarness::quick();
         let sizes = [128, 256, 512, 1024];
         for &n in &sizes {
             let iterations = match n {
-                128 => 50,
-                256 => 30,
-                512 => 20,
-                1024 => 10,
+                128 => 20,
+                256 => 12,
+                512 => 8,
+                1024 => 4,
                 _ => 1,
             };
 
@@ -478,10 +538,12 @@ mod tests {
                 Ok::<(), ()>(())
             }).unwrap();
 
-            let ops = 2.0 * (n as f64).powi(3) * iterations as f64;
-            let gflops = ops / stats.median.as_secs_f64() / 1e9;
+            // Fix: median is time for ALL iterations, need to divide by iterations
+            let ops_per_iter = 2.0 * (n as f64).powi(3);
+            let median_per_iter = stats.median.as_secs_f64() / iterations as f64;
+            let gflops = ops_per_iter / median_per_iter / 1e9;
             println!(
-                "GPU matmul pipeline [{n:>4}x{n:>4}] x {iterations:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (end-to-end with upload/readback)",
+                "GPU matmul pipeline [{n:>4}x{n:>4}] x {iterations:>3} | median={:?} mean={:?} stddev={:?} | {gflops:.2} GFLOPS (per-iteration, end-to-end)",
                 stats.median, stats.mean, stats.stddev
             );
         }
@@ -627,9 +689,10 @@ mod tests {
     fn test_fused_matmul_bias_gelu_correctness() {
         let ctx = GpuContext::init().expect("GPU context init failed");
 
-        let a = ArrayD::from_shape_vec(vec![2, 4], vec![1.0f32, -1.0, 0.5, -0.5, 2.0, -2.0, 0.1, -0.1]).unwrap();
-        let b = ArrayD::from_shape_vec(vec![4, 2], vec![1.0f32; 8]).unwrap();
-        let bias = ArrayD::from_shape_vec(vec![2], vec![0.0f32, 0.0]).unwrap();
+        // Use non-trivial input that won't result in all zeros
+        let a = ArrayD::from_shape_vec(vec![2, 4], vec![1.0f32, 2.0, 0.5, -0.5, 2.0, 1.0, 0.1, -0.1]).unwrap();
+        let b = ArrayD::from_shape_vec(vec![4, 2], vec![1.0f32, 0.5, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0]).unwrap();
+        let bias = ArrayD::from_shape_vec(vec![2], vec![0.1f32, 0.2]).unwrap();
 
         let ga = GpuTensor::from_cpu(&a).unwrap();
         let gb = GpuTensor::from_cpu(&b).unwrap();
@@ -667,6 +730,14 @@ mod tests {
 
             let iters = if m >= 1024 { 5 } else { 20 };
 
+            // GPU warmup before timing (avoids cold-start skew on small matrices)
+            for _ in 0..3 {
+                let _ = ctx.fused_matmul_bias_gelu(&ga, &gb, &gbias).unwrap();
+                let mut mm = ctx.fused_matmul_bias(&ga, &gb, &gbias).unwrap();
+                ctx.gelu_inplace(&mut mm).unwrap();
+            }
+            ctx.sync();
+
             // Benchmark fused
             let t0 = std::time::Instant::now();
             for _ in 0..iters {
@@ -675,12 +746,11 @@ mod tests {
             let fused_avg = t0.elapsed() / iters as u32;
             let gflops = 2.0 * (m as f64) * (k as f64) * (n as f64) / fused_avg.as_secs_f64() / 1e9;
 
-            // Benchmark unfused (matmul + separate elementwise)
+            // Benchmark unfused (matmul + bias + gelu - apple-to-apple comparison)
             let t1 = std::time::Instant::now();
             for _ in 0..iters {
-                let mm = ctx.matmul(&ga, &gb).unwrap();
-                // simulate bias add by a separate dispatch (not available directly, matmul only)
-                let _ = mm;
+                let mut mm = ctx.fused_matmul_bias(&ga, &gb, &gbias).unwrap();
+                ctx.gelu_inplace(&mut mm).unwrap();
             }
             let unfused_avg = t1.elapsed() / iters as u32;
 
@@ -810,31 +880,44 @@ mod tests {
 
     #[test]
     fn test_command_batch() {
-        use nexora_autograd::GpuCommandBatch;
         let ctx = GpuContext::init().expect("GPU context init failed");
 
-        // Create two tensors, run fill_zero on both in a single batch
         let a = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![64], (0..64).map(|i| i as f32).collect()).unwrap()
-        ).unwrap();
+            &ArrayD::from_shape_vec(vec![64], (0..64).map(|i| i as f32).collect()).unwrap(),
+        )
+        .unwrap();
         let b = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![64], (0..64).map(|i| (i * 2) as f32).collect()).unwrap()
-        ).unwrap();
+            &ArrayD::from_shape_vec(vec![64], (0..64).map(|i| (i * 2) as f32).collect()).unwrap(),
+        )
+        .unwrap();
 
-        // Use individual ops (batch is available via ctx.begin_batch() for advanced use)
+        // Baseline: separate submits (reusable encoder path)
         ctx.fill_zero(&a).unwrap();
         ctx.fill_zero(&b).unwrap();
+        ctx.sync();
+
+        // Re-fill then zero both buffers in one command encoder submit
+        let fill_a: Vec<f32> = (0..64).map(|i| i as f32).collect();
+        let fill_b: Vec<f32> = (0..64).map(|i| (i * 2) as f32).collect();
+        ctx.upload_f32(&a, &fill_a);
+        ctx.upload_f32(&b, &fill_b);
+
+        let mut batch = ctx.begin_batch();
+        ctx.batch_enqueue_fill_zero(&mut batch, &a).unwrap();
+        ctx.batch_enqueue_fill_zero(&mut batch, &b).unwrap();
+        assert_eq!(batch.op_count(), 2, "batch should track 2 dispatches before submit");
+        let ops = batch.submit();
+        assert_eq!(ops, 2, "submit should report 2 dispatches");
+        ctx.sync();
 
         let a_cpu = a.to_cpu();
         let b_cpu = b.to_cpu();
         assert!(a_cpu[[0]].abs() < 1e-6, "batch fill_zero A failed");
         assert!(b_cpu[[63]].abs() < 1e-6, "batch fill_zero B failed");
 
-        // Test begin_batch() API exists
-        let batch = ctx.begin_batch();
-        let ops = batch.submit();
-        assert_eq!(ops, 0, "empty batch should have 0 ops");
+        let empty = ctx.begin_batch();
+        assert_eq!(empty.submit(), 0, "empty batch should have 0 ops");
 
-        println!("command_batch API OK — {} ops submitted", ops);
+        println!("command_batch API OK — {ops} ops submitted in one queue call");
     }
 }

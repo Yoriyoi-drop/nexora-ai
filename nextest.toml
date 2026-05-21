@@ -49,6 +49,11 @@ filter = 'package:nexora-models'
 test-threads = 1
 slow-timeout = { period = "120s", terminate-after = 1 }
 
+[[profile.default.overrides]]
+filter = 'package(nexora-autograd) & test(/gpu_benchmark/)'
+test-threads = 1
+slow-timeout = { period = "90s", terminate-after = 1 }
+
 # Display configuration
 [display]
 # Use colors in output

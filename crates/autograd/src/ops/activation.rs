@@ -190,6 +190,37 @@ pub fn tanh(input: &Tensor) -> Tensor {
 }
 
 pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &storage {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                let mut gpu_result = gpu_input.clone();
+                match ctx.leaky_relu_inplace(&mut gpu_result, negative_slope) {
+                    Ok(()) => {
+                        if !input.requires_grad() {
+                            let id = crate::tensor::next_tensor_id();
+                            return Tensor::from_gpu(gpu_result, id, false);
+                        }
+                        let input_cpu = gpu_input.to_cpu();
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_result,
+                            vec![input.clone()],
+                            vec![input_cpu],
+                            vec![gpu_input.clone()],
+                            Box::new(move |grad, saved| {
+                                let x = &saved[0];
+                                let grad_x = x.mapv(|v| if v > 0.0 { 1.0 } else { negative_slope });
+                                vec![grad.clone() * grad_x]
+                            }),
+                            None,
+                        );
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
     let data = input.data();
     let result = data.mapv(|x| if x > 0.0 { x } else { x * negative_slope });
     if !input.requires_grad() {
@@ -333,6 +364,53 @@ pub fn silu(input: &Tensor) -> Tensor {
 }
 
 pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
+    #[cfg(feature = "gpu")]
+    {
+        let g_storage = gate.storage();
+        let x_storage = x.storage();
+        if let (Storage::Gpu(gpu_gate), Storage::Gpu(gpu_x)) = (&g_storage, &x_storage) {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                // Use existing GPU ops: silu(gate) * x
+                match ctx.silu(gpu_gate) {
+                    Ok(silu_gate) => match ctx.mul(&silu_gate, gpu_x) {
+                        Ok(gpu_result) => {
+                            let requires_grad = gate.requires_grad() || x.requires_grad();
+                            if !requires_grad {
+                                let id = crate::tensor::next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let saved_gate = gpu_gate.to_cpu();
+                            let saved_x = gpu_x.to_cpu();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![gate.clone(), x.clone()],
+                                vec![saved_gate, saved_x],
+                                vec![gpu_gate.clone(), gpu_x.clone()],
+                                Box::new(|grad, saved| {
+                                    let g = &saved[0];
+                                    let x_val = &saved[1];
+                                    let sig = g.mapv(|v| {
+                                        if v >= 0.0 {
+                                            1.0 / (1.0 + (-v).exp())
+                                        } else {
+                                            v.exp() / (1.0 + v.exp())
+                                        }
+                                    });
+                                    let dsilu = &sig + g * &sig * (1.0 - &sig);
+                                    let d_gate = grad.clone() * x_val * dsilu;
+                                    let d_x = grad.clone() * &sig;
+                                    vec![d_gate, d_x]
+                                }),
+                                None,
+                            );
+                        }
+                        Err(_) => {}
+                    },
+                    Err(_) => {}
+                }
+            }
+        }
+    }
     let gate_data = gate.data();
     let x_data = x.data();
     let sig = gate_data.mapv(|g| {

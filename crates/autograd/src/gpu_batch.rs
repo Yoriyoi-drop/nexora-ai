@@ -66,6 +66,7 @@ impl<'ctx> GpuCommandBatch<'ctx> {
         let byte_size = (src.numel() * 4) as u64;
         if let Some(enc) = self.encoder.as_mut() {
             enc.copy_buffer_to_buffer(src.buffer(), 0, dst.buffer(), 0, byte_size);
+            self.op_count += 1;
         }
     }
 
@@ -78,6 +79,7 @@ impl<'ctx> GpuCommandBatch<'ctx> {
     ) {
         if let Some(enc) = self.encoder.as_mut() {
             enc.copy_buffer_to_buffer(src, 0, dst, 0, byte_size);
+            self.op_count += 1;
         }
     }
 
@@ -118,6 +120,47 @@ impl GpuContext {
     /// Use `GpuCommandBatch` to accumulate multiple dispatches and submit at once.
     pub fn begin_batch(&self) -> GpuCommandBatch<'_> {
         GpuCommandBatch::new(self)
+    }
+
+    /// Zero multiple tensors in one queue submission.
+    pub fn fill_zeros_batched(&self, tensors: &[&GpuTensor]) -> Result<usize, GpuError> {
+        if tensors.is_empty() {
+            return Ok(0);
+        }
+        let mut batch = self.begin_batch();
+        for t in tensors {
+            self.batch_enqueue_fill_zero(&mut batch, t)?;
+        }
+        let ops = batch.submit();
+        self.sync();
+        Ok(ops)
+    }
+
+    /// Enqueue a `fill_zero` dispatch into an open batch (single submit with other ops).
+    pub fn batch_enqueue_fill_zero(
+        &self,
+        batch: &mut GpuCommandBatch<'_>,
+        t: &GpuTensor,
+    ) -> Result<(), GpuError> {
+        let pipeline = self
+            .pipelines
+            .get("fill_zero")
+            .ok_or_else(|| GpuError::Pipeline("fill_zero not compiled".into()))?;
+        let numel = t.numel() as u32;
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fill_zero_batch_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: t.buffer().as_entire_binding(),
+            }],
+        });
+        batch.dispatch(
+            &pipeline.pipeline,
+            &bg,
+            ((numel + 255) / 256, 1, 1),
+        );
+        Ok(())
     }
 
     /// Zero-copy upload: writes CPU bytes into a GPU buffer asynchronously.

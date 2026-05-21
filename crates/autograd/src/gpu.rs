@@ -2,9 +2,31 @@ use ndarray::ArrayD;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
 use thiserror::Error;
 
 use crate::gpu_caps::GpuCapabilities;
+
+// ─── Detailed Timing ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct DetailedTiming {
+    pub encode: std::time::Duration,
+    pub submit: std::time::Duration,
+    pub gpu_execute: std::time::Duration,
+    pub map_async: std::time::Duration,
+    pub readback: std::time::Duration,
+    pub end_to_end: std::time::Duration,
+}
+
+impl DetailedTiming {
+    pub fn display(&self) -> String {
+        format!(
+            "encode={:?} submit={:?} gpu={:?} map_async={:?} readback={:?} total={:?}",
+            self.encode, self.submit, self.gpu_execute, self.map_async, self.readback, self.end_to_end
+        )
+    }
+}
 
 // ─── Errors ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +70,8 @@ pub struct GpuContext {
     pub(crate) bind_group_cache: HashMap<u64, wgpu::BindGroup>,
     /// Thread-safe bind group cache for &self access (used by dispatch methods)
     pub(crate) bind_group_cache_mutex: Mutex<HashMap<u64, wgpu::BindGroup>>,
-    pub(crate) memory_pool: crate::gpu_memory::GpuMemoryPool,
+    /// Thread-safe memory pool for &self access (used by dispatch methods)
+    pub(crate) memory_pool: Mutex<crate::gpu_memory::GpuMemoryPool>,
     pub(crate) profiling_query_set: Option<wgpu::QuerySet>,
     pub(crate) query_pool_size: usize,
     pub(crate) query_index: std::sync::atomic::AtomicUsize,
@@ -94,6 +117,10 @@ pub enum ElemOp {
     Sigmoid = 11,
     Tanh = 12,
     Silu = 13,
+    LeakyRelu = 14,
+    BinaryCrossEntropy = 15,
+    LogSoftmax = 16,
+    Swiglu = 17,
 }
 
 // ─── Reduce op codes ───────────────────────────────────────────────────────────
@@ -140,26 +167,26 @@ impl GpuContext {
 
     /// Allocate a buffer from the memory pool with automatic bucket sizing
     pub fn alloc_buffer(
-        &mut self,
+        &self,
         size: u64,
         usage: wgpu::BufferUsages,
     ) -> crate::gpu_memory::PooledBuffer {
-        self.memory_pool.alloc(size, usage)
+        self.memory_pool.lock().unwrap().alloc(size, usage)
     }
 
     /// Return a buffer to the memory pool for reuse
     pub fn dealloc_buffer(&mut self, buf: crate::gpu_memory::PooledBuffer) {
-        self.memory_pool.dealloc(buf);
+        self.memory_pool.lock().unwrap().dealloc(buf);
     }
 
     /// Get memory pool statistics
-    pub fn memory_stats(&self) -> &crate::gpu_memory::PoolStats {
-        self.memory_pool.stats()
+    pub fn memory_stats(&self) -> crate::gpu_memory::PoolStats {
+        self.memory_pool.lock().unwrap().stats().clone()
     }
 
     /// Clear the memory pool (free all cached buffers)
     pub fn clear_memory_pool(&mut self) {
-        self.memory_pool.clear();
+        self.memory_pool.lock().unwrap().clear();
     }
 
     /// Batch dispatch multiple operations with single sync at the end
@@ -178,12 +205,8 @@ impl GpuContext {
 
         self.queue.submit(Some(encoder.finish()));
 
-        // Sync once at the end
-        self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        });
-
+        // Removed sync to avoid CPU-GPU bottleneck
+        // Caller should explicitly call sync() when needed (e.g., before readback)
         Ok(None) // Timestamp query not implemented for batch yet
     }
 
@@ -395,7 +418,7 @@ impl GpuContext {
             .map_err(|e| GpuError::Device(e.to_string()))?;
 
         let caps = GpuCapabilities::detect(&device, &adapter);
-        let memory_pool = crate::gpu_memory::GpuMemoryPool::new(&device);
+        let memory_pool = Mutex::new(crate::gpu_memory::GpuMemoryPool::new(&device));
 
         // Create larger query set for ring buffer (e.g., 1000 timestamp pairs = 2000 queries)
         let query_pool_size: usize = 1000;
@@ -468,6 +491,9 @@ impl GpuContext {
         self.compile_temperature_scale()?;
         self.compile_top_k_mask()?;
         self.compile_multinomial_sample()?;
+        // Phase 2: Transformer ops (RoPE, repeat_heads)
+        self.compile_rotary_embedding()?;
+        self.compile_repeat_heads()?;
         // Priority 1: Fused ops (matmul+bias+activation, online softmax)
         self.compile_fused_ops()?;
         Ok(())
@@ -737,11 +763,9 @@ impl GpuContext {
                     | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
-            let mut enc = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            enc.copy_buffer_to_buffer(logits.buffer(), 0, &work_buf, 0, (numel * 4) as u64);
-            self.queue.submit(Some(enc.finish()));
+            self.with_encoder(|enc| {
+                enc.copy_buffer_to_buffer(logits.buffer(), 0, &work_buf, 0, (numel * 4) as u64);
+            });
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("temp_scale_bg"),
                 layout: &temp_pipeline.bind_group_layout,
@@ -789,11 +813,9 @@ impl GpuContext {
                     | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
-            let mut enc = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            enc.copy_buffer_to_buffer(probs.buffer(), 0, &masked_buf, 0, (numel * 4) as u64);
-            self.queue.submit(Some(enc.finish()));
+            self.with_encoder(|enc| {
+                enc.copy_buffer_to_buffer(probs.buffer(), 0, &masked_buf, 0, (numel * 4) as u64);
+            });
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("topk_bg"),
                 layout: &topk_pipeline.bind_group_layout,
@@ -909,20 +931,24 @@ impl GpuContext {
         });
     }
 
-    pub(crate) fn get_encoder(&self) -> wgpu::CommandEncoder {
+    pub(crate) fn with_encoder<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut wgpu::CommandEncoder) -> R,
+    {
         let mut guard = self.current_encoder.lock().unwrap();
-        if let Some(enc) = guard.take() {
-            enc
-        } else {
-            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("nexora_reusable_encoder"),
-            })
-        }
-    }
+        let enc = guard.as_mut().expect("encoder missing");
+        let result = f(enc);
 
-    pub(crate) fn replace_encoder(&self, enc: wgpu::CommandEncoder) {
-        let mut guard = self.current_encoder.lock().unwrap();
-        *guard = Some(enc);
+        let ops = self.ops_since_flush.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+        if ops >= self.auto_flush_ops {
+            let enc_to_submit = guard.take().unwrap();
+            self.queue.submit(Some(enc_to_submit.finish()));
+            self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+            *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("nexora_reusable_encoder"),
+            }));
+        }
+        result
     }
 
     /// Dispatch a compute shader using the reusable command encoder.
@@ -934,31 +960,12 @@ impl GpuContext {
         bind_group: &wgpu::BindGroup,
         workgroups: (u32, u32, u32),
     ) {
-        // Take current encoder, or create new one
-        let mut enc = self.get_encoder();
-
-        {
+        self.with_encoder(|enc| {
             let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             cpass.set_pipeline(&pipeline.pipeline);
             cpass.set_bind_group(0, bind_group, &[]);
             cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
-        }
-
-        // Check if we need to submit and create a fresh encoder
-        let ops = self.ops_since_flush.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
-        if ops >= self.auto_flush_ops {
-            // Submit accumulated ops
-            self.queue.submit(Some(enc.finish()));
-            // Reset counter
-            self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
-            // Create fresh encoder for next batch
-            enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("nexora_reusable_encoder"),
-            });
-        }
-
-        // Put encoder back
-        self.replace_encoder(enc);
+        });
     }
 
     /// Get next query index from ring buffer (wraps around at query_pool_size)
@@ -1080,6 +1087,48 @@ impl GpuContext {
         let start = std::time::Instant::now();
         self.dispatch(pipeline, bind_group, workgroups);
         start.elapsed()
+    }
+
+    /// Profiled dispatch with detailed timing breakdown per stage
+    /// Returns DetailedTiming with encode, submit, gpu_execute, map_async, readback, and total time
+    pub fn dispatch_profiled_detailed(
+        &self,
+        pipeline: &CompiledPipeline,
+        bind_group: &wgpu::BindGroup,
+        workgroups: (u32, u32, u32),
+    ) -> DetailedTiming {
+        let mut timing = DetailedTiming::default();
+        let total_start = Instant::now();
+
+        // Stage 1: Encode
+        let encode_start = Instant::now();
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            cpass.set_pipeline(&pipeline.pipeline);
+            cpass.set_bind_group(0, bind_group, &[]);
+            cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
+        }
+        timing.encode = encode_start.elapsed();
+
+        // Stage 2: Submit
+        let submit_start = Instant::now();
+        self.queue.submit(Some(encoder.finish()));
+        timing.submit = submit_start.elapsed();
+
+        // Stage 3: GPU execute (using poll to wait for completion)
+        let gpu_start = Instant::now();
+        self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        timing.gpu_execute = gpu_start.elapsed();
+
+        timing.end_to_end = total_start.elapsed();
+
+        timing
     }
 
     /// Batch dispatch N times with single timestamp query around all dispatches
@@ -1329,7 +1378,7 @@ impl GpuContext {
             ],
         });
 
-        let tile_size = self.caps.optimal_tile_size() as usize;
+        let tile_size = self.caps.adaptive_tile_size(m, n, k) as usize;
         let wg_m = ((m + tile_size - 1) / tile_size) as u32;
         let wg_n = ((n + tile_size - 1) / tile_size) as u32;
 
@@ -1373,14 +1422,11 @@ impl GpuContext {
             ));
         }
 
-        let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("matmul_output_batch"),
-            size: (m * n_dim * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        // Use memory pool for output buffer instead of creating new buffer each time
+        let out_buffer = self.memory_pool.lock().unwrap().alloc(
+            (m * n_dim * 4) as u64,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        );
 
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("matmul_cfg_batch"),
@@ -1397,6 +1443,7 @@ impl GpuContext {
             .get("matmul_tiled")
             .ok_or_else(|| GpuError::Pipeline("matmul_tiled not compiled".into()))?;
 
+        // Create bind group directly
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("matmul_bind_group_batch"),
             layout: &pipeline.bind_group_layout,
@@ -1411,7 +1458,7 @@ impl GpuContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: out_buffer.as_entire_binding(),
+                    resource: out_buffer.buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -1420,7 +1467,7 @@ impl GpuContext {
             ],
         });
 
-        let tile_size = self.caps.optimal_tile_size() as usize;
+        let tile_size = self.caps.adaptive_tile_size(m, n_dim, k) as usize;
         let wg_m = ((m + tile_size - 1) / tile_size) as u32;
         let wg_n = ((n_dim + tile_size - 1) / tile_size) as u32;
 
@@ -1429,7 +1476,7 @@ impl GpuContext {
         Ok((
             GpuTensor {
                 shape: vec![m, n_dim],
-                buffer: out_buffer,
+                buffer: out_buffer.buffer,
                 dtype: GpuDtype::F32,
             },
             gpu_time,
@@ -1483,6 +1530,33 @@ impl GpuContext {
             "matmul_tiled_main",
         )
     }
+    fn compile_rotary_embedding(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "rotary_embedding",
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                uniform_binding(3),
+            ],
+            std::borrow::Cow::Borrowed(ROTARY_EMBEDDING_WGSL),
+            "rotary_main",
+        )
+    }
+
+    fn compile_repeat_heads(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "repeat_heads",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            std::borrow::Cow::Borrowed(REPEAT_HEADS_WGSL),
+            "repeat_heads_main",
+        )
+    }
+
 
     pub fn matmul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let a_shape = a.shape();
@@ -1497,7 +1571,7 @@ impl GpuContext {
         let m = a_shape[0] as u32;
         let k = a_shape[1] as u32;
         let n = b_shape[1] as u32;
-        let tile = self.caps.optimal_tile_size();
+        let tile = self.caps.adaptive_tile_size(m as usize, n as usize, k as usize);
 
         let c_size = (m as u64) * (n as u64) * 4;
         let c_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1813,6 +1887,213 @@ impl GpuContext {
     pub fn tanh(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
         self.elementwise_unary(a, ElemOp::Tanh)
     }
+
+    /// LeakyReLU in-place on GPU: x = x > 0 ? x : x * negative_slope
+    /// Uses elementwise_inplace pipeline with custom cfg for slope parameter.
+    pub fn leaky_relu_inplace(
+        &self,
+        tensor: &mut GpuTensor,
+        negative_slope: f32,
+    ) -> Result<(), GpuError> {
+        let numel = tensor.numel();
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("leaky_relu_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg_data: [u32; 4] = [
+            numel as u32,
+            ElemOp::LeakyRelu as u32,
+            f32::to_bits(negative_slope),
+            0,
+        ];
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+
+        let pipeline = self
+            .pipelines
+            .get("elementwise_inplace")
+            .ok_or_else(|| GpuError::Pipeline("elementwise_inplace not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("leaky_relu_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: tensor.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: cfg_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        let wg = (numel as u32 + 255) / 256;
+        self.dispatch(pipeline, &bind_group, (wg, 1, 1));
+        Ok(())
+    }
+
+    /// LeakyReLU on GPU: returns new tensor
+    pub fn leaky_relu(&self, input: &GpuTensor, negative_slope: f32) -> Result<GpuTensor, GpuError> {
+        let mut result = input.clone();
+        self.leaky_relu_inplace(&mut result, negative_slope)?;
+        Ok(result)
+    }
+    /// Rotary embedding (RoPE) in-place on GPU.
+    /// Applies rotary position embeddings to [total_rows, dim] tensor.
+    /// cos/sin: [half] arrays for current position (precomputed via precompute_freqs_cis).
+    pub fn rotary_embedding(
+        &self,
+        x: &GpuTensor,
+        cos: &GpuTensor,
+        sin: &GpuTensor,
+        head_dim: u32,
+    ) -> Result<GpuTensor, GpuError> {
+        let shape = x.shape();
+        if shape.len() != 2 {
+            return Err(GpuError::ShapeMismatch("RoPE GPU: x must be 2D [total_rows, dim]".into()));
+        }
+        let total_rows = shape[0] as u32;
+        let dim = shape[1] as u32;
+        if dim != head_dim {
+            return Err(GpuError::ShapeMismatch(
+                format!("RoPE GPU: dim {} != head_dim {}", dim, head_dim).into(),
+            ));
+        }
+        let half = head_dim / 2;
+        
+        // Create output buffer
+        let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rotary_output"),
+            size: (shape[0] * shape[1] * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        
+        // Copy input to output first (in-place kernel writes to output)
+        self.with_encoder(|enc| {
+            enc.copy_buffer_to_buffer(x.buffer(), 0, &out_buffer, 0, (shape[0] * shape[1] * 4) as u64);
+        });
+        
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rotary_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg_data: [u32; 4] = [total_rows, dim, half, 0];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        
+        let pipeline = self
+            .pipelines
+            .get("rotary_embedding")
+            .ok_or_else(|| GpuError::Pipeline("rotary_embedding not compiled".into()))?;
+        
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("rotary_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: cos.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: sin.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: cfg_buf.as_entire_binding(),
+                },
+            ],
+        });
+        
+        let num_pairs = total_rows * half;
+        self.dispatch(pipeline, &bind_group, ((num_pairs + 255) / 256, 1, 1));
+        
+        Ok(GpuTensor {
+            shape: shape.clone(),
+            buffer: out_buffer,
+            dtype: GpuDtype::F32,
+        })
+    }
+
+    /// Repeat KV heads to match Q heads for GQA.
+    /// src: [seq, kv_heads, dim] → dst: [seq, q_heads, dim]
+    pub fn repeat_heads(
+        &self,
+        src: &GpuTensor,
+        kv_heads: u32,
+        q_heads: u32,
+        dim: u32,
+    ) -> Result<GpuTensor, GpuError> {
+        let shape = src.shape();
+        if shape.len() != 3 {
+            return Err(GpuError::ShapeMismatch("repeat_heads: src must be 3D [seq, kv_heads, dim]".into()));
+        }
+        let seq = shape[0] as u32;
+        
+        let numel_dst = (seq * q_heads * dim) as usize;
+        let dst_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("repeat_heads_output"),
+            size: (numel_dst * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("repeat_heads_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg_data: [u32; 4] = [seq, kv_heads, q_heads, dim];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+        
+        let pipeline = self
+            .pipelines
+            .get("repeat_heads")
+            .ok_or_else(|| GpuError::Pipeline("repeat_heads not compiled".into()))?;
+        
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("repeat_heads_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: src.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: dst_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
+            ],
+        });
+        
+        self.dispatch(pipeline, &bind_group, ((numel_dst as u32 + 255) / 256, 1, 1));
+        
+        Ok(GpuTensor {
+            shape: vec![seq as usize, q_heads as usize, dim as usize],
+            buffer: dst_buffer,
+            dtype: GpuDtype::F32,
+        })
+    }
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  PHASE 1.2: REDUCE KERNELS
@@ -2749,6 +3030,16 @@ fn elementwise_main(@builtin(global_invocation_id) id: vec3<u32>) {
         case 13: { // Silu
             out[i] = a_val * sigmoid_f32(a_val);
         }
+        case 14: { // LeakyRelu — b_val acts as negative_slope
+            out[i] = select(a_val * b_val, a_val, a_val > 0.0);
+        }
+        case 15: { // BinaryCrossEntropy — a=prediction, b=target
+            let p = clamp(a_val, 1.0e-7, 1.0 - 1.0e-7);
+            out[i] = -(b_val * log(p) + (1.0 - b_val) * log(1.0 - p));
+        }
+        case 17: { // Swiglu — gate(a) * x(b)
+            out[i] = (a_val * sigmoid_f32(a_val)) * b_val;
+        }
         default: {
             out[i] = a_val;
         }
@@ -2795,6 +3086,10 @@ fn elementwise_inplace_main(@builtin(global_invocation_id) id: vec3<u32>) {
         case 11: { data[i] = sigmoid_f32(x); }
         case 12: { data[i] = tanh(x); }
         case 13: { data[i] = x * sigmoid_f32(x); }
+        case 14: { // LeakyRelu — use _pad0 reinterpreted as f32 for negative_slope
+            let slope = bitcast<f32>(cfg._pad0);
+            data[i] = select(x * slope, x, x > 0.0);
+        }
         default: { data[i] = x; }
     }
 }
@@ -3506,6 +3801,59 @@ fn causal_softmax_main(
 }
 "#;
 
+const ROTARY_EMBEDDING_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> x : array<f32>;
+@group(0) @binding(1) var<storage, read> cos : array<f32>;
+@group(0) @binding(2) var<storage, read> sin : array<f32>;
+@group(0) @binding(3) var<uniform> cfg : array<u32, 3>; // [total_rows, dim, half]
+
+@compute @workgroup_size(256)
+fn rotary_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    if idx >= cfg[0] * cfg[2] {
+        return;
+    }
+    let row = idx / cfg[2];
+    let pair = idx % cfg[2];
+
+    let i1 = row * cfg[1] + pair;
+    let i2 = row * cfg[1] + pair + cfg[2];
+
+    let v1 = x[i1];
+    let v2 = x[i2];
+    let c = cos[pair];
+    let s = sin[pair];
+
+    x[i1] = v1 * c - v2 * s;
+    x[i2] = v1 * s + v2 * c;
+}
+"#;
+
+const REPEAT_HEADS_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> src : array<f32>;
+@group(0) @binding(1) var<storage, read_write> dst : array<f32>;
+@group(0) @binding(2) var<uniform> cfg : array<u32, 4>; // [seq, kv_heads, q_heads, dim]
+
+@compute @workgroup_size(256)
+fn repeat_heads_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    let total = cfg[0] * cfg[2] * cfg[3];
+    if idx >= total {
+        return;
+    }
+    // dst layout: [seq, q_heads, dim]
+    let s = idx / (cfg[2] * cfg[3]);
+    let rem1 = idx % (cfg[2] * cfg[3]);
+    let qh = rem1 / cfg[3];
+    let d = rem1 % cfg[3];
+
+    // Map q_heads -> kv_heads (grouped)
+    let groups = cfg[2] / cfg[1];
+    let kvh = qh / groups;
+    let src_idx = s * (cfg[1] * cfg[3]) + kvh * cfg[3] + d;
+    dst[idx] = src[src_idx];
+}
+"#;
 const TEMPERATURE_SCALE_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> logits: array<f32>;
 @group(0) @binding(1) var<uniform> cfg: vec4<u32>;
@@ -3657,7 +4005,7 @@ fn multinomial_main(@builtin(workgroup_id) wg: vec3<u32>) {
 //  GpuTensor
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct GpuTensor {
     pub(crate) shape: Vec<usize>,
     pub(crate) buffer: wgpu::Buffer,
@@ -3697,6 +4045,28 @@ impl GpuTensor {
         });
         ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(data.as_slice().unwrap()));
         Ok(Self { shape, buffer, dtype: GpuDtype::F32 })
+    }
+
+    /// Create a GpuTensor from raw components (buffer + shape).
+    /// Useful for wrapping GPU buffers allocated externally.
+    pub fn from_raw(shape: Vec<usize>, buffer: wgpu::Buffer, dtype: GpuDtype) -> Self {
+        Self { shape, buffer, dtype }
+    }
+
+    /// Create a new GpuTensor with a different shape but the same underlying buffer.
+    /// Useful for reshaping (e.g., [seq, kv_heads * dim] -> [batch, heads, seq, dim]).
+    pub fn reshape(&self, new_shape: Vec<usize>) -> Result<GpuTensor, GpuError> {
+        let expected: usize = new_shape.iter().product();
+        if expected != self.shape.iter().product::<usize>() {
+            return Err(GpuError::ShapeMismatch(
+                format!("reshape: {:?} -> {:?} element count mismatch", self.shape, new_shape)
+            ));
+        }
+        Ok(GpuTensor {
+            shape: new_shape,
+            buffer: self.buffer.clone(),
+            dtype: self.dtype,
+        })
     }
 
     pub fn zeros(shape: &[usize]) -> Result<Self, GpuError> {
@@ -3740,6 +4110,7 @@ impl GpuTensor {
 
     pub fn to_cpu(&self) -> ArrayD<f32> {
         let ctx = Self::ctx().expect("GPU context not initialized");
+        ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -3781,6 +4152,7 @@ impl GpuTensor {
     /// Read back raw bytes (for u32 output buffers like sampler tokens)
     pub fn to_cpu_raw_bytes(&self) -> Vec<u8> {
         let ctx = Self::ctx().expect("GPU context not initialized");
+        ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -3821,6 +4193,7 @@ impl GpuTensor {
     /// Much faster than full tensor readback
     pub fn to_cpu_first_element(&self) -> f32 {
         let ctx = Self::ctx().expect("GPU context not initialized");
+        ctx.flush();
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GpuTensor::to_cpu_first_element"),
@@ -3859,6 +4232,7 @@ impl GpuTensor {
     /// Faster than full readback for large tensors
     pub fn to_cpu_checksum(&self) -> f32 {
         let ctx = Self::ctx().expect("GPU context not initialized");
+        ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {

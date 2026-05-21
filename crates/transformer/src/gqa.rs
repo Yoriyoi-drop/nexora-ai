@@ -5,6 +5,15 @@ use rand::Rng;
 
 use super::rope::RoPE;
 
+#[cfg(feature = "gpu")]
+#[derive(Debug, Clone)]
+pub(crate) struct GqaGpuWeights {
+    pub wq_t: nexora_autograd::gpu::GpuTensor,
+    pub wk_t: nexora_autograd::gpu::GpuTensor,
+    pub wv_t: nexora_autograd::gpu::GpuTensor,
+    pub wo_t: nexora_autograd::gpu::GpuTensor,
+}
+
 /// Minimal paged cache interface — avoids hard dependency on the inference crate.
 /// Inference crate's PagedKVCache implements this trait.
 pub trait PagedCacheReader {
@@ -16,7 +25,7 @@ pub trait PagedCacheReader {
     fn append(&mut self, seq_id: u64, layer: usize, token_pos: usize, k_row: &[f32], v_row: &[f32]);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GQA {
     pub num_heads: usize,
     pub num_kv_heads: usize,
@@ -27,6 +36,43 @@ pub struct GQA {
     pub wk: Array2<f32>,
     pub wv: Array2<f32>,
     pub wo: Array2<f32>,
+    #[cfg(feature = "gpu")]
+    pub(crate) gpu_weights: std::sync::Mutex<Option<GqaGpuWeights>>,
+}
+
+#[cfg(not(feature = "gpu"))]
+impl Clone for GQA {
+    fn clone(&self) -> Self {
+        Self {
+            num_heads: self.num_heads.clone(),
+            num_kv_heads: self.num_kv_heads.clone(),
+            head_dim: self.head_dim.clone(),
+            num_groups: self.num_groups.clone(),
+            head_dim_rs: self.head_dim_rs.clone(),
+            wq: self.wq.clone(),
+            wk: self.wk.clone(),
+            wv: self.wv.clone(),
+            wo: self.wo.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Clone for GQA {
+    fn clone(&self) -> Self {
+        Self {
+            num_heads: self.num_heads.clone(),
+            num_kv_heads: self.num_kv_heads.clone(),
+            head_dim: self.head_dim.clone(),
+            num_groups: self.num_groups.clone(),
+            head_dim_rs: self.head_dim_rs.clone(),
+            wq: self.wq.clone(),
+            wk: self.wk.clone(),
+            wv: self.wv.clone(),
+            wo: self.wo.clone(),
+            gpu_weights: std::sync::Mutex::new(None),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +109,8 @@ impl GQA {
             wk,
             wv,
             wo,
+            #[cfg(feature = "gpu")]
+            gpu_weights: std::sync::Mutex::new(None),
         }
     }
 
@@ -430,5 +478,149 @@ impl GQA {
         }
 
         output.dot(&self.wo.t())
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut Vec<KVCacheEntry>,
+        layer_idx: usize,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+
+        // 1. Lazy-init cached GPU weights (pre-transposed for matmul)
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_none() {
+            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
+                let shape = vec![arr.shape()[0], arr.shape()[1]];
+                let data = arr.as_slice().ok_or_else(|| {
+                    GpuError::Unsupported("non-contiguous weight".into())
+                })?.to_vec();
+                Ok(GpuTensor::from_cpu(
+                    &ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                )?)
+            };
+            let ctx_ref = GpuContext::global()?;
+            let wq = mk(&self.wq)?;
+            let wk = mk(&self.wk)?;
+            let wv = mk(&self.wv)?;
+            let wo = mk(&self.wo)?;
+            *guard = Some(GqaGpuWeights {
+                wq_t: ctx_ref.transpose(&wq)?,
+                wk_t: ctx_ref.transpose(&wk)?,
+                wv_t: ctx_ref.transpose(&wv)?,
+                wo_t: ctx_ref.transpose(&wo)?,
+            });
+        }
+        let cached = guard.as_ref().unwrap();
+
+        // 2. QKV projection on GPU: matmul(x, W^T) with cached pre-transposed weights
+        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+
+        // 3. Upload cos/sin for RoPE
+        let half = cos.len();
+        let cos_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, half], cos.to_vec()).map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+        let sin_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, half], sin.to_vec()).map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+
+        // Apply RoPE on GPU for Q and K
+        let q_rotated = ctx.rotary_embedding(&q_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+
+        // 4. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
+        let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
+
+        // 5. Download K, V (1 token each) to CPU, append to cache
+        let k_cpu_arr = k_rotated.to_cpu();
+        let k_flat: Vec<f32> = k_cpu_arr.iter().copied().collect();
+        let k_cpu = Array2::from_shape_vec(
+            (batch_size, self.num_kv_heads * self.head_dim),
+            k_flat,
+        ).map_err(|e| GpuError::Unsupported(e.to_string()))?;
+        let v_cpu_arr = v_proj.to_cpu();
+        let v_flat: Vec<f32> = v_cpu_arr.iter().copied().collect();
+        let v_cpu = Array2::from_shape_vec(
+            (batch_size, self.num_kv_heads * self.head_dim),
+            v_flat,
+        ).map_err(|e| GpuError::Unsupported(e.to_string()))?;
+
+        if layer_idx < cache.len() {
+            let entry = &mut cache[layer_idx];
+            let new_k = ndarray::concatenate![ndarray::Axis(0), entry.k.view(), k_cpu.view()];
+            let new_v = ndarray::concatenate![ndarray::Axis(0), entry.v.view(), v_cpu.view()];
+            entry.k = new_k;
+            entry.v = new_v;
+        } else {
+            cache.push(KVCacheEntry {
+                k: k_cpu.to_owned(),
+                v: v_cpu.to_owned(),
+            });
+        }
+
+        // 6. Upload full KV cache to GPU, repeat heads for GQA if needed
+        let entry = &cache[layer_idx];
+        let total_seq = entry.k.shape()[0];
+
+        // Build K/V with head repeating for GQA:
+        // If num_heads != num_kv_heads, repeat K/V heads so fused_attention
+        // sees [B, num_heads, S, D] for both Q and K/V.
+        let eff_heads = if self.num_heads > self.num_kv_heads {
+            self.num_heads
+        } else {
+            self.num_kv_heads
+        };
+
+        let k_slice = entry.k.as_slice().unwrap();
+        let v_slice = entry.v.as_slice().unwrap();
+        let mut k_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
+        let mut v_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
+
+        let groups = self.num_heads / self.num_kv_heads.max(1);
+        for s in 0..total_seq {
+            for h in 0..eff_heads {
+                let kv_h = if self.num_heads > self.num_kv_heads {
+                    (h / groups).min(self.num_kv_heads - 1)
+                } else {
+                    h
+                };
+                let cache_off = s * (self.num_kv_heads * self.head_dim) + kv_h * self.head_dim;
+                let target_off = h * total_seq * self.head_dim + s * self.head_dim;
+                for d in 0..self.head_dim {
+                    k_4d_data[target_off + d] = k_slice[cache_off + d];
+                    v_4d_data[target_off + d] = v_slice[cache_off + d];
+                }
+            }
+        }
+
+        let kv_shape = vec![1, eff_heads, total_seq, self.head_dim];
+        let k_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(kv_shape.clone(), k_4d_data)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+        let v_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(kv_shape, v_4d_data)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+
+        // 7. Fused attention on GPU: O(n^2) on GPU instead of CPU
+        let attn_output_4d = ctx.fused_attention(&q_4d, &k_gpu, &v_gpu, self.head_dim_rs, false)?;
+
+        // 8. Reshape attention output: [1, num_heads, 1, head_dim] -> [1, num_heads * head_dim]
+        let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
+
+        // 9. Output projection on GPU: matmul(attn_flat, wo^T) with cached weight
+        ctx.matmul(&attn_flat, &cached.wo_t)
     }
 }

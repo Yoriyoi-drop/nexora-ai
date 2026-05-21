@@ -224,17 +224,15 @@ fn dispatch_with_reusable_encoder(
     workgroups: (u32, u32, u32),
     pass_label: &str,
 ) {
-    let mut encoder = ctx.get_encoder();
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    ctx.with_encoder(|enc| {
+        let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some(pass_label),
             timestamp_writes: None,
         });
         cpass.set_pipeline(pipeline);
         cpass.set_bind_group(0, bind_group, &[]);
         cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
-    }
-    ctx.replace_encoder(encoder);
+    });
 }
 
 /// Helper: copies buffer content using the reusable encoder.
@@ -244,9 +242,9 @@ fn copy_with_reusable_encoder(
     dst: &wgpu::Buffer,
     byte_size: u64,
 ) {
-    let mut encoder = ctx.get_encoder();
-    encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_size);
-    ctx.replace_encoder(encoder);
+    ctx.with_encoder(|enc| {
+        enc.copy_buffer_to_buffer(src, 0, dst, 0, byte_size);
+    });
 }
 
 // ─── Dispatch helpers ──────────────────────────────────────────────────────────

@@ -30,11 +30,15 @@ pub mod gpu_memory;
 #[cfg(feature = "gpu")]
 pub mod gpu_mixed;
 #[cfg(feature = "gpu")]
+pub mod gpu_bench;
+#[cfg(feature = "gpu")]
 pub mod gpu_profiler;
 #[cfg(feature = "gpu")]
 pub mod gpu_sampler;
 #[cfg(feature = "gpu")]
 pub use gpu_batch::GpuCommandBatch;
+#[cfg(feature = "gpu")]
+pub use gpu_bench::{gflops, matmul_flops, MatmulBatchTiming, MatmulGflopsFloor};
 #[cfg(feature = "gpu")]
 pub use gpu_caps::GpuCapabilities;
 

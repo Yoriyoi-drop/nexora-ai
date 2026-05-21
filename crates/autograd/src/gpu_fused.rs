@@ -13,6 +13,7 @@ pub const ACT_RELU: u32 = 3;
 // ─── WGSL Shader ──────────────────────────────────────────────────────────────
 // A[M,K]  B[K,N]  bias[N]  →  C[M,N] = activation(A@B + bias)
 // act: 0=identity 1=GELU 2=SiLU 3=ReLU
+// Tiled version with small TILE_SIZE=8 to reduce register pressure for fused kernels
 pub(crate) const FUSED_MATMUL_BIAS_WGSL: &str = r#"
 struct FusedDims { M: u32, K: u32, N: u32, act: u32 };
 
@@ -22,7 +23,7 @@ struct FusedDims { M: u32, K: u32, N: u32, act: u32 };
 @group(0) @binding(3) var<storage, read_write> out_c : array<f32>;
 @group(0) @binding(4) var<uniform>             dims  : FusedDims;
 
-const TILE_SIZE: u32 = {{TILE_SIZE}};
+const TILE_SIZE: u32 = 8;
 var<workgroup> tA: array<array<f32, TILE_SIZE>, TILE_SIZE>;
 var<workgroup> tB: array<array<f32, TILE_SIZE>, TILE_SIZE>;
 
@@ -168,10 +169,8 @@ impl GpuContext {
         Ok(())
     }
 
-    fn compile_fused_matmul_bias(&mut self, tile: u32) -> Result<(), GpuError> {
-        let wgsl = std::borrow::Cow::Owned(
-            FUSED_MATMUL_BIAS_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
-        );
+    fn compile_fused_matmul_bias(&mut self, _tile: u32) -> Result<(), GpuError> {
+        // Shader uses fixed TILE_SIZE=8 to reduce register pressure for fused kernels
         self.compile_pipeline(
             "fused_matmul_bias",
             &[
@@ -181,7 +180,7 @@ impl GpuContext {
                 storage_binding(3, false),
                 uniform_binding(4),
             ],
-            wgsl,
+            std::borrow::Cow::Borrowed(FUSED_MATMUL_BIAS_WGSL),
             "fused_matmul_bias_main",
         )
     }
@@ -252,10 +251,10 @@ impl GpuContext {
             ],
         });
 
-        let tile = self.caps.optimal_fused_tile_size();
-        let wgx = (n + tile - 1) / tile; // cols → x
-        let wgy = (m + tile - 1) / tile; // rows → y
-        self.dispatch(pipeline, &bg, (wgx, wgy, 1));
+        // New shader uses workgroup_size(256, 1, 1) - dispatch based on total elements
+        let total_elements = m * n;
+        let wg_x = (total_elements + 255) / 256;
+        self.dispatch(pipeline, &bg, (wg_x, 1, 1));
 
         Ok(GpuTensor {
             shape: vec![a_shape[0], b_shape[1]],
@@ -328,9 +327,10 @@ impl GpuContext {
             ],
         });
 
-        let tile = self.caps.optimal_fused_tile_size();
-        let wgx = (n + tile - 1) / tile; // cols → x
-        let wgy = (m + tile - 1) / tile; // rows → y
+        // Use adaptive tile size based on matrix dimensions
+        let tile_size = self.caps.adaptive_fused_tile_size(m as usize, n as usize, k as usize);
+        let wgx = (n + tile_size - 1) / tile_size; // cols → x
+        let wgy = (m + tile_size - 1) / tile_size; // rows → y
         let elapsed = self.dispatch_profiled(pipeline, &bg, (wgx, wgy, 1));
 
         Ok((GpuTensor {
@@ -363,10 +363,27 @@ impl GpuContext {
         let b_shape = b.shape();
         let (m, k, n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
 
-        // Large fused kernels can suffer from high register pressure and poor
-        // occupancy. Split activation from matmul+bias only on workloads larger
-        // than 1024, since 1024x1024 is still faster when fully fused on our GPU.
-        if m > 1024 || k > 1024 || n > 1024 {
+        self.fused_matmul_bias_gelu_routed(a, b, bias, false)
+    }
+
+    fn fused_matmul_bias_gelu_routed(
+        &self,
+        a: &GpuTensor,
+        b: &GpuTensor,
+        bias: &GpuTensor,
+        force_fused: bool,
+    ) -> Result<GpuTensor, GpuError> {
+        let (m, k, n) = (
+            a.shape()[0] as u32,
+            a.shape()[1] as u32,
+            b.shape()[1] as u32,
+        );
+        let max_dim = m.max(k).max(n);
+
+        // Small: matmul+bias then activation (better occupancy than fused tile-8).
+        // Huge: split to avoid fused-kernel register pressure.
+        // Mid (512–1024): single fused dispatch.
+        if !force_fused && (max_dim < 512 || max_dim > 1024) {
             let mut mat = self.fused_matmul_bias(a, b, bias)?;
             self.gelu_inplace(&mut mat)?;
             return Ok(mat);
@@ -385,27 +402,19 @@ impl GpuContext {
         let b_shape = b.shape();
         let (m, k, n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
 
-        // Large fused kernels can suffer from high register pressure and poor
-        // occupancy. Split activation from matmul+bias only on workloads larger
-        // than 1024, since 1024x1024 is still faster when fully fused on our GPU.
-        if m > 1024 || k > 1024 || n > 1024 {
-            let start = std::time::Instant::now();
-            let mut mat = self.fused_matmul_bias(a, b, bias)?;
-            self.gelu_inplace(&mut mat)?;
-            return Ok((mat, start.elapsed()));
-        }
-
-        self.fused_matmul_bias_dispatch_profiled(a, b, bias, ACT_GELU)
+        let start = std::time::Instant::now();
+        let out = self.fused_matmul_bias_gelu_routed(a, b, bias, false)?;
+        Ok((out, start.elapsed()))
     }
 
-    /// Fully fused `C = GELU(A @ B + bias)` without the large-kernel split.
+    /// Fully fused `C = GELU(A @ B + bias)` without size-based routing.
     pub fn fused_matmul_bias_gelu_forced(
         &self,
         a: &GpuTensor,
         b: &GpuTensor,
         bias: &GpuTensor,
     ) -> Result<GpuTensor, GpuError> {
-        self.fused_matmul_bias_dispatch(a, b, bias, ACT_GELU)
+        self.fused_matmul_bias_gelu_routed(a, b, bias, true)
     }
 
     /// Fully fused profiled `C = GELU(A @ B + bias)` without the large-kernel split.

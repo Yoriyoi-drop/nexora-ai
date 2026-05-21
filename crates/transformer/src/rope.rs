@@ -89,4 +89,26 @@ impl RoPE {
 
         output
     }
+
+    /// Apply RoPE on GPU: uses rotary_embedding WGSL kernel.
+    /// x: [total_rows, head_dim] on GPU, cos/sin: [half] on CPU for current position.
+    /// Returns rotated tensor on GPU.
+    #[cfg(feature = "gpu")]
+    pub fn apply_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+        cos_cpu: &Array1<f32>,
+        sin_cpu: &Array1<f32>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global()?;
+        let half_vec = vec![cos_cpu.len()];
+        let cos_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(half_vec.clone(), cos_cpu.to_vec()).unwrap()
+        )?;
+        let sin_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(half_vec, sin_cpu.to_vec()).unwrap()
+        )?;
+        ctx.rotary_embedding(x, &cos_gpu, &sin_gpu, self.head_dim as u32)
+    }
 }

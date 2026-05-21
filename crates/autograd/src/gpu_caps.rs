@@ -146,6 +146,38 @@ impl GpuCapabilities {
         8
     }
 
+    /// Adaptive tile size based on matrix dimensions
+    /// Small matrices benefit from smaller tiles (less overhead)
+    /// Large matrices benefit from larger tiles (better memory coalescing)
+    pub fn adaptive_tile_size(&self, m: usize, n: usize, k: usize) -> u32 {
+        let max_dim = m.max(n).max(k);
+        
+        // Choose tile size based on matrix size
+        if max_dim <= 256 {
+            8  // Small matrices: use small tiles to reduce overhead
+        } else if max_dim <= 512 {
+            16 // Medium matrices: balanced tile size
+        } else {
+            self.optimal_tile_size() // Large matrices: use GPU-optimal tile size
+        }
+    }
+
+    /// Adaptive tile size specifically for fused operations
+    /// Fused kernels have higher register pressure, so use smaller tiles
+    pub fn adaptive_fused_tile_size(&self, m: usize, n: usize, k: usize) -> u32 {
+        let max_dim = m.max(n).max(k);
+        
+        if max_dim <= 256 {
+            8  // Small matrices: minimal tile size
+        } else if max_dim <= 512 {
+            8  // Medium matrices: keep small for register pressure
+        } else if max_dim <= 1024 {
+            8  // Large matrices: still use 8x8 for fused kernels
+        } else {
+            self.optimal_fused_tile_size() // Very large matrices: use optimal
+        }
+    }
+
     pub fn optimal_workgroup_size(&self, tile: u32) -> u32 {
         let preferred = tile * tile;
         preferred.min(self.max_compute_invocations_per_workgroup)
