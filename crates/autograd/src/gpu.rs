@@ -759,152 +759,101 @@ impl GpuContext {
         let vocab = shape[1] as u32;
         let numel = logits.numel();
 
-        // Step 1: temperature scale → probs
-        let probs = if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
-            let temp_pipeline = self
+        // Working copy of logits (pool-allocated)
+        let mut work_buf = {
+            let pooled = self.alloc_buffer(
+                (numel * 4) as u64,
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            );
+            self.with_encoder(|enc| {
+                enc.copy_buffer_to_buffer(logits.buffer(), 0, &pooled.buffer, 0, (numel * 4) as u64);
+            });
+            pooled.buffer
+        };
+
+        // Step 1: temperature scale (in-place on work_buf)
+        if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
+            let pipeline = self
                 .pipelines
                 .get("temperature_scale")
                 .ok_or_else(|| GpuError::Pipeline("temperature_scale not compiled".into()))?;
-            let temp_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("temp_buf"),
-                size: 16,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            let temp_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
             let temp_cfg: [u32; 4] = [f32::to_bits(temperature), numel as u32, 0, 0];
-            self.queue
-                .write_buffer(&temp_buf, 0, bytemuck::cast_slice(&temp_cfg));
-
-            let work_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("temp_work"),
-                size: (numel * 4) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            });
-            self.with_encoder(|enc| {
-                enc.copy_buffer_to_buffer(logits.buffer(), 0, &work_buf, 0, (numel * 4) as u64);
-            });
+            self.queue.write_buffer(&temp_buf.buffer, 0, bytemuck::cast_slice(&temp_cfg));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("temp_scale_bg"),
-                layout: &temp_pipeline.bind_group_layout,
+                layout: &pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: work_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: temp_buf.as_entire_binding(),
-                    },
+                    wgpu::BindGroupEntry { binding: 0, resource: work_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: temp_buf.buffer.as_entire_binding() },
                 ],
             });
-            self.dispatch(temp_pipeline, &bg, ((numel as u32 + 255) / 256, 1, 1));
-            self.softmax(&GpuTensor {
-                shape: shape.clone(),
-                buffer: work_buf,
-                dtype: GpuDtype::F32,
-            })?
-        } else {
-            self.softmax(logits)?
+            self.dispatch(pipeline, &bg, ((numel as u32 + 255) / 256, 1, 1));
+        }
+
+        // Step 2: softmax (via ctx.softmax — uses reusable encoder internally)
+        let logits_gpu = GpuTensor { shape: shape.clone(), buffer: work_buf, dtype: GpuDtype::F32 };
+        let probs = self.softmax(&logits_gpu)?;
+
+        // Copy probs → fresh work buffer for top-k mask (avoids mutating softmax output)
+        let mut masked_buf = {
+            let pooled = self.alloc_buffer(
+                (numel * 4) as u64,
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            );
+            self.with_encoder(|enc| {
+                enc.copy_buffer_to_buffer(probs.buffer(), 0, &pooled.buffer, 0, (numel * 4) as u64);
+            });
+            pooled.buffer
         };
 
-        // Step 2: top-k mask
+        // Step 3: top-k mask (in-place on masked_buf)
         let masked = if top_k > 0 && top_k < vocab {
-            let topk_pipeline = self
+            let pipeline = self
                 .pipelines
                 .get("top_k_mask")
                 .ok_or_else(|| GpuError::Pipeline("top_k_mask not compiled".into()))?;
-            let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("topk_cfg"),
-                size: 16,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            let cfg_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
             let cfg: [u32; 4] = [vocab, top_k, 0, 0];
-            self.queue
-                .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-            let masked_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("topk_masked"),
-                size: (numel * 4) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            });
-            self.with_encoder(|enc| {
-                enc.copy_buffer_to_buffer(probs.buffer(), 0, &masked_buf, 0, (numel * 4) as u64);
-            });
+            self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("topk_bg"),
-                layout: &topk_pipeline.bind_group_layout,
+                layout: &pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: masked_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: cfg_buf.as_entire_binding(),
-                    },
+                    wgpu::BindGroupEntry { binding: 0, resource: masked_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.buffer.as_entire_binding() },
                 ],
             });
-            self.dispatch(topk_pipeline, &bg, (batch as u32, 1, 1));
-            GpuTensor {
-                shape: shape.clone(),
-                buffer: masked_buf,
-                dtype: GpuDtype::F32,
-            }
+            self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
+            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32 }
         } else {
-            probs
+            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32 }
         };
 
-        // Step 3: multinomial sample
-        let sample_pipeline = self
+        // Step 4: multinomial sample
+        let pipeline = self
             .pipelines
             .get("multinomial_sample")
             .ok_or_else(|| GpuError::Pipeline("multinomial_sample not compiled".into()))?;
-        let out = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("sample_out"),
-            size: (batch * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("sample_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let out = self.alloc_buffer(
+            (batch * 4) as u64,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        );
+        let cfg_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
         let cfg: [u32; 4] = [vocab, seed as u32, (seed >> 32) as u32, 0];
-        self.queue
-            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sample_bg"),
-            layout: &sample_pipeline.bind_group_layout,
+            layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: masked.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: out.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: cfg_buf.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: masked.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: out.buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.buffer.as_entire_binding() },
             ],
         });
-        self.dispatch(sample_pipeline, &bg, (batch as u32, 1, 1));
+        self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
 
-        Ok(GpuTensor {
-            shape: vec![batch],
-            buffer: out,
-            dtype: GpuDtype::F32,
-        })
+        Ok(GpuTensor { shape: vec![batch], buffer: out.buffer, dtype: GpuDtype::F32 })
     }
 
     // ── Singleton access ──────────────────────────────────────────────────────

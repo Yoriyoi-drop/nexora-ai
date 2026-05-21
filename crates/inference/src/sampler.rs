@@ -106,6 +106,51 @@ impl Sampler {
         }
     }
 
+    /// Batch GPU sample: stack B logit vectors into [B, vocab] and sample once.
+    /// Returns one token ID per sequence, all with a single GPU call.
+    /// Falls back to per-sequence CPU sampling on GPU error.
+    #[cfg(feature = "gpu")]
+    pub fn sample_gpu_batched(&mut self, batch_logits: &[&[f32]]) -> Result<Vec<usize>> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let batch = batch_logits.len();
+        if batch == 0 {
+            return Ok(Vec::new());
+        }
+        let vocab = batch_logits[0].len();
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(err = %e, "GPU sampling batched failed, falling back to per-sequence");
+                return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
+            }
+        };
+
+        // Stack all logits into [B, vocab] CPU array → one GPU upload
+        let mut flat = Vec::with_capacity(batch * vocab);
+        for logits in batch_logits {
+            flat.extend_from_slice(logits);
+        }
+        let shape = vec![batch, vocab];
+        let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, flat)
+            .map_err(|e| InferenceError::DecodingError(format!("ndarray reshape: {}", e)))?;
+        let gpu_logits = GpuTensor::from_cpu(&cpu_arr)
+            .map_err(|e| InferenceError::DecodingError(format!("GpuTensor::from_cpu: {}", e)))?;
+
+        let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
+        let seed = self.config.seed.unwrap_or(42);
+        let out = ctx
+            .gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, seed)
+            .map_err(|e| InferenceError::DecodingError(format!("gpu_sample batched: {}", e)))?;
+
+        let raw = out.to_cpu_raw_bytes();
+        let tokens: Vec<usize> = raw
+            .chunks_exact(4)
+            .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize)
+            .collect();
+
+        Ok(tokens)
+    }
+
     /// Sample a token index from logits (CPU path).
     /// Pipeline: logits → temperature scaling → softmax → top-k filter → top-p filter → sample
     pub fn sample(&mut self, logits: &[f32]) -> Result<usize> {

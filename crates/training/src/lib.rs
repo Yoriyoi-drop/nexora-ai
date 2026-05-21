@@ -9,6 +9,7 @@ use nexora_autograd::compute_grad_norm;
 #[cfg(feature = "gpu")]
 use nexora_autograd::compute_grad_norm_gpu;
 use nexora_autograd::ops::cross_entropy_loss;
+use nexora_autograd::device::Storage;
 use nexora_autograd::Device;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
 use tracing::{info, warn};
@@ -672,8 +673,13 @@ fn train_batch_gpu(
             .parameters()
             .iter()
             .map(|p| {
-                let grad_arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
-                GpuTensor::from_cpu(&grad_arr).unwrap()
+                match p.grad_storage() {
+                    Some(Storage::Gpu(g)) => g,
+                    _ => {
+                        let arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
+                        GpuTensor::from_cpu(&arr).unwrap()
+                    }
+                }
             })
             .collect();
         let grad_refs: Vec<&GpuTensor> = grad_tensors.iter().collect();

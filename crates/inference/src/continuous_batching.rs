@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use ndarray::Array1;
 use tracing::warn;
 
 use crate::sampler::{Sampler, SamplingConfig};
@@ -102,6 +103,8 @@ where
         seq_id
     }
 
+    /// Run a single step of the continuous batching loop.
+    /// Processes up to `max_batch_size` ready sequences through the model,
     /// Run a single step of the continuous batching loop.
     /// Processes up to `max_batch_size` ready sequences through the model,
     /// sampling the next token for each.

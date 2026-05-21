@@ -230,8 +230,7 @@ impl Tensor {
     pub fn randn(shape: &[usize], requires_grad: bool) -> Self {
         let len: usize = shape.iter().product();
         let mut rng = rand::thread_rng();
-        let data: Vec<f32> = (0..len)
-            .step_by(2)
+        let data: Vec<f32> = (0..len / 2)
             .flat_map(|_| {
                 let u1: f32 = rng.gen::<f32>().max(1e-38);
                 let u2: f32 = rng.gen::<f32>().max(1e-38);
@@ -382,6 +381,7 @@ impl Tensor {
             Some(Storage::Cpu(ref mut arr)) => {
                 *arr += grad;
             }
+            #[cfg(feature = "gpu")]
             Some(Storage::Gpu(_)) => {
                 let mut existing = inner.grad.take().unwrap().to_cpu();
                 existing += grad;

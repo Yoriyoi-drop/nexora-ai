@@ -639,6 +639,85 @@ impl CausalLM {
         Ok(Array1::from_vec(logits_flat))
     }
 
+    /// Batched GPU forward pass: processes multiple sequences in a single batch.
+    /// All GPU dispatches are coalesced into one queue.submit() via batch mode.
+    /// Returns one logit vector per sequence.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_batched(
+        &self,
+        batch_tokens: &[u32],
+        kv_caches: &mut [Vec<KVCacheEntry>],
+    ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
+        use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global()?;
+        let batch_size = batch_tokens.len();
+        if batch_size == 0 {
+            return Ok(Vec::new());
+        }
+
+        ctx.begin_batch_mode();
+
+        let mut all_logits = Vec::with_capacity(batch_size);
+        for (seq_idx, cache) in kv_caches.iter_mut().enumerate() {
+            let token_id = batch_tokens[seq_idx];
+
+            // Embedding: upload single row [1, hidden] — non-blocking queue.write_buffer
+            let mut h_data = vec![0.0; self.config.hidden_size];
+            let tid = token_id as usize;
+            for j in 0..self.config.hidden_size {
+                h_data[j] = self.token_embedding[[tid, j]];
+            }
+            let h_shape = vec![1, self.config.hidden_size];
+            let h_cpu = ArrayD::from_shape_vec(h_shape, h_data)
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            let mut h = GpuTensor::from_cpu(&h_cpu)?;
+
+            // RoPE cos/sin for this sequence's current position
+            let pos = cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+            let half = self.config.head_dim() / 2;
+            let cos_slice = if pos * half < self.precomputed_cos.len() {
+                self.precomputed_cos
+                    .slice(ndarray::s![pos * half..(pos + 1) * half])
+                    .to_owned()
+            } else {
+                Array1::zeros(half)
+            };
+            let sin_slice = if pos * half < self.precomputed_sin.len() {
+                self.precomputed_sin
+                    .slice(ndarray::s![pos * half..(pos + 1) * half])
+                    .to_owned()
+            } else {
+                Array1::zeros(half)
+            };
+
+            // Forward through all blocks with per-sequence KV cache
+            for (layer_idx, block) in self.blocks.iter().enumerate() {
+                h = block.forward_gpu(&h, cache, layer_idx, &cos_slice, &sin_slice)?;
+            }
+
+            h = self.norm.forward_gpu(&h)?;
+
+            let mut guard = self.lm_head_gpu.lock().unwrap();
+            let lm_head_cached = guard.get_or_insert_with(|| {
+                let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
+                let data = self.lm_head.as_slice().unwrap().to_vec();
+                let cpu_arr = ArrayD::from_shape_vec(shape, data).unwrap();
+                let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
+                ctx.transpose(&gpu).unwrap()
+            });
+            let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+
+            let logits_cpu = logits_gpu.to_cpu();
+            let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+            all_logits.push(Array1::from_vec(logits_flat));
+        }
+
+        ctx.end_batch_mode();
+        Ok(all_logits)
+    }
+
     pub fn generate(
         &self,
         prompt_ids: &[u32],
