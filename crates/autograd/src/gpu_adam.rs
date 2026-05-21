@@ -11,7 +11,6 @@ pub struct GpuAdam {
     pub weight_decay: f32,
     pub max_grad_norm: Option<f32>,
     config_bufs: Vec<wgpu::Buffer>,
-    pipeline: Option<wgpu::ComputePipeline>,
 }
 
 impl GpuAdam {
@@ -28,13 +27,12 @@ impl GpuAdam {
         let config_bufs = params
             .iter()
             .map(|_p| {
-                let buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                ctx.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("adam_config"),
                     size: 32,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
-                });
-                buf
+                })
             })
             .collect();
 
@@ -49,29 +47,7 @@ impl GpuAdam {
             weight_decay: 0.0,
             max_grad_norm: None,
             config_bufs,
-            pipeline: None,
         })
-    }
-
-    pub fn ensure_pipeline(&mut self, ctx: &mut GpuContext) {
-        if self.pipeline.is_some() {
-            return;
-        }
-        let pipeline = ctx
-            .compile_pipeline_cached(
-                "adam_step",
-                &[
-                    crate::gpu::storage_binding(0, true),
-                    crate::gpu::storage_binding(1, false),
-                    crate::gpu::storage_binding(2, false),
-                    crate::gpu::storage_binding(3, false),
-                    crate::gpu::uniform_binding(4),
-                ],
-                std::borrow::Cow::Borrowed(ADAM_WGSL),
-                "main",
-            )
-            .expect("Failed to compile adam pipeline");
-        self.pipeline = Some(pipeline);
     }
 
     /// Zero out gradients on GPU (fill parameter buffers with 0).
@@ -82,7 +58,7 @@ impl GpuAdam {
         Ok(())
     }
 
-    /// Clip gradients on GPU using L2 norm.
+    /// Clip gradients on GPU using L2 norm (batched version).
     /// If total_norm > max_grad_norm, scale all gradients by max_norm/total_norm.
     pub fn clip_gradients(
         &self,
@@ -90,45 +66,39 @@ impl GpuAdam {
         grads: &[&GpuTensor],
         max_norm: f32,
     ) -> Result<(), GpuError> {
-        if grads.is_empty() {
-            return Ok(());
-        }
-        // Compute sum of squared L2 norms
-        let mut total_sq = 0.0f32;
-        for g in grads {
-            let norm_t = ctx.l2_norm(g)?;
-            let norm_cpu = norm_t.to_cpu();
-            let sum_sq = norm_cpu.iter().copied().next().unwrap_or(0.0);
-            total_sq += sum_sq;
-        }
-        let total_norm = total_sq.sqrt();
-        if total_norm > max_norm && total_norm > 0.0 {
-            let scale = max_norm / total_norm;
-            for g in grads {
-                ctx.scale_inplace(g, scale)?;
-            }
-        }
-        Ok(())
+        crate::gpu_grad_clip::clip_gradients_batched(ctx, grads, max_norm)
     }
 
+    /// Perform one AdamW optimizer step.
+    ///
+    /// Optimizations vs the earlier per-param-encoder approach:
+    /// 1. All param dispatches batched in reusable encoder (single submit via ctx.with_encoder)
+    /// 2. Pipeline fetched from GpuContext cache (pre-compiled in compile_all_pipelines)
+    /// 3. Gradient clipping uses batched clip_gradients_batched
     pub fn step(
         &mut self,
-        ctx: &mut GpuContext,
+        ctx: &GpuContext,
         params: &[&GpuTensor],
         grads: &[&GpuTensor],
     ) -> Result<(), GpuError> {
-        self.ensure_pipeline(ctx);
-        let pipeline = self.pipeline.as_ref().unwrap();
         self.step += 1;
 
-        // Gradient clipping on GPU
+        // Gradient clipping on GPU (batched)
         if let Some(max_norm) = self.max_grad_norm {
             self.clip_gradients(ctx, grads, max_norm)?;
         }
 
+        // Pipeline is pre-compiled via compile_all_pipelines in GpuContext::new()
+        let pipeline = ctx
+            .pipelines
+            .get("adam_step")
+            .ok_or_else(|| GpuError::Pipeline("adam_step not compiled".into()))?;
+
         let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
         let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
 
+        // Batch all dispatches using with_encoder (single submit)
+        // Only queue writes for config buffers happen before the encoder batch
         for i in 0..params.len() {
             let numel = params[i].numel();
             if numel == 0 {
@@ -147,10 +117,18 @@ impl GpuAdam {
             ];
             ctx.queue
                 .write_buffer(&self.config_bufs[i], 0, bytemuck::cast_slice(&cfg));
+        }
+
+        // Now batch all dispatches in the reusable encoder
+        for i in 0..params.len() {
+            let numel = params[i].numel();
+            if numel == 0 {
+                continue;
+            }
 
             let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(&format!("adam_bg_{}", i)),
-                layout: &pipeline.get_bind_group_layout(0),
+                layout: &pipeline.bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -176,72 +154,17 @@ impl GpuAdam {
             });
 
             let wg = (numel as u32 + 255) / 256;
-            let mut encoder = ctx
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some(&format!("adam_encoder_{}", i)),
-                });
-            {
-                let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some(&format!("adam_step_{}", i)),
-                    timestamp_writes: None,
-                });
-                cpass.set_pipeline(pipeline);
-                cpass.set_bind_group(0, &bind_group, &[]);
-                cpass.dispatch_workgroups(wg, 1, 1);
-            }
-            ctx.queue.submit(Some(encoder.finish()));
+            ctx.dispatch(&pipeline, &bind_group, (wg, 1, 1));
         }
 
         Ok(())
     }
 
-    pub fn zero_state(&mut self, ctx: &GpuContext) -> Result<(), GpuError> {
+    /// Zero out optimizer state (m, v) on GPU.
+    pub fn zero_state(&self, ctx: &GpuContext) -> Result<(), GpuError> {
         for mv in self.m.iter().chain(self.v.iter()) {
             ctx.fill_zero(mv)?;
         }
         Ok(())
     }
 }
-
-const ADAM_WGSL: &str = r"
-struct Config {
-    lr: f32,
-    beta1: f32,
-    beta2: f32,
-    eps: f32,
-    weight_decay: f32,
-    bias_corr1: f32,
-    bias_corr2: f32,
-    step: f32,
-};
-
-@group(0) @binding(0) var<storage, read_write> param: array<f32>;
-@group(0) @binding(1) var<storage, read> grad: array<f32>;
-@group(0) @binding(2) var<storage, read_write> m: array<f32>;
-@group(0) @binding(3) var<storage, read_write> v: array<f32>;
-@group(0) @binding(4) var<uniform> cfg: Config;
-
-@compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
-    let n = arrayLength(&param);
-    if (i >= n) { return; }
-
-    let g = grad[i];
-    let p = param[i];
-
-    let m_new = cfg.beta1 * m[i] + (1.0 - cfg.beta1) * g;
-    let v_new = cfg.beta2 * v[i] + (1.0 - cfg.beta2) * g * g;
-
-    let m_hat = m_new / cfg.bias_corr1;
-    let v_hat = v_new / cfg.bias_corr2;
-
-    let update = cfg.lr * m_hat / (sqrt(v_hat) + cfg.eps);
-    let decay = cfg.lr * cfg.weight_decay * p;
-    param[i] = p - update - decay;
-
-    m[i] = m_new;
-    v[i] = v_new;
-}
-";

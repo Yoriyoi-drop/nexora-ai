@@ -496,6 +496,8 @@ impl GpuContext {
         self.compile_repeat_heads()?;
         // Priority 1: Fused ops (matmul+bias+activation, online softmax)
         self.compile_fused_ops()?;
+        // Phase 4: Training pipelines
+        self.compile_adam_step()?;
         Ok(())
     }
 
@@ -1541,6 +1543,21 @@ impl GpuContext {
             ],
             std::borrow::Cow::Borrowed(ROTARY_EMBEDDING_WGSL),
             "rotary_main",
+        )
+    }
+
+    fn compile_adam_step(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "adam_step",
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                storage_binding(3, false),
+                uniform_binding(4),
+            ],
+            std::borrow::Cow::Borrowed(ADAM_WGSL),
+            "main",
         )
     }
 
@@ -4001,6 +4018,49 @@ fn multinomial_main(@builtin(workgroup_id) wg: vec3<u32>) {
 }
 "#;
 
+// ─── ADAM OPTIMIZER WGSL ───────────────────────────────────────────────────────
+
+const ADAM_WGSL: &str = r#"
+struct Config {
+    lr: f32,
+    beta1: f32,
+    beta2: f32,
+    eps: f32,
+    weight_decay: f32,
+    bias_corr1: f32,
+    bias_corr2: f32,
+    step: f32,
+};
+
+@group(0) @binding(0) var<storage, read_write> param: array<f32>;
+@group(0) @binding(1) var<storage, read> grad: array<f32>;
+@group(0) @binding(2) var<storage, read_write> m: array<f32>;
+@group(0) @binding(3) var<storage, read_write> v: array<f32>;
+@group(0) @binding(4) var<uniform> cfg: Config;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    let n = arrayLength(&param);
+    if (i >= n) { return; }
+
+    let g = grad[i];
+    let p = param[i];
+
+    let m_new = cfg.beta1 * m[i] + (1.0 - cfg.beta1) * g;
+    let v_new = cfg.beta2 * v[i] + (1.0 - cfg.beta2) * g * g;
+
+    let m_hat = m_new / cfg.bias_corr1;
+    let v_hat = v_new / cfg.bias_corr2;
+
+    let update = cfg.lr * m_hat / (sqrt(v_hat) + cfg.eps);
+    let decay = cfg.lr * cfg.weight_decay * p;
+    param[i] = p - update - decay;
+
+    m[i] = m_new;
+    v[i] = v_new;
+}
+"#;
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GpuTensor
 // ═══════════════════════════════════════════════════════════════════════════════

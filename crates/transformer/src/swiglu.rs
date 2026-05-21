@@ -4,9 +4,6 @@ use rand::Rng;
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct SwigluGpuWeights {
-    pub w1: nexora_autograd::gpu::GpuTensor,
-    pub w2: nexora_autograd::gpu::GpuTensor,
-    pub w3: nexora_autograd::gpu::GpuTensor,
     pub w1_t: nexora_autograd::gpu::GpuTensor,
     pub w2_t: nexora_autograd::gpu::GpuTensor,
     pub w3_t: nexora_autograd::gpu::GpuTensor,
@@ -111,12 +108,10 @@ impl SwiGLU {
             let w1 = mk(&self.w1);
             let w2 = mk(&self.w2);
             let w3 = mk(&self.w3);
-            let ctx_ref = GpuContext::global().unwrap();
             SwigluGpuWeights {
-                w1_t: ctx_ref.transpose(&w1).unwrap(),
-                w2_t: ctx_ref.transpose(&w2).unwrap(),
-                w3_t: ctx_ref.transpose(&w3).unwrap(),
-                w1, w2, w3,
+                w1_t: ctx.transpose(&w1).unwrap(),
+                w2_t: ctx.transpose(&w2).unwrap(),
+                w3_t: ctx.transpose(&w3).unwrap(),
             }
         });
 

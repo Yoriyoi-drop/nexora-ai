@@ -507,16 +507,15 @@ impl GQA {
                     &ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
                 )?)
             };
-            let ctx_ref = GpuContext::global()?;
             let wq = mk(&self.wq)?;
             let wk = mk(&self.wk)?;
             let wv = mk(&self.wv)?;
             let wo = mk(&self.wo)?;
             *guard = Some(GqaGpuWeights {
-                wq_t: ctx_ref.transpose(&wq)?,
-                wk_t: ctx_ref.transpose(&wk)?,
-                wv_t: ctx_ref.transpose(&wv)?,
-                wo_t: ctx_ref.transpose(&wo)?,
+                wq_t: ctx.transpose(&wq)?,
+                wk_t: ctx.transpose(&wk)?,
+                wv_t: ctx.transpose(&wv)?,
+                wo_t: ctx.transpose(&wo)?,
             });
         }
         let cached = guard.as_ref().unwrap();
@@ -576,25 +575,20 @@ impl GQA {
         // Build K/V with head repeating for GQA:
         // If num_heads != num_kv_heads, repeat K/V heads so fused_attention
         // sees [B, num_heads, S, D] for both Q and K/V.
-        let eff_heads = if self.num_heads > self.num_kv_heads {
-            self.num_heads
-        } else {
-            self.num_kv_heads
-        };
+        // Always use num_heads for the repeated head dimension (Q has num_heads heads).
+        // When num_heads == num_kv_heads, groups=1 so kv_h = h/1 = h (identity).
+        // When num_heads > num_kv_heads, each group of query heads maps to the same KV head.
+        let eff_heads = self.num_heads;
 
         let k_slice = entry.k.as_slice().unwrap();
         let v_slice = entry.v.as_slice().unwrap();
         let mut k_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
         let mut v_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
 
-        let groups = self.num_heads / self.num_kv_heads.max(1);
+        let groups = (self.num_heads / self.num_kv_heads.max(1)).max(1);
         for s in 0..total_seq {
             for h in 0..eff_heads {
-                let kv_h = if self.num_heads > self.num_kv_heads {
-                    (h / groups).min(self.num_kv_heads - 1)
-                } else {
-                    h
-                };
+                let kv_h = (h / groups).min(self.num_kv_heads - 1);
                 let cache_off = s * (self.num_kv_heads * self.head_dim) + kv_h * self.head_dim;
                 let target_off = h * total_seq * self.head_dim + s * self.head_dim;
                 for d in 0..self.head_dim {
