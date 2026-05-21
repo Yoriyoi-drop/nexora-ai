@@ -313,7 +313,8 @@ impl SourceProvider for RedditProvider {
                     let excerpt = if selftext.is_empty() || selftext.len() < 20 {
                         String::new()
                     } else if selftext.len() > 500 {
-                        format!(" - {}", &selftext[..500])
+                        let end = selftext.char_indices().map(|(i, _)| i).nth(500).unwrap_or(selftext.len());
+                        format!(" - {}", &selftext[..end])
                     } else {
                         format!(" - {}", selftext)
                     };

@@ -1619,11 +1619,12 @@ impl ResourceOptimizerAgent {
         cost_breakdown.insert("Network".to_string(), optimized_cost_per_hour * 0.1);
 
         // Calculate ROI
+        let monthly_savings = cost_savings * 24.0 * 30.0;
         let roi_calculation = RoiCalculation {
             investment_cost: 1000.0, // Implementation cost
-            expected_savings_per_month: cost_savings * 24.0 * 30.0,
-            payback_period_months: 1000.0 / (cost_savings * 24.0 * 30.0),
-            annual_roi_percentage: (cost_savings * 24.0 * 365.0 / 1000.0) * 100.0,
+            expected_savings_per_month: monthly_savings,
+            payback_period_months: if monthly_savings > 0.0 { 1000.0 / monthly_savings } else { f32::INFINITY },
+            annual_roi_percentage: (monthly_savings * 365.0 / 30.0 / 1000.0) * 100.0,
         };
 
         Ok(CostAnalysis {

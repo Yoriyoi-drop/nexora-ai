@@ -31,6 +31,7 @@ impl Attention {
             dropout_rate,
         };
 
+        assert!(num_heads > 0, "num_heads must be positive");
         let head_dim = hidden_size / num_heads;
 
         // Initialize projections with random weights

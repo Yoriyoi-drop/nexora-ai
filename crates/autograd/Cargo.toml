@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ndarray = { workspace = true, features = ["blas", "serde"] }
-openblas-src = { workspace = true }
+ndarray = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, optional = true }

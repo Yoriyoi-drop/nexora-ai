@@ -706,8 +706,10 @@ impl ConsensusBuilderAgent {
             }
         }
 
-        overall_disagreement /=
-            (input.agent_outputs.len() * (input.agent_outputs.len() - 1) / 2) as f32;
+        let pair_count = (input.agent_outputs.len() * (input.agent_outputs.len() - 1)) / 2;
+        if pair_count > 0 {
+            overall_disagreement /= pair_count as f32;
+        }
 
         Ok(DisagreementResult {
             conflicts,

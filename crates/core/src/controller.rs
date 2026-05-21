@@ -14,8 +14,8 @@ use crate::input::InputReceiver;
 use crate::intent::IntentDetector;
 use crate::types::{
     ContextInfo, ControllerConfig, ControllerCore, ControllerMetrics, ControllerState,
-    ControllerStats, InputData, InputType, IntentResult, LruContextCache, ModelId, RoutingDecision,
-    SpecialistModel,
+    ControllerStats, InputData, InputType, IntentResult, IntentType, LruContextCache, ModelId,
+    RoutingDecision, SpecialistModel,
 };
 use parking_lot::RwLock;
 

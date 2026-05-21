@@ -69,9 +69,7 @@ thiserror = "1.0"
 rayon = "1.8"
 crossbeam = "0.8"
 # Math/tensor operations
-ndarray = { version = "0.15", features = ["serde", "blas"] }
-openblas-src = { version = "0.10", features = ["system", "cblas"] }
-blas-src = { version = "0.10", default-features = false, features = ["openblas"] }
+ndarray = { version = "0.15", features = ["serde"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"

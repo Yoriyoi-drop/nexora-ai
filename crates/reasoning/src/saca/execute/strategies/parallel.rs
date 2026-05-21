@@ -17,12 +17,14 @@ impl ParallelExecutionStrategy {
         let tasks: Vec<_> = candidates
             .into_iter()
             .map(|candidate| {
+                let candidate_id = candidate.id;
                 let engine = engine.clone();
                 let context = context.clone();
                 async move {
-                    engine
+                    let result = engine
                         .execute_candidate_with_fix_loop(candidate, &context)
-                        .await
+                        .await;
+                    (candidate_id, result)
                 }
             })
             .collect();
@@ -32,13 +34,12 @@ impl ParallelExecutionStrategy {
 
         // Collect results, handling any errors
         let mut execution_results = Vec::new();
-        for result in results {
+        for (candidate_id, result) in results {
             match result {
                 Ok(execution_result) => execution_results.push(execution_result),
                 Err(e) => {
-                    // Create error result for failed execution
                     execution_results.push(SACAExecutionResult {
-                        candidate_id: uuid::Uuid::new_v4(), // Will be set properly
+                        candidate_id,
                         success: false,
                         execution_time_ms: 0,
                         memory_usage_mb: 0.0,

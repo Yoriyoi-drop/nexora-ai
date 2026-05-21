@@ -62,9 +62,9 @@ impl GpuKVCacheEntry {
 
         ctx.batch_dispatch(|enc| {
             // Copy new K to cache at position seq_len
-            enc.copy_buffer_to_buffer(new_k.buffer(), 0, &self.k.buffer, offset, byte_size);
+            enc.copy_buffer_to_buffer(new_k.buffer(), 0, self.k.buffer(), offset, byte_size);
             // Copy new V to cache at position seq_len
-            enc.copy_buffer_to_buffer(new_v.buffer(), 0, &self.v.buffer, offset, byte_size);
+            enc.copy_buffer_to_buffer(new_v.buffer(), 0, self.v.buffer(), offset, byte_size);
             Ok(())
         })?;
 
@@ -73,26 +73,21 @@ impl GpuKVCacheEntry {
     }
 
     /// Returns a view of K up to seq_len as [seq_len, kv_heads, head_dim].
-    /// Zero-copy: shares the same wgpu::Buffer handle.
+    /// Zero-copy: shares the same wgpu::Buffer handle via reshape.
     pub fn k_view(&self) -> nexora_autograd::gpu::GpuTensor {
-        nexora_autograd::gpu::GpuTensor {
-            shape: vec![self.seq_len, self.kv_heads, self.head_dim],
-            buffer: self.k.buffer.clone(),
-            dtype: nexora_autograd::gpu::GpuDtype::F32,
-        }
+        self.k
+            .view_as(vec![self.seq_len, self.kv_heads, self.head_dim])
     }
 
     /// Returns a view of V up to seq_len as [seq_len, kv_heads, head_dim].
+    /// Zero-copy: shares the same wgpu::Buffer handle via reshape.
     pub fn v_view(&self) -> nexora_autograd::gpu::GpuTensor {
-        nexora_autograd::gpu::GpuTensor {
-            shape: vec![self.seq_len, self.kv_heads, self.head_dim],
-            buffer: self.v.buffer.clone(),
-            dtype: nexora_autograd::gpu::GpuDtype::F32,
-        }
+        self.v
+            .view_as(vec![self.seq_len, self.kv_heads, self.head_dim])
     }
 
     /// Get K/V repeated to q_heads for fused_attention.
-    /// Returns (k_repeated, v_repeated) as [seq_len, q_heads, head_dim].
+    /// Returns (k_repeated, v_repeated) as [q_heads, seq_len, head_dim] (head-major).
     pub fn get_repeated_kv(
         &self,
         ctx: &nexora_autograd::gpu::GpuContext,
@@ -259,8 +254,8 @@ impl GQA {
 
         for b in 0..batch_size {
             let k_slice_view = k.slice(ndarray::s![b, .., ..]);
-            let k_row = k_slice_view.as_slice().unwrap();
-            let rotated_k = RoPE::apply_single(k_row, cos, sin, self.head_dim, 0);
+            let k_row: Vec<f32> = k_slice_view.iter().copied().collect();
+            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
                     k[[b, h, d]] = rotated_k[h * self.head_dim + d];
@@ -270,8 +265,8 @@ impl GQA {
 
         for b in 0..batch_size {
             let q_slice_view = q.slice(ndarray::s![b, .., ..]);
-            let q_row = q_slice_view.as_slice().unwrap();
-            let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
+            let q_row: Vec<f32> = q_slice_view.iter().copied().collect();
+            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_heads {
                 for d in 0..self.head_dim {
                     q[[b, h, d]] = rotated_q[h * self.head_dim + d];
@@ -366,8 +361,8 @@ impl GQA {
 
         for b in 0..batch_size {
             let k_slice_view = k.slice(ndarray::s![b, .., ..]);
-            let k_row = k_slice_view.as_slice().unwrap();
-            let rotated_k = RoPE::apply_single(k_row, cos, sin, self.head_dim, 0);
+            let k_row: Vec<f32> = k_slice_view.iter().copied().collect();
+            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
                     k[[b, h, d]] = rotated_k[h * self.head_dim + d];
@@ -377,8 +372,8 @@ impl GQA {
 
         for b in 0..batch_size {
             let q_slice_view = q.slice(ndarray::s![b, .., ..]);
-            let q_row = q_slice_view.as_slice().unwrap();
-            let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
+            let q_row: Vec<f32> = q_slice_view.iter().copied().collect();
+            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_heads {
                 for d in 0..self.head_dim {
                     q[[b, h, d]] = rotated_q[h * self.head_dim + d];
@@ -501,8 +496,8 @@ impl GQA {
         // RoPE for K
         for b in 0..batch_size {
             let k_slice_view = k.slice(ndarray::s![b, .., ..]);
-            let k_row = k_slice_view.as_slice().unwrap();
-            let rotated_k = RoPE::apply_single(k_row, cos, sin, self.head_dim, 0);
+            let k_row: Vec<f32> = k_slice_view.iter().copied().collect();
+            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_kv_heads {
                 for d in 0..self.head_dim {
                     k[[b, h, d]] = rotated_k[h * self.head_dim + d];
@@ -513,8 +508,8 @@ impl GQA {
         // RoPE for Q
         for b in 0..batch_size {
             let q_slice_view = q.slice(ndarray::s![b, .., ..]);
-            let q_row = q_slice_view.as_slice().unwrap();
-            let rotated_q = RoPE::apply_single(q_row, cos, sin, self.head_dim, 0);
+            let q_row: Vec<f32> = q_slice_view.iter().copied().collect();
+            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             for h in 0..self.num_heads {
                 for d in 0..self.head_dim {
                     q[[b, h, d]] = rotated_q[h * self.head_dim + d];
@@ -783,8 +778,8 @@ impl GQA {
 
         let eff_heads = self.num_heads;
 
-        let k_slice = entry.k.as_slice().unwrap();
-        let v_slice = entry.v.as_slice().unwrap();
+        let k_slice: Vec<f32> = entry.k.iter().copied().collect();
+        let v_slice: Vec<f32> = entry.v.iter().copied().collect();
         let mut k_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
         let mut v_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
 

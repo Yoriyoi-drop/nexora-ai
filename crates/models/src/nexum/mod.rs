@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nexora_alignment::{SparoNexumConfig, SparoNexumIntegration};
+use nexora_alignment::SparoNexumIntegration;
 use nexora_shared::{
     base_model::{
         ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
@@ -29,11 +29,10 @@ mod capabilities;
 mod config;
 mod identity;
 
-// Re-export all components
+// Re-export all components (non-conflicting)
 pub use agents::*;
 pub use architecture::*;
 pub use capabilities::*;
-pub use config::*;
 pub use identity::*;
 
 pub struct NxrNexumModel {

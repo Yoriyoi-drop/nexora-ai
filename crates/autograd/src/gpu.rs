@@ -85,6 +85,10 @@ pub struct GpuContext {
     pub(crate) current_encoder: Mutex<Option<wgpu::CommandEncoder>>,
     pub(crate) ops_since_flush: std::sync::atomic::AtomicUsize,
     pub(crate) auto_flush_ops: usize,
+    // ── Batch mode ───────────────────────────────────────────────────
+    /// When >0, with_encoder suppresses auto-flush so all dispatches
+    /// accumulate in one encoder. begin_batch() increments, end_batch() decrements.
+    pub(crate) batch_depth: std::sync::atomic::AtomicUsize,
 }
 
 pub(crate) struct CompiledPipeline {
@@ -171,22 +175,35 @@ impl GpuContext {
         size: u64,
         usage: wgpu::BufferUsages,
     ) -> crate::gpu_memory::PooledBuffer {
-        self.memory_pool.lock().unwrap().alloc(size, usage)
+        self.memory_pool
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .alloc(size, usage)
     }
 
     /// Return a buffer to the memory pool for reuse
     pub fn dealloc_buffer(&mut self, buf: crate::gpu_memory::PooledBuffer) {
-        self.memory_pool.lock().unwrap().dealloc(buf);
+        self.memory_pool
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .dealloc(buf);
     }
 
     /// Get memory pool statistics
     pub fn memory_stats(&self) -> crate::gpu_memory::PoolStats {
-        self.memory_pool.lock().unwrap().stats().clone()
+        self.memory_pool
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stats()
+            .clone()
     }
 
     /// Clear the memory pool (free all cached buffers)
     pub fn clear_memory_pool(&mut self) {
-        self.memory_pool.lock().unwrap().clear();
+        self.memory_pool
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Batch dispatch multiple operations with single sync at the end
@@ -462,6 +479,7 @@ impl GpuContext {
             current_encoder: Mutex::new(Some(enc)),
             ops_since_flush: std::sync::atomic::AtomicUsize::new(0),
             auto_flush_ops,
+            batch_depth: std::sync::atomic::AtomicUsize::new(0),
         };
 
         ctx.compile_all_pipelines()?;
@@ -941,16 +959,33 @@ impl GpuContext {
         let enc = guard.as_mut().expect("encoder missing");
         let result = f(enc);
 
-        let ops = self.ops_since_flush.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
-        if ops >= self.auto_flush_ops {
-            let enc_to_submit = guard.take().unwrap();
-            self.queue.submit(Some(enc_to_submit.finish()));
-            self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
-            *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("nexora_reusable_encoder"),
-            }));
+        if self.batch_depth.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            let ops = self.ops_since_flush.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+            if ops >= self.auto_flush_ops {
+                let enc_to_submit = guard.take().unwrap();
+                self.queue.submit(Some(enc_to_submit.finish()));
+                self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+                *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("nexora_reusable_encoder"),
+                }));
+            }
         }
         result
+    }
+
+    /// Begin batch mode: suppress auto-flush so all subsequent dispatches
+    /// accumulate into the current encoder. Call end_batch_mode() to submit.
+    pub fn begin_batch_mode(&self) {
+        self.batch_depth.fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+
+    /// End batch mode and flush accumulated dispatches.
+    /// Safe to call nested — only the outermost decrement triggers flush.
+    pub fn end_batch_mode(&self) {
+        let prev = self.batch_depth.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        if prev == 1 {
+            self.flush();
+        }
     }
 
     /// Dispatch a compute shader using the reusable command encoder.
@@ -1167,7 +1202,6 @@ impl GpuContext {
                 cpass.write_timestamp(query_set, end_idx); // End timestamp
             }
             encoder.resolve_query_set(query_set, start_idx..(end_idx + 1), &query_buffer, 0);
-            self.queue.submit(Some(encoder.finish()));
 
             // Readback timestamp query result (separate from kernel execution)
             let readback_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1177,21 +1211,16 @@ impl GpuContext {
                 mapped_at_creation: false,
             });
 
-            let mut copy_encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            copy_encoder.copy_buffer_to_buffer(&query_buffer, 0, &readback_buffer, 0, buf_size);
-            self.queue.submit(Some(copy_encoder.finish()));
+            // Combine copy into main encoder to avoid extra submit
+            encoder.copy_buffer_to_buffer(&query_buffer, 0, &readback_buffer, 0, buf_size);
+            self.queue.submit(Some(encoder.finish()));
 
             let slice = readback_buffer.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
             slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-            self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            });
+            // No blocking poll - let GPU work asynchronously, map_async will callback when ready
 
             rx.recv()
                 .expect("channel closed")
@@ -2045,7 +2074,9 @@ impl GpuContext {
     }
 
     /// Repeat KV heads to match Q heads for GQA.
-    /// src: [seq, kv_heads, dim] → dst: [seq, q_heads, dim]
+    /// src: [seq, kv_heads, dim] → dst: [q_heads, seq, dim]
+    /// Output is HEAD-MAJOR (compatible with fused_attention's [B, H, S, D] layout).
+    /// The WGSL shader writes in head-major layout: element (qh, s, d) at qh*seq*dim + s*dim + d.
     pub fn repeat_heads(
         &self,
         src: &GpuTensor,
@@ -2105,7 +2136,7 @@ impl GpuContext {
         self.dispatch(pipeline, &bind_group, ((numel_dst as u32 + 255) / 256, 1, 1));
         
         Ok(GpuTensor {
-            shape: vec![seq as usize, q_heads as usize, dim as usize],
+            shape: vec![q_heads as usize, seq as usize, dim as usize],
             buffer: dst_buffer,
             dtype: GpuDtype::F32,
         })
@@ -3822,19 +3853,25 @@ const ROTARY_EMBEDDING_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> x : array<f32>;
 @group(0) @binding(1) var<storage, read> cos : array<f32>;
 @group(0) @binding(2) var<storage, read> sin : array<f32>;
-@group(0) @binding(3) var<uniform> cfg : array<u32, 3>; // [total_rows, dim, half]
+struct RotaryConfig {
+    total_rows: u32,
+    dim: u32,
+    half: u32,
+    _pad: u32,
+};
+@group(0) @binding(3) var<uniform> cfg : RotaryConfig;
 
 @compute @workgroup_size(256)
 fn rotary_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let idx = id.x;
-    if idx >= cfg[0] * cfg[2] {
+    if idx >= cfg.total_rows * cfg.half {
         return;
     }
-    let row = idx / cfg[2];
-    let pair = idx % cfg[2];
+    let row = idx / cfg.half;
+    let pair = idx % cfg.half;
 
-    let i1 = row * cfg[1] + pair;
-    let i2 = row * cfg[1] + pair + cfg[2];
+    let i1 = row * cfg.dim + pair;
+    let i2 = row * cfg.dim + pair + cfg.half;
 
     let v1 = x[i1];
     let v2 = x[i2];
@@ -3849,25 +3886,31 @@ fn rotary_main(@builtin(global_invocation_id) id: vec3<u32>) {
 const REPEAT_HEADS_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> src : array<f32>;
 @group(0) @binding(1) var<storage, read_write> dst : array<f32>;
-@group(0) @binding(2) var<uniform> cfg : array<u32, 4>; // [seq, kv_heads, q_heads, dim]
+struct RepeatConfig {
+    seq: u32,
+    kv_heads: u32,
+    q_heads: u32,
+    dim: u32,
+};
+@group(0) @binding(2) var<uniform> cfg : RepeatConfig;
 
 @compute @workgroup_size(256)
 fn repeat_heads_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let idx = id.x;
-    let total = cfg[0] * cfg[2] * cfg[3];
+    let total = cfg.seq * cfg.q_heads * cfg.dim;
     if idx >= total {
         return;
     }
-    // dst layout: [seq, q_heads, dim]
-    let s = idx / (cfg[2] * cfg[3]);
-    let rem1 = idx % (cfg[2] * cfg[3]);
-    let qh = rem1 / cfg[3];
-    let d = rem1 % cfg[3];
+    // dst layout: [q_heads, seq, dim] (head-major, compatible with fused_attention)
+    let qh = idx / (cfg.seq * cfg.dim);
+    let rem1 = idx % (cfg.seq * cfg.dim);
+    let s = rem1 / cfg.dim;
+    let d = rem1 % cfg.dim;
 
     // Map q_heads -> kv_heads (grouped)
-    let groups = cfg[2] / cfg[1];
+    let groups = cfg.q_heads / cfg.kv_heads;
     let kvh = qh / groups;
-    let src_idx = s * (cfg[1] * cfg[3]) + kvh * cfg[3] + d;
+    let src_idx = s * (cfg.kv_heads * cfg.dim) + kvh * cfg.dim + d;
     dst[idx] = src[src_idx];
 }
 "#;
@@ -4127,6 +4170,16 @@ impl GpuTensor {
             buffer: self.buffer.clone(),
             dtype: self.dtype,
         })
+    }
+
+    /// Create a zero-copy view with a different shape WITHOUT checking element count.
+    /// Useful for sub-views of pre-allocated buffers (e.g., KV cache with capacity > seq_len).
+    pub fn view_as(&self, new_shape: Vec<usize>) -> GpuTensor {
+        GpuTensor {
+            shape: new_shape,
+            buffer: self.buffer.clone(),
+            dtype: self.dtype,
+        }
     }
 
     pub fn zeros(shape: &[usize]) -> Result<Self, GpuError> {

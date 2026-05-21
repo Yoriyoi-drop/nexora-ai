@@ -53,6 +53,8 @@ pub use tensor::Tensor;
 pub use training_pipeline::{
     compute_grad_norm, Checkpoint, TrainingLoop, TrainingLoopConfig, TrainingMetrics,
 };
+#[cfg(feature = "gpu")]
+pub use training_pipeline::compute_grad_norm_gpu;
 
 use ndarray::ArrayD;
 

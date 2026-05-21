@@ -12,6 +12,7 @@ serde.workspace = true
 tracing.workspace = true
 rand.workspace = true
 anyhow.workspace = true
+bytemuck = "1"
 
 [features]
 gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]

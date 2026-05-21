@@ -209,7 +209,7 @@ impl ExtendedRope {
 
         // Original RoPE frequency computation
         let freq_index = i / 2;
-        let theta = base_freq.powf(freq_index as f32 / head_dim as f32);
+        let theta = base_freq.powf(-(freq_index as f32) / head_dim as f32);
         let freq = pos as f32 * theta * scaling * dynamic_factor;
 
         freq

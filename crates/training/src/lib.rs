@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use ndarray::ArrayD;
 use nexora_autograd::compute_grad_norm;
+#[cfg(feature = "gpu")]
+use nexora_autograd::compute_grad_norm_gpu;
 use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::Device;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
@@ -13,7 +15,10 @@ use tracing::{info, warn};
 
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::{GpuContext, GpuTensor};
+#[cfg(feature = "gpu")]
 use nexora_autograd::gpu_adam::GpuAdam;
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu_async::GpuStagingPool;
 
 use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
 
@@ -70,6 +75,12 @@ pub struct Trainer {
     pub optimizer: Option<Adam>,
     #[cfg(feature = "gpu")]
     pub gpu_optimizer: Option<GpuAdam>,
+    #[cfg(feature = "gpu")]
+    pub gpu_input_buf: Option<GpuTensor>,
+    #[cfg(feature = "gpu")]
+    pub gpu_target_buf: Option<GpuTensor>,
+    #[cfg(feature = "gpu")]
+    pub gpu_staging: Option<GpuStagingPool>,
     pub step: usize,
     pub total_loss: f64,
     pub total_tokens: usize,
@@ -99,6 +110,12 @@ impl Trainer {
             optimizer: None,
             #[cfg(feature = "gpu")]
             gpu_optimizer: None,
+            #[cfg(feature = "gpu")]
+            gpu_input_buf: None,
+            #[cfg(feature = "gpu")]
+            gpu_target_buf: None,
+            #[cfg(feature = "gpu")]
+            gpu_staging: None,
             step: 0,
             total_loss: 0.0,
             total_tokens: 0,
@@ -122,6 +139,12 @@ impl Trainer {
             optimizer: None,
             #[cfg(feature = "gpu")]
             gpu_optimizer: None,
+            #[cfg(feature = "gpu")]
+            gpu_input_buf: None,
+            #[cfg(feature = "gpu")]
+            gpu_target_buf: None,
+            #[cfg(feature = "gpu")]
+            gpu_staging: None,
             step: 0,
             total_loss: 0.0,
             total_tokens: 0,
@@ -182,6 +205,18 @@ impl Trainer {
                     gpu_opt.max_grad_norm = self.config.max_grad_norm;
                     self.trainable = Some(trainable);
                     self.gpu_optimizer = Some(gpu_opt);
+                    // Enable automatic GPU tensor creation so that all intermediate
+                    // tensors (from_slice, zeros, ones, identity_selector, etc.)
+                    // are created as GPU tensors, keeping the entire pipeline on GPU.
+                    nexora_autograd::tensor::set_gpu_auto_create(true);
+
+                    // Pre-allocate GPU buffers for zero-copy data upload
+                    let batch_shape = vec![self.config.seq_length];
+                    let in_buf = GpuTensor::zeros(&batch_shape).unwrap();
+                    let tgt_buf = GpuTensor::zeros(&batch_shape).unwrap();
+                    self.gpu_input_buf = Some(in_buf);
+                    self.gpu_target_buf = Some(tgt_buf);
+                    self.gpu_staging = Some(GpuStagingPool::new(ctx, (self.config.seq_length * 4) as u64));
                     return;
                 }
                 Err(e) => {
@@ -233,6 +268,9 @@ impl Trainer {
         #[cfg(feature = "gpu")]
         if self.gpu_optimizer.is_some() {
             let gpu_opt = self.gpu_optimizer.as_mut().unwrap();
+            let gpu_in = self.gpu_input_buf.as_ref().unwrap();
+            let gpu_tgt = self.gpu_target_buf.as_ref().unwrap();
+            let gpu_pool = self.gpu_staging.as_mut().unwrap();
             return train_batch_gpu(
                 &mut self.model,
                 trainable,
@@ -250,6 +288,9 @@ impl Trainer {
                 &mut self.last_grad_norm,
                 &self.config,
                 &self.stop_flag,
+                gpu_in,
+                gpu_tgt,
+                gpu_pool,
             );
         }
 
@@ -547,7 +588,11 @@ fn train_batch_gpu(
     last_grad_norm: &mut Option<f32>,
     config: &TrainerConfig,
     stop_flag: &Arc<AtomicBool>,
+    input_buffer: &GpuTensor,
+    target_buffer: &GpuTensor,
+    staging: &mut GpuStagingPool,
 ) -> Option<f32> {
+    use nexora_autograd::gpu_async::tensor_to_cpu_async;
     use std::sync::atomic::Ordering;
     let batch_start = std::time::Instant::now();
     let ctx = match GpuContext::global() {
@@ -558,37 +603,53 @@ fn train_batch_gpu(
         }
     };
 
-    let input_buf: Vec<f32> = tokens[..seq].iter().map(|&t| t as f32).collect();
-    let target_buf: Vec<f32> = targets[..seq].iter().map(|&t| t as f32).collect();
-    let input_arr = ndarray::ArrayD::from_shape_vec(vec![seq], input_buf).unwrap();
-    let target_arr = ndarray::ArrayD::from_shape_vec(vec![seq], target_buf).unwrap();
+    // ── Zero-copy upload into pre-allocated buffers ──
+    let input_f32: Vec<f32> = tokens[..seq].iter().map(|&t| t as f32).collect();
+    let target_f32: Vec<f32> = targets[..seq].iter().map(|&t| t as f32).collect();
+    ctx.queue.write_buffer(input_buffer.buffer(), 0, bytemuck::cast_slice(&input_f32));
+    ctx.queue.write_buffer(target_buffer.buffer(), 0, bytemuck::cast_slice(&target_f32));
+
     let input_t = Tensor::from_gpu(
-        GpuTensor::from_cpu(&input_arr).unwrap(),
+        input_buffer.view_as(vec![seq]),
         nexora_autograd::tensor::next_tensor_id(),
         false,
     );
     let target_t = Tensor::from_gpu(
-        GpuTensor::from_cpu(&target_arr).unwrap(),
+        target_buffer.view_as(vec![seq]),
         nexora_autograd::tensor::next_tensor_id(),
         false,
     );
 
+    // ── Forward / Backward (batched) ──
+    ctx.begin_batch_mode();
     let logits = trainable.forward(&input_t);
     let loss = cross_entropy_loss(&logits, &target_t).mean();
     loss.backward();
+    ctx.end_batch_mode();
 
-    let loss_val = loss.data()[0];
+    // ── Async loss readback ──
+    let loss_gpu = match loss.storage() {
+        nexora_autograd::Storage::Gpu(g) => g,
+        _ => return None,
+    };
+    let loss_readback = tensor_to_cpu_async(ctx, staging, &loss_gpu).ok()?;
+
+    // ── Gradients: read from tape for NaN check ──
+    let owned_params: Vec<GpuTensor> = trainable
+        .parameters()
+        .iter()
+        .map(|p| match p.storage() {
+            nexora_autograd::Storage::Gpu(g) => g,
+            _ => unreachable!(),
+        })
+        .collect();
+    let params: Vec<&GpuTensor> = owned_params.iter().collect();
+
+    // ── Poll loss (non-blocking, GPU already working) ──
+    let loss_data = loss_readback.poll(ctx);
+    let loss_val = loss_data[0];
     if !loss_val.is_finite() {
         warn!("NaN/Inf loss detected ({}) — skipping GPU step", loss_val);
-        let owned_params: Vec<GpuTensor> = trainable
-            .parameters()
-            .iter()
-            .map(|p| match p.storage() {
-                nexora_autograd::Storage::Gpu(g) => g,
-                _ => unreachable!(),
-            })
-            .collect();
-        let params: Vec<&GpuTensor> = owned_params.iter().collect();
         let _ = gpu_opt.zero_grad(&ctx, &params);
         return None;
     }
@@ -629,7 +690,7 @@ fn train_batch_gpu(
         for p in trainable.parameters().iter() {
             p.zero_grad();
         }
-        *last_grad_norm = Some(compute_grad_norm(&trainable.parameters()));
+        *last_grad_norm = Some(compute_grad_norm_gpu(&grad_tensors, &ctx));
         *step += 1;
         *accumulation_counter = 0;
 

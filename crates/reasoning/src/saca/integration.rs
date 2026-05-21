@@ -219,15 +219,7 @@ impl SACAIntegration {
         let tensor_input = self.solution_to_tensor(&solution.base_solution)?;
 
         // Apply expert routing
-        let router_clone = match Arc::try_unwrap(Arc::clone(router)) {
-            Ok(router) => router,
-            Err(_) => {
-                // If Arc can't be unwrapped (multiple references), we need a different approach
-                // For now, create a new instance - this is a temporary fix
-                Router::new(768, 8, 2)
-            }
-        };
-        let _routing_decisions = router_clone
+        let _routing_decisions = router
             .route_single(&tensor_input)
             .map_err(|e| SACAError::RerankError(format!("Routing failed: {}", e)))?;
 

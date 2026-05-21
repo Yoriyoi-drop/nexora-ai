@@ -16,7 +16,7 @@ use nexora_shared::{
 };
 
 use config::HarmonyWeaverConfig;
-use capabilities::{HarmonyWeaverCapabilities, EmotionalIntelligenceCapabilities, SocialHarmonyOptimization, ConflictResolution};
+use capabilities::{EmotionalIntelligenceCapabilities, SocialHarmonyOptimization, ConflictResolution};
 use optimization::{HarmonyOptimizer, InterventionPlanner, ConflictPlanner};
 use types::{HarmonyWeaverTaskInput, HarmonyWeaverTaskOutput, EmotionalIntelligenceAnalysis, HarmonyAssessment, InterventionRecommendations, ConflictResolutionStrategies};
 

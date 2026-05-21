@@ -1,15 +1,11 @@
 //! Harmony Weaver Configuration Module
 
 pub mod intelligence;
-pub mod cultural;
-pub mod strategies;
 
 use serde::{Deserialize, Serialize};
 use nexora_shared::base_agent::BaseAgentConfig;
 
 pub use intelligence::*;
-pub use cultural::*;
-pub use strategies::*;
 
 /// Harmony Weaver Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,8 +16,8 @@ pub struct HarmonyWeaverConfig {
     pub emotional_intelligence_model: EmotionalIntelligenceModel,
     /// Cultural context
     pub cultural_context: CulturalContext,
-    /// Social dynamics
-    pub social_dynamics: SocialDynamics,
+    /// Social dynamics config
+    pub social_dynamics: SocialDynamicsConfig,
     /// Harmony strategies
     pub harmony_strategies: Vec<HarmonyStrategy>,
 }
@@ -32,7 +28,7 @@ impl Default for HarmonyWeaverConfig {
             base_config: BaseAgentConfig::default(),
             emotional_intelligence_model: EmotionalIntelligenceModel::GolemanModel,
             cultural_context: CulturalContext::default(),
-            social_dynamics: SocialDynamics::default(),
+            social_dynamics: SocialDynamicsConfig::default(),
             harmony_strategies: vec![
                 HarmonyStrategy {
                     strategy_id: "emotional_regulation".to_string(),

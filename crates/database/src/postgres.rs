@@ -743,29 +743,14 @@ impl ConnectionPool for PostgreSQLConnectionPool {
             return Err(anyhow::anyhow!("Wrong connection type for PostgreSQL pool"));
         }
 
-        // Create a new connection instance for the pool with proper state
-        let pool_conn = PostgreSQLConnection {
-            id: connection_id,
-            connection_info: crate::credentials::DatabaseCredentials {
-                host: self.credentials.host.clone(),
-                port: self.credentials.port,
-                database: self.credentials.database.clone(),
-                username: self.credentials.username.clone(),
-                password: self.credentials.password.clone(),
-                ssl_mode: self.credentials.ssl_mode,
-            }
-            .into(),
-            client: None,     // Client will be recreated when needed
-            is_active: false, // Always mark as inactive when returned to pool
-        };
-
         // Return to pool if the connection was active
         if was_active {
+            let mut pool_conn = connection;
+            pool_conn.is_active = false;
             self.return_connection(pool_conn).await?;
+        } else {
+            drop(connection);
         }
-
-        // Properly consume the original connection
-        drop(connection);
 
         Ok(())
     }

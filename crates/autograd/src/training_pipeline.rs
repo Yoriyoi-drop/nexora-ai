@@ -588,6 +588,24 @@ pub fn compute_grad_norm(params: &[Tensor]) -> f32 {
     sum_sq.sqrt()
 }
 
+/// GPU-native gradient norm: compute L2 norm of GPU-resident gradient tensors
+/// using the WGSL l2_norm shader. Only reads back one scalar per tensor.
+#[cfg(feature = "gpu")]
+pub fn compute_grad_norm_gpu(grads: &[crate::gpu::GpuTensor], ctx: &crate::gpu::GpuContext) -> f32 {
+    use crate::gpu::GpuTensor;
+    let mut total_sq = 0.0f32;
+    // Batch: compute all L2 norms in one encoder submission
+    ctx.begin_batch_mode();
+    for g in grads {
+        if let Ok(norm_sq_t) = ctx.l2_norm(g) {
+            let val = norm_sq_t.to_cpu();
+            total_sq += val[0];
+        }
+    }
+    ctx.end_batch_mode();
+    total_sq.sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

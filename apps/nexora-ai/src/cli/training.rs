@@ -462,41 +462,137 @@ impl crate::cli::commands::Cli {
             entries.sort_by_key(|e| e.file_name());
             let mut all_samples: Vec<DataSample> = Vec::with_capacity(entries.len());
             let mut corpus = String::new();
+            let mut total_file_size: u64 = 0;
+            let mut total_chars: usize = 0;
+            let load_start = std::time::Instant::now();
             info!(
-                "[1/6] Membaca {} arrow shards dari direktori {:?}...",
-                entries.len(),
-                data
+                "{}",
+                bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐")
+            );
+            info!(
+                "{}",
+                dim!("    │  Reading data: detecting format, file sizes, loading into memory   │")
+            );
+            info!(
+                "{}",
+                bold!("    └──────────────────────────────────────────────────────────────────┘")
             );
             for entry in &entries {
                 let path = entry.path();
+                let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                total_file_size += file_size;
+                let file_start = std::time::Instant::now();
                 let samples =
                     nexora_datastream::arrow_reader::read_arrow_file(&path, source.clone())?;
-                info!("  {}: {} records", path.display(), samples.len());
+                let file_elapsed = file_start.elapsed();
+                let file_mb = file_size as f64 / 1_048_576.0;
+                info!("  📄 {}: {} records, {:.2} MB, loaded in {:?}", path.display(), samples.len(), file_mb, file_elapsed);
                 for s in &samples {
+                    total_chars += s.text.len();
                     corpus.push_str(&s.text);
                     corpus.push('\n');
                 }
                 all_samples.extend(samples);
             }
             let count = all_samples.len();
+            let load_elapsed = load_start.elapsed();
+            let total_mb = total_file_size as f64 / 1_048_576.0;
+            info!(
+                "  📊 Total: {} shards, {} records, {:.2} MB data, {:.1}M chars, loaded in {:?} ({:.0} MB/s)",
+                entries.len(),
+                count,
+                total_mb,
+                total_chars as f64 / 1_000_000.0,
+                load_elapsed,
+                if load_elapsed.as_secs_f64() > 0.0 { total_mb / load_elapsed.as_secs_f64() } else { 0.0 }
+            );
+            info!(
+                "  📏 Avg chars/record: {:.0}, est. tokens: ~{}k (seq_len={})",
+                if count > 0 { total_chars as f64 / count as f64 } else { 0.0 },
+                (total_chars / 4) / 1000,
+                seq_length
+            );
+            info!(
+                "  🧠 RAM: sebelum load ~{:.1} GB",
+                available_system_memory_gb()
+            );
             (all_samples, corpus, count)
         } else if data.extension().map_or(false, |e| e == "arrow") {
-            info!("[1/6] Membaca Arrow IPC file...");
+            info!(
+                "{}",
+                bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐")
+            );
+            info!(
+                "{}",
+                dim!("    │  Reading single Arrow IPC file                                 │")
+            );
+            info!(
+                "{}",
+                bold!("    └──────────────────────────────────────────────────────────────────┘")
+            );
+            let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
+            let file_mb = file_size as f64 / 1_048_576.0;
+            let load_start = std::time::Instant::now();
             let arrow_samples = nexora_datastream::arrow_reader::read_arrow_file(data, source)?;
+            let load_elapsed = load_start.elapsed();
             let count = arrow_samples.len();
-            info!("  {} arrow records dibaca", count);
+            let mut total_chars: usize = 0;
+            info!("  📄 {}: {} records, {:.2} MB, loaded in {:?} ({:.0} MB/s)", data.display(), count, file_mb, load_elapsed, if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 });
             let corpus: String = arrow_samples
                 .iter()
-                .map(|s| s.text.as_str())
+                .map(|s| {
+                    total_chars += s.text.len();
+                    s.text.as_str()
+                })
                 .collect::<Vec<&str>>()
                 .join("\n");
+            info!(
+                "  📊 {:.1}M chars loaded, est. tokens: ~{}k (seq_len={})",
+                total_chars as f64 / 1_000_000.0,
+                (total_chars / 4) / 1000,
+                seq_length
+            );
+            info!(
+                "  🧠 RAM: sebelum load ~{:.1} GB",
+                available_system_memory_gb()
+            );
             (arrow_samples, corpus, count)
         } else {
-            info!("[1/6] Membaca text file...");
+            info!(
+                "{}",
+                bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐")
+            );
+            info!(
+                "{}",
+                dim!("    │  Loading text file: counting lines, estimating corpus size        │")
+            );
+            info!(
+                "{}",
+                bold!("    └──────────────────────────────────────────────────────────────────┘")
+            );
+            let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
+            let file_mb = file_size as f64 / 1_048_576.0;
+            let load_start = std::time::Instant::now();
             let raw_text = std::fs::read_to_string(data)?;
             let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
             let line_count = lines.len();
-            info!("  {} baris teks dibaca", line_count);
+            let load_elapsed = load_start.elapsed();
+            let total_chars = raw_text.len();
+
+            info!("  📄 File: {:.2} MB, {} baris non-kosong", file_mb, line_count);
+            info!("  📊 {:.1}M chars, est. tokens: ~{}k (seq_len={})",
+                total_chars as f64 / 1_000_000.0,
+                (total_chars / 4) / 1000,
+                seq_length
+            );
+            info!("  ⏱ Load time: {:?} ({:.0} MB/s)",
+                load_elapsed,
+                if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 }
+            );
+            info!(
+                "  🧠 RAM: sebelum load ~{:.1} GB",
+                available_system_memory_gb()
+            );
 
             let intake = nexora_datastream::StreamIntakeEngine::default();
             let texts_with_source: Vec<(String, SourceInfo)> = lines
@@ -512,9 +608,33 @@ impl crate::cli::commands::Cli {
             (raw, raw_text, line_count)
         };
 
-        info!("[2/6] Filter data via DataStream DAG pipeline...");
-        info!("  Filter pipeline: length → quality → dedup (MinHash, ngram=13, threshold=0.5)");
-        info!("  Referensi: LLaMA 2 (13-gram), FineWeb (MinHash 5-gram, 75% sim), RedPajama (MinHash LSH)");
+        info!(
+            "{}",
+            bold!("    ┌─ [2/6] Filter Data Pipeline ─────────────────────────────────────┐")
+        );
+        info!(
+            "{}",
+            dim!("    │  Streaming DAG: length → quality → dedup (MinHash, 13-gram)       │")
+        );
+        info!(
+            "{}",
+            bold!("    └──────────────────────────────────────────────────────────────────┘")
+        );
+        info!(
+            "  🏗️  Filter config:"
+        );
+        info!(
+            "     ├─ LengthFilter:   min_chars=10, min_words=3, min_avg_word_len=0, max_avg_word_len=0"
+        );
+        info!(
+            "     ├─ QualityFilter:  min_quality_score=0.1, min_unique_word_ratio=0.1"
+        );
+        info!(
+            "     └─ DedupFilter:    ngram=13, hash_count=13, similarity_threshold=0.5, max_seen=50M"
+        );
+        info!(
+            "  📚 Referensi: LLaMA 2 (13-gram), FineWeb (MinHash 5-gram, 75% sim), RedPajama (MinHash LSH)"
+        );
         let mut graph = nexora_datastream::ExecutionGraph::new();
         graph.add_node(
             "length",
@@ -538,9 +658,6 @@ impl crate::cli::commands::Cli {
             true,
             2,
         );
-        // DedupFilter now uses MinHash-style similarity threshold (≥0.5 = duplicate)
-        // instead of the old "any ngram collision → reject" which caused 99.994% rejection.
-        // Updated defaults: ngram=13, hash_count=13, max_seen=50M, similarity_threshold=0.5
         graph.add_node(
             "dedup",
             Arc::new(DedupFilter::new()),
@@ -550,35 +667,57 @@ impl crate::cli::commands::Cli {
         );
         graph.finalize();
 
+        let filter_start = std::time::Instant::now();
         let mut samples: Vec<DataSample> = Vec::new();
         let mut filter_rejected: HashMap<String, u64> = HashMap::new();
+        let mut filter_timing: HashMap<String, std::time::Duration> = HashMap::new();
+        let mut accepted_chars: usize = 0;
         for s in raw_samples {
             let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+            let filter_item_start = std::time::Instant::now();
             let result = graph.execute(s, cancel_rx).await;
+            let filter_item_elapsed = filter_item_start.elapsed();
             drop(cancel_tx);
-            if let ExecutionResult::Rejected { filter_name, .. } = &result {
+            if let ExecutionResult::Rejected { ref filter_name, .. } = &result {
                 *filter_rejected.entry(filter_name.clone()).or_insert(0) += 1;
+                *filter_timing.entry(filter_name.clone()).or_default() += filter_item_elapsed;
             }
             if result.is_accepted() {
                 if let Some(sample) = result.sample() {
+                    accepted_chars += sample.text.len();
                     samples.push(sample.clone());
                 }
             }
         }
+        let filter_elapsed = filter_start.elapsed();
         let rejection_breakdown: Vec<String> = filter_rejected
             .iter()
             .map(|(name, count)| format!("{}: {}", name, count))
             .collect();
-        info!("  Filter rejection breakdown: {:?}", rejection_breakdown);
+        info!("  ⏱  Filter execution time: {:?}", filter_elapsed);
+        info!("  🔍 Rejection breakdown: {:?}", rejection_breakdown);
+        let accepted_pct = if loaded_count > 0 {
+            samples.len() as f64 * 100.0 / loaded_count as f64
+        } else {
+            0.0
+        };
         info!(
-            "  {} sampel lolos filter dari {} ({:.2}%)",
+            "  ✅ Hasil: {} sample lolos filter dari {} ({:.2}% accepted)",
             samples.len(),
             loaded_count,
-            if loaded_count > 0 {
-                samples.len() as f64 * 100.0 / loaded_count as f64
-            } else {
-                0.0
-            }
+            accepted_pct
+        );
+        if samples.len() < loaded_count {
+            info!(
+                "  ❌ {} sample ditolak ({:.2}% rejection rate)",
+                loaded_count - samples.len(),
+                100.0 - accepted_pct
+            );
+        }
+        info!(
+            "  📏 Total chars after filter: {:.1}M (avg {:.0} chars/sample)",
+            accepted_chars as f64 / 1_000_000.0,
+            if samples.len() > 0 { accepted_chars as f64 / samples.len() as f64 } else { 0.0 }
         );
 
         if samples.is_empty() {
@@ -911,18 +1050,59 @@ impl crate::cli::commands::Cli {
     ) -> Result<()> {
         init_gpu(gpu);
 
-        info!("[1/6] Membaca manifest.json dari {:?}", data);
+        info!(
+            "{}",
+            bold!("    ┌─ [1/6] Dataset Manifest & Shard Scan ───────────────────────────┐")
+        );
+        info!(
+            "{}",
+            dim!("    │  Reading manifest.json, scanning shards, estimating dataset stats  │")
+        );
+        info!(
+            "{}",
+            bold!("    └──────────────────────────────────────────────────────────────────┘")
+        );
+        let manifest_start = std::time::Instant::now();
         let manifest = DatasetManifest::from_path(&data.join("manifest.json"))
             .map_err(|e| anyhow::anyhow!("Gagal load manifest: {}", e))?;
-        info!("  Dataset: {} v{}", manifest.name, manifest.version);
-        info!(
-            "  Format: {}, Compression: {:?}",
-            manifest.format, manifest.compression
+        info!("  📋 Dataset:  {} v{}", manifest.name, manifest.version);
+        info!("  📁 Format:    {}, Compression: {:?}", manifest.format, manifest.compression);
+        info!("  📦 Samples:   {} total", manifest.total_samples);
+        info!("  🗂️  Shards:    {} total", manifest.total_shards);
+        // Compute total shard sizes
+        let total_shard_bytes: u64 = manifest.shards.iter().map(|s| s.size_bytes).sum();
+        info!("  💾 Size:      {:.2} GB ({} shards)",
+            total_shard_bytes as f64 / 1_073_741_824.0,
+            manifest.shards.len()
         );
-        info!("  Total samples: {}", manifest.total_samples);
-        info!("  Shards: {}", manifest.total_shards);
+        // Show per-split breakdown
+        {
+            let mut split_names: Vec<String> = manifest.shards.iter().map(|s| s.split.clone()).collect();
+            split_names.sort();
+            split_names.dedup();
+            for split_name in &split_names {
+                let split_samples: u64 = manifest.shards.iter()
+                    .filter(|s| s.split == *split_name)
+                    .map(|s| s.samples)
+                    .sum();
+                info!("  📊 Split '{}': ~{} samples", split_name, split_samples);
+            }
+        }
+        info!("  ⏱  Manifest loaded in {:?}", manifest_start.elapsed());
 
-        info!("[2/6] Scan shards + persiapan tokenizer...");
+        info!(
+            "{}",
+            bold!("    ┌─ [2/6] Tokenizer Preparation ────────────────────────────────────┐")
+        );
+        info!(
+            "{}",
+            dim!("    │  Loading/training tokenizer, sampling corpus for vocab              │")
+        );
+        info!(
+            "{}",
+            bold!("    └──────────────────────────────────────────────────────────────────┘")
+        );
+        let tok_start = std::time::Instant::now();
         let raw_corpus = {
             let mut corpus = String::new();
             let source = SourceInfo {
@@ -954,26 +1134,36 @@ impl crate::cli::commands::Cli {
 
         let tokenizer: Arc<RwLock<BpeTokenizer>> = if let Some(tok_path) = tokenizer_path {
             if tok_path.exists() {
-                info!("  Load existing tokenizer dari {:?}", tok_path);
+                info!("  📂 Load existing tokenizer dari {:?}", tok_path);
+                let load_tok_start = std::time::Instant::now();
                 let loaded = BpeTokenizer::load(tok_path)
                     .map_err(|e| anyhow::anyhow!("Gagal load tokenizer: {}", e))?;
-                info!("  Vocab size: {}", loaded.vocab_size());
+                info!("  ✅ Tokenizer loaded: vocab={}, time={:?}", loaded.vocab_size(), load_tok_start.elapsed());
                 Arc::new(RwLock::new(loaded))
             } else {
-                info!("  Train new tokenizer ke {:?}", tok_path);
+                info!("  🔧 Train new tokenizer ke {:?}", tok_path);
+                info!("     Sampling corpus: {} chars (from first 5 shards)", raw_corpus.len());
+                let train_tok_start = std::time::Instant::now();
                 let mut tok = BpeTokenizer::default();
                 // Train on a sample of data
                 tok.train(&raw_corpus)
                     .map_err(|e| anyhow::anyhow!("Gagal train tokenizer: {}", e))?;
-                info!("  Vocab size setelah training: {}", tok.vocab_size());
+                let tok_elapsed = train_tok_start.elapsed();
+                info!("  ✅ Tokenizer trained: vocab={}, time={:?} ({:.0} chars/s)",
+                    tok.vocab_size(),
+                    tok_elapsed,
+                    if tok_elapsed.as_secs_f64() > 0.0 { raw_corpus.len() as f64 / tok_elapsed.as_secs_f64() } else { 0.0 }
+                );
+                let save_tok_start = std::time::Instant::now();
                 tok.save(tok_path)
                     .map_err(|e| anyhow::anyhow!("Gagal save tokenizer: {}", e))?;
+                info!("  💾 Tokenizer saved to {:?} in {:?}", tok_path, save_tok_start.elapsed());
                 Arc::new(RwLock::new(tok))
             }
         } else {
-            info!("  No tokenizer path — menggunakan default tokenizer");
+            info!("  ⚠️  No tokenizer path — menggunakan default tokenizer");
             let tok = BpeTokenizer::default();
-            info!("  Vocab size: {}", tok.vocab_size());
+            info!("  Default vocab size: {}", tok.vocab_size());
             Arc::new(RwLock::new(tok))
         };
 
@@ -981,9 +1171,23 @@ impl crate::cli::commands::Cli {
             .read()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?
             .vocab_size();
-        info!("  Vocab size final: {}", vocab_size);
+        info!("  📐 Vocab size final: {} (embeddings: {} x {} = {} params)",
+            vocab_size, vocab_size, seq_length, vocab_size * seq_length
+        );
+        info!("  ⏱  Total tokenizer phase: {:?}", tok_start.elapsed());
 
-        info!("[3/6] Inisialisasi streaming loader...");
+        info!(
+            "{}",
+            bold!("    ┌─ [3/6] Data Streaming Loader ───────────────────────────────────┐")
+        );
+        info!(
+            "{}",
+            dim!("    │  Initializing streaming data loader from manifest shards           │")
+        );
+        info!(
+            "{}",
+            bold!("    └──────────────────────────────────────────────────────────────────┘")
+        );
         let streaming_config = StreamingConfig {
             batch_size,
             prefetch_batches: 4,
@@ -1509,17 +1713,142 @@ fn train_nxr_model_pre_tokenized(
     seq_length: usize,
     stop_flag: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<serde_json::Value> {
+    let total_train = train_sequences.len();
+    let total_val = val_sequences.len();
+
+    // ── Phase 3/6 header ──
     info!(
-        "    {} config: {} layers, {} hidden, {} heads",
-        model_name, tf_config.num_layers, tf_config.hidden_size, tf_config.num_heads
+        "{}",
+        bold!("    ┌─ [3/6] Model Initialization & Training Start ───────────────────┐")
+    );
+    info!(
+        "{}",
+        dim!("    │  Creating model · preparing optimizer · starting training loop    │")
+    );
+    info!(
+        "{}",
+        bold!("    └──────────────────────────────────────────────────────────────────┘")
+    );
+
+    info!(
+        "    🏗️  {} — Transformer Architecture:",
+        model_name
+    );
+    info!(
+        "     ├─ Layers:        {}",
+        tf_config.num_layers
+    );
+    info!(
+        "     ├─ Hidden dim:    {}",
+        tf_config.hidden_size
+    );
+    info!(
+        "     ├─ Attention heads: {}  (Q {})  (KV {})",
+        tf_config.num_heads,
+        tf_config.num_heads,
+        tf_config.num_kv_heads
+    );
+    info!(
+        "     ├─ Intermediate:  {}",
+        tf_config.intermediate_size
+    );
+    info!(
+        "     ├─ Max seq len:   {}",
+        tf_config.max_seq_len
+    );
+    info!(
+        "     ├─ Vocab size:    {}",
+        tf_config.vocab_size
+    );
+    info!(
+        "     ├─ RoPE theta:    {:.1}",
+        tf_config.rope_theta
+    );
+    info!(
+        "     ├─ Norm eps:      {:.0e}",
+        tf_config.norm_eps
+    );
+    info!(
+        "     └─ Use cache:     {}",
+        tf_config.use_cache
+    );
+
+    info!(
+        "    🎯 Training Config:"
+    );
+    info!(
+        "     ├─ Optimizer:       AdamW (lr={:.2e}, wd={})",
+        trainer_config.learning_rate, trainer_config.weight_decay
+    );
+    info!(
+        "     ├─ LR schedule:     linear warmup ({}) → cosine decay to 0 ({:?} total)",
+        trainer_config.warmup_steps,
+        if trainer_config.max_steps > 0 {
+            let remain = trainer_config.max_steps.saturating_sub(trainer_config.warmup_steps);
+            format!("{} steps cos", remain)
+        } else {
+            "N/A".into()
+        }
+    );
+    info!(
+        "     ├─ Batch size:      {} (gradient accumulation)",
+        trainer_config.batch_size
+    );
+    info!(
+        "     ├─ Max grad norm:   {}",
+        trainer_config.max_grad_norm.map(|g| format!("{:.1}", g)).unwrap_or_else(|| "disabled".into())
+    );
+    info!(
+        "     ├─ Max steps:       {}  (~{} epochs on {} train seqs)",
+        trainer_config.max_steps,
+        if total_train > 0 {
+            trainer_config.max_steps * trainer_config.batch_size / total_train
+        } else { 0 },
+        total_train
+    );
+    info!(
+        "     ├─ Seq length:      {}",
+        trainer_config.seq_length
+    );
+    info!(
+        "     ├─ Validation:      every {} steps ({} val sequences)",
+        trainer_config.val_every_steps,
+        total_val
+    );
+    info!(
+        "     ├─ Early stop:      patience={}",
+        trainer_config.early_stop_patience
+    );
+    info!(
+        "     ├─ Save every:      {} steps",
+        trainer_config.save_every
+    );
+    info!(
+        "     └─ Backend:         {}",
+        if trainer_config.use_gpu { "GPU (wgpu)" } else { "CPU" }
     );
 
     let mut trainer = {
         let model = CausalLM::new(tf_config);
         let param_count = model.parameter_count();
-        info!("    {} params: {}M", model_name, param_count / 1_000_000);
+        info!(
+            "    📐 {} params: {}M ({:.2}M trainable)",
+            model_name,
+            param_count / 1_000_000,
+            param_count as f64 / 1_000_000.0
+        );
+        let est_mem_mb = param_count * 4 / (1024 * 1024); // f32 weights only
+        info!(
+            "    💾 Model memory: ~{} MB (f32 weights only, excl. grads & opt states)",
+            est_mem_mb
+        );
         let mut trainer = Trainer::with_model(model, trainer_config);
+        let prepare_start = std::time::Instant::now();
         trainer.prepare();
+        info!(
+            "    ⏱  Optimizer init: {:?}",
+            prepare_start.elapsed()
+        );
         trainer.try_restore_optimizer();
         trainer
     };
@@ -1555,18 +1884,10 @@ fn train_nxr_model_pre_tokenized(
     let mut plateau_streak: usize = 0;
     let mut json_step_log: Vec<serde_json::Value> = Vec::new();
 
-    // ── Phase 3/6 header ──
+    // ── Training start log ──
     info!(
-        "{}",
-        bold!("    ┌─ [3/6] Mid Training Stabilization ─────────────────────────────┐")
-    );
-    info!(
-        "{}",
-        dim!("    │  Monitoring: stability · throughput · bottleneck · memory         │")
-    );
-    info!(
-        "{}",
-        bold!("    └──────────────────────────────────────────────────────────────────┘")
+        "    🚀 Starting training: {} epochs, {} steps total, {} train / {} val sequences",
+        epochs, total_steps, total_train, total_val
     );
 
     'training: for epoch in 0..epochs {
@@ -1643,21 +1964,48 @@ fn train_nxr_model_pre_tokenized(
 
                         if new_phase != current_phase {
                             current_phase = new_phase;
+                            let progress_pct = step as f64 * 100.0 / total_steps as f64;
                             match current_phase {
                                 4 => {
                                     info!("{}", bold!("    ┌─ [4/6] Optimization & Compression Phase ───────────────────────┐"));
                                     info!("{}", dim!("    │  LR decaying · refinement · checkpoint management              │"));
                                     info!("{}", bold!("    └──────────────────────────────────────────────────────────────────┘"));
-                                    // Phase 4 specific info
-                                    info!("{}", dim!(
-                                        "    weight_decay={}  gradient_accumulation={}  save_every={}",
-                                        trainer.config.weight_decay, trainer.config.batch_size, trainer.config.save_every
-                                    ));
+                                    info!(
+                                        "    📉 Entering LR decay: step={}/{} ({:.1}%), lr={:.2e}, progress={:.1}%",
+                                        step, total_steps, progress_pct, lr, progress_pct
+                                    );
+                                    info!(
+                                        "    ⚙️  weight_decay={}  |  grad_accum={}  |  save_every={}  |  total_steps={}",
+                                        trainer.config.weight_decay,
+                                        trainer.config.batch_size,
+                                        trainer.config.save_every,
+                                        total_steps
+                                    );
+                                    let remain_steps = total_steps.saturating_sub(step);
+                                    info!(
+                                        "    📅 Remaining: {} steps (phase 4: {}-{}, phase 5: {}-{})",
+                                        remain_steps,
+                                        phase3_end + 1, phase4_end,
+                                        phase4_end + 1, total_steps
+                                    );
                                 }
                                 5 => {
                                     info!("{}", bold!("    ┌─ [5/6] Late Convergence ───────────────────────────────────────┐"));
                                     info!("{}", dim!("    │  Final refinement · eval tracking · overfit detection         │"));
                                     info!("{}", bold!("    └──────────────────────────────────────────────────────────────────┘"));
+                                    info!(
+                                        "    🎯 Convergence target: step={}/{} ({:.1}%), lr={:.2e}",
+                                        step, total_steps, progress_pct, lr
+                                    );
+                                    info!(
+                                        "    ⚠️  Early stop patience: {}/{}, plateau streak: {}",
+                                        patience_counter, early_stop_patience, plateau_streak
+                                    );
+                                    let remain_lr_decay = total_steps.saturating_sub(step);
+                                    info!(
+                                        "    📉 Remaining LR decay steps: {} (cosine to 0)",
+                                        remain_lr_decay
+                                    );
                                 }
                                 _ => {}
                             }

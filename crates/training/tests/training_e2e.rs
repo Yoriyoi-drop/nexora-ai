@@ -38,6 +38,7 @@ fn test_training_visual_demo() {
         warmup_steps: 3,
         val_every_steps: 1000,
         early_stop_patience: 10,
+        use_gpu: false,
     };
 
     let mut trainer = Trainer::with_model(model, config);
@@ -110,6 +111,7 @@ fn test_training_loss_decreases() {
         warmup_steps: 5,
         val_every_steps: 1000,
         early_stop_patience: 10,
+        use_gpu: false,
     };
 
     let mut trainer = Trainer::with_model(model, config);
@@ -166,6 +168,7 @@ fn test_training_save_and_load() {
         warmup_steps: 0,
         val_every_steps: 1000,
         early_stop_patience: 10,
+        use_gpu: false,
     };
 
     let mut trainer = Trainer::with_model(model, config);

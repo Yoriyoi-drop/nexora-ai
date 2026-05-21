@@ -1202,9 +1202,9 @@ impl AlignmentArbiterAgent {
         }
 
         let overall_alignment =
-            alignment_scores.values().sum::<f32>() / alignment_scores.len() as f32;
+            alignment_scores.values().sum::<f32>() / alignment_scores.len().max(1) as f32;
         let overall_coherence =
-            coherence_scores.values().sum::<f32>() / coherence_scores.len() as f32;
+            coherence_scores.values().sum::<f32>() / coherence_scores.len().max(1) as f32;
 
         Ok(AlignmentAnalysis {
             alignment_scores,

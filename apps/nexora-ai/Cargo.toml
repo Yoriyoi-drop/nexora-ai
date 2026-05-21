@@ -53,9 +53,9 @@ sysinfo = "0.30"
 psutil = "3.2"
 reqwest.workspace = true
 arrow = { version = "53", default-features = false, features = ["ipc"] }
+blas-src = "0.14.0"
+openblas-src = "0.10.16"
 mimalloc = { version = "0.1", optional = true }
-blas-src = { workspace = true }
-openblas-src = { workspace = true }
 
 [features]
 default = []

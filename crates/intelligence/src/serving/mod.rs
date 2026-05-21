@@ -170,7 +170,7 @@ async fn infer_handler(
         let generated_text = format!(
             "Response from model '{}' to: {}",
             req.model_id,
-            &req.prompt[..req.prompt.len().min(50)]
+            &req.prompt[..req.prompt.char_indices().map(|(i, _)| i).nth(50).unwrap_or(req.prompt.len())]
         );
         let tokens_generated = generated_text.len() / 4;
         let inference_time_ms = start.elapsed().as_millis() as u64;

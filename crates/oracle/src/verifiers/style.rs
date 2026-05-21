@@ -65,7 +65,7 @@ impl StyleVerifier {
                 },
                 StylePattern {
                     name: "Magic Number".to_string(),
-                    pattern: Regex::new(r"(?<!const\s+)(\b(10|100|1000|24|60|3600)\b)")
+                    pattern: Regex::new(r"\b(10|100|1000|24|60|3600)\b")
                         .expect("valid regex"),
                     severity: IssueSeverity::Info,
                     description: "Magic number detected - use named constant".to_string(),
@@ -96,6 +96,12 @@ impl CodeVerifier for StyleVerifier {
         let mut issues = Vec::new();
         let mut score: f32 = 1.0;
 
+        // Filter out lines starting with "const " for magic number check
+        let filtered_code: String = code.lines()
+            .filter(|l| !l.trim().starts_with("const "))
+            .collect::<Vec<_>>()
+            .join("\n");
+
         // Check language-specific style issues
         let language_issues = self.check_language_specific_style(code, language)?;
         issues.extend(language_issues);
@@ -103,7 +109,8 @@ impl CodeVerifier for StyleVerifier {
         // Check general style patterns
         for pattern in &self.style_patterns {
             if pattern.language == "all" || pattern.language == language {
-                for (line_num, line) in code.lines().enumerate() {
+                let check_code = if pattern.name == "Magic Number" { &filtered_code } else { code };
+                for (line_num, line) in check_code.lines().enumerate() {
                     if pattern.pattern.is_match(line) {
                         issues.push(CodeIssue {
                             severity: pattern.severity.clone(),

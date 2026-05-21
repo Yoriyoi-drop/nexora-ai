@@ -250,7 +250,7 @@ impl HLDVAPipeline {
             similarity += text_data[i] * image_data[i];
         }
 
-        similarity / (text_data.len().min(image_data.len()) as f32)
+        similarity
     }
 
     /// L2 normalize tensor

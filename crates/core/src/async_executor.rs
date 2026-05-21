@@ -90,14 +90,14 @@ impl Default for TaskPriority {
     }
 }
 
-/// Priority ordering untuk BinaryHeap (min-heap, lower priority value = higher priority)
+/// Priority ordering untuk BinaryHeap (max-heap, lower priority value = higher priority)
 impl Ord for AsyncTask {
     fn cmp(&self, other: &Self) -> Ordering {
-        // First compare priority (lower value = higher priority)
-        match self.priority.as_u8().cmp(&other.priority.as_u8()) {
+        // Reverse: lower priority value = higher priority in max-heap
+        match other.priority.as_u8().cmp(&self.priority.as_u8()) {
             Ordering::Equal => {
-                // If same priority, compare creation time (earlier = higher priority)
-                self.created_at.cmp(&other.created_at)
+                // If same priority, earlier creation = higher priority
+                other.created_at.cmp(&self.created_at)
             }
             other => other,
         }

@@ -43,6 +43,19 @@ pub(crate) fn backward_engine(output: &Tensor) {
         grads.insert(output.id(), g);
     }
 
+    #[cfg(feature = "gpu")]
+    let gpu_batch_active: bool = GpuContext::is_available()
+        && topo.iter().any(|id| {
+            tape::has_gpu_backward(*id)
+        });
+
+    #[cfg(feature = "gpu")]
+    if gpu_batch_active {
+        if let Ok(ctx) = GpuContext::global() {
+            ctx.begin_batch_mode();
+        }
+    }
+
     for &node_id in &topo {
         let grad_out = match grads.get(&node_id) {
             Some(g) => g.clone(),
@@ -121,6 +134,13 @@ pub(crate) fn backward_engine(output: &Tensor) {
                     }
                 }
             }
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    if gpu_batch_active {
+        if let Ok(ctx) = GpuContext::global() {
+            ctx.end_batch_mode();
         }
     }
 

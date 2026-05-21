@@ -22,7 +22,14 @@ impl StringUtils {
         if s.len() <= max_len {
             s.to_string()
         } else {
-            format!("{}...", &s[..max_len.saturating_sub(3)])
+            let limit = max_len.saturating_sub(3);
+            let end = s
+                .char_indices()
+                .take_while(|&(i, _)| i < limit)
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            format!("{}...", &s[..end])
         }
     }
 
@@ -199,8 +206,14 @@ impl StringUtils {
         if s.len() <= visible_chars {
             s.to_string()
         } else {
-            let visible = &s[..visible_chars];
-            let masked = "*".repeat(s.len() - visible_chars);
+            let end = s
+                .char_indices()
+                .take_while(|&(i, _)| i < visible_chars)
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let visible = &s[..end];
+            let masked = "*".repeat(s.len() - end);
             format!("{}{}", visible, masked)
         }
     }

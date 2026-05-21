@@ -538,17 +538,17 @@ impl CodeParser {
         .map_err(|e| anyhow::anyhow!("Failed to create Java method regex: {}", e))?;
         for cap in method_regex.captures_iter(code) {
             let return_type = cap
-                .get(4)
+                .get(3)
                 .ok_or_else(|| anyhow::anyhow!("Failed to capture return type"))?
                 .as_str()
                 .to_string();
             let name = cap
-                .get(5)
+                .get(4)
                 .ok_or_else(|| anyhow::anyhow!("Failed to capture method name"))?
                 .as_str()
                 .to_string();
             let params = cap
-                .get(6)
+                .get(5)
                 .ok_or_else(|| anyhow::anyhow!("Failed to capture method parameters"))?
                 .as_str()
                 .to_string();

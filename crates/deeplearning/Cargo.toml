@@ -16,8 +16,7 @@ nexora-star-x = { path = "../star-x" }
 nexora-gnac = { path = "../gnac" }
 nexora-echo-net = { path = "../echo-net" }
 
-ndarray = { workspace = true, features = ["blas"] }
-openblas-src = { workspace = true }
+ndarray = { workspace = true }
 thiserror = { workspace = true }
 
 [features]

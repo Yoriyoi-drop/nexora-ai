@@ -1,7 +1,7 @@
 //! Comprehensive tests for performance verifier
 
 use super::*;
-use crate::oracle::verifiers::performance::*;
+use crate::verifiers::performance::*;
 
 #[cfg(test)]
 mod performance_verifier_tests {

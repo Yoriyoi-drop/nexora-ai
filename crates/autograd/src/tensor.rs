@@ -1,6 +1,6 @@
 use ndarray::ArrayD;
 use rand::Rng;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::device::{Device, Storage};
@@ -8,6 +8,21 @@ use super::mixed_precision::DType;
 use super::tape;
 
 static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Global flag: when set, Tensor::from_slice / zeros / ones create GPU-resident tensors
+/// so that GPU ops (matmul, add, etc.) stay on GPU instead of falling back to CPU.
+/// Set by Trainer::prepare() when GPU training is enabled.
+static GPU_AUTO_CREATE: AtomicBool = AtomicBool::new(false);
+
+/// Enable automatic GPU tensor creation for from_slice / zeros / ones.
+pub fn set_gpu_auto_create(enabled: bool) {
+    GPU_AUTO_CREATE.store(enabled, Ordering::SeqCst);
+}
+
+/// Check whether automatic GPU tensor creation is enabled.
+pub fn is_gpu_auto_create() -> bool {
+    GPU_AUTO_CREATE.load(Ordering::SeqCst)
+}
 
 pub fn next_tensor_id() -> usize {
     TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst)
@@ -34,7 +49,7 @@ struct TensorInner {
     storage: Storage,
     device: Device,
     dtype: DType,
-    grad: Option<ArrayD<f32>>,
+    grad: Option<Storage>,
     requires_grad: bool,
     grad_fn_idx: Option<usize>,
 }
@@ -142,6 +157,18 @@ impl Tensor {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .grad
+            .as_ref()
+            .map(|g| g.to_cpu())
+    }
+
+    /// Returns the gradient storage directly (no CPU readback if on GPU).
+    /// Use this in GPU training paths to avoid blocking GPU→CPU transfer.
+    #[cfg(feature = "gpu")]
+    pub fn grad_storage(&self) -> Option<Storage> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .grad
             .clone()
     }
 
@@ -233,6 +260,24 @@ impl Tensor {
 
     pub fn zeros(shape: &[usize], requires_grad: bool) -> Self {
         let arr = ArrayD::zeros(shape.to_vec());
+        #[cfg(feature = "gpu")]
+        if is_gpu_auto_create() {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
+                    let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    let t = Tensor(Arc::new(Mutex::new(TensorInner {
+                        id,
+                        storage: Storage::Gpu(gpu_t),
+                        device: Device::Gpu(0),
+                        dtype: DType::F32,
+                        grad: None,
+                        requires_grad,
+                        grad_fn_idx: None,
+                    })));
+                    return t;
+                }
+            }
+        }
         let t = Self::new(arr);
         t.set_requires_grad(requires_grad);
         t
@@ -240,6 +285,24 @@ impl Tensor {
 
     pub fn ones(shape: &[usize], requires_grad: bool) -> Self {
         let arr = ArrayD::ones(shape.to_vec());
+        #[cfg(feature = "gpu")]
+        if is_gpu_auto_create() {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
+                    let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    let t = Tensor(Arc::new(Mutex::new(TensorInner {
+                        id,
+                        storage: Storage::Gpu(gpu_t),
+                        device: Device::Gpu(0),
+                        dtype: DType::F32,
+                        grad: None,
+                        requires_grad,
+                        grad_fn_idx: None,
+                    })));
+                    return t;
+                }
+            }
+        }
         let t = Self::new(arr);
         t.set_requires_grad(requires_grad);
         t
@@ -248,6 +311,23 @@ impl Tensor {
     pub fn from_slice(data: &[f32], shape: &[usize]) -> Self {
         let arr = ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
             .expect("Failed to create tensor from slice");
+        #[cfg(feature = "gpu")]
+        if is_gpu_auto_create() {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
+                    let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    return Tensor(Arc::new(Mutex::new(TensorInner {
+                        id,
+                        storage: Storage::Gpu(gpu_t),
+                        device: Device::Gpu(0),
+                        dtype: DType::F32,
+                        grad: None,
+                        requires_grad: false,
+                        grad_fn_idx: None,
+                    })));
+                }
+            }
+        }
         Self::new(arr)
     }
 
@@ -298,10 +378,46 @@ impl Tensor {
 
     pub(crate) fn accumulate_grad(&self, grad: &ArrayD<f32>) {
         let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref mut existing) = inner.grad {
-            *existing += grad;
-        } else {
-            inner.grad = Some(grad.clone());
+        match inner.grad {
+            Some(Storage::Cpu(ref mut arr)) => {
+                *arr += grad;
+            }
+            Some(Storage::Gpu(_)) => {
+                let mut existing = inner.grad.take().unwrap().to_cpu();
+                existing += grad;
+                inner.grad = Some(Storage::Cpu(existing));
+            }
+            None => {
+                inner.grad = Some(Storage::Cpu(grad.clone()));
+            }
+        }
+    }
+
+    /// Accumulate gradient from Storage (CPU or GPU).
+    /// When the existing grad is GPU-resident and the incoming is CPU,
+    /// the GPU grad is read back to CPU and accumulated there.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
+        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match (&mut inner.grad, grad) {
+            (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => *existing += g,
+            (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
+                let g_cpu = g.to_cpu();
+                *existing += &g_cpu;
+            }
+            (Some(Storage::Gpu(existing)), Storage::Cpu(g)) => {
+                let mut e = existing.to_cpu();
+                e += g;
+                inner.grad = Some(Storage::Cpu(e));
+            }
+            (Some(Storage::Gpu(existing)), Storage::Gpu(g)) => {
+                let mut e = existing.to_cpu();
+                e += &g.to_cpu();
+                inner.grad = Some(Storage::Cpu(e));
+            }
+            (None, g) => {
+                inner.grad = Some(g.clone());
+            }
         }
     }
 
@@ -342,7 +458,19 @@ impl Tensor {
     }
 
     pub fn set_grad(&self, grad: ArrayD<f32>) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).grad = Some(grad);
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .grad = Some(Storage::Cpu(grad));
+    }
+
+    /// Set gradient from Storage (CPU or GPU).
+    #[cfg(feature = "gpu")]
+    pub fn set_grad_storage(&self, grad: Storage) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .grad = Some(grad);
     }
 
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
@@ -362,4 +490,9 @@ impl Tensor {
         super::engine::backward_engine(self);
         super::tape::clear_tape();
     }
+}
+
+/// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.
+pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
+    grad.as_ref().map(|s| s.to_cpu())
 }

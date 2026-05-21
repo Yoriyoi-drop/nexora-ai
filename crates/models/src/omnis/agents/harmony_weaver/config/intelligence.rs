@@ -284,3 +284,51 @@ pub struct ContextFactor {
     /// Description
     pub description: String,
 }
+
+/// Cultural Context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CulturalContext {
+    pub primary_culture: String,
+}
+
+impl Default for CulturalContext {
+    fn default() -> Self {
+        Self {
+            primary_culture: "universal".to_string(),
+        }
+    }
+}
+
+/// Social Dynamics config (configuration variant)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SocialDynamicsConfig {
+    pub group_cohesion_target: f32,
+    pub communication_effectiveness_target: f32,
+}
+
+impl Default for SocialDynamicsConfig {
+    fn default() -> Self {
+        Self {
+            group_cohesion_target: 0.8,
+            communication_effectiveness_target: 0.8,
+        }
+    }
+}
+
+/// Harmony Strategy Type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum HarmonyStrategyType {
+    EmotionalRegulation,
+    CommunicationEnhancement,
+}
+
+/// Harmony Strategy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarmonyStrategy {
+    pub strategy_id: String,
+    pub strategy_name: String,
+    pub strategy_description: String,
+    pub strategy_type: HarmonyStrategyType,
+    pub effectiveness: f32,
+    pub cultural_applicability: Vec<String>,
+}

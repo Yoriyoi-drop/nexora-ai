@@ -146,7 +146,7 @@ impl MLPExpert {
     }
 
     fn gelu(&self, x: &Array1<f32>) -> Array1<f32> {
-        x.mapv(|x| 0.5 * x * (1.0 + (1.41421356237 * x).tanh()))
+        x.mapv(|x| 0.5 * x * (1.0 + (0.7978845608 * x).tanh()))
     }
 }
 

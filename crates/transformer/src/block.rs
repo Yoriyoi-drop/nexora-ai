@@ -1,6 +1,6 @@
 use ndarray::{Array1, Array2};
 
-use super::gqa::{GpuKVCacheEntry, KVCacheEntry, PagedCacheReader, GQA};
+use super::gqa::{KVCacheEntry, PagedCacheReader, GQA};
 use super::rms_norm::RMSNorm;
 use super::swiglu::SwiGLU;
 
@@ -118,7 +118,7 @@ impl TransformerBlock {
     pub fn forward_gpu_with_cache(
         &self,
         x_gpu: &nexora_autograd::gpu::GpuTensor,
-        cache: &mut [GpuKVCacheEntry],
+        cache: &mut [super::gqa::GpuKVCacheEntry],
         layer_idx: usize,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
