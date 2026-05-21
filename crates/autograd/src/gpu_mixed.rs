@@ -1,4 +1,4 @@
-use crate::gpu::{GpuContext, GpuError, GpuTensor};
+use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GpuDType {
@@ -117,112 +117,76 @@ impl GpuLossScaler {
 
 // ─── Pipeline compilation ──────────────────────────────────────────────────────
 
-pub fn compile_f32_to_f16_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("f32_to_f16_shader"),
-            source: wgpu::ShaderSource::Wgsl(F32_TO_F16_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("f32_to_f16"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_f32_to_f16_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "f32_to_f16",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(F32_TO_F16_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_f16_to_f32_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("f16_to_f32_shader"),
-            source: wgpu::ShaderSource::Wgsl(F16_TO_F32_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("f16_to_f32"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_f16_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "f16_to_f32",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(F16_TO_F32_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_f32_to_bf16_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("f32_to_bf16_shader"),
-            source: wgpu::ShaderSource::Wgsl(F32_TO_BF16_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("f32_to_bf16"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_f32_to_bf16_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "f32_to_bf16",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(F32_TO_BF16_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_bf16_to_f32_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("bf16_to_f32_shader"),
-            source: wgpu::ShaderSource::Wgsl(BF16_TO_F32_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("bf16_to_f32"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_bf16_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "bf16_to_f32",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(BF16_TO_F32_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_scale_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("scale_shader"),
-            source: wgpu::ShaderSource::Wgsl(SCALE_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("scale"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_scale_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "scale",
+        &[
+            crate::gpu::storage_binding(0, false),
+            crate::gpu::uniform_binding(1),
+        ],
+        std::borrow::Cow::Borrowed(SCALE_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_unscale_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("unscale_shader"),
-            source: wgpu::ShaderSource::Wgsl(UNSCALE_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("unscale"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_unscale_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "unscale",
+        &[
+            crate::gpu::storage_binding(0, false),
+            crate::gpu::uniform_binding(1),
+        ],
+        std::borrow::Cow::Borrowed(UNSCALE_WGSL),
+        "main",
+    )
 }
 
 // ─── Mixed precision pipeline set ──────────────────────────────────────────────
@@ -236,15 +200,53 @@ pub struct MixedPrecisionPipelines {
     pub unscale: wgpu::ComputePipeline,
 }
 
-pub fn compile_mixed_pipelines(ctx: &GpuContext) -> MixedPrecisionPipelines {
-    MixedPrecisionPipelines {
-        f32_to_f16: compile_f32_to_f16_pipeline(ctx),
-        f16_to_f32: compile_f16_to_f32_pipeline(ctx),
-        f32_to_bf16: compile_f32_to_bf16_pipeline(ctx),
-        bf16_to_f32: compile_bf16_to_f32_pipeline(ctx),
-        scale: compile_scale_pipeline(ctx),
-        unscale: compile_unscale_pipeline(ctx),
+pub fn compile_mixed_pipelines(ctx: &mut GpuContext) -> Result<MixedPrecisionPipelines, GpuError> {
+    Ok(MixedPrecisionPipelines {
+        f32_to_f16: compile_f32_to_f16_pipeline(ctx)?,
+        f16_to_f32: compile_f16_to_f32_pipeline(ctx)?,
+        f32_to_bf16: compile_f32_to_bf16_pipeline(ctx)?,
+        bf16_to_f32: compile_bf16_to_f32_pipeline(ctx)?,
+        scale: compile_scale_pipeline(ctx)?,
+        unscale: compile_unscale_pipeline(ctx)?,
+    })
+}
+
+// ─── Reusable encoder helpers (internal) ───────────────────────────────────────
+
+/// Helper: runs a compute pass using the reusable encoder from ctx.
+/// Takes the reusable encoder, begins a compute pass, dispatches, ends the pass,
+/// and puts the encoder back. Does NOT submit — caller must call ctx.flush()
+/// before readback.
+fn dispatch_with_reusable_encoder(
+    ctx: &GpuContext,
+    pipeline: &wgpu::ComputePipeline,
+    bind_group: &wgpu::BindGroup,
+    workgroups: (u32, u32, u32),
+    pass_label: &str,
+) {
+    let mut encoder = ctx.get_encoder();
+    {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(pass_label),
+            timestamp_writes: None,
+        });
+        cpass.set_pipeline(pipeline);
+        cpass.set_bind_group(0, bind_group, &[]);
+        cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
     }
+    ctx.replace_encoder(encoder);
+}
+
+/// Helper: copies buffer content using the reusable encoder.
+fn copy_with_reusable_encoder(
+    ctx: &GpuContext,
+    src: &wgpu::Buffer,
+    dst: &wgpu::Buffer,
+    byte_size: u64,
+) {
+    let mut encoder = ctx.get_encoder();
+    encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_size);
+    ctx.replace_encoder(encoder);
 }
 
 // ─── Dispatch helpers ──────────────────────────────────────────────────────────
@@ -261,11 +263,9 @@ pub fn dispatch_f32_to_f16(
     let out_size = (numel * 2) as u64;
 
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("f32_to_f16_output"),
+        label: Some("mixed_out"),
         size: out_size,
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 
@@ -285,25 +285,12 @@ pub fn dispatch_f32_to_f16(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("f32_to_f16_encoder"),
-        });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("f32_to_f16"),
-            timestamp_writes: None,
-        });
-        cpass.set_pipeline(pipeline);
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.dispatch_workgroups(wg, 1, 1);
-    }
-    ctx.queue.submit(Some(encoder.finish()));
+    dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f32_to_f16");
 
     Ok(GpuTensor {
         shape,
         buffer: out_buf,
+        dtype: GpuDtype::F32,
     })
 }
 
@@ -319,11 +306,9 @@ pub fn dispatch_f16_to_f32(
     let out_size = (numel * 4) as u64;
 
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("f16_to_f32_output"),
+        label: Some("mixed_out"),
         size: out_size,
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 
@@ -343,25 +328,12 @@ pub fn dispatch_f16_to_f32(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("f16_to_f32_encoder"),
-        });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("f16_to_f32"),
-            timestamp_writes: None,
-        });
-        cpass.set_pipeline(pipeline);
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.dispatch_workgroups(wg, 1, 1);
-    }
-    ctx.queue.submit(Some(encoder.finish()));
+    dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f16_to_f32");
 
     Ok(GpuTensor {
         shape,
         buffer: out_buf,
+        dtype: GpuDtype::F32,
     })
 }
 
@@ -390,21 +362,7 @@ pub fn dispatch_scale_inplace(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("scale_encoder"),
-        });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("scale"),
-            timestamp_writes: None,
-        });
-        cpass.set_pipeline(pipeline);
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.dispatch_workgroups(wg, 1, 1);
-    }
-    ctx.queue.submit(Some(encoder.finish()));
+    dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "scale");
 
     Ok(())
 }
@@ -434,21 +392,7 @@ pub fn dispatch_unscale_inplace(
     });
 
     let wg = (numel as u32 + 255) / 256;
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("unscale_encoder"),
-        });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("unscale"),
-            timestamp_writes: None,
-        });
-        cpass.set_pipeline(pipeline);
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.dispatch_workgroups(wg, 1, 1);
-    }
-    ctx.queue.submit(Some(encoder.finish()));
+    dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "unscale");
 
     Ok(())
 }
@@ -458,7 +402,7 @@ pub fn dispatch_unscale_inplace(
 /// F32 → F16: pack each f32 into u16 via WGSL bitcast/truncation.
 /// WGSL doesn't have native f16 without `enable f16;` feature,
 /// so we do manual bit manipulation: f32 bits → sign|exp|mantissa → f16 bits.
-const F32_TO_F16_WGSL: &str = r"
+const F32_TO_F16_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> input: array<f32>;
 @group(0) @binding(1) var<storage, read_write> output: array<u32>;
 
@@ -505,10 +449,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let f16_bits = sign | (new_exp << 10u) | (mant >> 13u);
     output[i] = f16_bits;
 }
-";
+"#;
 
 /// F16 → F32: expand each u16 back to f32
-const F16_TO_F32_WGSL: &str = r"
+const F16_TO_F32_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> input: array<u32>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 
@@ -530,8 +474,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             // zero
             f32_bits = sign << 31u;
         } else {
-            // subnormal — normalize
-            // just flush to zero for simplicity
+            // subnormal — flush to zero
             f32_bits = sign << 31u;
         }
     } else if (exp == 31u) {
@@ -548,10 +491,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     output[i] = bitcast<f32>(f32_bits);
 }
-";
+"#;
 
 /// F32 → BF16: truncate lower 16 bits of f32 mantissa
-const F32_TO_BF16_WGSL: &str = r"
+const F32_TO_BF16_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> input: array<f32>;
 @group(0) @binding(1) var<storage, read_write> output: array<u32>;
 
@@ -567,10 +510,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let bf16_bits = (bits + rounding_bias) >> 16u;
     output[i] = bf16_bits;
 }
-";
+"#;
 
 /// BF16 → F32: shift left by 16 bits
-const BF16_TO_F32_WGSL: &str = r"
+const BF16_TO_F32_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> input: array<u32>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 
@@ -581,10 +524,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (i >= n) { return; }
     output[i] = bitcast<f32>(input[i] << 16u);
 }
-";
+"#;
 
 /// Scale in-place: tensor[i] = tensor[i] * scale
-const SCALE_WGSL: &str = r"
+const SCALE_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> tensor: array<f32>;
 @group(0) @binding(1) var<uniform> scale: f32;
 
@@ -595,10 +538,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (i >= n) { return; }
     tensor[i] = tensor[i] * scale;
 }
-";
+"#;
 
 /// Unscale in-place: tensor[i] = tensor[i] / scale
-const UNSCALE_WGSL: &str = r"
+const UNSCALE_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> tensor: array<f32>;
 @group(0) @binding(1) var<uniform> scale: f32;
 
@@ -609,4 +552,4 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (i >= n) { return; }
     tensor[i] = tensor[i] / scale;
 }
-";
+"#;

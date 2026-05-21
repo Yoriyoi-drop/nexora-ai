@@ -113,6 +113,11 @@ impl GpuMemoryPool {
         }
     }
 
+    pub fn return_buffer_raw(&mut self, buffer: wgpu::Buffer, key: (usize, wgpu::BufferUsages)) {
+        self.stats.deallocs += 1;
+        self.free_buffers.entry(key).or_default().push(buffer);
+    }
+
     pub fn stats(&self) -> &PoolStats {
         &self.stats
     }

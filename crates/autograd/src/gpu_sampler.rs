@@ -1,59 +1,42 @@
-use crate::gpu::{GpuContext, GpuError, GpuTensor};
+use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 // ─── Pipeline fns ──────────────────────────────────────────────────────────────
 
-pub fn compile_temperature_scale_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("temperature_scale_shader"),
-            source: wgpu::ShaderSource::Wgsl(TEMPERATURE_SCALE_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("temperature_scale"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_temperature_scale_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "temperature_scale_sampler",
+        &[
+            crate::gpu::storage_binding(0, false),
+            crate::gpu::uniform_binding(1),
+        ],
+        std::borrow::Cow::Borrowed(TEMPERATURE_SCALE_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_top_k_mask_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("top_k_mask_shader"),
-            source: wgpu::ShaderSource::Wgsl(TOP_K_MASK_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("top_k_mask"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_top_k_mask_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "top_k_mask_sampler",
+        &[
+            crate::gpu::storage_binding(0, false),
+            crate::gpu::uniform_binding(1),
+        ],
+        std::borrow::Cow::Borrowed(TOP_K_MASK_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_multinomial_sample_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("multinomial_shader"),
-            source: wgpu::ShaderSource::Wgsl(MULTINOMIAL_SAMPLE_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("multinomial"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_multinomial_sample_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "multinomial_sample_sampler",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+            crate::gpu::uniform_binding(2),
+        ],
+        std::borrow::Cow::Borrowed(MULTINOMIAL_SAMPLE_WGSL),
+        "main",
+    )
 }
 
 // ─── Sampler ───────────────────────────────────────────────────────────────────
@@ -64,19 +47,54 @@ pub struct GpuSamplerPipelines {
     pub multinomial: wgpu::ComputePipeline,
 }
 
-pub fn compile_sampler_pipelines(ctx: &GpuContext) -> GpuSamplerPipelines {
-    GpuSamplerPipelines {
-        temperature_scale: compile_temperature_scale_pipeline(ctx),
-        top_k_mask: compile_top_k_mask_pipeline(ctx),
-        multinomial: compile_multinomial_sample_pipeline(ctx),
-    }
+pub fn compile_sampler_pipelines(ctx: &mut GpuContext) -> Result<GpuSamplerPipelines, GpuError> {
+    Ok(GpuSamplerPipelines {
+        temperature_scale: compile_temperature_scale_pipeline(ctx)?,
+        top_k_mask: compile_top_k_mask_pipeline(ctx)?,
+        multinomial: compile_multinomial_sample_pipeline(ctx)?,
+    })
 }
+
+// ─── Reusable encoder helper ──────────────────────────────────────────────────
+
+/// Helper: dispatch a compute pass using the reusable encoder (no submit).
+fn dispatch_compute(
+    ctx: &GpuContext,
+    pipeline: &wgpu::ComputePipeline,
+    bind_group: &wgpu::BindGroup,
+    workgroups: (u32, u32, u32),
+    label: &str,
+) {
+    let mut encoder = ctx.get_encoder();
+    {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(label),
+            timestamp_writes: None,
+        });
+        cpass.set_pipeline(pipeline);
+        cpass.set_bind_group(0, bind_group, &[]);
+        cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
+    }
+    ctx.replace_encoder(encoder);
+}
+
+/// Helper: copy buffer-to-buffer using the reusable encoder.
+fn copy_buf(ctx: &GpuContext, src: &wgpu::Buffer, dst: &wgpu::Buffer, size: u64) {
+    let mut encoder = ctx.get_encoder();
+    encoder.copy_buffer_to_buffer(src, 0, dst, 0, size);
+    ctx.replace_encoder(encoder);
+}
+
+// ─── Sampler ───────────────────────────────────────────────────────────────────
 
 /// Sample next token(s) from logits entirely on GPU.
 /// `logits`: [batch, vocab] GPU tensor.
 /// Returns: [batch] GPU tensor of sampled token IDs.
+///
+/// All operations are batched into a single command encoder and flushed at the end,
+/// reducing CPU↔GPU synchronization overhead.
 pub fn gpu_sample(
-    ctx: &GpuContext,
+    ctx: &mut GpuContext,
     pipelines: &GpuSamplerPipelines,
     logits: &GpuTensor,
     temperature: f32,
@@ -91,32 +109,22 @@ pub fn gpu_sample(
 
     // Working copy of logits
     let mut working_buf = {
-        let buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("sample_working"),
-            size: (numel * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("sample_copy_encoder"),
-            });
-        encoder.copy_buffer_to_buffer(logits.buffer(), 0, &buf, 0, (numel * 4) as u64);
-        ctx.queue.submit(Some(encoder.finish()));
+        let pooled_buf = ctx.alloc_buffer(
+            (numel * 4) as u64,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        );
+        let buf = pooled_buf.buffer;
+        // Copy logits → working buffer (batched into reusable encoder)
+        copy_buf(ctx, logits.buffer(), &buf, (numel * 4) as u64);
         buf
     };
 
-    // Step 1: temperature scale (in-place)
+    // Step 1: temperature scale (in-place on working_buf)
     if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
-        let temp_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("sample_temp_buf"),
-            size: 4,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let temp_buf = ctx.alloc_buffer(
+            4,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        ).buffer;
         ctx.queue
             .write_buffer(&temp_buf, 0, bytemuck::bytes_of(&temperature));
 
@@ -135,55 +143,31 @@ pub fn gpu_sample(
             ],
         });
 
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("temp_scale_encoder"),
-            });
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("temperature_scale"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&pipelines.temperature_scale);
-            cpass.set_bind_group(0, &scale_bg, &[]);
-            cpass.dispatch_workgroups((numel as u32 + 255) / 256, 1, 1);
-        }
-        ctx.queue.submit(Some(encoder.finish()));
+        dispatch_compute(ctx, &pipelines.temperature_scale, &scale_bg, ((numel as u32 + 255) / 256, 1, 1), "temperature_scale");
     }
 
     // Step 2: softmax (logits → probabilities)
+    // NOTE: ctx.softmax() uses self.dispatch() internally, which also uses
+    // the reusable encoder — operations are automatically batched.
     let logits_gpu = GpuTensor {
         shape: shape.clone(),
         buffer: working_buf,
+        dtype: GpuDtype::F32,
     };
     let probs = ctx.softmax(&logits_gpu)?;
-    working_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("sample_probs_copy"),
-        size: (numel * 4) as u64,
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    {
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("probs_copy_encoder"),
-            });
-        encoder.copy_buffer_to_buffer(probs.buffer(), 0, &working_buf, 0, (numel * 4) as u64);
-        ctx.queue.submit(Some(encoder.finish()));
-    }
+    working_buf = ctx.alloc_buffer(
+        (numel * 4) as u64,
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+    ).buffer;
+    // Copy softmax output → working buffer (batched into reusable encoder)
+    copy_buf(ctx, probs.buffer(), &working_buf, (numel * 4) as u64);
 
     // Step 3: top-k mask (in-place on working_buf)
     if top_k > 0 && top_k < vocab {
-        let topk_cfg_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("topk_cfg_buf"),
-            size: 8,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let topk_cfg_buf = ctx.alloc_buffer(
+            8,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        ).buffer;
         let cfg: [u32; 2] = [vocab, top_k];
         ctx.queue
             .write_buffer(&topk_cfg_buf, 0, bytemuck::cast_slice(&cfg));
@@ -203,37 +187,19 @@ pub fn gpu_sample(
             ],
         });
 
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("topk_encoder"),
-            });
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("topk_mask"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&pipelines.top_k_mask);
-            cpass.set_bind_group(0, &topk_bg, &[]);
-            cpass.dispatch_workgroups(batch as u32, 1, 1);
-        }
-        ctx.queue.submit(Some(encoder.finish()));
+        dispatch_compute(ctx, &pipelines.top_k_mask, &topk_bg, (batch as u32, 1, 1), "topk_mask");
     }
 
     // Step 4: multinomial sample
-    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("sample_output"),
-        size: (batch as u64) * 4,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
+    let out_buf = ctx.alloc_buffer(
+        (batch as u64) * 4,
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+    ).buffer;
 
-    let seed_cfg_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("seed_cfg_buf"),
-        size: 12,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let seed_cfg_buf = ctx.alloc_buffer(
+        12,
+        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    ).buffer;
     let seed_cfg: [u32; 3] = [
         vocab,
         (seed & 0xFFFFFFFF) as u32,
@@ -261,27 +227,15 @@ pub fn gpu_sample(
         ],
     });
 
-    {
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("sample_encoder"),
-            });
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("multinomial"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&pipelines.multinomial);
-            cpass.set_bind_group(0, &sample_bg, &[]);
-            cpass.dispatch_workgroups(batch as u32, 1, 1);
-        }
-        ctx.queue.submit(Some(encoder.finish()));
-    }
+    dispatch_compute(ctx, &pipelines.multinomial, &sample_bg, (batch as u32, 1, 1), "multinomial_sample");
+
+    // Flush all accumulated operations — single submit for the entire pipeline
+    ctx.flush();
 
     Ok(GpuTensor {
         shape: vec![batch],
         buffer: out_buf,
+        dtype: GpuDtype::F32,
     })
 }
 
@@ -364,6 +318,7 @@ const MULTINOMIAL_SAMPLE_WGSL: &str = r"
 fn xorshift64(state: ptr<function, u32>) -> u32 {
     var x = *state;
     x = x ^ (x << 13u);
+    x = x ^ (x >> 17u);
     x = x ^ (x >> 17u);
     x = x ^ (x << 5u);
     *state = x;

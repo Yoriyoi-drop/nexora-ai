@@ -2,58 +2,38 @@ use crate::gpu::{GpuContext, GpuTensor};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub fn compile_nan_check_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("nan_check_shader"),
-            source: wgpu::ShaderSource::Wgsl(NAN_CHECK_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("nan_check"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_nan_check_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+    ctx.compile_pipeline_cached(
+        "nan_check",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(NAN_CHECK_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_nan_check_reduce_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("nan_check_reduce_shader"),
-            source: wgpu::ShaderSource::Wgsl(NAN_CHECK_REDUCE_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("nan_check_reduce"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_nan_check_reduce_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+    ctx.compile_pipeline_cached(
+        "nan_check_reduce",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+            crate::gpu::uniform_binding(2),
+        ],
+        std::borrow::Cow::Borrowed(NAN_CHECK_REDUCE_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_nan_check_final_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("nan_check_final_shader"),
-            source: wgpu::ShaderSource::Wgsl(NAN_CHECK_FINAL_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("nan_check_final"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_nan_check_final_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+    ctx.compile_pipeline_cached(
+        "nan_check_final",
+        &[crate::gpu::storage_binding(0, false)],
+        std::borrow::Cow::Borrowed(NAN_CHECK_FINAL_WGSL),
+        "main",
+    )
 }
 
 pub fn has_nan_or_inf_gpu(
@@ -289,18 +269,19 @@ impl GpuNanDetector {
         }
     }
 
-    pub fn ensure_pipelines(&mut self, ctx: &GpuContext) {
+    pub fn ensure_pipelines(&mut self, ctx: &mut GpuContext) {
         if self.pipelines.is_some() {
             return;
         }
-        self.pipelines = Some((
-            compile_nan_check_pipeline(ctx),
-            compile_nan_check_reduce_pipeline(ctx),
-            compile_nan_check_final_pipeline(ctx),
-        ));
+        let pipelines = (
+            compile_nan_check_pipeline(ctx).expect("Failed to compile nan_check pipeline"),
+            compile_nan_check_reduce_pipeline(ctx).expect("Failed to compile nan_check_reduce pipeline"),
+            compile_nan_check_final_pipeline(ctx).expect("Failed to compile nan_check_final pipeline"),
+        );
+        self.pipelines = Some(pipelines);
     }
 
-    pub fn check(&mut self, ctx: &GpuContext, tensor: &GpuTensor, label: &str) -> bool {
+    pub fn check(&mut self, ctx: &mut GpuContext, tensor: &GpuTensor, label: &str) -> bool {
         if !self.enabled {
             return false;
         }

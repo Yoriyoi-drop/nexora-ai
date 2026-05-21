@@ -102,40 +102,31 @@ impl GpuPageTable {
 
 // ─── Compile pipelines ─────────────────────────────────────────────────────────
 
-pub fn compile_gather_pages_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("gather_pages_shader"),
-            source: wgpu::ShaderSource::Wgsl(GATHER_PAGES_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("gather_pages"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_gather_pages_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+    ctx.compile_pipeline_cached(
+        "gather_pages",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, true),
+            crate::gpu::storage_binding(2, false),
+            crate::gpu::uniform_binding(3),
+        ],
+        std::borrow::Cow::Borrowed(GATHER_PAGES_WGSL),
+        "main",
+    )
 }
 
-pub fn compile_scatter_pages_pipeline(ctx: &GpuContext) -> wgpu::ComputePipeline {
-    let shader = ctx
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("scatter_pages_shader"),
-            source: wgpu::ShaderSource::Wgsl(SCATTER_PAGES_WGSL.into()),
-        });
-    ctx.device
-        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("scatter_pages"),
-            layout: None,
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        })
+pub fn compile_scatter_pages_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+    ctx.compile_pipeline_cached(
+        "scatter_pages",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+            crate::gpu::uniform_binding(2),
+        ],
+        std::borrow::Cow::Borrowed(SCATTER_PAGES_WGSL),
+        "main",
+    )
 }
 
 pub struct GpuKvCachePipelines {
@@ -143,11 +134,11 @@ pub struct GpuKvCachePipelines {
     pub scatter: wgpu::ComputePipeline,
 }
 
-pub fn compile_kv_cache_pipelines(ctx: &GpuContext) -> GpuKvCachePipelines {
-    GpuKvCachePipelines {
-        gather: compile_gather_pages_pipeline(ctx),
-        scatter: compile_scatter_pages_pipeline(ctx),
-    }
+pub fn compile_kv_cache_pipelines(ctx: &mut GpuContext) -> Result<GpuKvCachePipelines, crate::gpu::GpuError> {
+    Ok(GpuKvCachePipelines {
+        gather: compile_gather_pages_pipeline(ctx)?,
+        scatter: compile_scatter_pages_pipeline(ctx)?,
+    })
 }
 
 // ─── Dispatch ──────────────────────────────────────────────────────────────────

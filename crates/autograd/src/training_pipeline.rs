@@ -9,14 +9,90 @@ use serde::{Deserialize, Serialize};
 use super::mixed_precision::LossScaler;
 use super::{Adam, Tensor};
 
+#[cfg(feature = "gpu")]
+use super::gpu::{GpuContext, GpuTensor};
+
 // ─── Optimizer State ─────────────────────────────────────────────────────────
 
-/// Serializable optimizer state for checkpoint resume
+/// Serializable optimizer state for checkpoint resume (CPU)
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OptimizerState {
     pub m: Vec<Vec<f32>>,
     pub v: Vec<Vec<f32>>,
     pub step: usize,
+}
+
+/// GPU-resident optimizer state for persistent GPU residency
+#[cfg(feature = "gpu")]
+pub struct GpuOptimizerState {
+    pub m: Vec<GpuTensor>,
+    pub v: Vec<GpuTensor>,
+    pub step: usize,
+}
+
+#[cfg(feature = "gpu")]
+impl GpuOptimizerState {
+    /// Create GPU-resident optimizer state from CPU state
+    pub fn from_cpu(cpu_state: &OptimizerState, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
+        let m = cpu_state.m
+            .iter()
+            .map(|arr| {
+                let arr_d = ArrayD::from_shape_vec(vec![arr.len()], arr.clone())?;
+                GpuTensor::from_cpu(&arr_d).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let v = cpu_state.v
+            .iter()
+            .map(|arr| {
+                let arr_d = ArrayD::from_shape_vec(vec![arr.len()], arr.clone())?;
+                GpuTensor::from_cpu(&arr_d).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            m,
+            v,
+            step: cpu_state.step,
+        })
+    }
+
+    /// Convert to CPU state for checkpointing
+    pub fn to_cpu(&self) -> OptimizerState {
+        OptimizerState {
+            m: self.m.iter().map(|t| t.to_cpu().as_slice().unwrap().to_vec()).collect(),
+            v: self.v.iter().map(|t| t.to_cpu().as_slice().unwrap().to_vec()).collect(),
+            step: self.step,
+        }
+    }
+
+    /// Create GPU-resident optimizer state directly from Adam optimizer
+    pub fn from_adam_gpu(adam: &Adam, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
+        let m = adam
+            .m
+            .iter()
+            .map(|arr| GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let v = adam
+            .v
+            .iter()
+            .map(|arr| GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            m,
+            v,
+            step: adam.step,
+        })
+    }
+
+    /// Apply GPU-resident state to Adam optimizer (for CPU fallback)
+    pub fn apply_to_adam(&self, adam: &mut Adam) {
+        let cpu_state = self.to_cpu();
+        let shapes: Vec<Vec<usize>> = adam.parameters.iter().map(|p| p.shape()).collect();
+        cpu_state.apply_to_adam(adam, &shapes);
+    }
 }
 
 impl OptimizerState {
@@ -57,7 +133,7 @@ impl OptimizerState {
 
 // ─── Checkpoint ──────────────────────────────────────────────────────────────
 
-/// Full training state for save/load
+/// Full training state for save/load (CPU)
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
     pub step: usize,
@@ -67,6 +143,96 @@ pub struct Checkpoint {
     pub model_params: Vec<Vec<f32>>,
     pub model_shapes: Vec<Vec<usize>>,
     pub optimizer_state: Option<OptimizerState>,
+}
+
+/// GPU-resident checkpoint for persistent GPU residency
+#[cfg(feature = "gpu")]
+pub struct GpuCheckpoint {
+    pub step: usize,
+    pub epoch: usize,
+    pub best_val_loss: Option<f64>,
+    pub loss_scaler_scale: Option<f32>,
+    pub model_params: Vec<GpuTensor>,
+    pub model_shapes: Vec<Vec<usize>>,
+    pub optimizer_state: Option<GpuOptimizerState>,
+}
+
+#[cfg(feature = "gpu")]
+impl GpuCheckpoint {
+    /// Create GPU-resident checkpoint from CPU checkpoint
+    pub fn from_cpu(cpu_ckpt: &Checkpoint, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
+        let model_params = cpu_ckpt.model_params
+            .iter()
+            .zip(&cpu_ckpt.model_shapes)
+            .map(|(params, shape)| {
+                let arr_d = ArrayD::from_shape_vec(shape.clone(), params.clone())?;
+                GpuTensor::from_cpu(&arr_d).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let optimizer_state = cpu_ckpt.optimizer_state
+            .as_ref()
+            .map(|opt| GpuOptimizerState::from_cpu(opt, ctx))
+            .transpose()?;
+
+        Ok(Self {
+            step: cpu_ckpt.step,
+            epoch: cpu_ckpt.epoch,
+            best_val_loss: cpu_ckpt.best_val_loss,
+            loss_scaler_scale: cpu_ckpt.loss_scaler_scale,
+            model_params,
+            model_shapes: cpu_ckpt.model_shapes.clone(),
+            optimizer_state,
+        })
+    }
+
+    /// Convert to CPU checkpoint for serialization
+    pub fn to_cpu(&self) -> Checkpoint {
+        Checkpoint {
+            step: self.step,
+            epoch: self.epoch,
+            best_val_loss: self.best_val_loss,
+            loss_scaler_scale: self.loss_scaler_scale,
+            model_params: self.model_params.iter().map(|t| t.to_cpu().as_slice().unwrap().to_vec()).collect(),
+            model_shapes: self.model_shapes.clone(),
+            optimizer_state: self.optimizer_state.as_ref().map(|opt| opt.to_cpu()),
+        }
+    }
+
+    /// Save GPU-resident checkpoint to disk (converts to CPU first)
+    pub fn save(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cpu_ckpt = self.to_cpu();
+        let json = serde_json::to_string_pretty(&cpu_ckpt)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+
+    /// Load checkpoint from disk and convert to GPU-resident
+    pub fn load(path: impl AsRef<Path>, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
+        let json = std::fs::read_to_string(path)?;
+        let cpu_ckpt: Checkpoint = serde_json::from_str(&json)?;
+        Self::from_cpu(&cpu_ckpt, ctx)
+    }
+
+    /// Apply saved GPU weights to model parameters
+    pub fn restore_params(&self, params: &[Tensor]) {
+        for (i, p) in params.iter().enumerate() {
+            if i < self.model_params.len() && i < self.model_shapes.len() {
+                let arr = self.model_params[i].to_cpu();
+                p.set_data(arr);
+            }
+        }
+    }
+
+    /// Restore GPU-resident optimizer state to Adam optimizer
+    pub fn restore_optimizer(&self, adam: &mut Adam) {
+        if let Some(ref opt_state) = self.optimizer_state {
+            opt_state.apply_to_adam(adam);
+        }
+    }
 }
 
 impl Checkpoint {

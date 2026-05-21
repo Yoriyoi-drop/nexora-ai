@@ -1,4 +1,4 @@
-use crate::gpu::{GpuContext, GpuError, GpuTensor};
+use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 // ─── GpuStagingPool ────────────────────────────────────────────────────────────
 
@@ -103,6 +103,7 @@ pub fn tensor_from_cpu_async(
     Ok(GpuTensor {
         shape,
         buffer: storage,
+        dtype: GpuDtype::F32,
     })
 }
 

@@ -1,3 +1,4 @@
+
 pub mod broadcast;
 pub mod data_parallel;
 pub mod device;
@@ -15,9 +16,13 @@ pub mod gpu_adam;
 #[cfg(feature = "gpu")]
 pub mod gpu_async;
 #[cfg(feature = "gpu")]
+pub mod gpu_batch;
+#[cfg(feature = "gpu")]
 pub mod gpu_caps;
 #[cfg(feature = "gpu")]
 pub mod gpu_check;
+#[cfg(feature = "gpu")]
+pub mod gpu_fused;
 #[cfg(feature = "gpu")]
 pub mod gpu_kv_cache;
 #[cfg(feature = "gpu")]
@@ -28,6 +33,8 @@ pub mod gpu_mixed;
 pub mod gpu_profiler;
 #[cfg(feature = "gpu")]
 pub mod gpu_sampler;
+#[cfg(feature = "gpu")]
+pub use gpu_batch::GpuCommandBatch;
 #[cfg(feature = "gpu")]
 pub use gpu_caps::GpuCapabilities;
 

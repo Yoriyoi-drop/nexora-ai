@@ -53,26 +53,24 @@ impl GpuAdam {
         })
     }
 
-    pub fn ensure_pipeline(&mut self, ctx: &GpuContext) {
+    pub fn ensure_pipeline(&mut self, ctx: &mut GpuContext) {
         if self.pipeline.is_some() {
             return;
         }
-        let shader = ctx
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("adam_shader"),
-                source: wgpu::ShaderSource::Wgsl(ADAM_WGSL.into()),
-            });
         let pipeline = ctx
-            .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("adam_step"),
-                layout: None,
-                module: &shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+            .compile_pipeline_cached(
+                "adam_step",
+                &[
+                    crate::gpu::storage_binding(0, true),
+                    crate::gpu::storage_binding(1, false),
+                    crate::gpu::storage_binding(2, false),
+                    crate::gpu::storage_binding(3, false),
+                    crate::gpu::uniform_binding(4),
+                ],
+                std::borrow::Cow::Borrowed(ADAM_WGSL),
+                "main",
+            )
+            .expect("Failed to compile adam pipeline");
         self.pipeline = Some(pipeline);
     }
 
@@ -115,7 +113,7 @@ impl GpuAdam {
 
     pub fn step(
         &mut self,
-        ctx: &GpuContext,
+        ctx: &mut GpuContext,
         params: &[&GpuTensor],
         grads: &[&GpuTensor],
     ) -> Result<(), GpuError> {
