@@ -678,6 +678,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block2"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
+dependencies = [
+ "objc2",
+]
+
+[[package]]
 name = "borsh"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -991,6 +1000,8 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
+ "serde",
+ "termcolor",
  "unicode-width",
 ]
 
@@ -1999,6 +2010,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.18",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -3222,6 +3234,7 @@ dependencies = [
  "crossbeam",
  "futures",
  "mockall",
+ "nexora-autograd",
  "nexora-common",
  "nexora-core",
  "nexora-intelligence",
@@ -3348,6 +3361,7 @@ dependencies = [
  "fastrand",
  "ndarray 0.15.6",
  "ndarray-rand",
+ "nexora-autograd",
  "rand 0.8.6",
  "rand_distr",
  "serde",
@@ -3439,6 +3453,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "mockall",
+ "nexora-autograd",
  "parking_lot",
  "proptest",
  "rand 0.8.6",
@@ -3506,6 +3521,7 @@ dependencies = [
  "futures",
  "lz4_flex",
  "memmap2",
+ "nexora-autograd",
  "nexora-tokenizer",
  "parking_lot",
  "parquet",
@@ -3633,6 +3649,7 @@ dependencies = [
  "chrono",
  "hex",
  "ndarray 0.15.6",
+ "nexora-autograd",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -3667,6 +3684,7 @@ name = "nexora-has-moe-ffn"
 version = "0.1.0"
 dependencies = [
  "ndarray 0.15.6",
+ "nexora-autograd",
  "rand 0.8.6",
  "serde",
  "thiserror 1.0.69",
@@ -3678,6 +3696,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "nexora-atqs",
+ "nexora-autograd",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -3762,6 +3781,7 @@ dependencies = [
  "md5",
  "ndarray 0.15.6",
  "ndarray-rand",
+ "nexora-autograd",
  "nexora-common",
  "nexora-core",
  "nexora-foundation",
@@ -3798,6 +3818,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "nexora-autograd",
  "nexora-core",
  "parking_lot",
  "rand 0.8.6",
@@ -4041,6 +4062,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "wgpu",
 ]
 
 [[package]]
@@ -4089,6 +4111,7 @@ version = "0.1.0"
 dependencies = [
  "ndarray 0.15.6",
  "ndarray-rand",
+ "nexora-autograd",
  "nexora-hldva-t",
  "rand 0.8.6",
  "rand_distr",
@@ -4344,6 +4367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
 dependencies = [
  "bitflags 2.11.1",
+ "block2",
  "objc2",
  "objc2-foundation",
 ]
@@ -5165,6 +5189,12 @@ checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
 dependencies = [
  "rand_core 0.9.5",
 ]
+
+[[package]]
+name = "range-alloc"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 
 [[package]]
 name = "ratatui"
@@ -7399,12 +7429,18 @@ dependencies = [
  "cfg_aliases",
  "document-features",
  "hashbrown 0.16.1",
+ "js-sys",
  "log",
+ "naga",
+ "parking_lot",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
  "smallvec",
  "static_assertions",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "wgpu-core",
  "wgpu-hal",
  "wgpu-types",
@@ -7435,11 +7471,21 @@ dependencies = [
  "rustc-hash 1.1.0",
  "smallvec",
  "thiserror 2.0.18",
+ "wgpu-core-deps-apple",
  "wgpu-core-deps-emscripten",
  "wgpu-core-deps-windows-linux-android",
  "wgpu-hal",
  "wgpu-naga-bridge",
  "wgpu-types",
+]
+
+[[package]]
+name = "wgpu-core-deps-apple"
+version = "29.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e51b5447e144b3dbba4feb01f80f4fa21696fa0cd99afb2c3df1affd6fdb28"
+dependencies = [
+ "wgpu-hal",
 ]
 
 [[package]]
@@ -7469,7 +7515,9 @@ dependencies = [
  "android_system_properties",
  "arrayvec",
  "ash",
+ "bit-set 0.9.1",
  "bitflags 2.11.1",
+ "block2",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -7486,11 +7534,17 @@ dependencies = [
  "naga",
  "ndk-sys",
  "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-metal",
+ "objc2-quartz-core",
+ "once_cell",
  "ordered-float 3.9.2",
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",
  "profiling",
+ "range-alloc",
  "raw-window-handle",
  "raw-window-metal",
  "renderdoc-sys",
@@ -7502,6 +7556,7 @@ dependencies = [
  "wgpu-naga-bridge",
  "wgpu-types",
  "windows 0.62.2",
+ "windows-core 0.62.2",
  "windows-result",
 ]
 

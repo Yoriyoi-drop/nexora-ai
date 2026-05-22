@@ -175,8 +175,8 @@ pub enum Commands {
         #[arg(short = 'P', long)]
         parallel: bool,
 
-        /// Enable GPU acceleration
-        #[arg(short = 'g', long)]
+        /// Enable GPU acceleration (default: enabled). Use --gpu false for CPU.
+        #[arg(short = 'g', long, default_value_t = true)]
         gpu: bool,
     },
 
@@ -239,8 +239,8 @@ pub enum Commands {
         #[arg(short = 'l', long, default_value = "0.001")]
         learning_rate: f32,
 
-        /// Enable acceleration (ROCm GPU or CPU BLAS)
-        #[arg(short = 'g', long)]
+        /// Enable GPU acceleration (default: enabled). Use --gpu false for CPU.
+        #[arg(short = 'g', long, default_value_t = true)]
         gpu: bool,
 
         /// Sequence length for training (context window)

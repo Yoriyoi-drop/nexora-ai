@@ -107,7 +107,7 @@ impl ClusteringOrchestrator {
         Self {
             history: Vec::with_capacity(100),
             _quality_threshold: 0.5,
-            use_gpu: false,
+            use_gpu: true,
             cached_distances: std::cell::RefCell::new(None),
             cached_data_len: std::cell::Cell::new(0),
         }

@@ -59,6 +59,9 @@ where
             max_batch_size,
             max_total_sequences: 1024,
             samplers: HashMap::new(),
+            #[cfg(feature = "gpu")]
+            use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
+            #[cfg(not(feature = "gpu"))]
             use_gpu: false,
         }
     }

@@ -697,16 +697,29 @@ impl ControllerCore {
     pub async fn execute_task(
         routing: &RoutingDecision,
         original_input: &str,
-        _specialist_models: &std::sync::Arc<
+        specialist_models: &std::sync::Arc<
             parking_lot::RwLock<std::collections::HashMap<String, Box<dyn SpecialistModel>>>,
         >,
     ) -> CoreResult<String> {
-        // For now, return a simple response
-        // In a real implementation, this would call the actual specialist model
-        Ok(format!(
-            "Model Processing Result from {:?} for input: {}",
-            routing.target_model, original_input
-        ))
+        let models = specialist_models.read();
+        let model_key = routing.target_model.name();
+        if let Some(model) = models.get(model_key) {
+            let context = ContextInfo {
+                current_context: original_input.to_string(),
+                recent_history: vec![],
+                relevant_memories: vec![],
+                user_intent: None,
+                task_type: None,
+                metadata: std::collections::HashMap::new(),
+            };
+            model.process(original_input, &context).await
+                .map_err(|e| CoreError::TaskExecution(format!("Specialist model error: {}", e)))
+        } else {
+            Ok(format!(
+                "Model Processing Result from {:?} for input: {}",
+                routing.target_model, original_input
+            ))
+        }
     }
 }
 

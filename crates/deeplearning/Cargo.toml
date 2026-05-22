@@ -20,7 +20,7 @@ ndarray = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
-default = ["std"]
+default = ["std", "gpu"]
 std = []
 gpu = ["nexora-autograd/gpu"]
 full = ["std", "gpu"]

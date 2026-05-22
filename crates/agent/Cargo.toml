@@ -26,6 +26,11 @@ nexora-core = { path = "../core" }
 nexora-intelligence = { path = "../intelligence" }
 nexora-memory = { path = "../memory" }
 nexora-common = { path = "../infrastructure/common" }
+nexora-autograd = { path = "../autograd", optional = true }
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true

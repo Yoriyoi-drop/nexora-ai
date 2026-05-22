@@ -25,6 +25,7 @@ parking_lot = { workspace = true }
 unicode-segmentation = { workspace = true }
 reqwest = { workspace = true }
 nexora-tokenizer = { path = "../tokenizer" }
+nexora-autograd = { path = "../autograd", optional = true }
 arrow = { version = "53", default-features = false, features = ["ipc"], optional = true }
 
 tokio-stream = "0.1"
@@ -41,7 +42,7 @@ lz4_flex = { workspace = true, optional = true }
 memmap2 = { workspace = true, optional = true }
 
 [features]
-default = ["csv", "json"]
+default = ["csv", "json", "gpu"]
 arrow = ["dep:arrow"]
 csv = ["dep:csv"]
 json = []
@@ -49,6 +50,7 @@ parquet = ["dep:parquet"]
 compression-zstd = ["dep:zstd"]
 compression-lz4 = ["dep:lz4_flex"]
 mmap = ["dep:memmap2"]
+gpu = ["nexora-autograd/gpu"]
 
 # Enable all dataset loading features
 dataset = ["arrow", "csv", "json", "parquet", "compression-zstd", "compression-lz4", "mmap"]

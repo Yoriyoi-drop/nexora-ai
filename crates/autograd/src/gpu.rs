@@ -79,17 +79,16 @@ pub struct GpuContext {
     pub(crate) query_resolve_buf: Option<wgpu::Buffer>,
     /// Reusable readback buffer for timestamp queries
     pub(crate) query_readback_buf: Option<Mutex<wgpu::Buffer>>,
-
     // ── Reusable command encoder (Mutex-protected for &self access) ───
-    /// Reusable encoder avoids create_command_encoder() overhead per op.
-    /// Flushed automatically every `auto_flush_ops` dispatches, or manually via `flush()`.
     pub(crate) current_encoder: Mutex<Option<wgpu::CommandEncoder>>,
     pub(crate) ops_since_flush: std::sync::atomic::AtomicUsize,
     pub(crate) auto_flush_ops: usize,
     // ── Batch mode ───────────────────────────────────────────────────
-    /// When >0, with_encoder suppresses auto-flush so all dispatches
-    /// accumulate in one encoder. begin_batch() increments, end_batch() decrements.
     pub(crate) batch_depth: std::sync::atomic::AtomicUsize,
+    // ── Persistent pipeline cache (disk-backed) ──────────────────────
+    pub(crate) wgpu_cache: Option<wgpu::PipelineCache>,
+    pub(crate) disk_cache: Option<crate::persistent_cache::PipelineDiskCache>,
+    pub(crate) cache_key: u64,
 }
 
 pub(crate) struct CompiledPipeline {
@@ -334,7 +333,7 @@ impl GpuContext {
                 module: &shader,
                 entry_point: Some(entry_point),
                 compilation_options: Default::default(),
-                cache: None,
+                cache: self.wgpu_cache.as_ref(),
             });
 
         self.pipelines.insert(
@@ -374,7 +373,7 @@ impl GpuContext {
                 module: &shader,
                 entry_point: Some(entry_point),
                 compilation_options: Default::default(),
-                cache: None,
+                cache: self.wgpu_cache.as_ref(),
             });
 
         self.pipelines.insert(
@@ -438,6 +437,46 @@ impl GpuContext {
         let caps = GpuCapabilities::detect(&device, &adapter);
         let memory_pool = Mutex::new(crate::gpu_memory::GpuMemoryPool::new(&device));
 
+        // ── Persistent pipeline cache setup ──
+        let adapter_info = adapter.get_info();
+        let cache_key = {
+            use std::hash::{Hash, Hasher};
+            match wgpu::util::pipeline_cache_key(&adapter_info) {
+                Some(key_str) => {
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    key_str.hash(&mut hasher);
+                    const WGPU_CACHE_VERSION: u64 = 1;
+                    WGPU_CACHE_VERSION.hash(&mut hasher);
+                    hasher.finish()
+                }
+                None => {
+                    // Non-Vulkan backend: hash name + backend as fallback key
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    adapter_info.name.hash(&mut hasher);
+                    adapter_info.backend.hash(&mut hasher);
+                    const FALLBACK_CACHE_VERSION: u64 = 1;
+                    FALLBACK_CACHE_VERSION.hash(&mut hasher);
+                    hasher.finish()
+                }
+            }
+        };
+        let disk_cache = crate::persistent_cache::PipelineDiskCache::new();
+        let cached_data = disk_cache.load(cache_key);
+        let wgpu_cache = if let Some(ref data) = cached_data {
+            // Safety: data is from a previous PipelineCache::get_data() call
+            Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                label: Some("nexora_persistent_cache"),
+                data: Some(data),
+                fallback: false,
+            }) })
+        } else {
+            Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                label: Some("nexora_persistent_cache"),
+                data: None,
+                fallback: false,
+            }) })
+        };
+
         // Create larger query set for ring buffer (e.g., 1000 timestamp pairs = 2000 queries)
         let query_pool_size: usize = 1000;
         let profiling_query_set = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
@@ -481,9 +520,23 @@ impl GpuContext {
             ops_since_flush: std::sync::atomic::AtomicUsize::new(0),
             auto_flush_ops,
             batch_depth: std::sync::atomic::AtomicUsize::new(1), // batch mode ON by default
+            wgpu_cache,
+            disk_cache: Some(disk_cache),
+            cache_key,
         };
 
         ctx.compile_all_pipelines()?;
+
+        // Save persistent pipeline cache to disk after all pipelines are compiled.
+        // If the cache was loaded from disk and reused, get_data() returns the same data
+        // (no driver compilation happened). If it was a cache miss, the new data is saved.
+        if let Some(ref cache) = ctx.wgpu_cache {
+            if let Some(data) = cache.get_data() {
+                if let Some(ref disk) = ctx.disk_cache {
+                    disk.save(ctx.cache_key, &data);
+                }
+            }
+        }
 
         Ok(ctx)
     }

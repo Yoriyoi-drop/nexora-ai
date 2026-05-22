@@ -121,7 +121,7 @@ impl MultiBandHolographicWriter {
             memory_utilization: vec![0.0; num_bands],
             interference_matrix: None,
             last_write_timestamp: vec![0; num_bands],
-            use_gpu: false,
+            use_gpu: true,
         })
     }
 

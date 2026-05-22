@@ -441,7 +441,8 @@ fn contract_cores(core1: &ArrayD<f32>, core2: &ArrayD<f32>) -> ArrayD<f32> {
     result.into_dyn()
 }
 
-/// Compute truncated SVD using power iteration method
+/// Compute truncated SVD using power iteration method.
+/// Uses GPU acceleration when `gpu` feature is enabled and context is available.
 fn compute_svd_truncated(
     matrix: &ArrayView<f32, ndarray::Ix2>,
     rank: usize,
@@ -455,38 +456,40 @@ fn compute_svd_truncated(
         ));
     }
 
-    // Initialize U, S, Vt matrices
+    // Try GPU path first (feature-gated)
+    #[cfg(feature = "gpu")]
+    {
+        let owned = matrix.to_owned();
+        match crate::gpu_ops::compute_svd_truncated_gpu(&owned, rank) {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                tracing::debug!("GPU SVD failed, falling back to CPU: {e}");
+            }
+        }
+    }
+
+    // CPU fallback: power iteration with ndarray
     let mut u = Array::zeros((m, actual_rank));
     let mut s = Vec::with_capacity(actual_rank);
     let mut vt = Array::zeros((actual_rank, n));
-
-    // Use power iteration to compute dominant singular vectors
     let mut temp_matrix = matrix.to_owned();
 
     for i in 0..actual_rank {
-        // Power iteration for singular value
         let mut v = Array::zeros(n);
-        for i in 0..n {
-            v[i] = rand::random::<f32>() * 2.0 - 1.0; // Random value between -1 and 1
+        for j in 0..n {
+            v[j] = rand::random::<f32>() * 2.0 - 1.0;
         }
-        let mut sigma = 0.0;
-
-        // Normalize v
         let v_norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         if v_norm > 1e-10 {
             v.mapv_inplace(|x| x / v_norm);
         }
 
-        // Power iteration
         for _ in 0..50 {
-            // v = A^T * u
             let u_vec = temp_matrix.dot(&v);
-            sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+            let sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
 
             if sigma > 1e-10 {
                 v = temp_matrix.t().dot(&u_vec) / sigma;
-
-                // Normalize v
                 let v_norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
                 if v_norm > 1e-10 {
                     v.mapv_inplace(|x| x / v_norm);
@@ -494,14 +497,11 @@ fn compute_svd_truncated(
             }
         }
 
-        // Compute u vector
         let u_vec = temp_matrix.dot(&v);
-        sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         if sigma > 1e-10 {
             let u_normalized = u_vec / sigma;
-
-            // Store results
             for j in 0..m {
                 u[[j, i]] = u_normalized[j];
             }
@@ -510,22 +510,20 @@ fn compute_svd_truncated(
                 vt[[i, j]] = v[j];
             }
 
-            // Deflate matrix for next iteration
             let mut outer_product = Array::zeros((m, n));
-            for i in 0..m {
-                for j in 0..n {
-                    outer_product[[i, j]] = u_normalized[i] * v[j];
+            for r in 0..m {
+                for c in 0..n {
+                    outer_product[[r, c]] = u_normalized[r] * v[c];
                 }
             }
             temp_matrix = temp_matrix - &(outer_product * sigma);
         } else {
-            // If sigma is too small, use random values
-            for j in 0..m {
-                u[[j, i]] = rand::random::<f32>() * 0.01;
+            for r in 0..m {
+                u[[r, i]] = rand::random::<f32>() * 0.01;
             }
             s.push(0.01);
-            for j in 0..n {
-                vt[[i, j]] = rand::random::<f32>() * 0.01;
+            for r in 0..n {
+                vt[[i, r]] = rand::random::<f32>() * 0.01;
             }
         }
     }

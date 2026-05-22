@@ -9,9 +9,12 @@ use super::tape;
 
 static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// Global flag: when set, Tensor::from_slice / zeros / ones create GPU-resident tensors
-/// so that GPU ops (matmul, add, etc.) stay on GPU instead of falling back to CPU.
-/// Set by Trainer::prepare() when GPU training is enabled.
+/// Global flag: when set, Tensor::new / from_slice / zeros / ones create GPU-resident
+/// tensors so that GPU ops (matmul, add, etc.) stay on GPU instead of falling back to CPU.
+/// Defaults to true when gpu feature is compiled.
+#[cfg(feature = "gpu")]
+static GPU_AUTO_CREATE: AtomicBool = AtomicBool::new(true);
+#[cfg(not(feature = "gpu"))]
 static GPU_AUTO_CREATE: AtomicBool = AtomicBool::new(false);
 
 /// Enable automatic GPU tensor creation for from_slice / zeros / ones.
@@ -56,6 +59,23 @@ struct TensorInner {
 
 impl Tensor {
     pub fn new(data: ArrayD<f32>) -> Self {
+        #[cfg(feature = "gpu")]
+        if is_gpu_auto_create() {
+            if let Ok(_ctx) = crate::gpu::GpuContext::global() {
+                if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&data) {
+                    let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    return Tensor(Arc::new(Mutex::new(TensorInner {
+                        id,
+                        storage: Storage::Gpu(gpu_t),
+                        device: Device::Gpu(0),
+                        dtype: DType::F32,
+                        grad: None,
+                        requires_grad: false,
+                        grad_fn_idx: None,
+                    })));
+                }
+            }
+        }
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(Mutex::new(TensorInner {
             id,

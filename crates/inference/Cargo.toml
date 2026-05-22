@@ -47,6 +47,7 @@ libc = "0.2"
 nexora-autograd = { path = "../autograd" }
 
 [features]
+default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]
 
 [dev-dependencies]

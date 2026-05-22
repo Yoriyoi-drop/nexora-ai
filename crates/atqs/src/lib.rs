@@ -5,6 +5,8 @@ pub mod config;
 pub mod core;
 pub mod error;
 pub mod foundation;
+#[cfg(feature = "gpu")]
+pub mod gpu_ops;
 pub mod prelude;
 pub mod profiling;
 pub mod tensor;

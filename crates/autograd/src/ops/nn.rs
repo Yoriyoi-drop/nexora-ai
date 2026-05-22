@@ -1,4 +1,4 @@
-use ndarray::ArrayD;
+use ndarray::{s, ArrayD};
 
 use super::super::tensor::Tensor;
 use super::math;
@@ -953,6 +953,89 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
     )
 }
 
+fn attention_backward_cpu(
+    grad: &ArrayD<f32>,
+    q_arr: &ArrayD<f32>,
+    k_arr: &ArrayD<f32>,
+    v_arr: &ArrayD<f32>,
+    scale: f32,
+) -> Vec<ArrayD<f32>> {
+    let batch = q_arr.shape()[0];
+    let heads = q_arr.shape()[1];
+    let seq = q_arr.shape()[2];
+    let dim = q_arr.shape()[3];
+
+    let mut dq = ArrayD::zeros(vec![batch, heads, seq, dim]);
+    let mut dk = ArrayD::zeros(vec![batch, heads, seq, dim]);
+    let mut dv = ArrayD::zeros(vec![batch, heads, seq, dim]);
+
+    let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).unwrap();
+
+    for b in 0..batch {
+        for h in 0..heads {
+            let q_h = q_arr.slice(s![b, h, .., ..]);
+            let k_h = k_arr.slice(s![b, h, .., ..]);
+            let v_h = v_arr.slice(s![b, h, .., ..]);
+            let g_h = grad_4d.slice(s![b, h, .., ..]);
+
+            // 1. Scores = Q @ K^T / scale: [S, S]
+            let scores = q_h.dot(&k_h.t()) / scale;
+
+            // 2. Causal softmax: P[i,j] = exp(S[i,j]) / sum_{k<=i} exp(S[i,k])
+            let mut p = ndarray::Array2::<f32>::zeros((seq, seq));
+            for i in 0..seq {
+                let mut max_val = f32::NEG_INFINITY;
+                for j in 0..=i {
+                    max_val = max_val.max(scores[[i, j]]);
+                }
+                let mut sum_exp = 0.0;
+                for j in 0..=i {
+                    let e = (scores[[i, j]] - max_val).exp();
+                    p[[i, j]] = e;
+                    sum_exp += e;
+                }
+                if sum_exp > 0.0 {
+                    for j in 0..=i {
+                        p[[i, j]] /= sum_exp;
+                    }
+                }
+            }
+
+            // 3. dV = P^T @ dO: [S, D]
+            let p_t = p.t();
+            let dv_h = p_t.dot(&g_h);
+            dv.slice_mut(s![b, h, .., ..]).assign(&dv_h);
+
+            // 4. dP = dO @ V^T: [S, S]
+            let v_t = v_h.t();
+            let dp_h = g_h.dot(&v_t);
+
+            // 5. dS = P * (dP - sum(P*dP, axis=-1))
+            let mut ds_h = ndarray::Array2::<f32>::zeros((seq, seq));
+            for i in 0..seq {
+                let mut sum_p_dp = 0.0;
+                for j in 0..=i {
+                    sum_p_dp += p[[i, j]] * dp_h[[i, j]];
+                }
+                for j in 0..=i {
+                    ds_h[[i, j]] = p[[i, j]] * (dp_h[[i, j]] - sum_p_dp);
+                }
+            }
+
+            // 6. dQ = dS @ K / scale: [S, D]
+            let dq_h = ds_h.dot(&k_h) / scale;
+            dq.slice_mut(s![b, h, .., ..]).assign(&dq_h);
+
+            // 7. dK = dS^T @ Q / scale: [S, D]
+            let ds_t = ds_h.t();
+            let dk_h = ds_t.dot(&q_h) / scale;
+            dk.slice_mut(s![b, h, .., ..]).assign(&dk_h);
+        }
+    }
+
+    vec![dq.into_dyn(), dk.into_dyn(), dv.into_dyn()]
+}
+
 pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tensor {
     #[cfg(feature = "gpu")]
     {
@@ -970,21 +1053,25 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                 let id = next_tensor_id();
                                 return Tensor::from_gpu(gpu_result, id, false);
                             }
+                            let q_data = q.data();
+                            let k_data = k.data();
+                            let v_data = v.data();
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![q.clone(), k.clone(), v.clone()],
                                 vec![
-                                    q.data(),
-                                    k.data(),
-                                    v.data(),
+                                    q_data.clone(),
+                                    k_data.clone(),
+                                    v_data.clone(),
                                     ArrayD::from_elem(vec![1], scale),
                                 ],
-                                vec![],
-                                Box::new(move |_grad, saved| {
+                                vec![gq.clone(), gk.clone(), gv.clone()],
+                                Box::new(move |grad, saved| {
                                     let qs = &saved[0];
                                     let ks = &saved[1];
                                     let vs = &saved[2];
-                                    vec![qs.mapv(|_| 0.0), ks.mapv(|_| 0.0), vs.mapv(|_| 0.0)]
+                                    let s = saved[3].iter().copied().next().unwrap_or(1.0);
+                                    attention_backward_cpu(grad, qs, ks, vs, s)
                                 }),
                                 None,
                             );
@@ -1005,13 +1092,11 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
         3,
         "causal_attention: q must be [batch, heads, dim]"
     );
-    let _batch = q_data.shape()[0];
-    let _heads = q_data.shape()[1];
-    let _dim = q_data.shape()[2];
-    let _seq_len = q_data.shape()[1]; // simplified: single head
+    let batch = q_data.shape()[0];
+    let heads = q_data.shape()[1];
+    let dim = q_data.shape()[2];
+    let seq = heads;
 
-    let _scores = &q_data * &k_data.mapv(|x| x / scale);
-    // causal mask: applied manually per position
     let output_data = v_data.clone();
 
     let requires_grad = q.requires_grad() || k.requires_grad() || v.requires_grad();
@@ -1033,17 +1118,18 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
         result,
         vec![q.clone(), k.clone(), v.clone()],
         saved,
-        Box::new(move |_grad, saved| {
+        Box::new(move |grad, saved| {
             let q_saved = &saved[0];
             let k_saved = &saved[1];
             let v_saved = &saved[2];
-            let _scale = saved[3].iter().copied().next().unwrap_or(1.0);
+            let s = saved[3].iter().copied().next().unwrap_or(1.0);
 
-            let dq = q_saved.mapv(|_| 0.0f32);
-            let dk = k_saved.mapv(|_| 0.0f32);
-            let dv = v_saved.mapv(|_| 0.0f32);
+            let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
+            let q_4d = q_saved.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
+            let k_4d = k_saved.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
+            let v_4d = v_saved.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
 
-            vec![dq, dk, dv]
+            attention_backward_cpu(&grad_4d, &q_4d, &k_4d, &v_4d, s)
         }),
     )
 }

@@ -62,6 +62,9 @@ impl Sampler {
         Self {
             rng: Some(rand::rngs::StdRng::seed_from_u64(seed)),
             config: cfg,
+            #[cfg(feature = "gpu")]
+            use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
+            #[cfg(not(feature = "gpu"))]
             use_gpu: false,
         }
     }

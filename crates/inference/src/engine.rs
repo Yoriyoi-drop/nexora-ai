@@ -47,9 +47,9 @@ impl Default for InferenceConfig {
             enable_streaming: true,
             default_timeout_seconds: 30,
             metrics_interval_seconds: 60,
-            use_gpu: false,
+            use_gpu: true,
             #[cfg(feature = "gpu")]
-            use_gpu_cache: false,
+            use_gpu_cache: true,
         }
     }
 }

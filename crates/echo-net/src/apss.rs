@@ -71,7 +71,7 @@ impl AdaptivePhaseSeparationStabilizer {
             conflict_penalty: 2.0,
             target_phase_range: (-PI, PI),
             normalization_strength: 0.1,
-            use_gpu: false,
+            use_gpu: true,
         })
     }
 

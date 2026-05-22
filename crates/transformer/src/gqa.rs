@@ -21,6 +21,7 @@ pub(crate) struct GqaGpuWeights {
 /// Stores K/V directly on GPU without CPU round-trip.
 /// Pre-allocated to max_seq_len with append via GPU buffer copy.
 #[cfg(feature = "gpu")]
+#[derive(Debug)]
 pub struct GpuKVCacheEntry {
     pub k: nexora_autograd::gpu::GpuTensor,  // [capacity, kv_heads, head_dim]
     pub v: nexora_autograd::gpu::GpuTensor,  // [capacity, kv_heads, head_dim]

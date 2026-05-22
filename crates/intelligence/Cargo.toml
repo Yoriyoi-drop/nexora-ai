@@ -57,8 +57,15 @@ crossterm = "0.27"
 tui-input = "0.8"
 arboard = "3.3"  # For clipboard access
 
+# GPU acceleration
+nexora-autograd = { path = "../autograd", optional = true }
+
 # SPARO specific dependencies
 # Note: These are placeholder packages - implement custom logic instead
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]
 
 [lib]
 name = "nexora_model"

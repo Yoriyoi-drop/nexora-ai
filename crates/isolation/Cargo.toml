@@ -8,6 +8,7 @@ description = "Nexora AI — Multi-layered cognitive & infrastructure isolation 
 
 [dependencies]
 nexora-core = { path = "../core" }
+nexora-autograd = { path = "../autograd", optional = true }
 
 tokio = { workspace = true, features = ["sync", "process", "rt"] }
 serde.workspace = true
@@ -21,3 +22,7 @@ async-trait.workspace = true
 rand.workspace = true
 futures.workspace = true
 regex.workspace = true
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]

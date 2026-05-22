@@ -9,3 +9,8 @@ serde.workspace = true
 thiserror.workspace = true
 ndarray.workspace = true
 rand.workspace = true
+nexora-autograd = { path = "../autograd", optional = true }
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]

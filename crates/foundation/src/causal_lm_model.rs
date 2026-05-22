@@ -88,7 +88,7 @@ impl CausalLmModel {
             transformer_config: Arc::new(RwLock::new(transformer_config)),
             initialized: Arc::new(RwLock::new(false)),
             statistics: Arc::new(RwLock::new(ModelStatistics::default())),
-            use_gpu: Arc::new(RwLock::new(false)),
+            use_gpu: Arc::new(RwLock::new(true)),
         }
     }
 

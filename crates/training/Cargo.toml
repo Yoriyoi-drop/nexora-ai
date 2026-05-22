@@ -15,4 +15,5 @@ anyhow.workspace = true
 bytemuck = "1"
 
 [features]
+default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]

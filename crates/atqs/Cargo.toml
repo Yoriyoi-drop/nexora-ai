@@ -16,3 +16,10 @@ async-trait.workspace = true
 fastrand = "2.0"
 serde_yaml = "0.9"
 serde_json.workspace = true
+
+# Optional GPU acceleration via autograd's wgpu backend
+nexora-autograd = { path = "../autograd", optional = true }
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]

@@ -217,7 +217,7 @@ impl InverseSpectralCollapse {
             collapse_latency: 0.0,
             output_quality: 0.0,
             spectral_fidelity: 0.0,
-            use_gpu: false,
+            use_gpu: true,
         })
     }
 

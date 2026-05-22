@@ -6,8 +6,13 @@ description = "Hierarchical Latent Diffusion with Vision-Text Alignment using Tr
 
 [dependencies]
 nexora-atqs = { path = "../atqs" }
+nexora-autograd = { path = "../autograd", optional = true }
 serde.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]

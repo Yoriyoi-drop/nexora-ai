@@ -42,6 +42,8 @@ pub mod gpu_sedc;
 #[cfg(feature = "gpu")]
 pub mod gpu_sampler;
 #[cfg(feature = "gpu")]
+pub mod persistent_cache;
+#[cfg(feature = "gpu")]
 pub use gpu_batch::GpuCommandBatch;
 #[cfg(feature = "gpu")]
 pub use gpu_bench::{gflops, matmul_flops, MatmulBatchTiming, MatmulGflopsFloor};

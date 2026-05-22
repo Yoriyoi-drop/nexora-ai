@@ -730,7 +730,11 @@ fn train_batch_gpu(
         // Matikan internal clipping di GpuAdam (sekarang dilakukan secara eksternal)
         let internal_max_norm = gpu_opt.max_grad_norm.take();
         let clip_result = if let Some(max_norm) = internal_max_norm.or(config.max_grad_norm) {
-            ctx.clip_gradients_gpu(&grad_refs, max_norm)?
+            ctx.clip_gradients_gpu(&grad_refs, max_norm).unwrap_or(GpuGradClipResult {
+                was_clipped: false,
+                scale_factor: 1.0,
+                norm: 0.0,
+            })
         } else {
             GpuGradClipResult {
                 was_clipped: false,

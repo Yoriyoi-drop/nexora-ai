@@ -58,7 +58,7 @@ openblas-src = "0.10.16"
 mimalloc = { version = "0.1", optional = true }
 
 [features]
-default = []
+default = ["gpu"]
 production = ["mimalloc"]
 gpu = [
     "nexora-deeplearning/gpu",

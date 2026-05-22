@@ -12,6 +12,10 @@ pub enum Device {
 
 impl Default for Device {
     fn default() -> Self {
+        #[cfg(feature = "gpu")]
+        if crate::gpu::GpuContext::is_available() {
+            return Device::Gpu(0);
+        }
         Device::Cpu
     }
 }

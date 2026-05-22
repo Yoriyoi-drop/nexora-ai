@@ -15,6 +15,11 @@ parking_lot.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
 rand.workspace = true
+nexora-autograd = { path = "../autograd", optional = true }
+
+[features]
+default = ["gpu"]
+gpu = ["nexora-autograd/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true
