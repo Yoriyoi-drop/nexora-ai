@@ -38,7 +38,10 @@ pub trait PlanningStrategy: Send + Sync {
     fn strategy_name(&self) -> &str;
 }
 
-/// Default hierarchical planning strategy
+/// PLACEHOLDER: This is a prototype hierarchical planner.
+/// It does NOT perform actual AI planning. It is a sentence-splitting
+/// template that simulates plan structure for testing purposes.
+/// TODO: Replace with actual task-planning engine.
 pub struct HierarchicalPlanner;
 
 #[async_trait]
@@ -106,6 +109,9 @@ impl PlanningStrategy for HierarchicalPlanner {
             return Ok(false);
         }
         if plan.dependencies.is_empty() {
+            return Ok(false);
+        }
+        if plan.steps.iter().any(|s| s.action.is_empty()) {
             return Ok(false);
         }
         Ok(true)

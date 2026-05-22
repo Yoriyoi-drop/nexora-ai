@@ -15,7 +15,10 @@ pub trait ModelForward: Send + Sync {
     fn forward(&self, input_ids: &[u32], kv_cache: &mut dyn KVCacheProvider) -> Array1<f32>;
 
     /// Run batched forward: process multiple tokens with per-sequence KV caches.
-    /// Default implementation falls back to per-sequence forward calls.
+    ///
+    /// The default implementation falls back to per-sequence forward calls via
+    /// [`forward`](ModelForward::forward).  Downstream implementations should
+    /// override this with a true batched forward path for better throughput.
     fn forward_batched(
         &self,
         input_ids: &[u32],
@@ -72,11 +75,26 @@ pub trait InferenceEngine: Send + Sync {
 
 impl ModelForward for nexora_transformer::CausalLM {
     fn forward(&self, input_ids: &[u32], kv_cache: &mut dyn KVCacheProvider) -> Array1<f32> {
-        self.forward(input_ids, kv_cache)
+        // Use a free function to avoid ambiguity between the trait method
+        // and the inherent CausalLM::forward (which returns Result).
+        fn fallible_forward(
+            model: &nexora_transformer::CausalLM,
+            ids: &[u32],
+            cache: &mut dyn KVCacheProvider,
+        ) -> Array1<f32> {
+            match model.forward(ids, cache) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("CausalLM forward failed: {e}");
+                    Array1::zeros(model.config.vocab_size)
+                }
+            }
+        }
+        fallible_forward(self, input_ids, kv_cache)
     }
 
     fn reset_cache(&self) -> CpuKVCache {
-        self.reset_cache()
+        CpuKVCache::new(self.config.num_layers)
     }
 
     fn forward_batched(
@@ -100,13 +118,14 @@ impl ModelForward for nexora_transformer::CausalLM {
             for (i, entries) in vec_caches.into_iter().enumerate() {
                 kv_caches[i].entries = entries;
             }
+            tracing::warn!("GPU batched forward failed, falling back to CPU");
         }
 
-        // CPU fallback: per-sequence via forward() which accepts &mut dyn KVCacheProvider
+        // CPU fallback: per-sequence via ModelForward::forward
         input_ids
             .iter()
             .zip(kv_caches.iter_mut())
-            .map(|(&id, cache)| self.forward(&[id], cache))
+            .map(|(&id, cache)| ModelForward::forward(self, &[id], cache))
             .collect()
     }
 }

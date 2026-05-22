@@ -4411,6 +4411,10 @@ pub enum GpuDtype {
     Bf16,
 }
 
+// SAFETY: `GpuTensor` contains only a `Vec<usize>`, a `wgpu::Buffer`, and a
+// `GpuDtype` enum. `wgpu::Buffer` is `Send + Sync` as it is just a handle to
+// a GPU resource. Moving or sharing `GpuTensor` across threads is safe because
+// all GPU operations are sequenced through the `GpuContext`'s queue.
 unsafe impl Send for GpuTensor {}
 unsafe impl Sync for GpuTensor {}
 

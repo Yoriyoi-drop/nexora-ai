@@ -2,11 +2,13 @@ use std::time::Duration;
 
 use ndarray::{Array1, Array2};
 use rand::Rng;
+use tracing::warn;
 
 use super::block::TransformerBlock;
 use super::config::TransformerConfig;
 use super::gqa::{KVCacheEntry, KVCacheProvider, CpuKVCache, PagedCacheReader};
 use super::rope::RoPE;
+use crate::TransformerResult;
 
 fn softmax(logits: &Array1<f32>) -> Array1<f32> {
     let max_val = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -24,19 +26,26 @@ fn softmax(logits: &Array1<f32>) -> Array1<f32> {
 #[cfg(feature = "gpu")]
 fn sample_token_gpu(logits: &Array1<f32>, temperature: f32, top_k: usize, top_p: f32, seed: u64) -> u32 {
     use nexora_autograd::gpu::{GpuContext, GpuTensor};
-    if let Ok(ctx) = GpuContext::global() {
-        let shape = vec![1, logits.len()];
-        let cpu = ndarray::ArrayD::from_shape_vec(shape.clone(), logits.to_vec()).unwrap();
-        let gpu = GpuTensor::from_cpu(&cpu).unwrap();
-        match ctx.gpu_sample(&gpu, temperature, top_k as u32, top_p, seed) {
-            Ok(result) => {
-                let raw = result.to_cpu_raw_bytes();
-                u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]])
-            }
-            Err(_) => sample_token(logits, temperature, top_k),
+    let fallback = || sample_token(logits, temperature, top_k);
+    let ctx = match GpuContext::global() {
+        Ok(c) => c,
+        Err(_) => return fallback(),
+    };
+    let shape = vec![1, logits.len()];
+    let cpu = match ndarray::ArrayD::from_shape_vec(shape.clone(), logits.to_vec()) {
+        Ok(c) => c,
+        Err(_) => return fallback(),
+    };
+    let gpu = match GpuTensor::from_cpu(&cpu) {
+        Ok(g) => g,
+        Err(_) => return fallback(),
+    };
+    match ctx.gpu_sample(&gpu, temperature, top_k as u32, top_p, seed) {
+        Ok(result) => {
+            let raw = result.to_cpu_raw_bytes();
+            u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]])
         }
-    } else {
-        sample_token(logits, temperature, top_k)
+        Err(_) => fallback(),
     }
 }
 
@@ -219,16 +228,16 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         kv_cache: &mut dyn KVCacheProvider,
-    ) -> Array1<f32> {
+    ) -> TransformerResult<Array1<f32>> {
         #[cfg(feature = "gpu")]
         if let Ok(logits) = self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
-            return logits;
+            return Ok(logits);
         }
 
         // CPU fallback: extract inner Vec<KVCacheEntry> from CpuKVCache
         let entries = kv_cache
             .as_cpu_entries()
-            .expect("CPU forward requires CpuKVCache");
+            .ok_or_else(|| TransformerError::Implementation("CPU forward requires CpuKVCache".to_string()))?;
         self.forward_cpu_impl(input_ids, entries)
     }
 
@@ -237,19 +246,18 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         kv_cache: &mut Vec<KVCacheEntry>,
-    ) -> Array1<f32> {
+    ) -> TransformerResult<Array1<f32>> {
         let batch_size = 1;
 
         let mut h = Array2::zeros((batch_size, self.config.hidden_size));
 
         if let Some(&token_id) = input_ids.last() {
             let tid = token_id as usize;
-            assert!(
-                tid < self.config.vocab_size,
-                "Token ID {} out of range [0, {})",
-                tid,
-                self.config.vocab_size
-            );
+            if tid >= self.config.vocab_size {
+                return Err(TransformerError::Implementation(
+                    format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
+                ));
+            }
             h.row_mut(0).assign(&self.token_embedding.row(tid));
         }
 
@@ -276,9 +284,7 @@ impl CausalLM {
 
         h = self.norm.forward(&h);
 
-        let logits = h.row(0).dot(&self.lm_head.t());
-
-        logits
+        Ok(h.row(0).dot(&self.lm_head.t()))
     }
 
     pub fn reset_cache(&self) -> CpuKVCache {
@@ -292,18 +298,17 @@ impl CausalLM {
         input_ids: &[u32],
         kv_cache: &mut dyn PagedCacheReader,
         seq_id: u64,
-    ) -> Array1<f32> {
+    ) -> TransformerResult<Array1<f32>> {
         let batch_size = 1;
         let mut h = Array2::zeros((batch_size, self.config.hidden_size));
 
         if let Some(&token_id) = input_ids.last() {
             let tid = token_id as usize;
-            assert!(
-                tid < self.config.vocab_size,
-                "Token ID {} out of range [0, {})",
-                tid,
-                self.config.vocab_size
-            );
+            if tid >= self.config.vocab_size {
+                return Err(TransformerError::Implementation(
+                    format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
+                ));
+            }
             h.row_mut(0).assign(&self.token_embedding.row(tid));
         }
 
@@ -332,7 +337,7 @@ impl CausalLM {
 
         h = self.norm.forward(&h);
 
-        h.row(0).dot(&self.lm_head.t())
+        Ok(h.row(0).dot(&self.lm_head.t()))
     }
 
     pub fn parameter_count(&self) -> usize {
@@ -501,381 +506,10 @@ impl CausalLM {
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
         let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().unwrap();
+        let gw = gpu_weights.as_ref().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
+        })?;
 
-        let mut h = match input_ids.last() {
-            Some(&token_id) => {
-                let tid = token_id as usize;
-                let row_bytes = (hidden_size * 4) as u64;
-                let offset = (tid * hidden_size * 4) as u64;
-                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
-                    Ok(())
-                })?;
-                h
-            }
-            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
-        };
-
-        for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu_with_rope_gpu(&h, kv_cache, layer_idx, cos_gpu, sin_gpu)?;
-        }
-
-        h = self.norm.forward_gpu(&h)?;
-
-        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
-
-        let logits_cpu = logits_gpu.to_cpu();
-        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
-        Ok(Array1::from_vec(logits_flat))
-    }
-
-    /// GPU forward pass using GPU-resident KV cache.
-    /// No CPU round-trip for K/V operations — eliminates O(n²) data transfer.
-    #[cfg(feature = "gpu")]
-    pub fn forward_gpu_with_cache(
-        &self,
-        input_ids: &[u32],
-        cache: &mut [super::gqa::GpuKVCacheEntry],
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-        self.preupload_weights_gpu()?;
-
-        let ctx = GpuContext::global()?;
-        let batch_size = 1;
-        let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().unwrap();
-
-        let mut h = match input_ids.last() {
-            Some(&token_id) => {
-                let tid = token_id as usize;
-                let row_bytes = (hidden_size * 4) as u64;
-                let offset = (tid * hidden_size * 4) as u64;
-                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
-                    Ok(())
-                })?;
-                h
-            }
-            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
-        };
-
-        let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
-        let half = self.config.head_dim() / 2;
-        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-            self.precomputed_cos
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
-        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-            self.precomputed_sin
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
-
-        // Upload cos/sin to GPU ONCE — reused across all layers
-        let cos_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, half], cos_slice.to_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-        )?;
-        let sin_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, half], sin_slice.to_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-        )?;
-
-        for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu_with_cache_precomputed_rope(&h, cache, layer_idx, &cos_gpu, &sin_gpu)?;
-        }
-
-        h = self.norm.forward_gpu(&h)?;
-
-        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
-
-        let logits_cpu = logits_gpu.to_cpu();
-        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
-        Ok(Array1::from_vec(logits_flat))
-    }
-
-    /// GPU forward via [`KVCacheProvider`].
-    /// Routes to `GpuKVCache` for true zero-copy GPU→GPU cache,
-    /// or auto-converts `CpuKVCache` to GPU cache to avoid O(n²) round-trip.
-    #[cfg(feature = "gpu")]
-    pub fn forward_gpu_with_cache_provider(
-        &self,
-        input_ids: &[u32],
-        kv_cache: &mut dyn KVCacheProvider,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-        let ctx = GpuContext::global()?;
-
-        // Pure GPU path — no CPU round-trip for K/V
-        if let Some(gpu_entries) = kv_cache.as_gpu_entries() {
-            return self.forward_gpu_with_cache(input_ids, gpu_entries);
-        }
-
-        let num_layers = self.config.num_layers;
-        let n_kv_heads = self.config.num_kv_heads;
-        let head_dim = self.config.head_dim();
-        let max_seq = self.config.max_seq_len;
-
-        // Get or create GPU-side cache mirroring the CpuKVCache
-        let cpu_entries = kv_cache
-            .as_cpu_entries()
-            .ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported(
-                "forward_gpu_with_cache_provider needs CpuKVCache or GpuKVCache".into(),
-            ))?;
-
-        let mut cache_guard = self.gpu_cache.lock();
-        if cache_guard.is_none() {
-            let mut gpu_entries: Vec<super::gqa::GpuKVCacheEntry> =
-                (0..num_layers)
-                    .map(|_| super::gqa::GpuKVCacheEntry::new(n_kv_heads, head_dim, max_seq))
-                    .collect();
-
-            // Upload existing CPU K/V to GPU (one-time O(seq_len) cost)
-            for layer_idx in 0..num_layers {
-                if layer_idx < cpu_entries.len() && cpu_entries[layer_idx].seq_len() > 0 {
-                    let ce = &cpu_entries[layer_idx];
-                    let seq = ce.seq_len();
-                    let k_cpu = ArrayD::from_shape_vec(
-                        vec![seq, n_kv_heads, head_dim],
-                        ce.k.clone(),
-                    )
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-                    let v_cpu = ArrayD::from_shape_vec(
-                        vec![seq, n_kv_heads, head_dim],
-                        ce.v.clone(),
-                    )
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-
-                    let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
-                    let v_gpu = GpuTensor::from_cpu(&v_cpu)?;
-                    let bytes = (seq * n_kv_heads * head_dim * 4) as u64;
-
-                    ctx.batch_dispatch(|enc| {
-                        enc.copy_buffer_to_buffer(
-                            k_gpu.buffer(),
-                            0,
-                            gpu_entries[layer_idx].k.buffer(),
-                            0,
-                            bytes,
-                        );
-                        enc.copy_buffer_to_buffer(
-                            v_gpu.buffer(),
-                            0,
-                            gpu_entries[layer_idx].v.buffer(),
-                            0,
-                            bytes,
-                        );
-                        Ok(())
-                    })?;
-
-                    gpu_entries[layer_idx].seq_len = seq;
-                }
-            }
-
-            *cache_guard = Some(gpu_entries);
-        }
-
-        let gpu_entries = cache_guard.as_mut().unwrap();
-
-        // GPU forward with GPU-resident cache — no K/V round-trip
-        let result = self.forward_gpu_with_cache(input_ids, gpu_entries)?;
-
-        // Sync back: read only the NEW token's K/V from GPU → CPU cache (O(1) per step)
-        let kv_elems = n_kv_heads * head_dim;
-        let token_bytes = (kv_elems * 4) as u64;
-
-        for layer_idx in 0..num_layers {
-            let gpu_entry = &gpu_entries[layer_idx];
-            let last_idx = gpu_entry.seq_len.wrapping_sub(1);
-            let byte_off = (last_idx * kv_elems * 4) as u64;
-
-            let staging_k = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("kv_sync_back_k"),
-                size: token_bytes,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let staging_v = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("kv_sync_back_v"),
-                size: token_bytes,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-
-            ctx.batch_dispatch(|enc| {
-                enc.copy_buffer_to_buffer(
-                    gpu_entry.k.buffer(),
-                    byte_off,
-                    &staging_k,
-                    0,
-                    token_bytes,
-                );
-                enc.copy_buffer_to_buffer(
-                    gpu_entry.v.buffer(),
-                    byte_off,
-                    &staging_v,
-                    0,
-                    token_bytes,
-                );
-                Ok(())
-            })?;
-
-            ctx.sync();
-
-            let read_back = |staging: &wgpu::Buffer| -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
-                let slice = staging.slice(..);
-                let (tx, rx) = std::sync::mpsc::channel();
-                slice.map_async(
-                    wgpu::MapMode::Read,
-                    move |r| {
-                        let _ = tx.send(r);
-                    },
-                );
-                ctx.device.poll(wgpu::PollType::Wait {
-                    submission_index: None,
-                    timeout: Some(Duration::from_secs(30)),
-                });
-                rx.recv_timeout(Duration::from_secs(30))
-                    .map_err(|_| nexora_autograd::gpu::GpuError::Timeout("KV cache readback timed out after 30s".into()))?
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}")))?;
-                let mapped = slice.get_mapped_range();
-                let out: Vec<f32> = mapped
-                    .chunks_exact(4)
-                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect();
-                staging.unmap();
-                Ok(out)
-            };
-
-            let new_k = read_back(&staging_k)?;
-            let new_v = read_back(&staging_v)?;
-
-            // Append to CPU cache
-            if layer_idx < cpu_entries.len() {
-                let cpu_entry = &mut cpu_entries[layer_idx];
-                cpu_entry.k.extend_from_slice(&new_k);
-                cpu_entry.v.extend_from_slice(&new_v);
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Generate using GPU with pre-uploaded cos/sin.
-    /// cos/sin diupload SEKALI ke GPU di awal, lalu slice_tensor GPU-side copy per step.
-    /// Eliminates N_layers × 2 CPU→GPU uploads per step → 0 uploads.
-    #[cfg(feature = "gpu")]
-    fn generate_gpu_impl(
-        &self,
-        prompt_ids: &[u32],
-        max_tokens: usize,
-        temperature: f32,
-        top_k: usize,
-    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        use nexora_autograd::gpu::GpuContext;
-
-        let ctx = match GpuContext::global() {
-            Ok(c) => c,
-            Err(_) => return self.generate(prompt_ids, max_tokens, temperature, top_k),
-        };
-
-        // Create GPU-resident cache for all layers (zero CPU round-trip)
-        let mut gpu_cache: Vec<super::gqa::GpuKVCacheEntry> = (0..self.config.num_layers)
-            .map(|_| {
-                super::gqa::GpuKVCacheEntry::new(
-                    self.config.num_kv_heads,
-                    self.config.head_dim(),
-                    self.config.max_seq_len,
-                )
-            })
-            .collect();
-
-        ctx.flush();
-
-        // Prefill prompt tokens
-        for &token_id in prompt_ids {
-            if self.forward_gpu_with_cache(&[token_id], &mut gpu_cache).is_err() {
-                let (tokens, _) = self.generate(prompt_ids, max_tokens, temperature, top_k);
-                return (tokens, Vec::new());
-            }
-        }
-
-        let mut output = Vec::new();
-        let mut last_id = *prompt_ids.last().unwrap_or(&0);
-
-        for _ in 0..max_tokens {
-            match self.forward_gpu_with_cache(&[last_id], &mut gpu_cache) {
-                Ok(logits) => {
-                    let next_id = sample_token_gpu(&logits, temperature, top_k, 0.0, 12345);
-                    output.push(next_id);
-                    if next_id == 0 { break; }
-                    last_id = next_id;
-                }
-                Err(_) => {
-                    let logits = self.forward(&[last_id], &mut self.reset_cache());
-                    let next_id = sample_token(&logits, temperature, top_k);
-                    output.push(next_id);
-                    if next_id == 0 { break; }
-                    last_id = next_id;
-                }
-            }
-        }
-
-        // One-time GPU readback: convert GpuKVCacheEntry -> KVCacheEntry
-        let cpu_cache: Vec<KVCacheEntry> = gpu_cache
-            .iter()
-            .map(|entry| {
-                let k_cpu: ndarray::ArrayD<f32> = entry.k_view().to_cpu();
-                let v_cpu: ndarray::ArrayD<f32> = entry.v_view().to_cpu();
-                let kv_dim = entry.kv_heads * entry.head_dim;
-                KVCacheEntry {
-                    k: k_cpu.into_iter().collect(),
-                    v: v_cpu.into_iter().collect(),
-                    kv_dim,
-                }
-            })
-            .collect();
-
-        (output, cpu_cache)
-    }
-
-    pub fn memory_bytes(&self) -> usize {
-        self.parameter_count() * 4
-    }
-
-    /// GPU forward pass: returns logits on CPU.
-    /// Handles token embedding, all transformer blocks, final norm + lm_head on GPU.
-    /// Falls back to CPU if GPU is unavailable.
-    #[cfg(feature = "gpu")]
-    pub fn forward_gpu(
-        &self,
-        input_ids: &[u32],
-        kv_cache: &mut Vec<KVCacheEntry>,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-        self.preupload_weights_gpu()?;
-
-        let ctx = GpuContext::global()?;
-        let batch_size = 1;
-        let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().unwrap();
-
-        // 1. Token embedding: buffer-to-buffer copy of ONE row from pre-uploaded embedding tensor.
-        //    No CPU→GPU upload — the entire embedding table lives on GPU permanently.
         let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
@@ -950,7 +584,9 @@ impl CausalLM {
         let head_dim = self.config.head_dim();
         let max_seq = self.config.max_seq_len;
         let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().unwrap();
+        let gw = gpu_weights.as_ref().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
+        })?;
 
         if batch_size == 0 {
             return Ok(Vec::new());
@@ -1136,14 +772,20 @@ impl CausalLM {
         }
 
         for &token_id in prompt_ids {
-            self.forward(&[token_id], &mut cache);
+            if self.forward(&[token_id], &mut cache).is_err() {
+                tracing::warn!("Forward failed during prefill for token {}", token_id);
+            }
         }
 
         let mut output = Vec::new();
         let mut last_id = *prompt_ids.last().unwrap_or(&0);
 
         for _ in 0..max_tokens {
-            let logits = self.forward(&[last_id], &mut cache);
+            let logits = self.forward(&[last_id], &mut cache)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Forward failed during generation: {e}");
+                    Array1::zeros(self.config.vocab_size)
+                });
             let next_id = if use_gpu {
                 #[cfg(feature = "gpu")]
                 {

@@ -95,9 +95,15 @@ impl FusedLinearActivation {
             .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
         // Upload weights W^T → GPU (weights are [in_dim, out_dim], matmul needs [out_dim, in_dim])
+        let wt_transposed = self.weights.t();
+        let wt_slice = wt_transposed.as_slice().ok_or_else(|| {
+            DeepLearningError::Computation {
+                reason: "weights tensor is not contiguous".into(),
+            }
+        })?;
         let wt_arr = ndarray::ArrayD::from_shape_vec(
             vec![out_dim, in_dim],
-            self.weights.t().as_slice().unwrap().to_vec(),
+            wt_slice.to_vec(),
         )
         .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
         let wt_gpu = GpuTensor::from_cpu(&wt_arr)
@@ -553,6 +559,7 @@ impl FusedElementWise {
 }
 
 // Helper function for AVX2 horizontal sum
+// SAFETY: Caller must ensure AVX2 is supported at runtime.
 #[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum_avx2(v: __m256) -> f32 {
     // Horizontal add within 256-bit vector

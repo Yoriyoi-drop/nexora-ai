@@ -119,6 +119,9 @@ impl CoreLayout {
             return false;
         }
         // Build CPU set bitmask
+        // SAFETY: `libc::cpu_set_t` is a C struct whose all-zero bit pattern is
+        // a valid initial state (empty CPU set). `mem::zeroed()` produces the
+        // all-zero bit pattern, which is the documented initial state for CPU sets.
         let mut set = unsafe { std::mem::zeroed::<libc::cpu_set_t>() };
         unsafe { libc::CPU_SET(core, &mut set) };
         let ret = unsafe {

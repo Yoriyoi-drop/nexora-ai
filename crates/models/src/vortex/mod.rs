@@ -321,19 +321,26 @@ impl VortexIdentity {
 
 /// NXR-VORTEX Architecture
 pub struct VortexArchitecture {
-    // Sparse MoE + Code-Specialized architecture
+    initialized: bool,
+    config: Option<VortexConfig>,
 }
 
 impl VortexArchitecture {
     pub fn new() -> Self {
-        Self {}
+        Self { initialized: false, config: None }
     }
 
     pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        self.initialized = true;
         Ok(())
     }
 
     pub async fn validate(&self) -> NxrModelResult<()> {
+        if !self.initialized {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "VortexArchitecture not initialized".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -357,6 +364,10 @@ impl VortexAgents {
     }
 
     pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        self.code_sentinel.initialize().await?;
+        self.debug_phantom.initialize().await?;
+        self.arch_weaver.initialize().await?;
+        self.test_forge.initialize().await?;
         Ok(())
     }
 

@@ -54,7 +54,10 @@ pub trait ReasoningEngine: Send + Sync {
     async fn explain_step(&self, step: &ReasoningStep) -> FoundationResult<String>;
 }
 
-/// Chain-of-thought reasoning implementation
+/// PLACEHOLDER: This is a prototype chain-of-thought implementation.
+/// It does NOT perform actual AI reasoning. It is a string-based template
+/// that simulates reasoning structure for testing purposes.
+/// TODO: Replace with actual LLM-based reasoning engine.
 pub struct ChainOfThoughtReasoner;
 
 impl ChainOfThoughtReasoner {
@@ -145,6 +148,9 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
         if chain.conclusion.is_empty() {
             return Ok(false);
         }
+        if chain.steps.iter().any(|s| s.premise.is_empty()) {
+            return Ok(false);
+        }
         let valid_ids: Vec<usize> = (1..=chain.steps.len()).collect();
         let has_all_ids = chain.steps.iter().all(|s| valid_ids.contains(&s.step_id));
         let has_confidence = chain
@@ -181,7 +187,8 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
 
     async fn explain_step(&self, step: &ReasoningStep) -> FoundationResult<String> {
         Ok(format!(
-            "Step {} ({:?}): From '{}', we infer: {} (confidence: {:.2})",
+            "Step {} ({:?}): From '{}', we infer: {} (confidence: {:.2}) \
+             — NOTE: This is simulated reasoning. Replace with LLM-based engine in production.",
             step.step_id, step.step_type, step.premise, step.inference, step.confidence
         ))
     }

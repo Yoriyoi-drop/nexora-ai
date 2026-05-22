@@ -44,10 +44,15 @@ impl TransformerBlock {
             let x_flat: Vec<f32> = x.iter().copied().collect();
             if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![x.shape()[0], x.shape()[1]], x_flat) {
                 if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
-                    if let Ok(result) = self.forward_gpu(&x_gpu, cache, layer_idx, cos, sin) {
-                        let cpu = result.to_cpu();
-                        if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
-                            return arr2.to_owned();
+                    match self.forward_gpu(&x_gpu, cache, layer_idx, cos, sin) {
+                        Ok(result) => {
+                            let cpu = result.to_cpu();
+                            if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
+                                return arr2.to_owned();
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("GPU forward failed, falling back to CPU: {e}");
                         }
                     }
                 }

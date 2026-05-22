@@ -13,6 +13,10 @@ impl CodeSentinelAgent {
         Self
     }
 
+    pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        Ok(())
+    }
+
     /// Analyze code for quality, complexity, and issues
     pub async fn analyze_code(&self, code: &str) -> NxrModelResult<CodeAnalysis> {
         Ok(CodeAnalysis {
@@ -63,6 +67,10 @@ impl DebugPhantomAgent {
         Self
     }
 
+    pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        Ok(())
+    }
+
     /// Debug code and generate bug hypotheses
     pub async fn debug_code(&self, code: &str, error: &str) -> NxrModelResult<Vec<BugHypothesis>> {
         Ok(vec![BugHypothesis {
@@ -82,6 +90,10 @@ impl ArchWeaverAgent {
         Self
     }
 
+    pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        Ok(())
+    }
+
     /// Analyze code architecture and detect design patterns
     pub async fn analyze_architecture(&self, code: &str) -> NxrModelResult<Vec<DesignPattern>> {
         Ok(vec![DesignPattern {
@@ -99,6 +111,10 @@ pub struct TestForgeAgent;
 impl TestForgeAgent {
     pub fn new() -> Self {
         Self
+    }
+
+    pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        Ok(())
     }
 
     /// Generate test code from source code

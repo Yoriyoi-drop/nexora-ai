@@ -5,13 +5,35 @@
 
 use std::arch::x86_64::*;
 use std::mem;
-use tracing::debug;
+
+/// Check if AVX2 is supported on the current CPU at runtime.
+///
+/// Must be called before invoking any [`#[target_feature(enable = "avx2")]`]
+/// function to ensure it is safe to call.
+#[must_use]
+pub fn is_avx2_supported() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("avx2")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        false
+    }
+}
 
 /// SIMD-optimized vector operations
 pub struct SimdVectorOps;
 
 impl SimdVectorOps {
     /// Dot product menggunakan SIMD
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime (e.g. via [`is_avx2_supported()`])
+    /// before calling this function. On x86_64 without AVX2 this will crash with SIGILL.
+    /// The `a` and `b` slices must have equal length.
+    #[must_use]
     #[target_feature(enable = "avx2")]
     pub unsafe fn dot_product_avx2(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
@@ -48,6 +70,9 @@ impl SimdVectorOps {
         let sum32 = _mm_add_ps(sum64, _mm_movehl_ps(sum64, sum64));
         let sum32 = _mm_add_ss(sum32, _mm_shuffle_ps(sum32, sum32, 1));
         
+        // SAFETY: `sum32` is an `__m128` (128-bit SSE register) which has the same
+        // memory layout as `[f32; 4]` — 4 × 32-bit floats = 128 bits. transmute is
+        // the standard way to reinterpret an SSE register as an array in Rust.
         let mut result = unsafe { std::mem::transmute::<_, [f32; 4]>(sum32) }[0];
         
         // Process remainder
@@ -59,6 +84,11 @@ impl SimdVectorOps {
     }
     
     /// Vector addition menggunakan SIMD
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime. The `a`, `b`, and `result`
+    /// slices must have equal length.
     #[target_feature(enable = "avx2")]
     pub unsafe fn add_avx2(a: &[f32], b: &[f32], result: &mut [f32]) {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
@@ -82,6 +112,11 @@ impl SimdVectorOps {
     }
     
     /// Vector multiplication menggunakan SIMD
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime. The `a`, `b`, and `result`
+    /// slices must have equal length.
     #[target_feature(enable = "avx2")]
     pub unsafe fn mul_avx2(a: &[f32], b: &[f32], result: &mut [f32]) {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
@@ -105,6 +140,12 @@ impl SimdVectorOps {
     }
     
     /// Cosine similarity menggunakan SIMD
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime. The `a` and `b` slices
+    /// must have equal length.
+    #[must_use]
     #[target_feature(enable = "avx2")]
     pub unsafe fn cosine_similarity_avx2(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
@@ -121,6 +162,12 @@ impl SimdVectorOps {
     }
     
     /// Euclidean distance menggunakan SIMD
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime. The `a` and `b` slices
+    /// must have equal length.
+    #[must_use]
     #[target_feature(enable = "avx2")]
     pub unsafe fn euclidean_distance_avx2(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
@@ -157,6 +204,8 @@ impl SimdVectorOps {
         let sum32 = _mm_add_ps(sum64, _mm_movehl_ps(sum64, sum64));
         let sum32 = _mm_add_ss(sum32, _mm_shuffle_ps(sum32, sum32, 1));
         
+        // SAFETY: `sum32` is an `__m128` (128-bit) which has the same memory layout
+        // as `[f32; 4]` — 4 × 32-bit floats = 128 bits.
         let mut result = unsafe { std::mem::transmute::<_, [f32; 4]>(sum32) }[0];
         
         // Process remainder
@@ -169,6 +218,7 @@ impl SimdVectorOps {
     }
     
     /// Fallback implementations for systems without AVX2
+    #[must_use]
     pub fn dot_product_fallback(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
         
@@ -193,6 +243,7 @@ impl SimdVectorOps {
         }
     }
     
+    #[must_use]
     pub fn cosine_similarity_fallback(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
         
@@ -207,6 +258,7 @@ impl SimdVectorOps {
         }
     }
     
+    #[must_use]
     pub fn euclidean_distance_fallback(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len(), "Vectors must have same length");
         
@@ -222,6 +274,7 @@ pub struct SimdTextOps;
 
 impl SimdTextOps {
     /// Fast string similarity using SIMD
+    #[must_use]
     pub fn string_similarity(a: &str, b: &str) -> f32 {
         if a.is_empty() && b.is_empty() {
             return 1.0;
@@ -245,6 +298,11 @@ impl SimdTextOps {
         }
     }
     
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime and that `a` and `b`
+    /// have at least `min_len` elements.
+    #[must_use]
     #[target_feature(enable = "avx2")]
     unsafe fn string_similarity_avx2(a: &[u8], b: &[u8], min_len: usize, max_len: usize) -> f32 {
         let mut matches = 0u32;
@@ -286,6 +344,7 @@ impl SimdTextOps {
     }
     
     /// Fast character counting using SIMD
+    #[must_use]
     pub fn count_char(text: &str, target: char) -> usize {
         let target_byte = target as u8;
         let text_bytes = text.as_bytes();
@@ -297,6 +356,10 @@ impl SimdTextOps {
         }
     }
     
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime.
+    #[must_use]
     #[target_feature(enable = "avx2")]
     unsafe fn count_char_avx2(text: &[u8], target: u8) -> usize {
         let mut count = 0usize;
@@ -330,6 +393,7 @@ impl SimdTextOps {
     }
     
     /// Fast whitespace detection using SIMD
+    #[must_use]
     pub fn has_whitespace(text: &str) -> bool {
         let text_bytes = text.as_bytes();
         
@@ -340,6 +404,10 @@ impl SimdTextOps {
         }
     }
     
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime.
+    #[must_use]
     #[target_feature(enable = "avx2")]
     unsafe fn has_whitespace_avx2(text: &[u8]) -> bool {
         let whitespace_vec = _mm256_set1_epi8(b' ' as i8);
@@ -376,6 +444,7 @@ pub struct SimdMatrixOps;
 
 impl SimdMatrixOps {
     /// Matrix multiplication using SIMD
+    #[must_use]
     pub fn mat_mul(a: &[f32], a_rows: usize, a_cols: usize,
                    b: &[f32], b_rows: usize, b_cols: usize,
                    result: &mut [f32]) {
@@ -389,6 +458,10 @@ impl SimdMatrixOps {
         }
     }
     
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime. All slices must have
+    /// sufficient length for the given matrix dimensions.
     #[target_feature(enable = "avx2")]
     unsafe fn mat_mul_avx2(a: &[f32], a_rows: usize, a_cols: usize,
                          b: &[f32], b_rows: usize, b_cols: usize,
@@ -421,6 +494,8 @@ impl SimdMatrixOps {
                 let sum32 = _mm_add_ps(sum64, _mm_movehl_ps(sum64, sum64));
                 let sum32 = _mm_add_ss(sum32, _mm_shuffle_ps(sum32, sum32, 1));
                 
+                // SAFETY: `sum32` is an `__m128` (128-bit) which has the same memory
+                // layout as `[f32; 4]` — 4 × 32-bit floats = 128 bits.
                 let mut result_val = unsafe { std::mem::transmute::<_, [f32; 4]>(sum32) }[0];
                 
                 // Process remainder
@@ -459,6 +534,10 @@ impl SimdMatrixOps {
         }
     }
     
+    /// # Safety
+    ///
+    /// Caller must ensure AVX2 is supported at runtime. Slices must have
+    /// sufficient length for the given matrix dimensions.
     #[target_feature(enable = "avx2")]
     unsafe fn transpose_avx2(a: &[f32], rows: usize, cols: usize, result: &mut [f32]) {
         // Simple block-based transpose for AVX2
@@ -490,6 +569,7 @@ pub struct SimdBenchmarks;
 
 impl SimdBenchmarks {
     /// Benchmark dot product implementations
+    #[must_use]
     pub fn benchmark_dot_product(size: usize) -> (f64, f64) {
         let a: Vec<f32> = (0..size).map(|i| i as f32).collect();
         let b: Vec<f32> = (0..size).map(|i| (i * 2) as f32).collect();
@@ -516,6 +596,7 @@ impl SimdBenchmarks {
     }
     
     /// Benchmark string similarity implementations
+    #[must_use]
     pub fn benchmark_string_similarity(text_len: usize) -> (f64, f64) {
         let text1 = "a".repeat(text_len);
         let text2 = "b".repeat(text_len);

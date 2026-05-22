@@ -557,11 +557,26 @@ impl NxrModel for NxrSpectraModel {
     }
 
     async fn validate(&self) -> Result<ValidationResult, nexora_shared::base_model::NxrModelError> {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        if !self.base.is_initialized().await {
+            errors.push("Model not initialized".to_string());
+        }
+
+        let score = if errors.is_empty() && warnings.is_empty() {
+            1.0
+        } else if errors.is_empty() {
+            0.8
+        } else {
+            0.3
+        };
+
         Ok(ValidationResult {
-            is_valid: self.base.is_initialized().await,
-            errors: Vec::new(),
-            warnings: Vec::new(),
-            score: 0.9,
+            is_valid: errors.is_empty(),
+            errors,
+            warnings,
+            score,
         })
     }
 

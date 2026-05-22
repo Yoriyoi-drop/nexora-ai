@@ -61,7 +61,10 @@ pub trait ContextManager: Send + Sync {
     ) -> FoundationResult<Vec<ContextEntry>>;
 }
 
-/// Default context manager implementation
+/// PLACEHOLDER: This is a prototype context manager.
+/// `retrieve_relevant` uses keyword overlap (not semantic search).
+/// `embeddings` field is never populated. Importance scoring is simplistic.
+/// TODO: Replace with actual embedding-based retrieval and importance scoring.
 pub struct DefaultContextManager {
     contexts: std::sync::Arc<tokio::sync::RwLock<HashMap<Uuid, ContextWindow>>>,
 }

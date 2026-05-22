@@ -62,15 +62,21 @@ pub struct ReflectionStats {
     pub improvement_rate: f32,
 }
 
-/// Default reflection engine implementation
+/// PLACEHOLDER: This is a prototype reflection engine.
+/// It does NOT perform actual ML-based reflection or model updates.
+/// Uses simple success/failure counting heuristics for testing purposes.
+/// TODO: Replace with actual LLM-based reflection engine.
 pub struct DefaultReflector {
     history: std::sync::Arc<tokio::sync::RwLock<Vec<ReflectionResult>>>,
+    /// If true, logs a warning on every reflection call
+    warn_placeholder: bool,
 }
 
 impl DefaultReflector {
     pub fn new() -> Self {
         Self {
             history: std::sync::Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            warn_placeholder: true,
         }
     }
 }
@@ -88,6 +94,9 @@ impl ReflectionEngine for DefaultReflector {
         actions: &[Action],
         context: &str,
     ) -> FoundationResult<ReflectionResult> {
+        if self.warn_placeholder {
+            tracing::warn!("DefaultReflector::reflect is a PLACEHOLDER — uses simple heuristics, not ML");
+        }
         let mut errors = Vec::with_capacity(actions.len());
         let mut improvements = Vec::with_capacity(actions.len());
         let mut insights = Vec::with_capacity(2);
@@ -173,6 +182,9 @@ impl ReflectionEngine for DefaultReflector {
     }
 
     async fn update_model(&self, reflection: &ReflectionResult) -> FoundationResult<()> {
+        tracing::warn!(
+            "DefaultReflector::update_model is a PLACEHOLDER — does not actually update any ML model"
+        );
         let mut history = self.history.write().await;
         history.push(reflection.clone());
         if history.len() > 1000 {

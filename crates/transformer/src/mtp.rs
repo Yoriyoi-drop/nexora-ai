@@ -200,8 +200,12 @@ impl MTPInference {
             Box::new(self.model.reset_cache())
         };
 
+        let vocab_size = self.model.config.vocab_size;
+
         for &token_id in prompt_ids {
-            self.model.forward(&[token_id], &mut *cache);
+            if self.model.forward(&[token_id], &mut *cache).is_err() {
+                tracing::warn!("MTP forward failed during prefill for token {}", token_id);
+            }
         }
 
         let mut output = Vec::new();
@@ -209,7 +213,11 @@ impl MTPInference {
 
         let mut i = 0;
         while i < max_tokens {
-            let logits = self.model.forward(&[last_id], &mut *cache);
+            let logits = self.model.forward(&[last_id], &mut *cache)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("MTP forward failed during generation: {e}");
+                    Array1::zeros(vocab_size)
+                });
             let main_id = crate::sample_token(&logits, 0.0, 0);
             output.push(main_id);
 
@@ -235,7 +243,11 @@ impl MTPInference {
 
                 if draft_id == main_id || self.config.temperature > 0.5 {
                     if i + 1 < max_tokens && d < self.config.num_predictions.saturating_sub(1) {
-                        let verified_logits = self.model.forward(&[draft_id], &mut *cache);
+                        let verified_logits = self.model.forward(&[draft_id], &mut *cache)
+                            .unwrap_or_else(|e| {
+                                tracing::warn!("MTP forward failed during verification: {e}");
+                                Array1::zeros(vocab_size)
+                            });
                         let verified_id = crate::sample_token(&verified_logits, 0.0, 0);
                         if verified_id == draft_id {
                             output.push(draft_id);

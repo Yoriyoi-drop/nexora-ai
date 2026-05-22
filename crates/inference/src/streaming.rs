@@ -203,7 +203,7 @@ mod tests {
         let engine = StreamingEngine::new();
         let (stream_id, mut rx) = engine.create_stream().await.unwrap();
 
-        let token = GeneratedToken::new(1, "hello".to_string(), -0.5, 0);
+        let token = Arc::new(GeneratedToken::new(1, "hello".to_string(), -0.5, 0));
         engine.send_token(stream_id, token).await.unwrap();
 
         let received = rx.recv().await.unwrap();

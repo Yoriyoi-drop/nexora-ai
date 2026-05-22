@@ -160,7 +160,17 @@ where
         let cache = self.kv_caches.get_mut(&seq_id)?;
         let logits = self.model.forward(&[input_token], cache);
 
-        let logits_slice: &[f32] = logits.as_slice().unwrap_or(&[]);
+        // ndarray::Array1::as_slice returns None for non-contiguous memory;
+        // in practice all logit arrays from our forward passes are contiguous.
+        let logits_slice: &[f32] = logits.as_slice().unwrap_or_else(|| {
+            // Non-contiguous fallback: allocate a contiguous copy.
+            // This should never happen in normal operation, but avoids a panic.
+            warn!("logits array is non-contiguous, allocating copy");
+            // We leak a Box<[f32]> to satisfy the borrow — this is a rare
+            // cold path so the one-time allocation is acceptable.
+            let leaked: &'static [f32] = Box::leak(logits.clone().into_raw_vec().into_boxed_slice());
+            leaked
+        });
         let sampler = self.samplers.get_mut(&seq_id)?;
         let token_id = match sampler.sample(logits_slice) {
             Ok(idx) => idx as u32,
@@ -192,7 +202,14 @@ where
             // Fall through to push the sampled token as first generated token
         }
 
-        let log_prob = logits_slice.get(token_id as usize).copied().unwrap_or(0.0);
+        let log_prob = logits_slice.get(token_id as usize).copied().unwrap_or_else(|| {
+            warn!(
+                "token_id {} out of range for logits of length {}",
+                token_id,
+                logits_slice.len()
+            );
+            0.0
+        });
         let pos = seq.prompt.len() + seq.generated.len();
         seq.push_token(Arc::new(GeneratedToken::new(token_id, String::new(), log_prob, pos)));
 

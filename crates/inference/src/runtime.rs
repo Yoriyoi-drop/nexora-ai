@@ -718,6 +718,9 @@ impl InferenceRuntime {
             // Linux-specific implementation using sched_setaffinity
             use std::mem;
 
+            // SAFETY: `libc::cpu_set_t` is a C struct whose all-zero bit pattern
+            // is a valid initial state (empty CPU set). `mem::zeroed()` produces
+            // the all-zero bit pattern which is guaranteed valid for this type.
             let mut cpu_set: libc::cpu_set_t = unsafe { mem::zeroed() };
             for &cpu in affinity {
                 if cpu < 64 {
