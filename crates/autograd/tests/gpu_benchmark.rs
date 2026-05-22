@@ -602,7 +602,7 @@ mod tests {
         let gpu = GpuTensor::from_cpu(&logits).unwrap();
 
         // Greedy sample: top_k=1, temp=1.0
-        let result = ctx.gpu_sample(&gpu, 1.0, 1, 12345).unwrap();
+        let result = ctx.gpu_sample(&gpu, 1.0, 1, 1.0, 12345).unwrap();
         // Read back as raw bytes (output is u32[], not f32[])
         let bytes = result.to_cpu_raw_bytes();
         let token = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -610,7 +610,7 @@ mod tests {
         assert_eq!(token, 7, "should pick peak 7, got {token}");
 
         // No top-k: should still pick near 7 with high temp
-        let result2 = ctx.gpu_sample(&gpu, 1.0, 0, 6789).unwrap();
+        let result2 = ctx.gpu_sample(&gpu, 1.0, 0, 1.0, 6789).unwrap();
         let bytes2 = result2.to_cpu_raw_bytes();
         let token2 = u32::from_ne_bytes([bytes2[0], bytes2[1], bytes2[2], bytes2[3]]);
         println!("gpu_sample top_k=0: token={token2}");

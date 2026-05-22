@@ -145,7 +145,7 @@ impl CausalLmModel {
         max_tokens: usize,
         temperature: f32,
     ) -> NxrModelResult<String> {
-        self.generate_text_with_gpu(prompt, max_tokens, temperature, false)
+        self.generate_text_with_gpu(prompt, max_tokens, temperature, *self.use_gpu.read().await)
             .await
     }
 

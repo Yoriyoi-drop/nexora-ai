@@ -815,7 +815,7 @@ mod tests {
         };
 
         let model = CausalLM::new(mc);
-        let mut flat_cache: Vec<KVCacheEntry> = model.reset_cache();
+        let mut flat_cache = model.reset_cache();
         let mut paged_cache = PagedKVCache::new(cfg);
         paged_cache.register_sequence(1);
 

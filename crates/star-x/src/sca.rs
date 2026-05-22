@@ -161,6 +161,11 @@ impl SparseCausalAttention {
 
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.matmul_gpu(weights, input) {
+            return Ok(result);
+        }
+
         let input_flat = input.as_slice().expect("tensor should be contiguous");
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
@@ -177,6 +182,31 @@ impl SparseCausalAttention {
         }
 
         Ok(Array1::from_vec(output).into_dyn())
+    }
+
+    /// GPU-accelerated matrix multiplication
+    #[cfg(feature = "gpu")]
+    fn matmul_gpu(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> Option<ArrayD<f32>> {
+        use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().ok()?;
+        let w_shape = weights.shape();
+        let input_flat = input.as_slice()?;
+
+        let input_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, w_shape[0]], input_flat.to_vec()).ok()?
+        ).ok()?;
+
+        let w_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![w_shape[0], w_shape[1]], weights.iter().copied().collect()).ok()?
+        ).ok()?;
+        let wt_gpu = ctx.transpose(&w_gpu).ok()?;
+
+        let out_gpu = ctx.matmul(&input_gpu, &wt_gpu).ok()?;
+        let out_cpu = out_gpu.to_cpu();
+        let result: Vec<f32> = out_cpu.iter().copied().collect();
+        Some(Array1::from_vec(result).into_dyn())
     }
 
     /// Compute attention scores dengan temporal bias
