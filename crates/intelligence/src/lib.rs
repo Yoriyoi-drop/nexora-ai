@@ -36,5 +36,4 @@ pub use model_registry::*;
 pub use serving::*;
 
 // Re-export foundation tensor utilities
-pub use nexora_foundation::traits::tensor_traits::*;
 pub use nexora_foundation::validation::*;

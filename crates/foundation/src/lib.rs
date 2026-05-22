@@ -18,7 +18,6 @@ pub mod multimodal;
 pub mod alignment;
 pub mod has_moe_ffn;
 pub mod oracle;
-pub mod traits;
 
 // Include HLDVA-T module
 pub mod hldva_t;

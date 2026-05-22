@@ -24,7 +24,6 @@ nexora-erp = { path = "../erp" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 nexora-hldva-t = { path = "../hldva-t" }
 nexora-vogp = { path = "../vogp" }
-nexora-traits = { path = "../traits" }
 nexora-transformer = { path = "../transformer" }
 nexora-shared = { path = "../shared" }
 nexora-validation = { path = "../validation" }

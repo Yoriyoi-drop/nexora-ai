@@ -1,7 +1,9 @@
 use ndarray::ArrayD;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
+use std::sync::mpsc;
 use std::sync::Mutex;
+use std::time::Duration;
 use std::time::Instant;
 use thiserror::Error;
 
@@ -52,6 +54,10 @@ pub enum GpuError {
     ElemShape(Vec<usize>, Vec<usize>),
     #[error("Shape mismatch: {0}")]
     ShapeMismatch(String),
+    #[error("GPU operation timed out: {0}")]
+    Timeout(String),
+    #[error("Lock error: {0}")]
+    LockError(String),
 }
 
 // ─── Singleton Context ─────────────────────────────────────────────────────────
@@ -4404,6 +4410,22 @@ pub enum GpuDtype {
 
 unsafe impl Send for GpuTensor {}
 unsafe impl Sync for GpuTensor {}
+
+/// Poll GPU with 30s timeout and wait for map_async result.
+/// Prevents threads from hanging forever on GPU readback.
+pub(crate) fn readback_with_timeout(
+    device: &wgpu::Device,
+    rx: &mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+) -> Result<(), GpuError> {
+    device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(Duration::from_secs(30)),
+    });
+    rx.recv_timeout(Duration::from_secs(30))
+        .map_err(|_| GpuError::Timeout("GPU readback timed out after 30s".into()))?
+        .map_err(|e| GpuError::Device(format!("Buffer mapping failed: {e:?}")))?;
+    Ok(())
+}
 
 impl GpuTensor {
     fn ctx() -> Result<&'static GpuContext, GpuError> {

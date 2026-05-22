@@ -17,10 +17,6 @@ pub struct CacheConfig {
     pub max_size_bytes: usize,
     /// Cache eviction policy
     pub eviction_policy: EvictionPolicy,
-    /// Enable compression
-    pub enable_compression: bool,
-    /// Compression level (1-9)
-    pub compression_level: u32,
     /// Cache shard count untuk parallel access
     pub shard_count: usize,
     /// TTL untuk cache entries (seconds)
@@ -49,8 +45,6 @@ impl Default for CacheConfig {
         Self {
             max_size_bytes: 1024 * 1024 * 1024, // 1GB
             eviction_policy: EvictionPolicy::LRU,
-            enable_compression: false,
-            compression_level: 6,
             shard_count: 16,
             ttl_seconds: None,
             enable_stats: true,

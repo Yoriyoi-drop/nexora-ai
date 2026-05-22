@@ -3621,7 +3621,6 @@ dependencies = [
  "nexora-shared",
  "nexora-tokenizer",
  "nexora-training",
- "nexora-traits",
  "nexora-transformer",
  "nexora-validation",
  "nexora-vogp",
@@ -4044,14 +4043,6 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "tracing",
-]
-
-[[package]]
-name = "nexora-traits"
-version = "0.1.0"
-dependencies = [
- "nexora-atqs",
- "serde",
 ]
 
 [[package]]

@@ -18,18 +18,10 @@ pub struct StreamingConfig {
     pub buffer_size: usize,
     /// Maximum tokens per second (rate limiting)
     pub max_tokens_per_second: Option<f32>,
-    /// Enable token buffering
-    pub enable_buffering: bool,
     /// Buffer flush interval (ms)
     pub buffer_flush_interval_ms: u64,
-    /// Enable compression for large streams
-    pub enable_compression: bool,
-    /// Compression threshold (tokens)
-    pub compression_threshold: usize,
     /// Stream timeout (seconds)
     pub stream_timeout_seconds: u64,
-    /// Enable metrics collection
-    pub enable_metrics: bool,
 }
 
 impl Default for StreamingConfig {
@@ -37,12 +29,8 @@ impl Default for StreamingConfig {
         Self {
             buffer_size: 100,
             max_tokens_per_second: None,
-            enable_buffering: true,
             buffer_flush_interval_ms: 100,
-            enable_compression: false,
-            compression_threshold: 1000,
             stream_timeout_seconds: 300, // 5 minutes
-            enable_metrics: true,
         }
     }
 }

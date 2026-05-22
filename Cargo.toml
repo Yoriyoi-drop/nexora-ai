@@ -33,7 +33,6 @@ members = [
     "crates/training",
     "crates/alignment",
     "crates/autograd",
-    "crates/traits",
     "crates/transformer",
     "crates/vogp",
     "crates/quantization",

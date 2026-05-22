@@ -7,10 +7,15 @@ mod telemetry;
 pub use telemetry::*;
 
 #[derive(Debug, Default)]
+struct TelemetryState {
+    nexora_ai_url: Option<String>,
+    telemetry_client: Option<TelemetryClient>,
+}
+
+#[derive(Debug, Default)]
 pub struct AppState {
-    pub nexora_ai_url: Mutex<Option<String>>,
+    pub telemetry: Mutex<TelemetryState>,
     pub system: Mutex<System>,
-    pub telemetry_client: Mutex<Option<TelemetryClient>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -126,8 +131,9 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
 
     match &health {
         Ok(h) => {
-            *state.nexora_ai_url.lock().unwrap() = Some(base_url.clone());
-            *state.telemetry_client.lock().unwrap() = Some(TelemetryClient::new(&base_url));
+            let mut t = state.telemetry.lock().unwrap();
+            t.nexora_ai_url = Some(base_url.clone());
+            t.telemetry_client = Some(TelemetryClient::new(&base_url));
             Ok(NexoraAIMetrics {
                 connected: true,
                 url: base_url,
@@ -136,7 +142,7 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
             })
         }
         Err(e) => {
-            *state.nexora_ai_url.lock().unwrap() = None;
+            state.telemetry.lock().unwrap().nexora_ai_url = None;
             Ok(NexoraAIMetrics {
                 connected: false, url: base_url,
                 health: None,
@@ -148,11 +154,11 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
 
 #[tauri::command]
 fn get_connection_status(state: State<AppState>) -> ConnectedStatus {
-    let url_guard = state.nexora_ai_url.lock().unwrap();
-    let connected = url_guard.is_some();
+    let t = state.telemetry.lock().unwrap();
+    let connected = t.nexora_ai_url.is_some();
     ConnectedStatus {
         connected,
-        url: url_guard.clone().unwrap_or_default(),
+        url: t.nexora_ai_url.clone().unwrap_or_default(),
         system_metrics: true,
         ai_metrics: connected,
     }
@@ -160,14 +166,15 @@ fn get_connection_status(state: State<AppState>) -> ConnectedStatus {
 
 #[tauri::command]
 fn disconnect_nexora_ai(state: State<AppState>) {
-    *state.nexora_ai_url.lock().unwrap() = None;
-    *state.telemetry_client.lock().unwrap() = None;
+    let mut t = state.telemetry.lock().unwrap();
+    t.nexora_ai_url = None;
+    t.telemetry_client = None;
 }
 
 // ===== New Telemetry Commands =====
 
 fn get_client(state: &AppState) -> Option<TelemetryClient> {
-    state.telemetry_client.lock().unwrap().clone()
+    state.telemetry.lock().unwrap().telemetry_client.clone()
 }
 
 #[tauri::command]

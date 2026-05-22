@@ -217,8 +217,10 @@ impl TextGenerator {
         let pattern =
             experimental_patterns[analysis.complexity_score as usize % experimental_patterns.len()];
 
-        Ok(format!("🚀 EXPERIMENTAL GENERATION MODE 🚀\n\nPattern: {}\nInput complexity: {:.1}\nPrompt: {}\n\nExperimental output: [{}] This {}-word challenge triggers {} processing with {} complexity. The response emerges from the intersection of deterministic logic and creative chaos, producing something entirely new and unexpected.", 
-                  pattern, analysis.complexity_score, prompt, pattern, analysis.word_count, pattern, analysis.complexity_score))
+        Ok(format!(
+            "Experimental generation with {}:\n\nPrompt: {}\n\nThis {}-word input (complexity {:.1}) triggers {} processing at the edge of deterministic logic and emergent behavior, producing novel outputs through high-temperature sampling.",
+            pattern, prompt, analysis.word_count, analysis.complexity_score, pattern
+        ))
     }
 
     /// Post-process generated text

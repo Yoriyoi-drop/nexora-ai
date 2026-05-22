@@ -68,20 +68,5 @@ pub mod traits {
         type Output;
         fn forward(&self, input: &Self::Input) -> DLResult<Self::Output>;
     }
-    pub trait Backward {
-        type Gradient;
-        fn backward(&self, grad: &Self::Gradient) -> DLResult<Self::Gradient>;
-    }
-    pub trait Stateful {
-        type State;
-        fn reset_state(&mut self);
-        fn get_state(&self) -> &Self::State;
-        fn set_state(&mut self, state: Self::State);
-    }
-    pub trait Trainable {
-        fn parameters(&self) -> Vec<&[f32]>;
-        fn parameters_mut(&mut self) -> Vec<&mut [f32]>;
-        fn gradients(&self) -> Vec<&[f32]>;
-        fn gradients_mut(&mut self) -> Vec<&mut [f32]>;
-    }
+
 }

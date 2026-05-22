@@ -343,22 +343,4 @@ pub trait Inference {
     fn batch_infer(&self, inputs: Vec<Self::Input>) -> HLDVAResult<Vec<Self::Output>>;
 }
 
-/// Trait untuk komponen yang menggunakan conditioning
-pub trait Conditional {
-    type Conditioning;
 
-    fn set_conditioning(&mut self, conditioning: Self::Conditioning);
-
-    fn get_conditioning(&self) -> &Self::Conditioning;
-}
-
-/// Trait untuk komponen yang bisa di-optimasi
-pub trait Optimizable {
-    fn parameters(&self) -> Vec<Tensor>;
-
-    fn gradients(&self) -> Vec<Tensor>;
-
-    fn update_parameters(&mut self, learning_rate: f32) -> HLDVAResult<()>;
-
-    fn zero_gradients(&mut self);
-}

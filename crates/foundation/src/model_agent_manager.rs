@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::sync::OnceLock;
 use tracing::info;
 
@@ -18,8 +17,6 @@ use nexora_models::kronos::config::KronosConfig;
 use nexora_models::omnis::config::OmnisConfig;
 use nexora_models::swift::config::SwiftConfig;
 
-// TODO: remove if unused after release
-#[allow(dead_code)]
 pub struct ModelAgentManager {
     pub omnis: OmnisAgents,
     pub swift: SwiftAgents,
@@ -29,7 +26,6 @@ pub struct ModelAgentManager {
     pub kronos: KronosAgents,
     pub cipher: CipherAgents,
     pub aether: AetherAgents,
-    _boxes: Vec<Box<dyn Any + Send + Sync>>,
 }
 
 impl ModelAgentManager {
@@ -82,7 +78,6 @@ impl ModelAgentManager {
             kronos,
             cipher,
             aether,
-            _boxes: Vec::new(),
         }
     }
 }

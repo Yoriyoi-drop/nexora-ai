@@ -446,15 +446,13 @@ pub fn layer_norm_2d(
                     sum_dy_xhat += gv * xhat;
                 }
                 let inv_s = 1.0 / s;
+                let dx_slice = dx.as_slice_mut().expect("dx should be contiguous");
                 for j in 0..dim {
                     let idx = b * dim + j;
                     let gv = g_slice[idx];
                     let xv = x_slice[idx];
                     let xhat = (xv - m) / s;
-                    let dx_val = inv_s * (gv - sum_dy / n - xhat * sum_dy_xhat / n);
-                    let mut inner = dx.clone();
-                    inner.as_slice_mut().expect("tensor should be contiguous")[idx] = dx_val;
-                    dx = inner;
+                    dx_slice[idx] = inv_s * (gv - sum_dy / n - xhat * sum_dy_xhat / n);
                 }
             }
             vec![dx]

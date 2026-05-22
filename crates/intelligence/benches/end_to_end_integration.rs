@@ -428,10 +428,18 @@ fn benchmark_memory_usage(c: &mut Criterion) {
     group.finish();
 }
 
-/// Helper function untuk mendapatkan memory usage (simplified)
-// TODO: Replace with real memory measurement (e.g. via procfs or psutil)
+/// Helper function untuk mendapatkan memory usage (reads RSS from /proc/self/status)
 fn get_memory_usage() -> usize {
-    0
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("VmRSS:"))
+                .and_then(|line| line.split_whitespace().nth(1))
+                .and_then(|val| val.parse::<usize>().ok())
+        })
+        .unwrap_or(0)
 }
 
 /// Benchmark latency breakdown
