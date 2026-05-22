@@ -760,7 +760,7 @@ pub struct UnitTestRequirements {
     /// Test structure requirements
     pub test_structure_requirements: Vec<String>,
     /// Mock usage guidelines
-    pub mock_usage_guidelines: Vec<String>,
+    pub usage_guidelines: Vec<String>,
 }
 
 /// Integration Test Requirements
@@ -2405,7 +2405,7 @@ impl Default for CodeSentinelConfig {
                             test_structure_requirements: vec![
                                 "Arrange-Act-Assert".to_string(),
                             ],
-                            mock_usage_guidelines: vec![
+                            usage_guidelines: vec![
                                 "Minimal mocking".to_string(),
                                 "Interface-based mocking".to_string(),
                             ],

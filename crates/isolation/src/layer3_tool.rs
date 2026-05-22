@@ -375,8 +375,8 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_tool_registration_and_execution() {
+    #[tokio::test]
+    async fn test_tool_registration_and_execution() {
         let mut layer = ToolIsolationLayer::new(vec![ToolKind::Python, ToolKind::Browser]);
         let pod = layer.register_tool(
             ToolKind::Python,
@@ -400,15 +400,12 @@ mod tests {
             args: vec!["script.py".into()],
             timeout_seconds: None,
             env_vars: HashMap::new(),
-        });
-        assert!(tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(result)
-            .is_ok());
+        }).await;
+        assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_denied_tool() {
+    #[tokio::test]
+    async fn test_denied_tool() {
         let mut layer = ToolIsolationLayer::new(vec![ToolKind::Browser]);
         layer.register_tool(ToolKind::Shell, SandboxSpec::default_tool(), false, false);
         let result = layer.request_execution(ToolExecutionRequest {
@@ -418,11 +415,8 @@ mod tests {
             args: vec!["-rf".into(), "/".into()],
             timeout_seconds: None,
             env_vars: HashMap::new(),
-        });
-        assert!(tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(result)
-            .is_err());
+        }).await;
+        assert!(result.is_err());
     }
 }
 

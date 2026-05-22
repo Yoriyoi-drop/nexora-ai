@@ -21,7 +21,6 @@ use nexora_shared::{
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    gnac_integration::GnacModel,
     model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
     model_registry::{global_registry, NxrModelRegistry},
@@ -501,8 +500,6 @@ impl HasComponents for NxrCipherModel {
 }
 
 impl DeepLearningModel for NxrCipherModel {}
-
-impl GnacModel for NxrCipherModel {}
 
 impl Default for NxrCipherModel {
     fn default() -> Self {

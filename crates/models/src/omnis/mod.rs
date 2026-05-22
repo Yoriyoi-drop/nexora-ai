@@ -23,7 +23,6 @@ use nexora_shared::{
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    gnac_integration::GnacModel,
     model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
     model_registry::{global_registry, NxrModelRegistry},
@@ -750,8 +749,6 @@ impl HasComponents for NxrOmnisModel {
 }
 
 impl DeepLearningModel for NxrOmnisModel {}
-
-impl GnacModel for NxrOmnisModel {}
 
 impl Default for NxrOmnisModel {
     fn default() -> Self {

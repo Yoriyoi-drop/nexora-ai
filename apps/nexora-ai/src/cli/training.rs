@@ -2408,7 +2408,7 @@ fn train_nxr_model_pre_tokenized(
             )
         );
 
-        // ONNX export (simulated — placeholder)
+        // ONNX export — memerlukan crate nexora-quantization
         info!(
             "{}",
             dim!("    ⏳ ONNX export — N/A (tersedia di nexora-quantization)")

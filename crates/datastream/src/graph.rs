@@ -316,19 +316,16 @@ impl ExecutionGraph {
         join_all(tasks).await
     }
 
-    pub fn run_rayon(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult>
+    pub async fn run_rayon(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult>
     where
         Self: Sync,
     {
         let (cancel_tx, _) = tokio::sync::watch::channel(false);
-        let results: Vec<ExecutionResult> = samples
-            .into_iter()
-            .map(|sample| {
-                let cancel = cancel_tx.subscribe();
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(self.execute(sample, cancel))
-            })
-            .collect();
+        let mut results = Vec::with_capacity(samples.len());
+        for sample in samples {
+            let cancel = cancel_tx.subscribe();
+            results.push(self.execute(sample, cancel).await);
+        }
         results
     }
 }

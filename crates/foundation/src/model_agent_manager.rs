@@ -18,6 +18,7 @@ use nexora_models::kronos::config::KronosConfig;
 use nexora_models::omnis::config::OmnisConfig;
 use nexora_models::swift::config::SwiftConfig;
 
+// TODO: remove if unused after release
 #[allow(dead_code)]
 pub struct ModelAgentManager {
     pub omnis: OmnisAgents,

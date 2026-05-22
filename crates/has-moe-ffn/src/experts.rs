@@ -102,7 +102,14 @@ impl Expert {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
 
-        let ctx = GpuContext::global().ok()?;
+        use tracing::warn;
+        let ctx = match GpuContext::global() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                warn!("GPU forward failed (GPU unavailable): {e}");
+                return None;
+            }
+        };
         let dim = input.len();
 
         // Upload input as [1, hidden_size]

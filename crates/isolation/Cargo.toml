@@ -10,7 +10,7 @@ description = "Nexora AI — Multi-layered cognitive & infrastructure isolation 
 nexora-core = { path = "../core" }
 nexora-autograd = { path = "../autograd", optional = true }
 
-tokio = { workspace = true, features = ["sync", "process", "rt"] }
+tokio = { workspace = true, features = ["sync", "process", "rt", "rt-multi-thread"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

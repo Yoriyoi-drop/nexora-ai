@@ -1012,7 +1012,8 @@ impl GpuContext {
             ).unwrap()
         ).map_err(SedcError::Gpu)?;
         let us = self.matmul(&u_trunc, &s_diag).map_err(SedcError::Gpu)?;
-        let w_approx = self.matmul(&us, &v_trunc.t()).map_err(SedcError::Gpu)?;
+        let v_trunc_t = self.transpose(&v_trunc).map_err(SedcError::Gpu)?;
+        let w_approx = self.matmul(&us, &v_trunc_t).map_err(SedcError::Gpu)?;
 
         Ok((r, c, w_approx))
     }
@@ -1038,7 +1039,7 @@ impl GpuContext {
         let pipeline = self.pipelines.get("sedc_rec")
             .ok_or_else(|| SedcError::Gpu(GpuError::Pipeline("sedc_rec not compiled".into())))?;
 
-        let out = GpuTensor::zeros(w_next.shape())?;
+        let out = GpuTensor::zeros(&w_next.shape())?;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rec_cfg"),
             size: 16,
@@ -1157,13 +1158,17 @@ impl SedcCompressor {
         let k_star = k_opt.max(1).min(max_rank);
 
         // If we need more rank than we computed, do another SVD
-        let (u_final_gpu, v_final_gpu, s_final, k_final) = if k_star > k_est && k_est < s.len() {
+        let s_len = s.len();
+        let (u_final_gpu, v_final_gpu, s_final, k_final) = if k_star > k_est && k_est < s_len {
             let (u2, v2, _qt2, s2, _) = ctx.randomized_svd_gpu(
                 &w_gpu, k_star + self.config.oversamples, self.config.oversamples, self.config.power_iters,
             )?;
-            (u2, v2, s2, k_star.min(s2.len()))
+            let s2_len = s2.len();
+            (u2, v2, s2, k_star.min(s2_len))
         } else {
-            (u_gpu, v_gpu, s, k_star.min(s.len()))
+            let s_local = s;
+            let s_local_len = s_local.len();
+            (u_gpu, v_gpu, s_local, k_star.min(s_local_len))
         };
 
         let s_trunc: Vec<f32> = s_final.iter().take(k_final).copied().collect();
@@ -1579,10 +1584,10 @@ mod tests {
 
     #[test]
     fn test_vet_optimal_rank_basic() {
-        // Concentrated spectrum → low rank
+        // Concentrated spectrum → low rank (should pick k=1 or k=2)
         let s = vec![100.0, 0.1, 0.01, 0.001, 0.0001];
         let k = vet_optimal_rank(&s, 0.1, 10000.0);
-        assert!(k <= 3, "concentrated spectrum should choose low rank, got {k}");
+        assert!(k <= 2, "concentrated spectrum should choose low rank (k<=2), got {k}");
     }
 
     // ── EGSS Tests ──

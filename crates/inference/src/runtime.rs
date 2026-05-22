@@ -404,7 +404,9 @@ impl InferenceRuntime {
         .await;
 
         // Final resource update
-        let _ = self.update_resource_usage().await;
+        if let Err(e) = self.update_resource_usage().await {
+            warn!("Final resource update failed during shutdown: {}", e);
+        }
 
         // Update state to shutdown
         {

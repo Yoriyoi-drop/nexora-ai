@@ -105,10 +105,6 @@ impl SwiGLU {
     }
 }
 
-#[allow(dead_code)]
-fn silu(x: f32) -> f32 {
-    x / (1.0 + (-x).exp())
-}
 
 #[cfg(feature = "gpu")]
 impl SwiGLU {

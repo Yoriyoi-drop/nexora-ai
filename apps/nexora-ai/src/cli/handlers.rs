@@ -630,7 +630,9 @@ impl Cli {
                         .map_err(|e| format!("Training failed: {}", e))?;
                     if let Some(p) = &out {
                         let save_path = format!("{}_{}.safetensors", p.display(), mid);
-                        let _ = model.save_checkpoint(&save_path).await;
+                        if let Err(e) = model.save_checkpoint(&save_path).await {
+                            warn!("Failed to save checkpoint to {}: {}", save_path, e);
+                        }
                     }
                     Ok::<_, String>((mid, report))
                 }));
@@ -680,7 +682,9 @@ impl Cli {
 
                 if let Some(p) = &output {
                     let save_path = format!("{}_{}.safetensors", p.display(), mid);
-                    let _ = model.save_checkpoint(&save_path).await;
+                    if let Err(e) = model.save_checkpoint(&save_path).await {
+                        warn!("Failed to save checkpoint to {}: {}", save_path, e);
+                    }
                 }
 
                 info!(

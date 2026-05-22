@@ -808,8 +808,44 @@ impl PlanningStrategy for SimpleSequentialStrategy {
         })
     }
 
-    async fn adapt_plan(&self, _plan: &mut ExecutionPlan, _feedback: &Value) -> Result<()> {
-        // Simple adaptation - not implemented for now
+    async fn adapt_plan(&self, plan: &mut ExecutionPlan, feedback: &Value) -> Result<()> {
+        if let Some(failed_steps) = feedback.get("failed_steps").and_then(|v| v.as_array()) {
+            for failed in failed_steps {
+                if let Some(step_id_str) = failed.as_str() {
+                    if let Ok(step_id) = Uuid::parse_str(step_id_str) {
+                        for step in &mut plan.steps {
+                            if step.step_id == step_id {
+                                step.status = StepStatus::Failed(format!(
+                                    "Adapted out after feedback: {}",
+                                    feedback
+                                        .get("reason")
+                                        .and_then(|r| r.as_str())
+                                        .unwrap_or("no reason")
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            let completed = plan
+                .steps
+                .iter()
+                .filter(|s| matches!(s.status, StepStatus::Completed))
+                .count();
+            plan.current_step_index = completed.min(plan.steps.len().saturating_sub(1));
+        }
+
+        if let Some(retry) = feedback.get("retry_step").and_then(|v| v.as_str()) {
+            if let Ok(step_id) = Uuid::parse_str(retry) {
+                for step in &mut plan.steps {
+                    if step.step_id == step_id {
+                        step.status = StepStatus::Pending;
+                    }
+                }
+            }
+        }
+
+        plan.last_updated = chrono::Utc::now();
         Ok(())
     }
 }
@@ -892,8 +928,42 @@ impl PlanningStrategy for DependencyBasedStrategy {
         })
     }
 
-    async fn adapt_plan(&self, _plan: &mut ExecutionPlan, _feedback: &Value) -> Result<()> {
-        // Dependency-based adaptation - not implemented for now
+    async fn adapt_plan(&self, plan: &mut ExecutionPlan, feedback: &Value) -> Result<()> {
+        if let Some(changed_deps) = feedback.get("dependency_changes").and_then(|v| v.as_object())
+        {
+            for (step_id_str, new_deps) in changed_deps {
+                if let Ok(step_id) = Uuid::parse_str(step_id_str) {
+                    if let Some(dep_ids) = new_deps.as_array() {
+                        let deps: Vec<Uuid> = dep_ids
+                            .iter()
+                            .filter_map(|d| d.as_str().and_then(|s| Uuid::parse_str(s).ok()))
+                            .collect();
+
+                        if let Some(step) = plan.steps.iter_mut().find(|s| s.step_id == step_id) {
+                            step.dependencies = deps;
+                            step.status = StepStatus::Pending;
+                        }
+                    }
+                }
+            }
+        }
+
+        for i in 0..plan.steps.len() {
+            let deps_met = plan.steps[i]
+                .dependencies
+                .iter()
+                .all(|dep_id| {
+                    plan.steps
+                        .iter()
+                        .any(|s| s.step_id == *dep_id && matches!(s.status, StepStatus::Completed))
+                });
+
+            if matches!(plan.steps[i].status, StepStatus::Pending) && deps_met {
+                plan.steps[i].status = StepStatus::Pending;
+            }
+        }
+
+        plan.last_updated = chrono::Utc::now();
         Ok(())
     }
 }

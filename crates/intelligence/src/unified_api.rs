@@ -32,27 +32,27 @@ pub struct UnifiedModelFactory;
 impl UnifiedModelFactory {
     /// Create a basic SACA-only model
     pub async fn create_basic_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
-        Ok(Box::new(BasicSacaModel::new()))
+        Ok(Box::new(BasicSacaModel::new().await))
     }
 
     /// Create a SACA + ATQS compressed model
     pub async fn create_compressed_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
-        Ok(Box::new(CompressedSacaModel::new()))
+        Ok(Box::new(CompressedSacaModel::new().await))
     }
 
     /// Create a SACA + CAFFEINE multimodal model
     pub async fn create_multimodal_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
-        Ok(Box::new(MultimodalSacaModel::new()))
+        Ok(Box::new(MultimodalSacaModel::new().await))
     }
 
     /// Create a SACA + HAS-MoE expert model
     pub async fn create_expert_coder() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
-        Ok(Box::new(ExpertSacaModel::new()))
+        Ok(Box::new(ExpertSacaModel::new().await))
     }
 
     /// Create a full integration model with all frameworks
     pub async fn create_full_integration() -> Result<Box<dyn UnifiedModelTrait>, ModelError> {
-        Ok(Box::new(FullIntegrationModel::new()))
+        Ok(Box::new(FullIntegrationModel::new().await))
     }
 }
 
@@ -162,12 +162,8 @@ struct BasicSacaModel {
 }
 
 impl BasicSacaModel {
-    fn new() -> Self {
-        // Try to initialize SACAIntegration; if it fails, fall back to None
-        let rt = tokio::runtime::Runtime::new();
-        let saca = rt.ok().and_then(|rt| {
-            rt.block_on(async { SACAIntegration::new(SACAConfig::default()).await.ok() })
-        });
+    async fn new() -> Self {
+        let saca = SACAIntegration::new(SACAConfig::default()).await.ok();
         BasicSacaModel {
             saca: saca.map(Arc::new),
         }
@@ -194,18 +190,9 @@ impl UnifiedModelTrait for BasicSacaModel {
                 IntegrationMode::BasicSaca,
             ))
         } else {
-            Ok(CodeSolution {
-                quality_score: 0.85,
-                execution_time: std::time::Duration::from_millis(150),
-                integration_mode: IntegrationMode::BasicSaca,
-                atqs_compression_applied: false,
-                compression_ratio: 1.0,
-                caffeine_multimodal_applied: false,
-                has_moe_routing_applied: false,
-                routing_efficiency: 0.0,
-                generated_code: format!("// Basic SACA generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"Executing: {}\");\n    Ok(())\n}}",
-                    task.description, task.description),
-            })
+            return Err(ModelError::GenerationFailed(
+                "SACA engine not available (failed to initialize)".to_string(),
+            ));
         }
     }
 
@@ -221,32 +208,29 @@ impl UnifiedModelTrait for BasicSacaModel {
 }
 
 /// Helper: initialize SACAIntegration with optional extensions
-fn init_saca_with_extensions(
+async fn init_saca_with_extensions(
     atqs_config: Option<ATQSConfig>,
     caffeine_config: Option<CaffeineConfig>,
     has_moe_config: Option<super::serving::unified_api::HasMoeFfnConfig>,
 ) -> Option<Arc<SACAIntegration>> {
-    let rt = tokio::runtime::Runtime::new().ok()?;
-    rt.block_on(async {
-        let mut saca = SACAIntegration::new(SACAConfig::default()).await.ok()?;
+    let mut saca = SACAIntegration::new(SACAConfig::default()).await.ok()?;
 
-        if let Some(cfg) = atqs_config {
-            let engine = CompressionEngine::new(cfg).ok()?;
-            saca = saca.with_atqs_compression(Arc::new(engine));
-        }
+    if let Some(cfg) = atqs_config {
+        let engine = CompressionEngine::new(cfg).ok()?;
+        saca = saca.with_atqs_compression(Arc::new(engine));
+    }
 
-        if let Some(cfg) = caffeine_config {
-            let caffeine = Caffeine::new(cfg).ok()?;
-            saca = saca.with_caffeine(Arc::new(tokio::sync::Mutex::new(caffeine)));
-        }
+    if let Some(cfg) = caffeine_config {
+        let caffeine = Caffeine::new(cfg).ok()?;
+        saca = saca.with_caffeine(Arc::new(tokio::sync::Mutex::new(caffeine)));
+    }
 
-        if let Some(_cfg) = has_moe_config {
-            let router = nexora_foundation::has_moe_ffn::routing::Router::new(768, 8, 2);
-            saca = saca.with_has_moe_routing(Arc::new(router));
-        }
+    if let Some(_cfg) = has_moe_config {
+        let router = nexora_foundation::has_moe_ffn::routing::Router::new(768, 8, 2);
+        saca = saca.with_has_moe_routing(Arc::new(router));
+    }
 
-        Some(Arc::new(saca))
-    })
+    Some(Arc::new(saca))
 }
 
 /// Compressed SACA + ATQS model implementation
@@ -255,8 +239,8 @@ struct CompressedSacaModel {
 }
 
 impl CompressedSacaModel {
-    fn new() -> Self {
-        let saca = init_saca_with_extensions(Some(ATQSConfig::default()), None, None);
+    async fn new() -> Self {
+        let saca = init_saca_with_extensions(Some(ATQSConfig::default()), None, None).await;
         CompressedSacaModel { saca }
     }
 
@@ -281,18 +265,9 @@ impl UnifiedModelTrait for CompressedSacaModel {
                 IntegrationMode::SacaAtqs,
             ))
         } else {
-            Ok(CodeSolution {
-                quality_score: 0.88,
-                execution_time: std::time::Duration::from_millis(120),
-                integration_mode: IntegrationMode::SacaAtqs,
-                atqs_compression_applied: true,
-                compression_ratio: 2.5,
-                caffeine_multimodal_applied: false,
-                has_moe_routing_applied: false,
-                routing_efficiency: 0.0,
-                generated_code: format!("// Compressed SACA+ATQS generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let compressed = format!(\"ATQS compressed: {{}}\", \"{}\");\n    println!(\"{{}}\", compressed);\n    Ok(())\n}}",
-                    task.description, task.description),
-            })
+            return Err(ModelError::GenerationFailed(
+                "SACA+ATQS engine not available (failed to initialize)".to_string(),
+            ));
         }
     }
 
@@ -313,8 +288,8 @@ struct MultimodalSacaModel {
 }
 
 impl MultimodalSacaModel {
-    fn new() -> Self {
-        let saca = init_saca_with_extensions(None, Some(CaffeineConfig::medium_model()), None);
+    async fn new() -> Self {
+        let saca = init_saca_with_extensions(None, Some(CaffeineConfig::medium_model()), None).await;
         MultimodalSacaModel { saca }
     }
 
@@ -339,18 +314,9 @@ impl UnifiedModelTrait for MultimodalSacaModel {
                 IntegrationMode::SacaCaffeine,
             ))
         } else {
-            Ok(CodeSolution {
-                quality_score: 0.91,
-                execution_time: std::time::Duration::from_millis(180),
-                integration_mode: IntegrationMode::SacaCaffeine,
-                atqs_compression_applied: false,
-                compression_ratio: 1.0,
-                caffeine_multimodal_applied: true,
-                has_moe_routing_applied: false,
-                routing_efficiency: 0.0,
-                generated_code: format!("// Multimodal SACA+CAFFEINE generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let multimodal = vec![\"text\", \"image\", \"audio\"];\n    println!(\"CAFFEINE multimodal processing for: {} with modalities: {{:?}}\", multimodal);\n    Ok(())\n}}",
-                    task.description, task.description),
-            })
+            return Err(ModelError::GenerationFailed(
+                "SACA+CAFFEINE engine not available (failed to initialize)".to_string(),
+            ));
         }
     }
 
@@ -371,12 +337,12 @@ struct ExpertSacaModel {
 }
 
 impl ExpertSacaModel {
-    fn new() -> Self {
+    async fn new() -> Self {
         let saca = init_saca_with_extensions(
             None,
             None,
             Some(super::serving::unified_api::HasMoeFfnConfig::medium_model()),
-        );
+        ).await;
         ExpertSacaModel { saca }
     }
 
@@ -401,18 +367,9 @@ impl UnifiedModelTrait for ExpertSacaModel {
                 IntegrationMode::SacaHasMoe,
             ))
         } else {
-            Ok(CodeSolution {
-                quality_score: 0.93,
-                execution_time: std::time::Duration::from_millis(200),
-                integration_mode: IntegrationMode::SacaHasMoe,
-                atqs_compression_applied: false,
-                compression_ratio: 1.0,
-                caffeine_multimodal_applied: false,
-                has_moe_routing_applied: true,
-                routing_efficiency: 0.87,
-                generated_code: format!("// Expert SACA+HAS-MoE generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    let experts = vec![\"reasoning\", \"coding\", \"analysis\"];\n    let routing_efficiency = 0.87;\n    println!(\"HAS-MoE routing {{:.2}} experts: {{:?}}\", routing_efficiency, experts);\n    Ok(())\n}}",
-                    task.description),
-            })
+            return Err(ModelError::GenerationFailed(
+                "SACA+HAS-MoE engine not available (failed to initialize)".to_string(),
+            ));
         }
     }
 
@@ -433,12 +390,12 @@ struct FullIntegrationModel {
 }
 
 impl FullIntegrationModel {
-    fn new() -> Self {
+    async fn new() -> Self {
         let saca = init_saca_with_extensions(
             Some(ATQSConfig::default()),
             Some(CaffeineConfig::medium_model()),
             Some(super::serving::unified_api::HasMoeFfnConfig::medium_model()),
-        );
+        ).await;
         FullIntegrationModel { saca }
     }
 
@@ -463,18 +420,9 @@ impl UnifiedModelTrait for FullIntegrationModel {
                 IntegrationMode::FullIntegration,
             ))
         } else {
-            Ok(CodeSolution {
-                quality_score: 0.96,
-                execution_time: std::time::Duration::from_millis(250),
-                integration_mode: IntegrationMode::FullIntegration,
-                atqs_compression_applied: true,
-                compression_ratio: 3.2,
-                caffeine_multimodal_applied: true,
-                has_moe_routing_applied: true,
-                routing_efficiency: 0.92,
-                generated_code: format!("// Full Integration generated code for: {}\nfn main() -> Result<(), Box<dyn std::error::Error>> {{\n    println!(\"SACA reasoning enabled\");\n    println!(\"ATQS compression ratio: {{:.1}}x\", 3.2f64);\n    println!(\"CAFFEINE multimodal active\");\n    println!(\"HAS-MoE routing efficiency: {{:.2}}\", 0.92f64);\n    println!(\"Full integration pipeline complete for: {}\");\n    Ok(())\n}}",
-                    task.description, task.description),
-            })
+            return Err(ModelError::GenerationFailed(
+                "Full integration engine not available (failed to initialize)".to_string(),
+            ));
         }
     }
 

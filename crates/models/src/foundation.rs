@@ -167,7 +167,7 @@ macro_rules! define_foundation_model {
             }
 
             #[cfg(feature = "hallucination")]
-            fn run_hallucination_check(&self, input: &NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+            async fn run_hallucination_check(&self, input: &NxrInput) -> Option<nexora_hallucination::PipelineResult> {
                 if let Some(ref h) = self.hallucination {
                     let text = match &input.data {
                         InputData::Text(t) => t.clone(),
@@ -176,18 +176,13 @@ macro_rules! define_foundation_model {
                     let ctx = input.parameters.get("context")
                         .and_then(|v| v.as_str())
                         .map(String::from);
-                    let result = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            h.run_pipeline(&text, ctx.as_deref(), None).await
-                        })
-                    });
-                    return result.ok();
+                    return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
                 }
                 None
             }
 
             #[cfg(not(feature = "hallucination"))]
-            fn run_hallucination_check(&self, _input: &NxrInput) -> Option<nexora_hallucination::PipelineResult> {
+            async fn run_hallucination_check(&self, _input: &NxrInput) -> Option<nexora_hallucination::PipelineResult> {
                 None
             }
 
@@ -344,11 +339,6 @@ macro_rules! define_foundation_model {
 
             #[instrument(skip_all, fields(model_id = %self.identity().model_id))]
             async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
-                let guard = self.get_or_init_model();
-                let model = guard.as_ref().ok_or_else(|| {
-                    NxrModelError::NotInitialized("Model failed to initialize".to_string())
-                })?;
-
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),
                     InputData::Tokens(tokens) => self.decode_ids(tokens),
@@ -358,12 +348,22 @@ macro_rules! define_foundation_model {
                 let (max_tokens, temperature, top_k) = extract_params(input);
                 let prompt_ids = self.encode_text(&text);
 
-                let start = Instant::now();
-                let (output_ids, _cache) = model.generate(&prompt_ids, max_tokens, temperature, top_k);
-                let elapsed_ms = start.elapsed().as_millis() as u64;
+                let (elapsed_ms, output_text, n_tokens, memory_gb) = {
+                    let guard = self.get_or_init_model();
+                    let model = guard.as_ref().ok_or_else(|| {
+                        NxrModelError::NotInitialized("Model failed to initialize".to_string())
+                    })?;
 
-                let output_text = self.decode_ids(&output_ids);
-                let n_tokens = output_ids.len();
+                    let start = Instant::now();
+                    let (output_ids, _cache) = model.generate(&prompt_ids, max_tokens, temperature, top_k);
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+                    let output_text = self.decode_ids(&output_ids);
+                    let n_tokens = output_ids.len();
+                    let memory_gb = model.memory_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
+
+                    (elapsed_ms, output_text, n_tokens, memory_gb)
+                };
 
                 self.inference_count.fetch_add(1, Ordering::Relaxed);
                 self.total_generated.fetch_add(n_tokens as u64, Ordering::Relaxed);
@@ -384,7 +384,7 @@ macro_rules! define_foundation_model {
                     },
                     performance: PerformanceMetrics {
                         tokens_per_second: if elapsed_ms > 0 { n_tokens as f32 / elapsed_ms as f32 * 1000.0 } else { 0.0 },
-                        memory_usage_gb: model.memory_bytes() as f32 / (1024.0 * 1024.0 * 1024.0),
+                        memory_usage_gb: memory_gb,
                         gpu_utilization: None,
                         cpu_utilization: 100.0,
                         network_usage_mbps: None,
@@ -392,7 +392,7 @@ macro_rules! define_foundation_model {
                 };
 
                 #[cfg(feature = "hallucination")]
-                if let Some(report) = self.run_hallucination_check(input) {
+                if let Some(report) = self.run_hallucination_check(input).await {
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("hallucination_risk".to_string(), serde_json::json!(format!("{:?}", report.risk_level)));
                     meta.insert("hallucination_score".to_string(), serde_json::json!(report.score));

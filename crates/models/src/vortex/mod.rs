@@ -16,7 +16,7 @@ use nexora_shared::{
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    gnac_integration::{GnacIntegrationConfig, GnacModel},
+    gnac_integration::GnacIntegrationConfig,
     model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
     model_registry::{global_registry, NxrModelRegistry},
@@ -836,8 +836,6 @@ impl HasComponents for NxrVortexModel {
 }
 
 impl DeepLearningModel for NxrVortexModel {}
-
-impl GnacModel for NxrVortexModel {}
 
 impl Default for NxrVortexModel {
     fn default() -> Self {

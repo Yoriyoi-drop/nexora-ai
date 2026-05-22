@@ -338,7 +338,7 @@ impl crate::traits::Forward for TemporalGatingHierarchy {
     type Output = (ArrayD<f32>, ArrayD<f32>, ArrayD<f32>);
 
     fn forward(&self, input: &Self::Input) -> DLResult<Self::Output> {
-        // Create dummy contexts for hierarchical processing
+        // Inisialisasi state kosong untuk hierarchical processing
         let hidden_state = ArrayD::zeros(vec![self.hidden_size]);
         let chunk_context = ArrayD::zeros(vec![self.hidden_size]);
         let episodic_memory = ArrayD::zeros(vec![self.hidden_size]);

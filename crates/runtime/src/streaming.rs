@@ -402,7 +402,7 @@ impl StreamingEngine {
 
         if let Some(stream_info) = streams.remove(&stream_id) {
             // Send completion signal
-            let _ = stream_info.token_tx.send(StreamToken {
+            if stream_info.token_tx.send(StreamToken {
                 token: GeneratedToken {
                     token_id: 0,
                     text: "[CANCELLED]".to_string(),
@@ -412,7 +412,9 @@ impl StreamingEngine {
                 is_last: true,
                 position: stream_info.token_count,
                 metadata: HashMap::new(),
-            });
+            }).await.is_err() {
+                debug!("client disconnected, cancellation token not delivered");
+            }
 
             // Update statistics
             {
@@ -752,7 +754,9 @@ pub mod adapters {
 
                 if stream_token.is_last {
                     // Send final event
-                    let _ = sse_tx.send("event: end\ndata: {}\n\n".to_string());
+                    if sse_tx.send("event: end\ndata: {}\n\n".to_string()).await.is_err() {
+                        debug!("client disconnected, could not send SSE end event");
+                    }
                     break;
                 }
             }
