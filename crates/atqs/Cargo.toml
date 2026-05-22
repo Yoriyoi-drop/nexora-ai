@@ -6,7 +6,7 @@ description = "Advanced Tensor Quantization System (ATQS)"
 
 [dependencies]
 ndarray.workspace = true
-ndarray-rand = "0.15"
+ndarray-rand = "0.16"
 rand.workspace = true
 rand_distr = "0.4"
 serde.workspace = true

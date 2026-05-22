@@ -6,7 +6,7 @@ description = "Entropic Resonance Pruning (ERP) - Strengthened Architecture"
 
 [dependencies]
 ndarray.workspace = true
-ndarray-rand = "0.15"
+ndarray-rand = "0.16"
 rand.workspace = true
 rand_distr = "0.4"
 thiserror.workspace = true
