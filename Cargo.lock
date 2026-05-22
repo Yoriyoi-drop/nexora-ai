@@ -3212,7 +3212,7 @@ checksum = "f093b3db6fd194718dcdeea6bd8c829417deae904e3fcc7732dabcd4416d25d8"
 dependencies = [
  "ndarray 0.16.1",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.4.3",
 ]
 
 [[package]]
@@ -3363,7 +3363,7 @@ dependencies = [
  "ndarray-rand",
  "nexora-autograd",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.6.0",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3580,7 +3580,7 @@ dependencies = [
  "ndarray 0.15.6",
  "ndarray-rand",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.6.0",
  "thiserror 1.0.69",
  "tracing",
  "uuid",
@@ -3629,7 +3629,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.6.0",
  "rayon",
  "regex",
  "serde",
@@ -3792,7 +3792,7 @@ dependencies = [
  "proptest",
  "psutil",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.6.0",
  "ratatui",
  "rayon",
  "regex",
@@ -4114,7 +4114,7 @@ dependencies = [
  "nexora-autograd",
  "nexora-hldva-t",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.6.0",
  "serde",
  "tracing",
 ]
@@ -5179,6 +5179,16 @@ checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
  "rand 0.8.6",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
+dependencies = [
+ "num-traits",
+ "rand 0.10.1",
 ]
 
 [[package]]

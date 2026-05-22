@@ -10,7 +10,7 @@ nexora-autograd = { path = "../autograd", optional = true }
 ndarray.workspace = true
 ndarray-rand = "0.15"
 rand.workspace = true
-rand_distr = "0.4"
+rand_distr = "0.6"
 serde.workspace = true
 tracing.workspace = true
 
