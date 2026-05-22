@@ -205,7 +205,7 @@ pub struct InferenceResponse {
     /// Request ID
     pub request_id: uuid::Uuid,
     /// Generated tokens
-    pub tokens: Vec<Arc<GeneratedToken>>,
+    pub tokens: Vec<GeneratedToken>,
     /// Generated text
     pub text: String,
     /// Finish reason
@@ -335,8 +335,8 @@ impl InferenceResponse {
     }
 
     /// Add token
-    pub fn add_token(&mut self, token: Arc<GeneratedToken>) {
-        self.text.push_str(&token.token_text);
+    pub fn add_token(&mut self, token: GeneratedToken) {
+        self.text.push_str(&*(token.token_text));
         self.tokens.push(token);
         self.total_tokens += 1;
     }

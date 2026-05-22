@@ -420,8 +420,9 @@ impl PagedKVCache {
             }
 
             entries.push(KVCacheEntry {
-                k: k_flat,
-                v: v_flat,
+                k: k_flat.into_raw_vec(),
+                v: v_flat.into_raw_vec(),
+                kv_dim: cols,
             });
         }
 

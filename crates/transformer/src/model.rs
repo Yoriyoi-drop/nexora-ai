@@ -614,7 +614,6 @@ impl CausalLM {
         kv_cache: &mut dyn KVCacheProvider,
     ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use ndarray::Axis;
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = GpuContext::global()?;
@@ -940,7 +939,6 @@ impl CausalLM {
     ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
-        use ndarray::Axis;
 
         self.preupload_weights_gpu()?;
 

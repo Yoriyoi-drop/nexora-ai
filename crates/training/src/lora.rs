@@ -246,7 +246,6 @@ impl LoRAModel {
     pub fn load_adapter(
         &mut self,
         path: &str,
-        _target_shapes: &[Vec<usize>],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let loaded = nexora_transformer::safetensors::load_safetensors(path)?;
         for layer_pair in self.layers.chunks_mut(2) {

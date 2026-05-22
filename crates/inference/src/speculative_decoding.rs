@@ -8,6 +8,8 @@
 //! 2. Target model M_p (besar) → verifikasi semua K token dalam SATU forward pass
 //! 3. Accept/reject berdasarkan rejection sampling untuk menjaga distribusi identik
 
+use std::sync::Arc;
+
 use rand::Rng;
 
 use crate::decoding::{self, DecodingConfig, DecodingContext, DecodingStrategy};
@@ -51,7 +53,7 @@ impl Default for SpeculativeDecodingConfig {
 #[derive(Debug, Clone)]
 pub struct SpeculativeResult {
     /// Accepted tokens (dari draft + bonus)
-    pub accepted_tokens: Vec<GeneratedToken>,
+    pub accepted_tokens: Vec<Arc<GeneratedToken>>,
     /// Total tokens generated this step
     pub total_tokens: usize,
     /// Draft tokens generated
@@ -160,12 +162,12 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                     };
                     let resampled_id = self.sampler.sample(&probs)?;
                     let log_prob = target_logit.get(resampled_id).copied().unwrap_or(0.0);
-                    let token = GeneratedToken::new(
+                    let token = Arc::new(GeneratedToken::new(
                         resampled_id as u32,
                         decoding::alloc_token_text(resampled_id),
                         log_prob,
                         context.step + accepted.len(),
-                    );
+                    ));
                     accepted.push(token);
                     break; // Stop after first rejection
                 }
@@ -173,14 +175,14 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                 // Greedy acceptance: accept if argmax matches
                 let target_argmax = self.argmax(target_logit);
                 if target_argmax == draft_token.token_id {
-                    accepted.push(draft_token.clone());
+                    accepted.push(Arc::clone(draft_token));
                 } else {
-                    let token = GeneratedToken::new(
+                    let token = Arc::new(GeneratedToken::new(
                         target_argmax,
                         decoding::alloc_token_text(target_argmax as usize),
                         target_logit[target_argmax as usize],
                         context.step + accepted.len(),
-                    );
+                    ));
                     accepted.push(token);
                     break;
                 }
@@ -203,12 +205,12 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                 let bonus_selection =
                     self.target_strategy
                         .select_token(bonus_logit, decoding_config, context)?;
-                let bonus_token = GeneratedToken::new(
+                let bonus_token = Arc::new(GeneratedToken::new(
                     bonus_selection.token_id,
                     decoding::alloc_token_text(bonus_selection.token_id as usize),
                     bonus_selection.log_prob,
                     context.step + accepted.len(),
-                );
+                ));
                 accepted.push(bonus_token);
                 bonus_added = true;
             }
@@ -239,7 +241,7 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
         k: usize,
         decoding_config: &DecodingConfig,
         context: &DecodingContext,
-    ) -> Result<(Vec<GeneratedToken>, Vec<Vec<f32>>)> {
+    ) -> Result<(Vec<Arc<GeneratedToken>>, Vec<Vec<f32>>)> {
         let mut draft_tokens = Vec::with_capacity(k);
         let mut draft_logits = Vec::with_capacity(k);
         let mut current_ids = input_ids.to_vec();
@@ -250,12 +252,12 @@ impl<D: DecodingStrategy> SpeculativeDecoder<D> {
                 .draft_strategy
                 .select_token(&logits, decoding_config, context)?;
 
-            let token = GeneratedToken::new(
+            let token = Arc::new(GeneratedToken::new(
                 selection.token_id,
                 decoding::alloc_token_text(selection.token_id as usize),
                 selection.log_prob * self.config.draft_scale_factor,
                 context.step + i,
-            );
+            ));
 
             draft_tokens.push(token);
             draft_logits.push(logits);

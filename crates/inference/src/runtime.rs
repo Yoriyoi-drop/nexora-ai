@@ -665,7 +665,10 @@ impl InferenceRuntime {
 
     async fn get_network_io_bytes(&self) -> Result<u64> {
         // Try to get network I/O from /proc/net/dev
-        match std::fs::read_to_string("/proc/net/dev") {
+        let content = tokio::task::spawn_blocking(|| {
+            std::fs::read_to_string("/proc/net/dev")
+        }).await.map_err(|e| InferenceError::InternalError(format!("spawn_blocking: {}", e)))?;
+        match content {
             Ok(content) => {
                 let mut total_bytes = 0u64;
                 for line in content.lines().skip(2) {

@@ -261,7 +261,7 @@ impl BeamSearchEngine {
                 );
 
                 let mut new_tokens = (*hypothesis.tokens).clone();
-                new_tokens.push(token);
+                new_tokens.push(Arc::new(token));
                 let new_cumulative_log_prob = hypothesis.cumulative_log_prob + logit;
                 let new_len = new_tokens.len() as f32;
                 let lp = ((new_len + 5.0) / (6.0)).powf(hypothesis.length_penalty);

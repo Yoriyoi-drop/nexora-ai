@@ -22,7 +22,10 @@ pub fn format_duration(secs: u64) -> String {
 }
 
 pub fn get_process_memory_mb() -> f64 {
-    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+    let status = tokio::task::block_in_place(|| {
+        std::fs::read_to_string("/proc/self/status")
+    });
+    if let Ok(status) = status {
         for line in status.lines() {
             if line.starts_with("VmRSS:") {
                 if let Some(kb_str) = line.split_whitespace().nth(1) {
@@ -37,7 +40,10 @@ pub fn get_process_memory_mb() -> f64 {
 }
 
 pub fn get_cpu_usage_percent() -> f64 {
-    if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
+    let stat = tokio::task::block_in_place(|| {
+        std::fs::read_to_string("/proc/stat")
+    });
+    if let Ok(stat) = stat {
         if let Some(cpu_line) = stat.lines().next() {
             if cpu_line.starts_with("cpu ") {
                 let parts: Vec<&str> = cpu_line.split_whitespace().collect();
@@ -63,7 +69,10 @@ pub fn get_cpu_usage_percent() -> f64 {
 }
 
 pub fn get_load_average() -> (f64, f64, f64) {
-    if let Ok(load_str) = std::fs::read_to_string("/proc/loadavg") {
+    let load_str = tokio::task::block_in_place(|| {
+        std::fs::read_to_string("/proc/loadavg")
+    });
+    if let Ok(load_str) = load_str {
         let parts: Vec<&str> = load_str.split_whitespace().collect();
         if parts.len() >= 3 {
             let l1: f64 = parts[0].parse().unwrap_or(0.0);

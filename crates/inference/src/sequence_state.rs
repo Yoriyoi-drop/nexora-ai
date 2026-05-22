@@ -23,7 +23,7 @@ pub struct Sequence {
     /// Prompt token IDs
     pub prompt: Vec<u32>,
     /// Tokens generated so far
-    pub generated: Vec<GeneratedToken>,
+    pub generated: Vec<Arc<GeneratedToken>>,
     /// Current lifecycle state
     pub state: SeqState,
     /// Maximum tokens to generate (including prompt)
@@ -91,7 +91,7 @@ impl Sequence {
     }
 
     /// Append a generated token to this sequence.
-    pub fn push_token(&mut self, token: GeneratedToken) {
+    pub fn push_token(&mut self, token: Arc<GeneratedToken>) {
         self.generated.push(token);
     }
 

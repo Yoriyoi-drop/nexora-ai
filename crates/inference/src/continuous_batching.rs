@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use ndarray::Array1;
 use tracing::warn;
@@ -193,7 +194,7 @@ where
 
         let log_prob = logits_slice.get(token_id as usize).copied().unwrap_or(0.0);
         let pos = seq.prompt.len() + seq.generated.len();
-        seq.push_token(GeneratedToken::new(token_id, String::new(), log_prob, pos));
+        seq.push_token(Arc::new(GeneratedToken::new(token_id, String::new(), log_prob, pos)));
 
         let mut finish_reason: Option<FinishReason> = None;
         if token_id == seq.eos_token_id && !seq.generated.is_empty() {
@@ -219,7 +220,7 @@ where
             .collect();
         Some(InferenceResponse {
             request_id: uuid::Uuid::new_v4(),
-            tokens: seq.generated.clone(),
+            tokens: seq.generated.iter().map(|t| (**t).clone()).collect(),
             text,
             finish_reason: reason,
             total_tokens: seq.total_tokens(),
@@ -259,7 +260,7 @@ where
                     .collect();
                 results.push(InferenceResponse {
                     request_id: uuid::Uuid::new_v4(),
-                    tokens: seq.generated,
+                    tokens: seq.generated.iter().map(|t| (**t).clone()).collect(),
                     text,
                     finish_reason: reason,
                     total_tokens,

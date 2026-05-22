@@ -197,8 +197,8 @@ impl MetricsCollector {
             average_response_time_ms: average_response_time,
             error_rate_percent: error_rate,
             active_connections: metrics.active_connections,
-            memory_usage_mb: self.get_memory_usage(),
-            cpu_usage_percent: self.get_cpu_usage(),
+            memory_usage_mb: self.get_memory_usage().await,
+            cpu_usage_percent: self.get_cpu_usage().await,
             top_routes,
         }
     }
@@ -280,9 +280,12 @@ impl MetricsCollector {
     }
 
     /// Get memory usage in MB
-    fn get_memory_usage(&self) -> f64 {
+    async fn get_memory_usage(&self) -> f64 {
         // Try to get memory usage from /proc/self/status on Linux
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        let status = tokio::task::spawn_blocking(|| {
+            std::fs::read_to_string("/proc/self/status")
+        }).await.unwrap_or(Ok(String::new()));
+        if let Ok(status) = status {
             for line in status.lines() {
                 if line.starts_with("VmRSS:") {
                     if let Some(kb_str) = line.split_whitespace().nth(1) {
@@ -300,10 +303,10 @@ impl MetricsCollector {
     }
 
     /// Get CPU usage as percentage
-    fn get_cpu_usage(&self) -> f64 {
+    async fn get_cpu_usage(&self) -> f64 {
         // Simple CPU usage estimation based on process activity
         // This is a simplified implementation
-        if let Ok(usage) = self.get_process_cpu_usage() {
+        if let Ok(usage) = self.get_process_cpu_usage().await {
             usage
         } else {
             // Fallback: return a reasonable default
@@ -312,8 +315,10 @@ impl MetricsCollector {
     }
 
     /// Get process CPU usage from /proc/self/stat on Linux
-    fn get_process_cpu_usage(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        let stat_content = std::fs::read_to_string("/proc/self/stat")?;
+    async fn get_process_cpu_usage(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        let stat_content = tokio::task::spawn_blocking(|| {
+            std::fs::read_to_string("/proc/self/stat")
+        }).await.map_err(|e| format!("spawn_blocking error: {}", e))??;
         let parts: Vec<&str> = stat_content.split_whitespace().collect();
 
         if parts.len() < 17 {
@@ -327,7 +332,9 @@ impl MetricsCollector {
         let total_time = utime + stime;
 
         // Get total CPU time from /proc/stat (also in clock ticks)
-        let stat_content = std::fs::read_to_string("/proc/stat")?;
+        let stat_content = tokio::task::spawn_blocking(|| {
+            std::fs::read_to_string("/proc/stat")
+        }).await.map_err(|e| format!("spawn_blocking error: {}", e))??;
         let first_line = stat_content.lines().next().ok_or("No data in /proc/stat")?;
         let cpu_parts: Vec<u64> = first_line
             .split_whitespace()

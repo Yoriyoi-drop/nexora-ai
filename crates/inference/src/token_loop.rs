@@ -407,7 +407,7 @@ impl TokenLoop {
         // Add tokens to response
         let mut final_response = response;
         for token in tokens {
-            final_response.add_token(token);
+            final_response.add_token(Arc::try_unwrap(token).unwrap_or_else(|t| (*t).clone()));
         }
 
         Ok(final_response)

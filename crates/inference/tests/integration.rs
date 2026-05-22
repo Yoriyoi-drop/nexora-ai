@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -142,19 +143,19 @@ async fn test_streaming_e2e() {
 
     let (stream_id, mut rx) = engine.create_stream().await.unwrap();
 
-    let token1 = GeneratedToken::new(1, "hello".to_string(), -0.5, 0);
-    let token2 = GeneratedToken::new(2, " world".to_string(), -0.3, 1);
+    let token1 = Arc::new(GeneratedToken::new(1, "hello".to_string(), -0.5, 0));
+    let token2 = Arc::new(GeneratedToken::new(2, " world".to_string(), -0.3, 1));
 
     engine
-        .push_tokens(stream_id, vec![token1.clone()], false)
+        .push_tokens(stream_id, vec![Arc::clone(&token1)], false)
         .await
         .unwrap();
     engine
-        .push_tokens(stream_id, vec![token2.clone()], true)
+        .push_tokens(stream_id, vec![Arc::clone(&token2)], true)
         .await
         .unwrap();
 
-    let received: Vec<GeneratedToken> = {
+    let received: Vec<Arc<GeneratedToken>> = {
         let mut tokens = Vec::new();
         while let Some(token) = rx.recv().await {
             tokens.push(token);
@@ -180,8 +181,8 @@ async fn test_streaming_multiple_streams() {
     let (sid1, mut rx1) = engine.create_stream().await.unwrap();
     let (sid2, mut rx2) = engine.create_stream().await.unwrap();
 
-    let t1 = GeneratedToken::new(10, "alpha".to_string(), -0.1, 0);
-    let t2 = GeneratedToken::new(20, "beta".to_string(), -0.2, 0);
+    let t1 = Arc::new(GeneratedToken::new(10, "alpha".to_string(), -0.1, 0));
+    let t2 = Arc::new(GeneratedToken::new(20, "beta".to_string(), -0.2, 0));
 
     engine.push_tokens(sid1, vec![t1], false).await.unwrap();
     engine.push_tokens(sid2, vec![t2], false).await.unwrap();

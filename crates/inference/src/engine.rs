@@ -441,7 +441,7 @@ impl InferenceEngine {
             let token_text = self.token_id_to_text(token_id);
             let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
             let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
-            response.add_token(Arc::new(token));
+            response.add_token(token);
             all_ids.push(token_id);
 
             if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
