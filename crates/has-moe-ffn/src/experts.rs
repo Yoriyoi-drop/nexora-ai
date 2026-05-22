@@ -74,6 +74,11 @@ impl Expert {
 
     /// Forward pass through expert
     pub fn forward(&self, input: &[f32]) -> Vec<f32> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_gpu(input) {
+            return result;
+        }
+
         // First linear layer + activation
         let hidden = self.fc1_forward(input);
         let activated = self.apply_gelu(&hidden);
@@ -89,6 +94,65 @@ impl Expert {
         let output = self.fc2_forward(&dropped);
 
         output
+    }
+
+    /// GPU-accelerated forward pass
+    #[cfg(feature = "gpu")]
+    fn forward_gpu(&self, input: &[f32]) -> Option<Vec<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = GpuContext::global().ok()?;
+        let dim = input.len();
+
+        // Upload input as [1, hidden_size]
+        let input_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, dim], input.to_vec()).ok()?
+        ).ok()?;
+
+        // fc1 weights: [intermediate_size, hidden_size] → transpose → [hidden_size, intermediate_size]
+        let fc1_w: Vec<f32> = self.fc1_weights.iter().flat_map(|r| r.iter()).copied().collect();
+        let w1_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![self.fc1_weights.len(), dim], fc1_w).ok()?
+        ).ok()?;
+        let w1t_gpu = ctx.transpose(&w1_gpu).ok()?;
+        let b1_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, self.fc1_bias.len()], self.fc1_bias.clone()).ok()?
+        ).ok()?;
+
+        let hidden_gpu = ctx.matmul(&input_gpu, &w1t_gpu).ok()?;
+        let hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
+
+        // GELU on CPU (GELU GPU kernel not assumed available)
+        let hidden_cpu = hidden_gpu.to_cpu();
+        let hidden_slice: Vec<f32> = hidden_cpu.iter().copied().collect();
+        let activated: Vec<f32> = hidden_slice.iter().map(|&x| gelu(x)).collect();
+
+        // Dropout (CPU, same as original)
+        let dropped = if self.config.use_dropout {
+            self.apply_dropout(&activated)
+        } else {
+            activated
+        };
+
+        // fc2 weights: [hidden_size, intermediate_size] → transpose → [intermediate_size, hidden_size]
+        let fc2_w: Vec<f32> = self.fc2_weights.iter().flat_map(|r| r.iter()).copied().collect();
+        let w2_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![self.fc2_weights.len(), dropped.len()], fc2_w).ok()?
+        ).ok()?;
+        let w2t_gpu = ctx.transpose(&w2_gpu).ok()?;
+        let b2_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?
+        ).ok()?;
+        let dropped_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, dropped.len()], dropped).ok()?
+        ).ok()?;
+
+        let out_gpu = ctx.matmul(&dropped_gpu, &w2t_gpu).ok()?;
+        let out_gpu = ctx.add(&out_gpu, &b2_gpu).ok()?;
+
+        let out_cpu = out_gpu.to_cpu();
+        Some(out_cpu.iter().copied().collect())
     }
 
     /// First linear layer forward pass

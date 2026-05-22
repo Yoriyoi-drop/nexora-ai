@@ -71,10 +71,14 @@ impl MultiHeadAttention {
         k: &Tensor,
         v: &Tensor,
     ) -> HLDVAResult<Tensor> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.scaled_dot_product_attention_gpu(q, k, v) {
+            return Ok(result);
+        }
+
         let q_data = q.data();
         let k_data = k.data();
         let v_data = v.data();
-
         let seq_len = q_data.len() / (self.num_heads * self.head_dim);
         let scale = (self.head_dim as f32).sqrt();
 
@@ -133,6 +137,72 @@ impl MultiHeadAttention {
 
         // Normalize
         exp_scores.iter().map(|&x| x / sum_exp).collect()
+    }
+
+    /// GPU-accelerated scaled dot-product attention
+    #[cfg(feature = "gpu")]
+    fn scaled_dot_product_attention_gpu(
+        &self,
+        q: &Tensor,
+        k: &Tensor,
+        v: &Tensor,
+    ) -> Option<Tensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = GpuContext::global().ok()?;
+        let q_data = q.data();
+        let k_data = k.data();
+        let v_data = v.data();
+        let seq_len = q_data.len() / (self.num_heads * self.head_dim);
+        let scale = (self.head_dim as f32).sqrt();
+
+        let mut output = Vec::with_capacity(q_data.len());
+
+        for head in 0..self.num_heads {
+            let offset = head * seq_len * self.head_dim;
+
+            // Extract Q_h, K_h, V_h as [seq_len, head_dim]
+            let q_slice: Vec<f32> = q_data[offset..offset + seq_len * self.head_dim].to_vec();
+            let k_slice: Vec<f32> = k_data[offset..offset + seq_len * self.head_dim].to_vec();
+            let v_slice: Vec<f32> = v_data[offset..offset + seq_len * self.head_dim].to_vec();
+
+            let q_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![seq_len, self.head_dim], q_slice).ok()?
+            ).ok()?;
+            let k_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![seq_len, self.head_dim], k_slice).ok()?
+            ).ok()?;
+            let v_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![seq_len, self.head_dim], v_slice).ok()?
+            ).ok()?;
+
+            // scores = Q @ K^T / scale: [seq_len, seq_len]
+            let kt_gpu = ctx.transpose(&k_gpu).ok()?;
+            let mut scores_gpu = ctx.matmul(&q_gpu, &kt_gpu).ok()?;
+
+            // Scale scores
+            let scale_factor = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![1], vec![1.0 / scale]).ok()?
+            ).ok()?;
+            scores_gpu = ctx.mul(&scores_gpu, &scale_factor).ok()?;
+
+            // Softmax on CPU
+            let scores_cpu = scores_gpu.to_cpu();
+            let scores_vec: Vec<f32> = scores_cpu.iter().copied().collect();
+            let softmax_vec = self.softmax(&scores_vec);
+
+            // attention = softmax(scores) @ V: [seq_len, head_dim]
+            let softmax_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![seq_len, seq_len], softmax_vec).ok()?
+            ).ok()?;
+            let attn_gpu = ctx.matmul(&softmax_gpu, &v_gpu).ok()?;
+
+            let attn_cpu = attn_gpu.to_cpu();
+            output.extend(attn_cpu.iter().copied());
+        }
+
+        Some(Tensor::new(output, q.shape().to_vec()))
     }
 
     /// Reshape tensor ke multi-head format
@@ -249,6 +319,11 @@ impl Linear {
     }
 
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_gpu(input) {
+            return Ok(result);
+        }
+
         let input_data = input.data();
         let weight_data = self.weight.data();
 
@@ -277,6 +352,39 @@ impl Linear {
         }
 
         Ok(Tensor::new(output, vec![self.out_features]))
+    }
+
+    /// GPU-accelerated forward pass
+    #[cfg(feature = "gpu")]
+    fn forward_gpu(&self, input: &Tensor) -> Option<Tensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = GpuContext::global().ok()?;
+        let input_data = input.data();
+
+        let input_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![1, self.in_features], input_data.to_vec()).ok()?
+        ).ok()?;
+
+        let w_data = self.weight.data();
+        let w_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![self.out_features, self.in_features], w_data.to_vec()).ok()?
+        ).ok()?;
+        let wt_gpu = ctx.transpose(&w_gpu).ok()?;
+
+        let mut out_gpu = ctx.matmul(&input_gpu, &wt_gpu).ok()?;
+
+        if let Some(ref bias) = self.bias {
+            let bias_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![1, self.out_features], bias.data().to_vec()).ok()?
+            ).ok()?;
+            out_gpu = ctx.add(&out_gpu, &bias_gpu).ok()?;
+        }
+
+        let out_cpu = out_gpu.to_cpu();
+        let result: Vec<f32> = out_cpu.iter().copied().collect();
+        Some(Tensor::new(result, vec![self.out_features]))
     }
 
     /// Xavier initialization

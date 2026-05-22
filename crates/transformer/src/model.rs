@@ -1021,7 +1021,7 @@ impl CausalLM {
         temperature: f32,
         top_k: usize,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, false)
+        self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, true)
     }
 
     pub fn generate_with_gpu(

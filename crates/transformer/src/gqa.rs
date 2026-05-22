@@ -432,26 +432,24 @@ impl GQA {
         sin: &Array1<f32>,
     ) -> Array2<f32> {
         #[cfg(feature = "gpu")]
-        if x.shape()[0] == 1 {
-            if let Ok(_ctx) = GpuContext::global() {
-                use ndarray::{ArrayD, Ix2};
-                let batch_size = 1;
-                let x_flat: Vec<f32> = x.iter().copied().collect();
-                if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![batch_size, x.shape()[1]], x_flat) {
-                    if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
-                        let gpu_result = (|| {
-                            if let Some(ref mut c) = cache {
-                                self.forward_gpu(&x_gpu, &mut *c, layer_idx, cos, sin)
-                            } else {
-                                let mut tmp = Vec::new();
-                                self.forward_gpu(&x_gpu, &mut tmp, layer_idx, cos, sin)
-                            }
-                        })();
-                        if let Ok(result) = gpu_result {
-                            let cpu = result.to_cpu();
-                            if let Ok(arr2) = cpu.into_dimensionality::<Ix2>() {
-                                return arr2.to_owned();
-                            }
+        if let Ok(_ctx) = GpuContext::global() {
+            use ndarray::{ArrayD, Ix2};
+            let batch_size = x.shape()[0];
+            let x_flat: Vec<f32> = x.iter().copied().collect();
+            if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![batch_size, x.shape()[1]], x_flat) {
+                if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
+                    let gpu_result = (|| {
+                        if let Some(ref mut c) = cache {
+                            self.forward_gpu(&x_gpu, &mut *c, layer_idx, cos, sin)
+                        } else {
+                            let mut tmp = Vec::new();
+                            self.forward_gpu(&x_gpu, &mut tmp, layer_idx, cos, sin)
+                        }
+                    })();
+                    if let Ok(result) = gpu_result {
+                        let cpu = result.to_cpu();
+                        if let Ok(arr2) = cpu.into_dimensionality::<Ix2>() {
+                            return arr2.to_owned();
                         }
                     }
                 }

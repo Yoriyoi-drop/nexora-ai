@@ -3695,6 +3695,7 @@ name = "nexora-hldva-t"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ndarray 0.15.6",
  "nexora-atqs",
  "nexora-autograd",
  "rand 0.8.6",

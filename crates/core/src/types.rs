@@ -4,6 +4,7 @@
 //! dengan ownership dan type safety yang lebih baik.
 
 use crate::error::CoreResult;
+use crate::CoreError;
 use serde::{Deserialize, Serialize};
 
 // ==================== Input Types ====================
@@ -355,7 +356,12 @@ pub struct ContextInfo {
     pub active_model: ModelId,
     pub active_task: Option<String>,
     pub has_memory: bool,
-    pub context_relevance: f32, // 0.0 - 1.0
+    pub context_relevance: f32,
+    pub recent_history: Vec<String>,
+    pub relevant_memories: Vec<String>,
+    pub user_intent: Option<String>,
+    pub task_type: Option<String>,
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 impl ContextInfo {
@@ -367,6 +373,11 @@ impl ContextInfo {
             active_task: None,
             has_memory: false,
             context_relevance: 0.8,
+            recent_history: Vec::new(),
+            relevant_memories: Vec::new(),
+            user_intent: None,
+            task_type: None,
+            metadata: std::collections::HashMap::new(),
         }
     }
 
@@ -705,7 +716,12 @@ impl ControllerCore {
         let model_key = routing.target_model.name();
         if let Some(model) = models.get(model_key) {
             let context = ContextInfo {
+                previous_context: None,
                 current_context: original_input.to_string(),
+                active_model: routing.target_model.clone(),
+                active_task: None,
+                has_memory: false,
+                context_relevance: 0.5,
                 recent_history: vec![],
                 relevant_memories: vec![],
                 user_intent: None,
