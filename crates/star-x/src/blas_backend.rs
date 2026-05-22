@@ -9,7 +9,7 @@
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError};
-use ndarray::{ArrayView, ArrayViewMut};
+use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
 use std::arch::x86_64::*;
 
 /// BLAS Backend types untuk runtime selection

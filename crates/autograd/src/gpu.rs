@@ -516,6 +516,8 @@ impl GpuContext {
         self.compile_fused_ops()?;
         // Phase 4: Training pipelines
         self.compile_adam_step()?;
+        // Phase 5: SEDC compression pipelines
+        self.compile_sedc_pipelines()?;
         Ok(())
     }
 

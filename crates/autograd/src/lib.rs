@@ -36,6 +36,8 @@ pub mod gpu_bench;
 #[cfg(feature = "gpu")]
 pub mod gpu_profiler;
 #[cfg(feature = "gpu")]
+pub mod gpu_sedc;
+#[cfg(feature = "gpu")]
 pub mod gpu_sampler;
 #[cfg(feature = "gpu")]
 pub use gpu_batch::GpuCommandBatch;

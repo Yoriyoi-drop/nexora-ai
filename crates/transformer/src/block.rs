@@ -37,6 +37,23 @@ impl TransformerBlock {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
     ) -> Array2<f32> {
+        #[cfg(feature = "gpu")]
+        if let Ok(_ctx) = nexora_autograd::gpu::GpuContext::global() {
+            use ndarray::ArrayD;
+            use nexora_autograd::gpu::GpuTensor;
+            let x_flat: Vec<f32> = x.iter().copied().collect();
+            if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![x.shape()[0], x.shape()[1]], x_flat) {
+                if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
+                    if let Ok(result) = self.forward_gpu(&x_gpu, cache, layer_idx, cos, sin) {
+                        let cpu = result.to_cpu();
+                        if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
+                            return arr2.to_owned();
+                        }
+                    }
+                }
+            }
+        }
+
         let normed = self.attention_norm.forward(x);
         let attn_out = self
             .attention

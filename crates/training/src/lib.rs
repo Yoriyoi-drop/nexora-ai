@@ -9,6 +9,7 @@ use nexora_autograd::compute_grad_norm;
 #[cfg(feature = "gpu")]
 use nexora_autograd::compute_grad_norm_gpu;
 use nexora_autograd::ops::cross_entropy_loss;
+#[cfg(feature = "gpu")]
 use nexora_autograd::device::Storage;
 use nexora_autograd::Device;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
@@ -64,7 +65,7 @@ impl Default for TrainerConfig {
             warmup_steps: 0,
             val_every_steps: 100,
             early_stop_patience: 3,
-            use_gpu: false,
+            use_gpu: true,
         }
     }
 }
@@ -479,6 +480,13 @@ impl Trainer {
             }
         };
 
+        #[cfg(feature = "gpu")]
+        if self.gpu_optimizer.is_some() && GpuContext::global().is_ok() {
+            let gpu_in = self.gpu_input_buf.as_ref().unwrap();
+            let gpu_tgt = self.gpu_target_buf.as_ref().unwrap();
+            return evaluate_loss_gpu(trainable, sequences, seq_length, gpu_in, gpu_tgt);
+        }
+
         let mut total_loss = 0.0f64;
         let mut total_tokens = 0usize;
 
@@ -729,6 +737,80 @@ fn train_batch_gpu(
     }
 
     Some(loss_val)
+}
+
+// --- GPU evaluation (forward-only, no backward) ---
+
+#[cfg(feature = "gpu")]
+fn evaluate_loss_gpu(
+    trainable: &nexora_transformer::TrainableCausalLM,
+    sequences: &[Vec<u32>],
+    seq_length: usize,
+    input_buffer: &GpuTensor,
+    target_buffer: &GpuTensor,
+) -> EvalMetrics {
+    let ctx = GpuContext::global().expect("GpuContext must be available");
+    let mut total_loss = 0.0f64;
+    let mut total_tokens = 0usize;
+
+    for tokens in sequences {
+        if tokens.len() < 2 {
+            continue;
+        }
+        for chunk in tokens.chunks(seq_length + 1) {
+            if chunk.len() < 2 {
+                continue;
+            }
+            let seq = chunk.len() - 1;
+
+            let input_f32: Vec<f32> = chunk[..seq].iter().map(|&t| t as f32).collect();
+            let target_f32: Vec<f32> = chunk[1..].iter().map(|&t| t as f32).collect();
+            ctx.queue.write_buffer(input_buffer.buffer(), 0, bytemuck::cast_slice(&input_f32));
+            ctx.queue.write_buffer(target_buffer.buffer(), 0, bytemuck::cast_slice(&target_f32));
+
+            let input_t = Tensor::from_gpu(
+                input_buffer.view_as(vec![seq]),
+                nexora_autograd::tensor::next_tensor_id(),
+                false,
+            );
+            let target_t = Tensor::from_gpu(
+                target_buffer.view_as(vec![seq]),
+                nexora_autograd::tensor::next_tensor_id(),
+                false,
+            );
+
+            let logits = trainable.forward(&input_t);
+            let loss = cross_entropy_loss(&logits, &target_t).mean();
+
+            match loss.storage() {
+                nexora_autograd::Storage::Gpu(g) => {
+                    let loss_cpu = g.to_cpu();
+                    let step_loss = loss_cpu.as_slice().map(|s| s[0] as f64).unwrap_or(f64::NAN);
+                    if !step_loss.is_finite() {
+                        warn!("NaN/Inf detected during GPU evaluation — skipping chunk");
+                        continue;
+                    }
+                    total_loss += step_loss * seq as f64;
+                    total_tokens += seq;
+                }
+                _ => {
+                    let cpu_val = loss.data()[0] as f64;
+                    if cpu_val.is_finite() {
+                        total_loss += cpu_val * seq as f64;
+                        total_tokens += seq;
+                    }
+                }
+            }
+        }
+    }
+
+    clear_tape();
+
+    EvalMetrics {
+        avg_loss: if total_tokens > 0 { total_loss / total_tokens as f64 } else { 0.0 },
+        perplexity: if total_tokens > 0 { (total_loss / total_tokens as f64).exp() } else { 0.0 },
+        total_tokens,
+    }
 }
 
 // --- Optimizer save/load helpers ---

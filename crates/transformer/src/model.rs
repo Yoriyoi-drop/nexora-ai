@@ -186,8 +186,12 @@ impl CausalLM {
     }
 
     pub fn forward(&self, input_ids: &[u32], kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32> {
+        #[cfg(feature = "gpu")]
+        if let Ok(logits) = self.forward_gpu(input_ids, kv_cache) {
+            return logits;
+        }
+
         let batch_size = 1;
-        let _seq_len = input_ids.len();
 
         let mut h = Array2::zeros((batch_size, self.config.hidden_size));
 
@@ -199,9 +203,7 @@ impl CausalLM {
                 tid,
                 self.config.vocab_size
             );
-            for j in 0..self.config.hidden_size {
-                h[[0, j]] = self.token_embedding[[tid, j]];
-            }
+            h.row_mut(0).assign(&self.token_embedding.row(tid));
         }
 
         let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
@@ -255,9 +257,7 @@ impl CausalLM {
                 tid,
                 self.config.vocab_size
             );
-            for j in 0..self.config.hidden_size {
-                h[[0, j]] = self.token_embedding[[tid, j]];
-            }
+            h.row_mut(0).assign(&self.token_embedding.row(tid));
         }
 
         let token_pos = kv_cache.num_tokens(seq_id).unwrap_or(0);
@@ -285,17 +285,7 @@ impl CausalLM {
 
         h = self.norm.forward(&h);
 
-        let h_row = h.row(0);
-        let mut logits = Array1::zeros(self.config.vocab_size);
-        for i in 0..self.config.vocab_size {
-            let mut dot = 0.0;
-            for j in 0..self.config.hidden_size {
-                dot += h_row[j] * self.lm_head[[i, j]];
-            }
-            logits[i] = dot;
-        }
-
-        logits
+        h.row(0).dot(&self.lm_head.t())
     }
 
     pub fn parameter_count(&self) -> usize {
@@ -431,16 +421,19 @@ impl CausalLM {
         let batch_size = 1;
 
         // 1. Token embedding: copy the embedding row for last token
-        let mut h_data = vec![0.0; self.config.hidden_size];
-        if let Some(&token_id) = input_ids.last() {
-            let tid = token_id as usize;
-            for j in 0..self.config.hidden_size {
-                h_data[j] = self.token_embedding[[tid, j]];
+        let h_data = match input_ids.last() {
+            Some(&token_id) => {
+                let tid = token_id as usize;
+                Some(self.token_embedding.row(tid).to_vec())
             }
-        }
-        let h_shape = vec![batch_size, self.config.hidden_size];
-        let h_cpu = ndarray::ArrayD::from_shape_vec(h_shape, h_data)
-            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            None => None,
+        };
+        let h_cpu = if let Some(ref data) = h_data {
+            ndarray::ArrayD::from_shape_vec(vec![batch_size, self.config.hidden_size], data.clone())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+        } else {
+            ndarray::ArrayD::zeros(vec![batch_size, self.config.hidden_size])
+        };
         let mut h = GpuTensor::from_cpu(&h_cpu)?;
 
         // 2. Get RoPE cos/sin for current position
@@ -584,16 +577,19 @@ impl CausalLM {
         let batch_size = 1;
 
         // 1. Token embedding: copy the embedding row for last token
-        let mut h_data = vec![0.0; self.config.hidden_size];
-        if let Some(&token_id) = input_ids.last() {
-            let tid = token_id as usize;
-            for j in 0..self.config.hidden_size {
-                h_data[j] = self.token_embedding[[tid, j]];
+        let h_data = match input_ids.last() {
+            Some(&token_id) => {
+                let tid = token_id as usize;
+                Some(self.token_embedding.row(tid).to_vec())
             }
-        }
-        let h_shape = vec![batch_size, self.config.hidden_size];
-        let h_cpu = ArrayD::from_shape_vec(h_shape, h_data)
-            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            None => None,
+        };
+        let h_cpu = if let Some(ref data) = h_data {
+            ArrayD::from_shape_vec(vec![batch_size, self.config.hidden_size], data.clone())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+        } else {
+            ArrayD::zeros(vec![batch_size, self.config.hidden_size])
+        };
         let mut h = GpuTensor::from_cpu(&h_cpu)?;
 
         // 2. Get RoPE cos/sin for current position
@@ -664,13 +660,9 @@ impl CausalLM {
             let token_id = batch_tokens[seq_idx];
 
             // Embedding: upload single row [1, hidden] — non-blocking queue.write_buffer
-            let mut h_data = vec![0.0; self.config.hidden_size];
             let tid = token_id as usize;
-            for j in 0..self.config.hidden_size {
-                h_data[j] = self.token_embedding[[tid, j]];
-            }
-            let h_shape = vec![1, self.config.hidden_size];
-            let h_cpu = ArrayD::from_shape_vec(h_shape, h_data)
+            let h_data = self.token_embedding.row(tid).to_vec();
+            let h_cpu = ArrayD::from_shape_vec(vec![1, self.config.hidden_size], h_data)
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
             let mut h = GpuTensor::from_cpu(&h_cpu)?;
 

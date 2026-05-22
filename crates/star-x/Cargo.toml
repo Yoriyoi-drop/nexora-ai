@@ -15,7 +15,10 @@ once_cell = { workspace = true }
 half = "2"
 num_cpus = "1.16"
 itertools = { workspace = true }
+nexora-autograd = { path = "../autograd", optional = true, features = ["gpu"] }
 
 [features]
 default = ["std"]
 std = []
+gpu = ["nexora-autograd"]
+full = ["std", "gpu"]
