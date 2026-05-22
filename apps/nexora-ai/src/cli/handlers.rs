@@ -333,7 +333,7 @@ impl Cli {
                             .await
                     }
                     Commands::Memory { action } => self.run_memory(&nexora, action).await,
-                    _ => unreachable!(),
+                    _ => unreachable!("Unhandled command variant in info handler"),
                 }
             }
         }

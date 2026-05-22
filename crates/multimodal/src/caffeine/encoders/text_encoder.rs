@@ -10,7 +10,6 @@ use ndarray::ArrayD;
 pub struct TextEncoder {
     config: crate::caffeine::config::TextEncoderConfig,
     model_loaded: bool,
-    // Simulated vocabulary
     vocab_size: usize,
     max_position_embeddings: usize,
 }

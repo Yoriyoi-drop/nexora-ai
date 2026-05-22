@@ -398,9 +398,9 @@ impl RateLimitingMiddleware {
         Ok(RateLimitStatistics {
             total_clients,
             total_requests,
-            requests_per_minute: requests_per_minute as f32,
+            requests_per_minute,
             average_requests_per_client: if total_clients > 0 {
-                total_requests as f32 / total_clients as f32
+                total_requests as f64 / total_clients as f64
             } else {
                 0.0
             },

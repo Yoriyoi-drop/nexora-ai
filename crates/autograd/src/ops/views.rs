@@ -81,7 +81,7 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
             let mut grads = Vec::with_capacity(count);
             for i in 0..count {
                 let g = grad
-                    .index_axis_move(Axis(axis), i)
+                    .index_axis(Axis(axis), i)
                     .to_owned()
                     .into_dyn();
                 grads.push(g);

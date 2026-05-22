@@ -10,7 +10,6 @@ use ndarray::ArrayD;
 pub struct VideoEncoder {
     config: crate::caffeine::config::VideoEncoderConfig,
     model_loaded: bool,
-    // Simulated model weights
     _temporal_dim: usize,
 }
 

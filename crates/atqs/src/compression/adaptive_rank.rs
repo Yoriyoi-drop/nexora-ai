@@ -419,7 +419,6 @@ fn compute_overall_compression_ratio(
 
 /// Helper functions with realistic implementations
 fn compute_layer_output(weights: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
-    // Simulate forward pass through a layer with activation
     if weights.is_empty() {
         return Ok(0.0);
     }

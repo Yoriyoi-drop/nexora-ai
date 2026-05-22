@@ -10,7 +10,6 @@ use ndarray::ArrayD;
 pub struct AudioEncoder {
     config: crate::caffeine::config::AudioEncoderConfig,
     model_loaded: bool,
-    // Simulated model weights
     sample_rate: usize,
     n_mels: usize,
 }

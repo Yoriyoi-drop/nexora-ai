@@ -198,7 +198,7 @@ impl Trainer {
                         .iter()
                         .map(|p| match p.storage() {
                             nexora_autograd::Storage::Gpu(g) => g,
-                            _ => unreachable!(),
+                            _ => panic!("Non-GPU tensor in GPU training optimizer setup"),
                         })
                         .collect();
                     let gpu_params: Vec<&GpuTensor> = owned_gpu_params.iter().collect();
@@ -676,7 +676,7 @@ fn train_batch_gpu(
         .iter()
         .map(|p| match p.storage() {
             nexora_autograd::Storage::Gpu(g) => g,
-            _ => unreachable!(),
+            _ => panic!("Non-GPU tensor in GPU backward train"),
         })
         .collect();
     let params: Vec<&GpuTensor> = owned_params.iter().collect();
@@ -699,7 +699,7 @@ fn train_batch_gpu(
             .iter()
             .map(|p| match p.storage() {
                 nexora_autograd::Storage::Gpu(g) => g,
-                _ => unreachable!(),
+                _ => panic!("Non-GPU tensor in GPU gradient accumulation"),
             })
             .collect();
         let params: Vec<&GpuTensor> = owned_params.iter().collect();

@@ -133,7 +133,7 @@ impl AlgorithmGenerator for HybridAlgorithmGenerator {
                             1 => apply_parallel_strategy(chunk),\n\
                             2 => apply_functional_strategy(chunk),\n\
                             3 => apply_experimental_strategy(chunk),\n\
-                            _ => unreachable!(),\n\
+                             _ => unreachable!("chunk_idx mod 4 produced unexpected value"),\n\
                         }}\n\
                     }})\n\
                     .collect()\n\

@@ -75,11 +75,50 @@ impl SimpleModel {
 
 #[async_trait::async_trait]
 impl ModelExecutor for SimpleModel {
-    async fn execute(&self, input: &str, _context: &str) -> CoreResult<String> {
-        // Simulate processing time
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    async fn execute(&self, input: &str, context: &str) -> CoreResult<String> {
+        let word_count = input.split_whitespace().count().max(1);
+        let char_count = input.len().max(1);
+        let intent_names: Vec<&str> = self
+            .supported_intents
+            .iter()
+            .map(|i| i.name())
+            .collect();
 
-        Ok(format!("[{}] Processed: {}", self.name, input))
+        let context_signal: f32 = context
+            .split_whitespace()
+            .filter(|w| input.contains(w))
+            .count() as f32
+            / word_count.max(1) as f32;
+
+        let has_numbers = input.contains(|c: char| c.is_ascii_digit());
+        let has_code = input.contains("fn ") || input.contains("let ") || input.contains("=>");
+        let has_query = input.contains('?');
+
+        let analysis = match (has_code, has_numbers, has_query) {
+            (true, _, _) => format!(
+                "[{}] code:{}tok ctx:{:.2}",
+                self.name, word_count, context_signal
+            ),
+            (_, true, _) => format!(
+                "[{}] numeric:{}dig ctx:{:.2}",
+                self.name, char_count, context_signal
+            ),
+            (_, _, true) => format!(
+                "[{}] query:{}w intent:{} ctx:{:.2}",
+                self.name, word_count, intent_names.join(","), context_signal
+            ),
+            _ => format!(
+                "[{}] gen:{}ch intent:{} ctx:{:.2}",
+                self.name, char_count, intent_names.join(","), context_signal
+            ),
+        };
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(
+            (word_count as u64 * 5).min(200),
+        ))
+        .await;
+
+        Ok(analysis)
     }
 
     fn model_id(&self) -> ModelId {

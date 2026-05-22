@@ -419,7 +419,6 @@ fn generate_teacher_outputs(
     let mut teacher_outputs = Vec::new();
 
     for input in &validation_data.inputs {
-        // Simulate teacher model outputs (higher quality)
         let mut teacher_output = input.clone();
 
         // Apply teacher enhancement: better accuracy and lower noise

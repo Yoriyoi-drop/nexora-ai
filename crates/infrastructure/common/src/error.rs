@@ -617,25 +617,37 @@ impl ErrorRecoveryManager {
                 max_attempts,
                 base_delay,
             } => {
+                let mut last_error = error.clone();
                 for attempt in 1..=*max_attempts {
-                    let delay = error.retry_delay(attempt - 1);
+                    let delay = last_error.retry_delay(attempt - 1);
                     tokio::time::sleep(delay).await;
 
-                    info!("Retry attempt {} for component {}", attempt, component);
+                    info!(
+                        "Retry attempt {}/{} for component {}",
+                        attempt, max_attempts, component
+                    );
 
-                    match self.health.check_component(component).await {
-                        Ok(true) => {
-                            info!("Component {} recovered after retry {}", component, attempt);
-                            return Ok(RecoveryAction::RetrySuccess);
-                        }
-                        Ok(false) | Err(_) => {
-                            if attempt < *max_attempts {
-                                let backoff = *base_delay * (2u64.pow(attempt as u32 - 1));
-                                tokio::time::sleep(Duration::from_millis(
-                                    backoff.min(30_000),
-                                ))
-                                .await;
-                            }
+                    let state = self
+                        .circuit_breakers
+                        .entry(component.to_string())
+                        .or_insert_with(|| CircuitBreakerState {
+                            state: CircuitBreakerStateType::Closed,
+                            failure_count: 0,
+                            failure_threshold: *max_attempts + 1,
+                            last_failure: Instant::now(),
+                            timeout: *base_delay * 2,
+                        });
+
+                    if state.failure_count < attempt {
+                        state.failure_count = attempt;
+                        state.last_failure = Instant::now();
+                        if attempt < *max_attempts {
+                            let backoff = base_delay.as_millis() as u64
+                                * (2u64.pow(attempt as u32 - 1));
+                            tokio::time::sleep(Duration::from_millis(
+                                backoff.min(30_000),
+                            ))
+                            .await;
                         }
                     }
                 }
