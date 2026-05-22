@@ -24,6 +24,12 @@ pub trait ModelForward: Send + Sync {
         input_ids: &[u32],
         kv_caches: &mut [CpuKVCache],
     ) -> Vec<Array1<f32>> {
+        if input_ids.len() > 1 {
+            tracing::warn!(
+                "forward_batched processing {} sequences sequentially — true batch parallelism not yet implemented",
+                input_ids.len()
+            );
+        }
         input_ids
             .iter()
             .zip(kv_caches.iter_mut())
@@ -108,17 +114,21 @@ impl ModelForward for nexora_transformer::CausalLM {
                 .iter_mut()
                 .map(|c| std::mem::take(&mut c.entries))
                 .collect();
-            if let Ok(result) = self.forward_gpu_batched(input_ids, &mut vec_caches) {
-                for (i, entries) in vec_caches.into_iter().enumerate() {
-                    kv_caches[i].entries = entries;
+            match self.forward_gpu_batched(input_ids, &mut vec_caches) {
+                Ok(result) => {
+                    for (i, entries) in vec_caches.into_iter().enumerate() {
+                        kv_caches[i].entries = entries;
+                    }
+                    return result;
                 }
-                return result;
+                Err(e) => {
+                    tracing::warn!("GPU batched forward failed: {}, falling back to CPU per-sequence", e);
+                }
             }
             // GPU failed, restore entries
             for (i, entries) in vec_caches.into_iter().enumerate() {
                 kv_caches[i].entries = entries;
             }
-            tracing::warn!("GPU batched forward failed, falling back to CPU");
         }
 
         // CPU fallback: per-sequence via ModelForward::forward

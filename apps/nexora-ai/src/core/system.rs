@@ -4,9 +4,9 @@ use crate::error::{NexoraError, NexoraResult};
 use crate::NexoraConfig;
 use chrono::Utc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info};
 
 use super::types::{ComponentStatus, HealthStatus, MemoryStats, SystemInfo};
@@ -53,12 +53,7 @@ impl SystemMonitor {
 
         // Check cache first (cache for 5 seconds)
         {
-            let cache = self.system_info_cache.read().map_err(|e| {
-                NexoraError::system(format!(
-                    "Failed to acquire read lock for system info cache: {}",
-                    e
-                ))
-            })?;
+            let cache = self.system_info_cache.read().await;
             if let Some(ref cached_info) = *cache {
                 let cache_age = (Utc::now() - cached_info.last_updated).num_seconds();
                 if cache_age < 5 {
@@ -116,12 +111,7 @@ impl SystemMonitor {
 
         // Update cache
         {
-            let mut cache = self.system_info_cache.write().map_err(|e| {
-                NexoraError::system(format!(
-                    "Failed to acquire write lock for system info cache: {}",
-                    e
-                ))
-            })?;
+            let mut cache = self.system_info_cache.write().await;
             *cache = Some(system_info.clone());
         }
 

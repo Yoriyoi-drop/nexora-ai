@@ -75,8 +75,10 @@ pub struct GpuContext {
     pub(crate) bind_group_layout_cache: HashMap<u64, wgpu::BindGroupLayout>,
     pub(crate) bind_group_cache: HashMap<u64, wgpu::BindGroup>,
     /// Thread-safe bind group cache for &self access (used by dispatch methods)
+    /// Uses `std::sync::Mutex` — all GPU dispatch methods are sync. Never used in async context.
     pub(crate) bind_group_cache_mutex: Mutex<HashMap<u64, wgpu::BindGroup>>,
     /// Thread-safe memory pool for &self access (used by dispatch methods)
+    /// Uses `std::sync::Mutex` — all GPU dispatch methods are sync. Never used in async context.
     pub(crate) memory_pool: Mutex<crate::gpu_memory::GpuMemoryPool>,
     pub(crate) profiling_query_set: Option<wgpu::QuerySet>,
     pub(crate) query_pool_size: usize,

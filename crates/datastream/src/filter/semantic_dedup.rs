@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
@@ -13,7 +13,9 @@ pub struct SemanticDedupFilter {
 
 impl std::fmt::Debug for SemanticDedupFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let count = self.signatures.lock().unwrap().len();
+        let count = self.signatures.try_lock()
+            .map(|g| g.len())
+            .unwrap_or(0);
         f.debug_struct("SemanticDedupFilter")
             .field("similarity_threshold", &self.similarity_threshold)
             .field("signatures_count", &count)
@@ -25,9 +27,12 @@ impl std::fmt::Debug for SemanticDedupFilter {
 
 impl Clone for SemanticDedupFilter {
     fn clone(&self) -> Self {
+        let signatures = self.signatures.try_lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
         Self {
             similarity_threshold: self.similarity_threshold,
-            signatures: Mutex::new(self.signatures.lock().unwrap().clone()),
+            signatures: Mutex::new(signatures),
             max_signatures: self.max_signatures,
             min_hash_permutations: self.min_hash_permutations,
         }
@@ -111,7 +116,7 @@ impl Filter for SemanticDedupFilter {
 
     async fn evaluate(&self, sample: &DataSample) -> FilterResult {
         let sig = self.minhash_signature(&sample.text);
-        let mut signatures = self.signatures.lock().unwrap();
+        let mut signatures = self.signatures.lock().await;
 
         for stored in signatures.iter() {
             let similarity = Self::jaccard_similarity(&sig, stored);

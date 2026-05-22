@@ -32,9 +32,9 @@ impl RateLimiter {
     }
 
     /// Check if request is allowed
-    pub async fn is_allowed(&self, client_id: &str) -> Result<bool> {
+    pub async fn is_allowed(&self, client_id: &str) -> Result<RateLimitStatus> {
         if !self.config.enabled {
-            return Ok(true);
+            return Ok(RateLimitStatus::Allowed);
         }
 
         let mut clients = self.clients.lock().await;
@@ -64,7 +64,9 @@ impl RateLimiter {
                 "Rate limit exceeded for client {}: {}/{} requests",
                 client_id, recent_requests, self.config.requests_per_minute
             );
-            return Ok(false);
+            return Ok(RateLimitStatus::RateLimited {
+                retry_after: Duration::from_secs(1),
+            });
         }
 
         // Add current request
@@ -81,7 +83,7 @@ impl RateLimiter {
             client_info.requests.remove(0);
         }
 
-        Ok(true)
+        Ok(RateLimitStatus::Allowed)
     }
 
     /// Cleanup old requests
@@ -97,8 +99,8 @@ impl RateLimiter {
         }
     }
 
-    /// Get current rate limit status
-    pub async fn get_status(&self, client_id: &str) -> Result<RateLimitStatus> {
+    /// Get current rate limit details
+    pub async fn get_status(&self, client_id: &str) -> Result<RateLimitDetails> {
         let clients = self.clients.lock().await;
         let now = Instant::now();
 
@@ -110,14 +112,14 @@ impl RateLimiter {
                 .filter(|&req_time| *req_time > window_start)
                 .count();
 
-            Ok(RateLimitStatus {
+            Ok(RateLimitDetails {
                 allowed: recent_requests < self.config.requests_per_minute,
                 current_requests: recent_requests,
                 max_requests: self.config.requests_per_minute,
                 reset_time: now + Duration::from_secs(60),
             })
         } else {
-            Ok(RateLimitStatus {
+            Ok(RateLimitDetails {
                 allowed: true,
                 current_requests: 0,
                 max_requests: self.config.requests_per_minute,
@@ -165,9 +167,18 @@ impl RateLimiter {
     }
 }
 
-/// Rate limit status
+/// Rate limit check result
+#[derive(Debug, Clone, PartialEq)]
+pub enum RateLimitStatus {
+    /// Request is within rate limits
+    Allowed,
+    /// Rate limit exceeded — client should retry after this duration
+    RateLimited { retry_after: Duration },
+}
+
+/// Rate limit details
 #[derive(Debug, Clone)]
-pub struct RateLimitStatus {
+pub struct RateLimitDetails {
     pub allowed: bool,
     pub current_requests: usize,
     pub max_requests: usize,

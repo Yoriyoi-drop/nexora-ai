@@ -117,6 +117,11 @@ macro_rules! define_foundation_model {
     ($name:ident, $id:ident, $tier:ident) => {
         pub struct $name {
             pub tokenizer: Option<NxrTokenizerRef>,
+            /// `std::sync::Mutex` wraps `CausalLM` which does synchronous CPU-bound
+            /// inference. The async `infer` method holds this lock during the entire
+            /// `model.generate()` call — this is a design trade-off: inference is
+            /// fundamentally blocking. Callers should run model inference via
+            /// `tokio::task::spawn_blocking` if concurrent async tasks must make progress.
             model: Mutex<Option<CausalLM>>,
             model_config: TransformerConfig,
             inference_count: AtomicU64,

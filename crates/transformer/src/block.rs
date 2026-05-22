@@ -52,7 +52,7 @@ impl TransformerBlock {
                             }
                         }
                         Err(e) => {
-                            tracing::warn!("GPU forward failed, falling back to CPU: {e}");
+                            tracing::warn!("Block forward GPU failed at layer {}, falling back to CPU: {}", layer_idx, e);
                         }
                     }
                 }

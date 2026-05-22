@@ -738,15 +738,12 @@ mod tests {
             jitter: false,
         });
 
-        let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
         let result = handler
             .execute_with_retry(|| {
                 let call_count = call_count.clone();
                 async move {
-                    let mut count = call_count.lock().expect("Mutex not poisoned");
-                    *count += 1;
-                    let current_count = *count;
-                    drop(count);
+                    let current_count = call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
 
                     if current_count < 3 {
                         Err("Simulated error")
@@ -758,7 +755,7 @@ mod tests {
             .await;
 
         assert!(result.is_ok());
-        assert_eq!(*call_count.lock().unwrap(), 3);
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 
     #[tokio::test]

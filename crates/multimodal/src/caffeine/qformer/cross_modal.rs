@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Memory pool for efficient buffer reuse
+///
+/// Uses `std::sync::Mutex` intentionally — this pool is accessed only from
+/// synchronous CPU compute methods. Never used in async context.
 #[derive(Debug, Clone)]
 struct MemoryPool {
     buffers: Arc<std::sync::Mutex<Vec<Vec<f32>>>>,

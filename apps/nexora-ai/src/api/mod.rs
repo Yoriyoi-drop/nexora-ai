@@ -9,7 +9,7 @@ pub use crate::config::api::{
     ApiConfig, ApiResponse as ApiResp, HttpClientConfig, RateLimitConfig,
 };
 pub use client::ApiClient;
-pub use rate_limiter::{RateLimitStats, RateLimitStatus, RateLimiter};
+pub use rate_limiter::{RateLimitDetails, RateLimitStats, RateLimitStatus, RateLimiter};
 pub use types::*;
 
 pub struct NexoraApi {

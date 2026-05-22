@@ -131,9 +131,11 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
 
     match &health {
         Ok(h) => {
-            let mut t = state.telemetry.lock().unwrap();
-            t.nexora_ai_url = Some(base_url.clone());
-            t.telemetry_client = Some(TelemetryClient::new(&base_url));
+            tokio::task::block_in_place(|| {
+                let mut t = state.telemetry.lock().unwrap();
+                t.nexora_ai_url = Some(base_url.clone());
+                t.telemetry_client = Some(TelemetryClient::new(&base_url));
+            });
             Ok(NexoraAIMetrics {
                 connected: true,
                 url: base_url,
@@ -142,7 +144,9 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
             })
         }
         Err(e) => {
-            state.telemetry.lock().unwrap().nexora_ai_url = None;
+            tokio::task::block_in_place(|| {
+                state.telemetry.lock().unwrap().nexora_ai_url = None;
+            });
             Ok(NexoraAIMetrics {
                 connected: false, url: base_url,
                 health: None,
@@ -174,7 +178,9 @@ fn disconnect_nexora_ai(state: State<AppState>) {
 // ===== New Telemetry Commands =====
 
 fn get_client(state: &AppState) -> Option<TelemetryClient> {
-    state.telemetry.lock().unwrap().telemetry_client.clone()
+    tokio::task::block_in_place(|| {
+        state.telemetry.lock().unwrap().telemetry_client.clone()
+    })
 }
 
 #[tauri::command]

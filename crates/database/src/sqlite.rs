@@ -34,6 +34,10 @@ struct ConnectionInfo {
 }
 
 /// SQLite connection
+///
+/// Uses `std::sync::Mutex<rusqlite::Connection>` inside `Arc` for thread-safe
+/// SQLite access. All lock acquisition happens inside `tokio::task::spawn_blocking`
+/// closures, correctly offloading blocking I/O from the async runtime.
 pub struct SQLiteConnection {
     id: String,
     _connection_info: ConnectionInfo,

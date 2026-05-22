@@ -20,6 +20,11 @@ pub struct StepResult {
     pub idle: bool,
 }
 
+/// NOTE: This engine processes sequences sequentially in a loop, not in parallel.
+/// True batched computation (multiple sequences through the model simultaneously)
+/// is NOT yet implemented. Each token is processed one sequence at a time.
+/// This is suitable for low-throughput scenarios (< 10 concurrent requests).
+///
 /// A continuous batching engine that manages multiple sequences at different
 /// stages of their lifecycle (prefill, generate, complete) and processes them
 /// one step at a time.
