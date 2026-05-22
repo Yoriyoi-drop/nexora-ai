@@ -201,9 +201,9 @@ fn run_compute_shader(
         submission_index: None,
         timeout: Some(std::time::Duration::from_secs(30)),
     });
-    rx.recv()
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+    rx.recv_timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| DeepLearningError::Computation { reason: format!("GPU readback recv: {e}") })?
+        .map_err(|e| DeepLearningError::Computation { reason: format!("GPU map_async: {e:?}") })?;
 
     let mapped = slice.get_mapped_range();
     let data: &[f32] = bytemuck::cast_slice(&*mapped);

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use ndarray::{Array1, Array2};
 use rand::Rng;
 
@@ -746,10 +748,10 @@ impl CausalLM {
                 );
                 ctx.device.poll(wgpu::PollType::Wait {
                     submission_index: None,
-                    timeout: None,
+                    timeout: Some(Duration::from_secs(30)),
                 });
-                rx.recv()
-                    .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("readback channel closed".into()))?
+                rx.recv_timeout(Duration::from_secs(30))
+                    .map_err(|_| nexora_autograd::gpu::GpuError::Timeout("KV cache readback timed out after 30s".into()))?
                     .map_err(|e| nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}")))?;
                 let mapped = slice.get_mapped_range();
                 let out: Vec<f32> = mapped
@@ -941,6 +943,7 @@ impl CausalLM {
     /// Batched GPU forward pass: processes multiple sequences in a single batch.
     /// All GPU dispatches are coalesced into one queue.submit() via batch mode.
     /// Returns one logit vector per sequence.
+    /// Uses GPU-resident KV caches per sequence — no CPU round-trip for K/V.
     #[cfg(feature = "gpu")]
     pub fn forward_gpu_batched(
         &self,
@@ -948,12 +951,18 @@ impl CausalLM {
         kv_caches: &mut [Vec<KVCacheEntry>],
     ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
+        use ndarray::Axis;
 
         self.preupload_weights_gpu()?;
 
         let ctx = GpuContext::global()?;
         let batch_size = batch_tokens.len();
         let hidden_size = self.config.hidden_size;
+        let num_layers = self.config.num_layers;
+        let n_kv_heads = self.config.num_kv_heads;
+        let head_dim = self.config.head_dim();
+        let max_seq = self.config.max_seq_len;
         let gpu_weights = self.gpu_weights.lock().unwrap();
         let gw = gpu_weights.as_ref().unwrap();
 
@@ -963,23 +972,59 @@ impl CausalLM {
 
         ctx.begin_batch_mode();
 
+        // Create per-sequence GPU KV caches (one Vec<GpuKVCacheEntry> per sequence)
+        use super::gqa::GpuKVCacheEntry;
+        let mut gpu_caches: Vec<Vec<GpuKVCacheEntry>> = (0..batch_size)
+            .map(|_| {
+                (0..num_layers)
+                    .map(|_| GpuKVCacheEntry::new(n_kv_heads, head_dim, max_seq))
+                    .collect()
+            })
+            .collect();
+
+        // Sync existing CPU data to GPU caches (one-time O(seq) per sequence)
+        for seq_idx in 0..batch_size {
+            let cpu_cache = &kv_caches[seq_idx];
+            for layer_idx in 0..num_layers {
+                if layer_idx < cpu_cache.len() && cpu_cache[layer_idx].k.shape()[0] > 0 {
+                    let ce = &cpu_cache[layer_idx];
+                    let seq = ce.k.shape()[0];
+                    let k_flat: Vec<f32> = ce.k.iter().copied().collect();
+                    let v_flat: Vec<f32> = ce.v.iter().copied().collect();
+                    let k_cpu = ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], k_flat)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                    let v_cpu = ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], v_flat)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                    let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
+                    let v_gpu = GpuTensor::from_cpu(&v_cpu)?;
+                    let bytes = (seq * n_kv_heads * head_dim * 4) as u64;
+                    ctx.batch_dispatch(|enc| {
+                        enc.copy_buffer_to_buffer(k_gpu.buffer(), 0, gpu_caches[seq_idx][layer_idx].k.buffer(), 0, bytes);
+                        enc.copy_buffer_to_buffer(v_gpu.buffer(), 0, gpu_caches[seq_idx][layer_idx].v.buffer(), 0, bytes);
+                        Ok(())
+                    })?;
+                    gpu_caches[seq_idx][layer_idx].seq_len = seq;
+                }
+            }
+        }
+
+        // Process all sequences using GPU-resident KV cache
         let mut all_logits = Vec::with_capacity(batch_size);
-        for (seq_idx, cache) in kv_caches.iter_mut().enumerate() {
+        for seq_idx in 0..batch_size {
             let token_id = batch_tokens[seq_idx];
 
-            // Embedding: buffer-to-buffer copy of ONE row from pre-uploaded embedding tensor.
+            // Embedding: buffer-to-buffer copy of ONE row
             let tid = token_id as usize;
             let row_bytes = (hidden_size * 4) as u64;
             let offset = (tid * hidden_size * 4) as u64;
-            let h = GpuTensor::zeros(&[1, hidden_size])?;
+            let mut h = GpuTensor::zeros(&[1, hidden_size])?;
             ctx.batch_dispatch(|enc| {
                 enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
                 Ok(())
             })?;
-            let mut h = h;
 
             // RoPE cos/sin for this sequence's current position
-            let pos = cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+            let pos = gpu_caches[seq_idx].first().map(|e| e.seq_len).unwrap_or(0);
             let half = self.config.head_dim() / 2;
             let cos_slice = if pos * half < self.precomputed_cos.len() {
                 self.precomputed_cos
@@ -996,9 +1041,9 @@ impl CausalLM {
                 Array1::zeros(half)
             };
 
-            // Forward through all blocks with per-sequence KV cache
+            // Forward through all blocks using GPU KV cache
             for (layer_idx, block) in self.blocks.iter().enumerate() {
-                h = block.forward_gpu(&h, cache, layer_idx, &cos_slice, &sin_slice)?;
+                h = block.forward_gpu_with_cache(&h, &mut gpu_caches[seq_idx], layer_idx, &cos_slice, &sin_slice)?;
             }
 
             h = self.norm.forward_gpu(&h)?;
@@ -1008,6 +1053,76 @@ impl CausalLM {
             let logits_cpu = logits_gpu.to_cpu();
             let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
             all_logits.push(Array1::from_vec(logits_flat));
+        }
+
+        // Sync back new token's K/V from GPU cache to each CPU cache (O(1) per seq per layer)
+        let kv_elems = n_kv_heads * head_dim;
+        for seq_idx in 0..batch_size {
+            let cpu_cache = &mut kv_caches[seq_idx];
+            for layer_idx in 0..num_layers {
+                let gpu_entry = &gpu_caches[seq_idx][layer_idx];
+                if gpu_entry.seq_len == 0 {
+                    continue;
+                }
+                let last_idx = gpu_entry.seq_len - 1;
+                let byte_off = (last_idx * kv_elems * 4) as u64;
+                let token_bytes = (kv_elems * 4) as u64;
+
+                let staging_k = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("batched_sync_k"),
+                    size: token_bytes,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let staging_v = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("batched_sync_v"),
+                    size: token_bytes,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(gpu_entry.k.buffer(), byte_off, &staging_k, 0, token_bytes);
+                    enc.copy_buffer_to_buffer(gpu_entry.v.buffer(), byte_off, &staging_v, 0, token_bytes);
+                    Ok(())
+                })?;
+
+                ctx.sync();
+
+                let read_back = |staging: &wgpu::Buffer| -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
+                    let slice = staging.slice(..);
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+                    ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+                    rx.recv()
+                        .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("readback channel closed".into()))?
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}")))?;
+                    let mapped = slice.get_mapped_range();
+                    let out: Vec<f32> = mapped.chunks_exact(4).map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();
+                    staging.unmap();
+                    Ok(out)
+                };
+
+                let new_k = read_back(&staging_k)?;
+                let new_v = read_back(&staging_v)?;
+
+                if layer_idx < cpu_cache.len() {
+                    let entry = &mut cpu_cache[layer_idx];
+                    let k_2d = ndarray::Array2::from_shape_vec((1, kv_elems), new_k)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                    let v_2d = ndarray::Array2::from_shape_vec((1, kv_elems), new_v)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                    entry.k = ndarray::concatenate![Axis(0), entry.k.view(), k_2d.view()];
+                    entry.v = ndarray::concatenate![Axis(0), entry.v.view(), v_2d.view()];
+                } else {
+                    cpu_cache.push(KVCacheEntry {
+                        k: ndarray::Array2::from_shape_vec((1, kv_elems), new_k)
+                            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                        v: ndarray::Array2::from_shape_vec((1, kv_elems), new_v)
+                            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                    });
+                }
+            }
         }
 
         ctx.end_batch_mode();

@@ -1,4 +1,5 @@
 use ndarray::ArrayD;
+use tracing::debug;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
@@ -68,7 +69,7 @@ pub fn transpose(input: &Tensor) -> Tensor {
                                 })),
                             );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd shape backward failed: {e}")
                 }
             }
         }

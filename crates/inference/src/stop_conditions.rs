@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{GeneratedToken, InferenceError, Result};
 
@@ -108,7 +108,7 @@ impl StopConditions {
             StopCondition::EndOfSequence(token) => {
                 inner.eos_tokens.insert(*token);
             }
-            _ => {}
+            _ => warn!("Unhandled stop condition variant in add_condition"),
         }
 
         inner.conditions.push(condition);
@@ -129,7 +129,7 @@ impl StopConditions {
                 StopCondition::EndOfSequence(token) => {
                     inner.eos_tokens.remove(&token);
                 }
-                _ => {}
+                _ => warn!("Unhandled stop condition variant in remove_condition"),
             }
 
             Ok(())

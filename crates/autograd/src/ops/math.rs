@@ -1,4 +1,5 @@
 use ndarray::ArrayD;
+use tracing::debug;
 
 use super::super::broadcast;
 use super::super::tensor::Tensor;
@@ -53,7 +54,7 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(_) => {}
+                            Err(e) => debug!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -142,7 +143,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(_) => {}
+                            Err(e) => debug!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -233,7 +234,7 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(_) => {}
+                            Err(e) => debug!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -328,7 +329,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(_) => {}
+                            Err(e) => debug!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -408,7 +409,7 @@ pub fn exp(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd math backward failed: {e}")
                 }
             }
         }
@@ -460,7 +461,7 @@ pub fn ln(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd math backward failed: {e}")
                 }
             }
         }
@@ -517,7 +518,7 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd math backward failed: {e}")
                 }
             }
         }
@@ -579,7 +580,7 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd math backward failed: {e}")
                 }
             }
         }
@@ -626,7 +627,7 @@ pub fn neg(a: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd math backward failed: {e}")
                 }
             }
         }

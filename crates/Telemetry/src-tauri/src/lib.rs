@@ -7,7 +7,7 @@ mod telemetry;
 pub use telemetry::*;
 
 #[derive(Debug, Default)]
-struct TelemetryState {
+pub struct TelemetryState {
     nexora_ai_url: Option<String>,
     telemetry_client: Option<TelemetryClient>,
 }

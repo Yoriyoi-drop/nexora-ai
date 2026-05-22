@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::gpu::{GpuContext, GpuError, GpuTensor};
 
 /// Hasil gradient clipping GPU-native — tanpa per-tensor CPU readback
@@ -120,11 +122,11 @@ impl GpuContext {
         });
         let _ = self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
+            timeout: Some(Duration::from_secs(30)),
         });
-        rx.recv()
-            .expect("channel closed")
-            .expect("gradient clip output map failed");
+        rx.recv_timeout(Duration::from_secs(30))
+            .map_err(|_| GpuError::Timeout("gradient clip readback timed out after 30s".into()))?
+            .map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);

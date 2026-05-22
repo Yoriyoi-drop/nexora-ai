@@ -1606,10 +1606,13 @@ impl GpuContext {
         }
 
         // Use memory pool for output buffer instead of creating new buffer each time
-        let out_buffer = self.memory_pool.lock().unwrap().alloc(
+        let mut pool = self.memory_pool.lock()
+            .map_err(|e| GpuError::LockError(e.to_string()))?;
+        let out_buffer = pool.alloc(
             (m * n_dim * 4) as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         );
+        drop(pool);
 
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("matmul_cfg_batch"),
@@ -4417,7 +4420,7 @@ pub(crate) fn readback_with_timeout(
     device: &wgpu::Device,
     rx: &mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
 ) -> Result<(), GpuError> {
-    device.poll(wgpu::PollType::Wait {
+    let _ = device.poll(wgpu::PollType::Wait {
         submission_index: None,
         timeout: Some(Duration::from_secs(30)),
     });
@@ -4555,13 +4558,8 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        ctx.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        });
-        rx.recv()
-            .expect("channel closed")
-            .expect("buffer mapping failed");
+        readback_with_timeout(&ctx.device, &rx)
+            .expect("GPU readback failed in to_cpu");
 
         let result = {
             let mapped = slice.get_mapped_range();
@@ -4597,13 +4595,8 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        ctx.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        });
-        rx.recv()
-            .expect("channel closed")
-            .expect("buffer mapping failed");
+        readback_with_timeout(&ctx.device, &rx)
+            .expect("GPU readback failed in to_cpu_raw_bytes");
 
         let data = {
             let mapped = slice.get_mapped_range();
@@ -4637,13 +4630,8 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        ctx.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        });
-        rx.recv()
-            .expect("channel closed")
-            .expect("buffer mapping failed");
+        readback_with_timeout(&ctx.device, &rx)
+            .expect("GPU readback failed in to_cpu_first_element");
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);
@@ -4677,13 +4665,8 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        ctx.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        });
-        rx.recv()
-            .expect("channel closed")
-            .expect("buffer mapping failed");
+        readback_with_timeout(&ctx.device, &rx)
+            .expect("GPU readback failed in to_cpu_checksum");
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);

@@ -1,3 +1,5 @@
+use tracing::debug;
+
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
 use crate::gpu::{ElemOp, GpuContext, GpuTensor};
@@ -39,7 +41,7 @@ pub fn relu(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -100,7 +102,7 @@ pub fn gelu(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -169,7 +171,7 @@ pub fn tanh(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -219,7 +221,7 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -276,7 +278,7 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -348,7 +350,7 @@ pub fn silu(input: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -425,9 +427,9 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                                 None,
                             );
                         }
-                        Err(_) => {}
+                        Err(e) => debug!("autograd activation backward failed: {e}")
                     },
-                    Err(_) => {}
+                    Err(e) => debug!("autograd activation backward failed: {e}")
                 }
             }
         }

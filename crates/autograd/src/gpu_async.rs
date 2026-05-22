@@ -1,8 +1,9 @@
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
+use crate::gpu::{readback_with_timeout, GpuContext, GpuDtype, GpuError, GpuTensor};
 
 // ─── AsyncReadback ─────────────────────────────────────────────────────────────
 
@@ -290,11 +291,8 @@ impl CpuReadback {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        let _ = ctx.device.poll(wgpu::PollType::Wait {
-            submission_index: Some(self.submission),
-            timeout: None,
-        });
-        let _ = rx.recv().expect("channel closed").expect("mapping failed");
+        readback_with_timeout(&ctx.device, &rx)
+            .expect("GPU readback failed in CpuReadback::poll");
         let mapped = slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&*mapped).to_vec();
         drop(mapped);

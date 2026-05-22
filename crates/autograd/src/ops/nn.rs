@@ -1,4 +1,5 @@
 use ndarray::{s, ArrayD};
+use tracing::debug;
 
 use super::super::tensor::Tensor;
 use super::math;
@@ -48,7 +49,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                 None,
                             );
                         }
-                        Err(_) => {}
+                        Err(e) => debug!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -170,9 +171,9 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(_) => {}
+                            Err(e) => debug!("autograd nn backward failed: {e}")
                         },
-                        Err(_) => {}
+                        Err(e) => debug!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -339,7 +340,7 @@ pub fn layer_norm_2d(
                                         None,
                                     );
                                 }
-                                Err(_) => {}
+                                Err(e) => debug!("autograd nn backward failed: {e}")
                             }
                         }
                     }
@@ -524,7 +525,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -625,7 +626,7 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -745,7 +746,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -859,7 +860,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -1074,7 +1075,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                 None,
                             );
                         }
-                        Err(_) => {}
+                        Err(e) => debug!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -1174,7 +1175,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(_) => {}
+                    Err(e) => debug!("autograd nn backward failed: {e}")
                 }
             }
         }
