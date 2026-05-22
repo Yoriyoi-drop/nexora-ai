@@ -83,19 +83,15 @@ impl GpuPageTable {
         let arr = ndarray::ArrayD::from_shape_vec(vec![self.max_pages], data)
             .map_err(|_| GpuError::Buffer("shape error".into()))?;
         let temp = GpuTensor::from_cpu(&arr)?;
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("sync_free_list"),
-            });
-        encoder.copy_buffer_to_buffer(
-            temp.buffer(),
-            0,
-            self.free_list.buffer(),
-            0,
-            (self.max_pages * 4) as u64,
-        );
-        ctx.queue.submit(Some(encoder.finish()));
+        ctx.with_encoder(|enc| {
+            enc.copy_buffer_to_buffer(
+                temp.buffer(),
+                0,
+                self.free_list.buffer(),
+                0,
+                (self.max_pages * 4) as u64,
+            );
+        });
         Ok(())
     }
 }
@@ -156,12 +152,10 @@ pub fn dispatch_gather_pages(
 ) -> Result<(), GpuError> {
     let num_pages = page_ids.numel() as u32;
 
-    let cfg_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("gather_pages_cfg"),
-        size: 16,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let cfg_buf = ctx.alloc_buffer(
+        16,
+        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    );
     let cfg: [u32; 4] = [
         num_pages,
         page_table.page_size as u32,
@@ -169,12 +163,11 @@ pub fn dispatch_gather_pages(
         page_table.head_dim as u32,
     ];
     ctx.queue
-        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("gather_pages_bg"),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[
+    let bind_group = ctx.get_or_create_bind_group_shared(
+        &pipeline.get_bind_group_layout(0),
+        &[
             wgpu::BindGroupEntry {
                 binding: 0,
                 resource: page_table.data.buffer().as_entire_binding(),
@@ -189,27 +182,22 @@ pub fn dispatch_gather_pages(
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: cfg_buf.as_entire_binding(),
+                resource: cfg_buf.buffer.as_entire_binding(),
             },
         ],
-    });
+        "gather_pages_bg",
+    );
 
     let total_elements = num_pages * page_table.page_size as u32 * 2 * page_table.head_dim as u32;
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("gather_pages_encoder"),
-        });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    ctx.with_encoder(|enc| {
+        let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("gather_pages"),
             timestamp_writes: None,
         });
         cpass.set_pipeline(pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
         cpass.dispatch_workgroups((total_elements + 255) / 256, 1, 1);
-    }
-    ctx.queue.submit(Some(encoder.finish()));
+    });
     Ok(())
 }
 
@@ -223,12 +211,10 @@ pub fn dispatch_scatter_pages(
 ) -> Result<(), GpuError> {
     let num_pages = page_ids.numel() as u32;
 
-    let cfg_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("scatter_pages_cfg"),
-        size: 16,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let cfg_buf = ctx.alloc_buffer(
+        16,
+        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    );
     let cfg: [u32; 4] = [
         num_pages,
         page_table.page_size as u32,
@@ -236,12 +222,11 @@ pub fn dispatch_scatter_pages(
         page_table.head_dim as u32,
     ];
     ctx.queue
-        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("scatter_pages_bg"),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[
+    let bind_group = ctx.get_or_create_bind_group_shared(
+        &pipeline.get_bind_group_layout(0),
+        &[
             wgpu::BindGroupEntry {
                 binding: 0,
                 resource: page_table.data.buffer().as_entire_binding(),
@@ -256,27 +241,22 @@ pub fn dispatch_scatter_pages(
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: cfg_buf.as_entire_binding(),
+                resource: cfg_buf.buffer.as_entire_binding(),
             },
         ],
-    });
+        "scatter_pages_bg",
+    );
 
     let total_elements = num_pages * page_table.page_size as u32 * 2 * page_table.head_dim as u32;
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("scatter_pages_encoder"),
-        });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    ctx.with_encoder(|enc| {
+        let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("scatter_pages"),
             timestamp_writes: None,
         });
         cpass.set_pipeline(pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
         cpass.dispatch_workgroups((total_elements + 255) / 256, 1, 1);
-    }
-    ctx.queue.submit(Some(encoder.finish()));
+    });
     Ok(())
 }
 

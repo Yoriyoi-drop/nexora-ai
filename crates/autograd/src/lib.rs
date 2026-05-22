@@ -323,6 +323,10 @@ pub struct Adam {
     pub step: usize,
     pub m: Vec<ArrayD<f32>>,
     pub v: Vec<ArrayD<f32>>,
+    #[cfg(feature = "gpu")]
+    pub m_gpu: Vec<crate::gpu::GpuTensor>,
+    #[cfg(feature = "gpu")]
+    pub v_gpu: Vec<crate::gpu::GpuTensor>,
 }
 
 impl Adam {
@@ -346,6 +350,10 @@ impl Adam {
             step: 0,
             m,
             v,
+            #[cfg(feature = "gpu")]
+            m_gpu: Vec::new(),
+            #[cfg(feature = "gpu")]
+            v_gpu: Vec::new(),
         }
     }
 
@@ -401,6 +409,11 @@ impl Adam {
     }
 
     pub fn step(&mut self) {
+        #[cfg(feature = "gpu")]
+        if self.try_gpu_step() {
+            return;
+        }
+
         self.step += 1;
         let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
         let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
@@ -429,6 +442,120 @@ impl Adam {
                 p.subtract_from_data(&update);
             }
         }
+    }
+
+    #[cfg(feature = "gpu")]
+    fn try_gpu_step(&mut self) -> bool {
+        use crate::device::Storage;
+        use crate::gpu::{GpuContext, GpuTensor};
+
+        let mut param_gpu = Vec::new();
+        let mut grad_gpu = Vec::new();
+
+        for p in &self.parameters {
+            match p.storage() {
+                Storage::Gpu(pt) => param_gpu.push(pt),
+                _ => return false,
+            }
+            match p.grad_storage() {
+                Some(Storage::Gpu(gt)) => grad_gpu.push(gt),
+                _ => return false,
+            }
+        }
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        if self.m_gpu.is_empty() {
+            for i in 0..self.m.len() {
+                let m_t = match GpuTensor::from_cpu(&self.m[i]) {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+                let v_t = match GpuTensor::from_cpu(&self.v[i]) {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+                self.m_gpu.push(m_t);
+                self.v_gpu.push(v_t);
+            }
+        }
+
+        self.step += 1;
+        let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
+        let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
+
+        if let Some(max_norm) = self.max_grad_norm {
+            let grad_refs: Vec<&GpuTensor> = grad_gpu.iter().collect();
+            if crate::gpu_grad_clip::clip_gradients_batched(ctx, &grad_refs, max_norm).is_err() {
+                return false;
+            }
+        }
+
+        let pipeline = match ctx.pipelines.get("adam_step") {
+            Some(p) => p,
+            None => return false,
+        };
+
+        for i in 0..param_gpu.len() {
+            let numel = param_gpu[i].numel();
+            if numel == 0 {
+                continue;
+            }
+
+            let cfg_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("adam_cfg"),
+                size: 32,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let cfg: [f32; 8] = [
+                self.lr,
+                self.beta1,
+                self.beta2,
+                self.eps,
+                self.weight_decay,
+                bias_corr1,
+                bias_corr2,
+                self.step as f32,
+            ];
+            ctx.queue
+                .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+            let bg = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("adam_step_bg_{}", i)),
+                layout: &pipeline.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: param_gpu[i].buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: grad_gpu[i].buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.m_gpu[i].buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.v_gpu[i].buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: cfg_buf.as_entire_binding(),
+                    },
+                ],
+            });
+
+            let wg = (numel as u32 + 255) / 256;
+            ctx.dispatch(pipeline, &bg, (wg, 1, 1));
+        }
+
+        true
     }
 
     pub fn optimizer_tensor_names(&self) -> Vec<String> {

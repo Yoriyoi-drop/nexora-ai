@@ -79,6 +79,7 @@ pub struct GpuContext {
     pub(crate) query_resolve_buf: Option<wgpu::Buffer>,
     /// Reusable readback buffer for timestamp queries
     pub(crate) query_readback_buf: Option<Mutex<wgpu::Buffer>>,
+
     // ── Reusable command encoder (Mutex-protected for &self access) ───
     /// Reusable encoder avoids create_command_encoder() overhead per op.
     /// Flushed automatically every `auto_flush_ops` dispatches, or manually via `flush()`.
@@ -479,7 +480,7 @@ impl GpuContext {
             current_encoder: Mutex::new(Some(enc)),
             ops_since_flush: std::sync::atomic::AtomicUsize::new(0),
             auto_flush_ops,
-            batch_depth: std::sync::atomic::AtomicUsize::new(0),
+            batch_depth: std::sync::atomic::AtomicUsize::new(1), // batch mode ON by default
         };
 
         ctx.compile_all_pipelines()?;
@@ -1061,6 +1062,48 @@ impl GpuContext {
 
         // Store in cache (note: this is a simplified cache, real implementation would need proper cache invalidation)
         self.bind_group_cache.insert(hash, bind_group.clone());
+        bind_group
+    }
+
+    /// Thread-safe bind group cache for &self access.
+    /// Hashes buffer (id, offset) pairs for reuse across dispatches.
+    /// Designed for hot-path ops where buffers are stable (pre-uploaded weights,
+    /// persistent KV cache, reusable memory pool buffers).
+    pub(crate) fn get_or_create_bind_group_shared(
+        &self,
+        layout: &wgpu::BindGroupLayout,
+        entries: &[wgpu::BindGroupEntry],
+        label: &str,
+    ) -> wgpu::BindGroup {
+        let mut hash: u64 = 0;
+        for entry in entries {
+            if let wgpu::BindingResource::Buffer(buffer_binding) = &entry.resource {
+                hash = hash.wrapping_mul(31).wrapping_add(buffer_binding.offset);
+                if let Some(size) = buffer_binding.size {
+                    hash = hash.wrapping_mul(31).wrapping_add(size.get());
+                }
+            }
+        }
+        // Mix in label hash to distinguish different pipeline layouts
+        {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            label.hash(&mut h);
+            hash = hash.wrapping_mul(31).wrapping_add(h.finish());
+        }
+
+        let mut cache = self.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(&hash) {
+            return cached.clone();
+        }
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries,
+        });
+
+        cache.insert(hash, bind_group.clone());
         bind_group
     }
 
@@ -1906,6 +1949,19 @@ impl GpuContext {
     /// Convenience: element-wise add on GPU
     pub fn add(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
         self.elementwise_binary(a, b, ElemOp::Add)
+    }
+
+    /// GPU-side in-place add: a = a + b
+    /// Avoids CPU round-trip by computing the result on GPU and copying back
+    /// into `a`'s buffer. Used by the gradient accumulation engine to keep
+    /// gradients GPU-resident.
+    pub fn add_inplace(&self, a: &mut GpuTensor, b: &GpuTensor) -> Result<(), GpuError> {
+        let result = self.add(&a.view_as(a.shape()), b)?;
+        let size = (a.numel() * 4) as u64;
+        self.with_encoder(|enc| {
+            enc.copy_buffer_to_buffer(result.buffer(), 0, &a.buffer, 0, size);
+        });
+        Ok(())
     }
 
     /// Convenience: element-wise sub on GPU

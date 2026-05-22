@@ -155,8 +155,35 @@ impl TransformerBlock {
         ctx.add(&after_attn, &ffn_out)
     }
 
+    /// GPU forward with GPU-resident KV cache AND pre-uploaded cos/sin GPU tensors.
+    /// cos_gpu / sin_gpu shape [1, half] — uploaded once per step, reused across all layers.
+    /// No per-layer CPU→GPU upload for RoPE.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache_precomputed_rope(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut [super::gqa::GpuKVCacheEntry],
+        layer_idx: usize,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuContext;
+
+        let ctx = GpuContext::global()?;
+
+        let normed = self.attention_norm.forward_gpu(x_gpu)?;
+        let attn_out = self.attention.forward_gpu_with_cache_precomputed_rope(
+            &normed, &mut cache[layer_idx], cos_gpu, sin_gpu,
+        )?;
+        let after_attn = ctx.add(x_gpu, &attn_out)?;
+
+        let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
+        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        ctx.add(&after_attn, &ffn_out)
+    }
+
     /// GPU forward with GPU-resident KV cache.
-    /// No CPU round-trip for K/V cache — uses GpuKVCacheEntry.
+    /// No CPU round-trip for K/V — uses GpuKVCacheEntry.
     #[cfg(feature = "gpu")]
     pub fn forward_gpu_with_cache(
         &self,
@@ -183,5 +210,14 @@ impl TransformerBlock {
         let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
         // Residual: after_attn + ffn_out
         ctx.add(&after_attn, &ffn_out)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        self.attention_norm.preupload_gpu()?;
+        self.ffn_norm.preupload_gpu()?;
+        self.attention.preupload_gpu()?;
+        self.ffn.preupload_gpu()?;
+        Ok(())
     }
 }

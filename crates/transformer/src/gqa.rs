@@ -943,6 +943,81 @@ impl GQA {
         ctx.matmul(&attn_flat, &cached.wo_t)
     }
 
+    /// GPU forward with GPU-resident KV cache AND pre-uploaded cos/sin GPU tensors.
+    /// cos_gpu / sin_gpu must be shape [1, half] — uploaded once per step, not per-layer.
+    /// No CPU round-trip for K/V or RoPE.
+    pub fn forward_gpu_with_cache_precomputed_rope(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut GpuKVCacheEntry,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+
+        // 1. Lazy-init cached GPU weights
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_none() {
+            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
+                let shape = vec![arr.shape()[0], arr.shape()[1]];
+                let data = arr.as_slice().ok_or_else(|| {
+                    GpuError::Unsupported("non-contiguous weight".into())
+                })?.to_vec();
+                Ok(GpuTensor::from_cpu(
+                    &ndarray::ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                )?)
+            };
+            let wq = mk(&self.wq)?;
+            let wk = mk(&self.wk)?;
+            let wv = mk(&self.wv)?;
+            let wo = mk(&self.wo)?;
+            *guard = Some(GqaGpuWeights {
+                wq_t: ctx.transpose(&wq)?,
+                wk_t: ctx.transpose(&wk)?,
+                wv_t: ctx.transpose(&wv)?,
+                wo_t: ctx.transpose(&wo)?,
+            });
+        }
+        let cached = guard.as_ref().unwrap();
+
+        // 2. QKV projection on GPU
+        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+
+        // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin — no CPU upload per-layer!
+        let q_rotated = ctx.rotary_embedding(&q_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
+
+        // 4. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
+        let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
+
+        // 5. Append K/V to GPU-resident cache
+        let k_3d = k_rotated.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
+        let v_3d = v_proj.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
+        cache.append(&ctx, &k_3d, &v_3d)?;
+
+        // 6. Get repeated K/V from GPU cache
+        let (k_repeated, v_repeated) = cache.get_repeated_kv(&ctx, self.num_heads as u32)?;
+        let total_seq = cache.seq_len;
+
+        // 7. Reshape K/V to 4D for fused_attention
+        let k_4d = k_repeated.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
+        let v_4d = v_repeated.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
+
+        // 8. Fused attention on GPU
+        let attn_output_4d = ctx.fused_attention(&q_4d, &k_4d, &v_4d, self.head_dim_rs, false)?;
+
+        // 9. Reshape attention output
+        let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
+
+        // 10. Output projection on GPU
+        ctx.matmul(&attn_flat, &cached.wo_t)
+    }
+
     /// GPU forward with GPU-resident KV cache.
     /// No CPU round-trip for K/V cache operations.
     pub fn forward_gpu_with_cache(
@@ -1159,5 +1234,35 @@ impl GQA {
 
         // 9. Output projection on GPU: matmul(attn_flat, wo^T) with cached weight
         ctx.matmul(&attn_flat, &cached.wo_t)
+    }
+
+    /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
+    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
+        let ctx = GpuContext::global()?;
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_some() {
+            return Ok(());
+        }
+        let mk = |arr: &ndarray::Array2<f32>| -> Result<GpuTensor, GpuError> {
+            let shape = vec![arr.shape()[0], arr.shape()[1]];
+            let data = arr.as_slice().ok_or_else(|| {
+                GpuError::Unsupported("non-contiguous weight".into())
+            })?.to_vec();
+            let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+            GpuTensor::from_cpu(&cpu_arr)
+        };
+        let wq = mk(&self.wq)?;
+        let wk = mk(&self.wk)?;
+        let wv = mk(&self.wv)?;
+        let wo = mk(&self.wo)?;
+        *guard = Some(GqaGpuWeights {
+            wq_t: ctx.transpose(&wq)?,
+            wk_t: ctx.transpose(&wk)?,
+            wv_t: ctx.transpose(&wv)?,
+            wo_t: ctx.transpose(&wo)?,
+        });
+        Ok(())
     }
 }

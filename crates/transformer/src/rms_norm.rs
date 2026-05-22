@@ -102,6 +102,24 @@ impl RMSNorm {
             .collect()
     }
 
+    /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
+    #[cfg(feature = "gpu")]
+    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuContext;
+        let _ctx = GpuContext::global()?;
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_some() {
+            return Ok(());
+        }
+        let weight_shape = vec![self.weight.len()];
+        let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, self.weight.to_vec())
+            .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("shape error".into()))?;
+        *guard = Some(RmsNormGpuWeights {
+            weight: nexora_autograd::gpu::GpuTensor::from_cpu(&weight_arr)?,
+        });
+        Ok(())
+    }
+
     /// GPU forward: runs RMSNorm on GPU via GpuContext::rms_norm.
     /// x: [batch, dim] on GPU, returns normalized output on GPU.
     #[cfg(feature = "gpu")]

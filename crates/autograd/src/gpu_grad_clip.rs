@@ -60,28 +60,23 @@ impl GpuContext {
             .get("gradient_clip")
             .ok_or_else(|| GpuError::Pipeline("gradient_clip not compiled".into()))?;
 
-        let output_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gradient_clip_output"),
-            size: 16,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        let output_buf = self.alloc_buffer(
+            16,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        );
 
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gradient_clip_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let cfg_buf = self.alloc_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let cfg: [u32; 4] = [0, f32::to_bits(max_norm), 0, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
         for (i, g) in grad_tensors.iter().enumerate() {
             let numel = g.numel() as u32;
-            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&format!("gradient_clip_bg_{}", i)),
-                layout: &pipeline.bind_group_layout,
-                entries: &[
+            let bg = self.get_or_create_bind_group_shared(
+                &pipeline.bind_group_layout,
+                &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: g.buffer().as_entire_binding(),
@@ -92,14 +87,15 @@ impl GpuContext {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: output_buf.as_entire_binding(),
+                        resource: output_buf.buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: cfg_buf.as_entire_binding(),
+                        resource: cfg_buf.buffer.as_entire_binding(),
                     },
                 ],
-            });
+                "gradient_clip_bg",
+            );
             let wg_count = (numel + 255) / 256;
             self.dispatch(pipeline, &bg, (wg_count, 1, 1));
         }
@@ -108,17 +104,14 @@ impl GpuContext {
         self.flush();
         self.sync();
 
-        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gradient_clip_readback"),
-            size: 16,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
+        let staging = self.alloc_buffer(
+            16,
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        );
+        self.with_encoder(|enc| {
+            enc.copy_buffer_to_buffer(&output_buf.buffer, 0, &staging.buffer, 0, 16);
         });
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&output_buf, 0, &staging, 0, 16);
-        self.queue.submit(Some(encoder.finish()));
+        self.flush();
 
         let slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();

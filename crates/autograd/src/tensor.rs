@@ -394,8 +394,7 @@ impl Tensor {
     }
 
     /// Accumulate gradient from Storage (CPU or GPU).
-    /// When the existing grad is GPU-resident and the incoming is CPU,
-    /// the GPU grad is read back to CPU and accumulated there.
+    /// GPU+GPU accumulates entirely on GPU without CPU round-trip.
     #[cfg(feature = "gpu")]
     pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
         let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -411,9 +410,13 @@ impl Tensor {
                 inner.grad = Some(Storage::Cpu(e));
             }
             (Some(Storage::Gpu(existing)), Storage::Gpu(g)) => {
-                let mut e = existing.to_cpu();
-                e += &g.to_cpu();
-                inner.grad = Some(Storage::Cpu(e));
+                if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                    let _ = ctx.add_inplace(existing, g);
+                } else {
+                    let mut e = existing.to_cpu();
+                    e += &g.to_cpu();
+                    inner.grad = Some(Storage::Cpu(e));
+                }
             }
             (None, g) => {
                 inner.grad = Some(g.clone());

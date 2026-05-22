@@ -126,10 +126,9 @@ impl GpuAdam {
                 continue;
             }
 
-            let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&format!("adam_bg_{}", i)),
-                layout: &pipeline.bind_group_layout,
-                entries: &[
+            let bind_group = ctx.get_or_create_bind_group_shared(
+                &pipeline.bind_group_layout,
+                &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: params[i].buffer().as_entire_binding(),
@@ -151,7 +150,8 @@ impl GpuAdam {
                         resource: self.config_bufs[i].as_entire_binding(),
                     },
                 ],
-            });
+                &format!("adam_bg_{}", i),
+            );
 
             let wg = (numel as u32 + 255) / 256;
             ctx.dispatch(&pipeline, &bind_group, (wg, 1, 1));

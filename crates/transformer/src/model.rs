@@ -85,6 +85,29 @@ pub fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32
     (probs.len() - 1) as u32
 }
 
+#[cfg(feature = "gpu")]
+#[derive(Debug)]
+pub(crate) struct GpuWeights {
+    pub token_embedding: nexora_autograd::gpu::GpuTensor,
+    pub lm_head_t: nexora_autograd::gpu::GpuTensor,
+    pub norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub block_weights: Vec<BlockGpuWeights>,
+}
+
+#[cfg(feature = "gpu")]
+#[derive(Debug)]
+pub(crate) struct BlockGpuWeights {
+    pub attention_norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub ffn_norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub wq_t: nexora_autograd::gpu::GpuTensor,
+    pub wk_t: nexora_autograd::gpu::GpuTensor,
+    pub wv_t: nexora_autograd::gpu::GpuTensor,
+    pub wo_t: nexora_autograd::gpu::GpuTensor,
+    pub w1_t: nexora_autograd::gpu::GpuTensor,
+    pub w2_t: nexora_autograd::gpu::GpuTensor,
+    pub w3_t: nexora_autograd::gpu::GpuTensor,
+}
+
 #[derive(Debug)]
 pub struct CausalLM {
     pub config: TransformerConfig,
@@ -96,7 +119,7 @@ pub struct CausalLM {
     pub precomputed_cos: Array1<f32>,
     pub precomputed_sin: Array1<f32>,
     #[cfg(feature = "gpu")]
-    pub(crate) lm_head_gpu: std::sync::Mutex<Option<nexora_autograd::gpu::GpuTensor>>,
+    pub(crate) gpu_weights: std::sync::Mutex<Option<GpuWeights>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -127,7 +150,7 @@ impl Clone for CausalLM {
             rope: self.rope.clone(),
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
-            lm_head_gpu: std::sync::Mutex::new(None),
+            gpu_weights: std::sync::Mutex::new(None),
         }
     }
 }
@@ -181,7 +204,7 @@ impl CausalLM {
             precomputed_cos,
             precomputed_sin,
             #[cfg(feature = "gpu")]
-            lm_head_gpu: std::sync::Mutex::new(None),
+            gpu_weights: std::sync::Mutex::new(None),
         }
     }
 
@@ -375,6 +398,83 @@ impl CausalLM {
         Ok(model)
     }
 
+    /// Pre-upload ALL model weights to GPU persistent buffer.
+    /// Token embedding, lm_head (pre-transposed), norm weight, and per-block
+    /// attention/FFN weights (all pre-transposed) are uploaded once and reused.
+    /// Called once at the start of any GPU forward pass.
+    #[cfg(feature = "gpu")]
+    pub fn preupload_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
+        use ndarray::ArrayD;
+
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_some() {
+            return Ok(());
+        }
+
+        let ctx = GpuContext::global()?;
+
+        let mk_gpu = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
+            let shape = vec![arr.shape()[0], arr.shape()[1]];
+            let data = arr.as_slice().ok_or_else(|| {
+                GpuError::Unsupported("non-contiguous weight".into())
+            })?.to_vec();
+            Ok(GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+            )?)
+        };
+
+        let mk_gpu_1d = |arr: &Array1<f32>| -> Result<GpuTensor, GpuError> {
+            let shape = vec![arr.len()];
+            let data = arr.to_vec();
+            Ok(GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+            )?)
+        };
+
+        let token_embedding = mk_gpu(&self.token_embedding)?;
+
+        let lm_head_gpu = mk_gpu(&self.lm_head)?;
+        let lm_head_t = ctx.transpose(&lm_head_gpu)?;
+
+        let norm_weight = mk_gpu_1d(&self.norm.weight)?;
+
+        let mut block_weights = Vec::with_capacity(self.blocks.len());
+        for block in &self.blocks {
+            let attention_norm_weight = mk_gpu_1d(&block.attention_norm.weight)?;
+            let ffn_norm_weight = mk_gpu_1d(&block.ffn_norm.weight)?;
+
+            let wq = mk_gpu(&block.attention.wq)?;
+            let wk = mk_gpu(&block.attention.wk)?;
+            let wv = mk_gpu(&block.attention.wv)?;
+            let wo = mk_gpu(&block.attention.wo)?;
+            let w1 = mk_gpu(&block.ffn.w1)?;
+            let w2 = mk_gpu(&block.ffn.w2)?;
+            let w3 = mk_gpu(&block.ffn.w3)?;
+
+            block_weights.push(BlockGpuWeights {
+                attention_norm_weight,
+                ffn_norm_weight,
+                wq_t: ctx.transpose(&wq)?,
+                wk_t: ctx.transpose(&wk)?,
+                wv_t: ctx.transpose(&wv)?,
+                wo_t: ctx.transpose(&wo)?,
+                w1_t: ctx.transpose(&w1)?,
+                w2_t: ctx.transpose(&w2)?,
+                w3_t: ctx.transpose(&w3)?,
+            });
+        }
+
+        *guard = Some(GpuWeights {
+            token_embedding,
+            lm_head_t,
+            norm_weight,
+            block_weights,
+        });
+
+        Ok(())
+    }
+
     /// GPU forward with pre-uploaded cos/sin GPU tensors.
     /// cos/sin diupload SEKALI per step — tidak per-layer.
     /// cos_gpu, sin_gpu: [1, half] GPU tensors for the current position.
@@ -387,25 +487,29 @@ impl CausalLM {
         sin_gpu: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
-        use ndarray::ArrayD;
+
+        self.preupload_weights_gpu()?;
 
         let ctx = GpuContext::global()?;
         let batch_size = 1;
+        let hidden_size = self.config.hidden_size;
+        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gw = gpu_weights.as_ref().unwrap();
 
-        let h_data = match input_ids.last() {
+        let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
-                Some(self.token_embedding.row(tid).to_vec())
+                let row_bytes = (hidden_size * 4) as u64;
+                let offset = (tid * hidden_size * 4) as u64;
+                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
+                    Ok(())
+                })?;
+                h
             }
-            None => None,
+            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
         };
-        let h_cpu = if let Some(ref data) = h_data {
-            ArrayD::from_shape_vec(vec![batch_size, self.config.hidden_size], data.clone())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-        } else {
-            ArrayD::zeros(vec![batch_size, self.config.hidden_size])
-        };
-        let mut h = GpuTensor::from_cpu(&h_cpu)?;
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_gpu_with_rope_gpu(&h, kv_cache, layer_idx, cos_gpu, sin_gpu)?;
@@ -413,15 +517,7 @@ impl CausalLM {
 
         h = self.norm.forward_gpu(&h)?;
 
-        let mut guard = self.lm_head_gpu.lock().unwrap();
-        let lm_head_cached = guard.get_or_insert_with(|| {
-            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
-            let data = self.lm_head.as_slice().unwrap().to_vec();
-            let cpu_arr = ArrayD::from_shape_vec(shape, data).unwrap();
-            let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
-            ctx.transpose(&gpu).unwrap()
-        });
-        let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
         let logits_cpu = logits_gpu.to_cpu();
         let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
@@ -438,26 +534,29 @@ impl CausalLM {
     ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
+        self.preupload_weights_gpu()?;
+
         let ctx = GpuContext::global()?;
         let batch_size = 1;
+        let hidden_size = self.config.hidden_size;
+        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gw = gpu_weights.as_ref().unwrap();
 
-        // 1. Token embedding: copy the embedding row for last token
-        let h_data = match input_ids.last() {
+        let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
-                Some(self.token_embedding.row(tid).to_vec())
+                let row_bytes = (hidden_size * 4) as u64;
+                let offset = (tid * hidden_size * 4) as u64;
+                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
+                    Ok(())
+                })?;
+                h
             }
-            None => None,
+            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
         };
-        let h_cpu = if let Some(ref data) = h_data {
-            ndarray::ArrayD::from_shape_vec(vec![batch_size, self.config.hidden_size], data.clone())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-        } else {
-            ndarray::ArrayD::zeros(vec![batch_size, self.config.hidden_size])
-        };
-        let mut h = GpuTensor::from_cpu(&h_cpu)?;
 
-        // 2. Get RoPE cos/sin for current position
         let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
         let half = self.config.head_dim() / 2;
         let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
@@ -475,26 +574,24 @@ impl CausalLM {
             Array1::zeros(half)
         };
 
-        // 3. Forward through all transformer blocks on GPU with GPU-resident cache
+        // Upload cos/sin to GPU ONCE — reused across all layers
+        let cos_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(vec![1, half], cos_slice.to_vec())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+        )?;
+        let sin_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(vec![1, half], sin_slice.to_vec())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+        )?;
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu_with_cache(&h, cache, layer_idx, &cos_slice, &sin_slice)?;
+            h = block.forward_gpu_with_cache_precomputed_rope(&h, cache, layer_idx, &cos_gpu, &sin_gpu)?;
         }
 
-        // 4. Final RMSNorm on GPU
         h = self.norm.forward_gpu(&h)?;
 
-        // 5. LM head: matmul(h, lm_head^T) on GPU with cached weight
-        let mut guard = self.lm_head_gpu.lock().unwrap();
-        let lm_head_cached = guard.get_or_insert_with(|| {
-            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
-            let data = self.lm_head.as_slice().unwrap().to_vec();
-            let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data).unwrap();
-            let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
-            ctx.transpose(&gpu).unwrap()
-        });
-        let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
-        // 6. Download logits to CPU
         let logits_cpu = logits_gpu.to_cpu();
         let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
@@ -729,26 +826,31 @@ impl CausalLM {
         kv_cache: &mut Vec<KVCacheEntry>,
     ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
-        use ndarray::ArrayD;
+
+        self.preupload_weights_gpu()?;
 
         let ctx = GpuContext::global()?;
         let batch_size = 1;
+        let hidden_size = self.config.hidden_size;
+        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gw = gpu_weights.as_ref().unwrap();
 
-        // 1. Token embedding: copy the embedding row for last token
-        let h_data = match input_ids.last() {
+        // 1. Token embedding: buffer-to-buffer copy of ONE row from pre-uploaded embedding tensor.
+        //    No CPU→GPU upload — the entire embedding table lives on GPU permanently.
+        let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
-                Some(self.token_embedding.row(tid).to_vec())
+                let row_bytes = (hidden_size * 4) as u64;
+                let offset = (tid * hidden_size * 4) as u64;
+                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
+                    Ok(())
+                })?;
+                h
             }
-            None => None,
+            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
         };
-        let h_cpu = if let Some(ref data) = h_data {
-            ArrayD::from_shape_vec(vec![batch_size, self.config.hidden_size], data.clone())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-        } else {
-            ArrayD::zeros(vec![batch_size, self.config.hidden_size])
-        };
-        let mut h = GpuTensor::from_cpu(&h_cpu)?;
 
         // 2. Get RoPE cos/sin for current position
         let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
@@ -776,16 +878,9 @@ impl CausalLM {
         // 4. Final RMSNorm on GPU
         h = self.norm.forward_gpu(&h)?;
 
-        // 5. LM head: matmul(h, lm_head^T) on GPU with cached weight
-        let mut guard = self.lm_head_gpu.lock().unwrap();
-        let lm_head_cached = guard.get_or_insert_with(|| {
-            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
-            let data = self.lm_head.as_slice().unwrap().to_vec();
-            let cpu_arr = ArrayD::from_shape_vec(shape, data).unwrap();
-            let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
-            ctx.transpose(&gpu).unwrap()
-        });
-        let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+        // 5. LM head: matmul(h, lm_head^T) on GPU with pre-transposed weight.
+        //    No lazy init — lm_head_t is pre-uploaded once.
+        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
         // 6. Download logits to CPU
         let logits_cpu = logits_gpu.to_cpu();
@@ -802,11 +897,16 @@ impl CausalLM {
         batch_tokens: &[u32],
         kv_caches: &mut [Vec<KVCacheEntry>],
     ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
-        use ndarray::ArrayD;
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        self.preupload_weights_gpu()?;
 
         let ctx = GpuContext::global()?;
         let batch_size = batch_tokens.len();
+        let hidden_size = self.config.hidden_size;
+        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gw = gpu_weights.as_ref().unwrap();
+
         if batch_size == 0 {
             return Ok(Vec::new());
         }
@@ -817,12 +917,16 @@ impl CausalLM {
         for (seq_idx, cache) in kv_caches.iter_mut().enumerate() {
             let token_id = batch_tokens[seq_idx];
 
-            // Embedding: upload single row [1, hidden] — non-blocking queue.write_buffer
+            // Embedding: buffer-to-buffer copy of ONE row from pre-uploaded embedding tensor.
             let tid = token_id as usize;
-            let h_data = self.token_embedding.row(tid).to_vec();
-            let h_cpu = ArrayD::from_shape_vec(vec![1, self.config.hidden_size], h_data)
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-            let mut h = GpuTensor::from_cpu(&h_cpu)?;
+            let row_bytes = (hidden_size * 4) as u64;
+            let offset = (tid * hidden_size * 4) as u64;
+            let h = GpuTensor::zeros(&[1, hidden_size])?;
+            ctx.batch_dispatch(|enc| {
+                enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
+                Ok(())
+            })?;
+            let mut h = h;
 
             // RoPE cos/sin for this sequence's current position
             let pos = cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
@@ -849,15 +953,7 @@ impl CausalLM {
 
             h = self.norm.forward_gpu(&h)?;
 
-            let mut guard = self.lm_head_gpu.lock().unwrap();
-            let lm_head_cached = guard.get_or_insert_with(|| {
-                let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
-                let data = self.lm_head.as_slice().unwrap().to_vec();
-                let cpu_arr = ArrayD::from_shape_vec(shape, data).unwrap();
-                let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
-                ctx.transpose(&gpu).unwrap()
-            });
-            let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
+            let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
             let logits_cpu = logits_gpu.to_cpu();
             let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();

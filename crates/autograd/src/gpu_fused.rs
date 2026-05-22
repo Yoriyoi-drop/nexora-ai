@@ -201,33 +201,28 @@ impl GpuContext {
         }
         let (m, k, n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
 
-        let out = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fused_mm_out"),
-            size: (m as u64) * (n as u64) * 4,
-            usage: wgpu::BufferUsages::STORAGE
+        let out = self.alloc_buffer(
+            (m as u64) * (n as u64) * 4,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fused_mm_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
+        let cfg_buf = self.alloc_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let dims: [u32; 4] = [m, k, n, act];
         self.queue
-            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&dims));
+            .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&dims));
 
         let pipeline = self
             .pipelines
             .get("fused_matmul_bias")
             .ok_or_else(|| GpuError::Pipeline("fused_matmul_bias not compiled".into()))?;
 
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fused_mm_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bg = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -242,23 +237,27 @@ impl GpuContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: out.as_entire_binding(),
+                    resource: out.buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: cfg_buf.as_entire_binding(),
+                    resource: cfg_buf.buffer.as_entire_binding(),
                 },
             ],
-        });
+            "fused_mm_bg",
+        );
 
         // New shader uses workgroup_size(256, 1, 1) - dispatch based on total elements
         let total_elements = m * n;
         let wg_x = (total_elements + 255) / 256;
         self.dispatch(pipeline, &bg, (wg_x, 1, 1));
 
+        let out_buf = out.buffer;
+        // drop cfg_buf explicitly to return it to pool
+        drop(cfg_buf);
         Ok(GpuTensor {
             shape: vec![a_shape[0], b_shape[1]],
-            buffer: out,
+            buffer: out_buf,
             dtype: GpuDtype::F32,
         })
     }
@@ -461,54 +460,51 @@ impl GpuContext {
         let cols = *shape.last().unwrap() as u32;
         let numel = inp.numel();
 
-        let out = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fused_softmax_out"),
-            size: (numel * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE
+        let out = self.alloc_buffer(
+            (numel * 4) as u64,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fused_softmax_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
+        let cfg_buf = self.alloc_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let cfg: [u32; 4] = [rows, cols, 0, 0];
         self.queue
-            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+            .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
         let pipeline = self
             .pipelines
             .get("fused_online_softmax")
             .ok_or_else(|| GpuError::Pipeline("fused_online_softmax not compiled".into()))?;
 
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fused_softmax_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bg = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: inp.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: out.as_entire_binding(),
+                    resource: out.buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: cfg_buf.as_entire_binding(),
+                    resource: cfg_buf.buffer.as_entire_binding(),
                 },
             ],
-        });
+            "fused_softmax_bg",
+        );
 
         // one workgroup per row
         self.dispatch(pipeline, &bg, (rows, 1, 1));
 
+        let out_buf = out.buffer;
         Ok(GpuTensor {
             shape: shape.to_vec(),
-            buffer: out,
+            buffer: out_buf,
             dtype: GpuDtype::F32,
         })
     }

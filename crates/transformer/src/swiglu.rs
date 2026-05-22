@@ -112,6 +112,34 @@ fn silu(x: f32) -> f32 {
 
 #[cfg(feature = "gpu")]
 impl SwiGLU {
+    /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
+    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global()?;
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_some() {
+            return Ok(());
+        }
+        let mk = |arr: &ndarray::Array2<f32>| -> Result<GpuTensor, nexora_autograd::gpu::GpuError> {
+            let shape = vec![arr.shape()[0], arr.shape()[1]];
+            let data = arr.as_slice().ok_or_else(|| {
+                nexora_autograd::gpu::GpuError::Unsupported("non-contiguous".into())
+            })?.to_vec();
+            let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data)
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            GpuTensor::from_cpu(&cpu_arr)
+        };
+        let w1 = mk(&self.w1)?;
+        let w2 = mk(&self.w2)?;
+        let w3 = mk(&self.w3)?;
+        *guard = Some(SwigluGpuWeights {
+            w1_t: ctx.transpose(&w1)?,
+            w2_t: ctx.transpose(&w2)?,
+            w3_t: ctx.transpose(&w3)?,
+        });
+        Ok(())
+    }
+
     /// GPU forward: SwiGLU FFN using GPU matmul + silu + mul (cached weights).
     pub fn forward_gpu(
         &self,
