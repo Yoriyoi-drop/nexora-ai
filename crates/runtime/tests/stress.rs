@@ -170,7 +170,7 @@ async fn scheduler_concurrent_submit() {
     let mut handles = Vec::with_capacity(n);
     for i in 0..n {
         let s = Arc::clone(&scheduler);
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
         let req = make_request("model-a", (i % 10) as u8);
         handles.push(tokio::spawn(async move {
             s.submit_request(req, tx).await.unwrap();
@@ -197,7 +197,7 @@ async fn scheduler_fifo_ordering() {
     let n = 5;
     let mut req_ids = Vec::with_capacity(n);
     for _ in 0..n {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
         let req = make_request("model-a", 50);
         let id = req.request_id.clone();
         req_ids.push(id);
@@ -230,7 +230,7 @@ async fn scheduler_stats_track_requests() {
 
     let n = 50;
     for _ in 0..n {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
         scheduler
             .submit_request(make_request("model-a", 50), tx)
             .await
@@ -256,7 +256,7 @@ async fn scheduler_cancellation_stress() {
     let n = 100;
     let mut uuids = Vec::with_capacity(n);
     for _i in 0..n {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
         let mut req = make_request("model-a", 50);
         let uuid = uuid::Uuid::new_v4();
         req.request_id = Some(uuid.to_string());
@@ -283,7 +283,7 @@ async fn scheduler_shutdown_stress() {
 
     let n = 50;
     for _ in 0..n {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
         scheduler
             .submit_request(make_request("model-a", 50), tx)
             .await

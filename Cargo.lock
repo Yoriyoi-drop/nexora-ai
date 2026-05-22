@@ -4051,7 +4051,9 @@ version = "0.1.0"
 dependencies = [
  "ndarray 0.15.6",
  "nexora-autograd",
+ "parking_lot",
  "rand 0.8.6",
+ "rayon",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

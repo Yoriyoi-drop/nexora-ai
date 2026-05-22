@@ -56,7 +56,7 @@ pub struct BeamHypothesis {
     /// Unique hypothesis ID
     pub id: Uuid,
     /// Generated tokens
-    pub tokens: Arc<Vec<GeneratedToken>>,
+    pub tokens: Arc<Vec<Arc<GeneratedToken>>>,
     /// Cumulative log probability
     pub cumulative_log_prob: f32,
     /// Normalized score
@@ -87,7 +87,7 @@ impl BeamHypothesis {
     }
 
     /// Add token to hypothesis
-    pub fn add_token(&mut self, token: GeneratedToken) {
+    pub fn add_token(&mut self, token: Arc<GeneratedToken>) {
         self.cumulative_log_prob += token.log_prob;
         let mut new_tokens = (*self.tokens).clone();
         new_tokens.push(token);
@@ -191,7 +191,7 @@ impl BeamSearchEngine {
             );
 
             let mut hypothesis = BeamHypothesis::new(self.config.length_penalty);
-            hypothesis.add_token(token);
+            hypothesis.add_token(Arc::new(token));
 
             hypotheses.push(hypothesis);
         }
@@ -485,7 +485,7 @@ impl BeamSearchEngine {
     }
 
     /// Jaccard similarity on token IDs (avoids String allocation)
-    fn token_id_similarity(a: &Arc<Vec<GeneratedToken>>, b: &Arc<Vec<GeneratedToken>>) -> f32 {
+    fn token_id_similarity(a: &Arc<Vec<Arc<GeneratedToken>>>, b: &Arc<Vec<Arc<GeneratedToken>>>) -> f32 {
         if a.is_empty() || b.is_empty() {
             return 0.0;
         }
@@ -503,7 +503,7 @@ impl BeamSearchEngine {
     /// Calculate diversity score using token IDs (avoids String allocation)
     fn calculate_diversity_score(
         &self,
-        tokens: &Arc<Vec<GeneratedToken>>,
+        tokens: &Arc<Vec<Arc<GeneratedToken>>>,
         _existing: &HashMap<u32, f32>,
     ) -> f32 {
         if _existing.is_empty() {

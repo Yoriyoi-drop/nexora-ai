@@ -249,7 +249,7 @@ impl InferenceEngine {
     pub async fn submit_streaming_request(
         &self,
         request: InferenceRequest,
-    ) -> Result<mpsc::Receiver<GeneratedToken>> {
+    ) -> Result<mpsc::Receiver<Arc<GeneratedToken>>> {
         if !self.config.enable_streaming {
             return Err(InferenceError::InvalidRequest(
                 "Streaming disabled".to_string(),
@@ -347,7 +347,7 @@ impl InferenceEngine {
                 if let Err(e) = se_clone
                     .write()
                     .await
-                    .push_tokens(stream_id, vec![token], is_last)
+                    .push_tokens(stream_id, vec![Arc::new(token)], is_last)
                     .await
                 {
                     warn!("Stream push failed: {}", e);
@@ -441,7 +441,7 @@ impl InferenceEngine {
             let token_text = self.token_id_to_text(token_id);
             let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
             let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
-            response.add_token(token);
+            response.add_token(Arc::new(token));
             all_ids.push(token_id);
 
             if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
@@ -823,7 +823,7 @@ impl InferenceEngineHandle {
                     self.model.forward(&last, &mut *kv_state)
                 };
 
-                let token_id = match sampler.sample(&logits.to_vec()) {
+                let token_id = match sampler.sample(logits.as_slice().unwrap_or(&[])) {
                     Ok(idx) => idx as u32,
                     Err(e) => {
                         warn!(

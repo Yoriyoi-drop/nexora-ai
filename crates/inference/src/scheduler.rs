@@ -1,6 +1,9 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::batching::{Batch, BatchCollector, BatchKey};
@@ -41,6 +44,7 @@ pub struct RequestScheduler {
     max_batch_size: usize,
     active_count: RwLock<usize>,
     batch_collector: Arc<RwLock<BatchCollector>>,
+    shutdown: AtomicBool,
 }
 
 impl RequestScheduler {
@@ -52,6 +56,7 @@ impl RequestScheduler {
             max_batch_size: 8,
             active_count: RwLock::new(0),
             batch_collector: Arc::new(RwLock::new(BatchCollector::new(8, 50))),
+            shutdown: AtomicBool::new(false),
         }
     }
 
@@ -66,7 +71,25 @@ impl RequestScheduler {
     }
 
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
+        self.shutdown.store(false, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Spawn a background worker that periodically polls for ready batches.
+    /// This ensures timed-out batches are drained even when the engine's
+    /// request loop is busy elsewhere.
+    pub fn start(this: Arc<RwLock<Self>>) {
+        tokio::spawn(async move {
+            loop {
+                if this.read().await.shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+                while let Some(_batch) = this.read().await.pop_batch().await {
+                    debug!("background worker popped ready batch");
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        });
     }
 
     pub async fn submit_request(
@@ -171,6 +194,7 @@ impl RequestScheduler {
     }
 
     pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
+        self.shutdown.store(true, Ordering::Relaxed);
         let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;
         queue.clear();

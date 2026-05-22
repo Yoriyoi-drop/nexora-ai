@@ -16,7 +16,7 @@ pub struct StreamInfo {
 }
 
 struct ActiveStream {
-    sender: mpsc::Sender<GeneratedToken>,
+    sender: mpsc::Sender<Arc<GeneratedToken>>,
     token_count: usize,
     created_at: Instant,
     last_token_at: Instant,
@@ -53,7 +53,7 @@ impl StreamingEngine {
 
     pub async fn create_stream(
         &self,
-    ) -> Result<(Uuid, mpsc::Receiver<GeneratedToken>), anyhow::Error> {
+    ) -> Result<(Uuid, mpsc::Receiver<Arc<GeneratedToken>>), anyhow::Error> {
         let stream_id = Uuid::new_v4();
 
         {
@@ -89,7 +89,7 @@ impl StreamingEngine {
     pub async fn send_token(
         &self,
         stream_id: Uuid,
-        token: GeneratedToken,
+        token: Arc<GeneratedToken>,
     ) -> Result<(), anyhow::Error> {
         // Clone sender outside lock to avoid holding read lock across .send().await
         let sender = {
@@ -115,7 +115,7 @@ impl StreamingEngine {
     pub async fn push_tokens(
         &self,
         stream_id: Uuid,
-        tokens: Vec<GeneratedToken>,
+        tokens: Vec<Arc<GeneratedToken>>,
         is_last: bool,
     ) -> Result<(), anyhow::Error> {
         for token in tokens {

@@ -107,7 +107,7 @@ struct LoopInfo {
     /// Current token count
     token_count: usize,
     /// Generated tokens
-    tokens: Vec<GeneratedToken>,
+    tokens: Vec<Arc<GeneratedToken>>,
     /// Stream ID (if streaming)
     stream_id: Option<Uuid>,
     /// Loop metadata
@@ -353,15 +353,15 @@ impl TokenLoop {
             }
 
             // Create generated token and store in vec first
-            tokens.push(GeneratedToken::new(
+            tokens.push(Arc::new(GeneratedToken::new(
                 token_selection.token_id,
                 token_selection.token_text.clone(),
                 token_selection.log_prob,
                 step,
-            ));
+            )));
             let gen = tokens.last().expect("token just pushed, must exist");
 
-            decoding_context.add_token(gen.clone());
+            decoding_context.add_token(Arc::clone(gen));
             *token_frequencies.entry(gen.token_id).or_insert(0) += 1;
 
             if let Some(stream_id) = stream_id {
@@ -369,7 +369,7 @@ impl TokenLoop {
                     streaming_engine
                         .write()
                         .await
-                        .send_token(stream_id, gen.clone())
+                        .send_token(stream_id, Arc::clone(gen))
                         .await?;
                 }
             }
@@ -378,7 +378,7 @@ impl TokenLoop {
                 let mut active_loops = self.active_loops.write().await;
                 if let Some(info) = active_loops.get_mut(&loop_id) {
                     info.token_count = tokens.len();
-                    info.tokens.push(gen.clone());
+                    info.tokens.push(Arc::clone(gen));
                 }
             }
 

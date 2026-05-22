@@ -782,6 +782,7 @@ impl SecurityMiddleware {
 
     /// Create netmask for CIDR
     fn create_netmask(&self, prefix: u8) -> [u8; 4] {
+        let prefix = prefix.min(32);
         let mut mask = [0u8; 4];
         let mut bits = prefix;
 

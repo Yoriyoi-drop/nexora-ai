@@ -19,7 +19,7 @@ pub enum SchedulingStrategy {
 #[derive(Debug, Clone)]
 pub struct QueuedRequest {
     pub request: InferenceRequest,
-    pub response_tx: mpsc::UnboundedSender<InferenceResponse>,
+    pub response_tx: mpsc::Sender<InferenceResponse>,
     pub queued_at: DateTime<Utc>,
     pub priority: u8,
     pub estimated_time_ms: u64,
@@ -42,7 +42,7 @@ pub struct RequestScheduler {
     request_queue: Arc<RwLock<VecDeque<QueuedRequest>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, RequestInfo>>>,
     request_status: Arc<RwLock<HashMap<Uuid, RequestStatus>>>,
-    response_channels: Arc<RwLock<HashMap<Uuid, mpsc::UnboundedSender<InferenceResponse>>>>,
+    response_channels: Arc<RwLock<HashMap<Uuid, mpsc::Sender<InferenceResponse>>>>,
     stats: Arc<RwLock<SchedulerStats>>,
     state: Arc<RwLock<SchedulerState>>,
 }
@@ -112,7 +112,7 @@ impl RequestScheduler {
     pub async fn submit_request(
         &self,
         request: InferenceRequest,
-        response_tx: mpsc::UnboundedSender<InferenceResponse>,
+        response_tx: mpsc::Sender<InferenceResponse>,
     ) -> Result<()> {
         debug!("Submitting request to scheduler: {:?}", request.request_id);
 
@@ -315,9 +315,16 @@ impl RequestScheduler {
         };
 
         match response_tx {
-            Some(tx) => tx.send(response).map_err(|_| {
-                InferenceError::InternalError("Response channel closed".to_string()).into()
-            }),
+            Some(tx) => match tx.try_send(response) {
+                Ok(_) => Ok(()),
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    warn!("Response channel full for request {}", request_id);
+                    Err(InferenceError::InternalError("Response channel full".to_string()).into())
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    Err(InferenceError::InternalError("Response channel closed".to_string()).into())
+                }
+            },
             None => {
                 Err(InferenceError::InternalError("Response channel not found".to_string()).into())
             }
@@ -453,7 +460,7 @@ mod tests {
     use std::collections::VecDeque;
 
     fn test_request(priority: u8) -> QueuedRequest {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
         QueuedRequest {
             request: InferenceRequest {
                 model_id: "test".into(),

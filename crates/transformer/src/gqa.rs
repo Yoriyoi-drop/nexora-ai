@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
-use ndarray::{Array1, Array2, Axis};
+use ndarray::{Array1, Array2};
 use rand::Rng;
+use rayon::prelude::*;
 
 use super::rope::RoPE;
 
@@ -177,7 +178,7 @@ pub trait KVCacheProvider: Send {
 }
 
 /// CPU implementation of [`KVCacheProvider`].
-/// Wraps `Vec<KVCacheEntry>` with `Array2<f32>` storage.
+/// Wraps `Vec<KVCacheEntry>` with flat `Vec<f32>` storage for O(1) amortized append.
 pub struct CpuKVCache {
     pub entries: Vec<KVCacheEntry>,
 }
@@ -195,31 +196,20 @@ impl KVCacheProvider for CpuKVCache {
         let kv_dim = k.len();
         if layer_idx < self.entries.len() {
             let entry = &mut self.entries[layer_idx];
-            let k_view = entry.k.view();
-            let v_view = entry.v.view();
-            let k_new = ndarray::concatenate![
-                ndarray::Axis(0),
-                k_view,
-                ndarray::Array2::from_shape_vec((1, kv_dim), k.to_vec()).unwrap()
-            ];
-            let v_new = ndarray::concatenate![
-                ndarray::Axis(0),
-                v_view,
-                ndarray::Array2::from_shape_vec((1, kv_dim), v.to_vec()).unwrap()
-            ];
-            entry.k = k_new;
-            entry.v = v_new;
+            entry.k.extend_from_slice(k);
+            entry.v.extend_from_slice(v);
         } else {
             self.entries.push(KVCacheEntry {
-                k: ndarray::Array2::from_shape_vec((1, kv_dim), k.to_vec()).unwrap(),
-                v: ndarray::Array2::from_shape_vec((1, kv_dim), v.to_vec()).unwrap(),
+                k: k.to_vec(),
+                v: v.to_vec(),
+                kv_dim,
             });
         }
     }
 
     fn get_k(&self, layer_idx: usize) -> &[f32] {
         if layer_idx < self.entries.len() {
-            self.entries[layer_idx].k.as_slice().unwrap_or(&[])
+            &self.entries[layer_idx].k
         } else {
             &[]
         }
@@ -227,7 +217,7 @@ impl KVCacheProvider for CpuKVCache {
 
     fn get_v(&self, layer_idx: usize) -> &[f32] {
         if layer_idx < self.entries.len() {
-            self.entries[layer_idx].v.as_slice().unwrap_or(&[])
+            &self.entries[layer_idx].v
         } else {
             &[]
         }
@@ -235,7 +225,7 @@ impl KVCacheProvider for CpuKVCache {
 
     fn seq_len(&self, layer_idx: usize) -> usize {
         if layer_idx < self.entries.len() {
-            self.entries[layer_idx].k.shape()[0]
+            self.entries[layer_idx].seq_len()
         } else {
             0
         }
@@ -351,9 +341,9 @@ pub struct GQA {
     pub wv: Array2<f32>,
     pub wo: Array2<f32>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: std::sync::Mutex<Option<GqaGpuWeights>>,
+    pub(crate) gpu_weights: parking_lot::Mutex<Option<GqaGpuWeights>>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_scratch: std::sync::Mutex<Option<GpuKVCacheEntry>>,
+    pub(crate) gpu_scratch: parking_lot::Mutex<Option<GpuKVCacheEntry>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -386,16 +376,23 @@ impl Clone for GQA {
             wk: self.wk.clone(),
             wv: self.wv.clone(),
             wo: self.wo.clone(),
-            gpu_weights: std::sync::Mutex::new(None),
-            gpu_scratch: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_scratch: parking_lot::Mutex::new(None),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct KVCacheEntry {
-    pub k: Array2<f32>,
-    pub v: Array2<f32>,
+    pub k: Vec<f32>,   // flat [seq_len, kv_dim]
+    pub v: Vec<f32>,   // flat [seq_len, kv_dim]
+    pub kv_dim: usize,
+}
+
+impl KVCacheEntry {
+    pub fn seq_len(&self) -> usize {
+        if self.kv_dim == 0 { 0 } else { self.k.len() / self.kv_dim }
+    }
 }
 
 impl GQA {
@@ -427,9 +424,9 @@ impl GQA {
             wv,
             wo,
             #[cfg(feature = "gpu")]
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
             #[cfg(feature = "gpu")]
-            gpu_scratch: std::sync::Mutex::new(None),
+            gpu_scratch: parking_lot::Mutex::new(None),
         }
     }
 
@@ -504,20 +501,17 @@ impl GQA {
             }
         }
 
-        let (k_cached, v_cached, total_seq): (Cow<Array2<f32>>, Cow<Array2<f32>>, usize) =
+        let kv_dim = self.num_kv_heads * self.head_dim;
+        let (k_cached, v_cached, total_seq): (Cow<[f32]>, Cow<[f32]>, usize) =
             match cache {
                 Some(cache) if layer_idx < cache.len() => {
                     let entry = &cache[layer_idx];
-                    let seq = entry.k.shape()[0] / batch_size;
+                    let seq = entry.k.len() / (batch_size * kv_dim);
                     (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
                 }
                 _ => {
-                    let kf = k
-                        .into_shape((batch_size, self.num_kv_heads * self.head_dim))
-                        .expect("GQA: k flat");
-                    let vf = v
-                        .into_shape((batch_size, self.num_kv_heads * self.head_dim))
-                        .expect("GQA: v flat");
+                    let kf: Vec<f32> = k.iter().copied().collect();
+                    let vf: Vec<f32> = v.iter().copied().collect();
                     (Cow::Owned(kf), Cow::Owned(vf), 1)
                 }
             };
@@ -533,8 +527,9 @@ impl GQA {
                 let mut max_score = f32::NEG_INFINITY;
                 for t in 0..total_seq {
                     let mut score = 0.0;
+                    let k_idx = (b * total_seq + t) * kv_dim + kv_off;
                     for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_cached[[b * total_seq + t, kv_off + d]];
+                        score += q[[b, h, d]] * k_cached[k_idx + d];
                     }
                     score *= self.head_dim_rs;
                     if score > max_score {
@@ -555,7 +550,7 @@ impl GQA {
                     let mut weighted = 0.0;
                     for t in 0..total_seq {
                         weighted +=
-                            scores[t] * inv_exp_sum * v_cached[[b * total_seq + t, kv_off + d]];
+                            scores[t] * inv_exp_sum * v_cached[(b * total_seq + t) * kv_dim + kv_off + d];
                     }
                     output[[b, out_base + d]] = weighted;
                 }
@@ -611,57 +606,43 @@ impl GQA {
             }
         }
 
-        let _seq_len = if layer_idx < cache.len() {
-            let entry = &cache[layer_idx];
-            entry.k.shape()[0] / batch_size + 1
-        } else {
-            1
-        };
+        let kv_dim = self.num_kv_heads * self.head_dim;
 
         if layer_idx < cache.len() {
             let entry = &mut cache[layer_idx];
-            let k_flat = k
-                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
-                .expect("GQA: k_flat");
-            let v_flat = v
-                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
-                .expect("GQA: v_flat");
-            let new_k = ndarray::concatenate![Axis(0), entry.k.view(), k_flat.insert_axis(Axis(0))];
-            let new_v = ndarray::concatenate![Axis(0), entry.v.view(), v_flat.insert_axis(Axis(0))];
-            entry.k = new_k;
-            entry.v = new_v;
+            let k_data: Vec<f32> = k.iter().copied().collect();
+            let v_data: Vec<f32> = v.iter().copied().collect();
+            entry.k.extend_from_slice(&k_data);
+            entry.v.extend_from_slice(&v_data);
         } else {
-            let k_flat = k
-                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
-                .expect("GQA: k_flat new entry");
-            let v_flat = v
-                .into_shape(batch_size * self.num_kv_heads * self.head_dim)
-                .expect("GQA: v_flat new entry");
+            let k_data: Vec<f32> = k.iter().copied().collect();
+            let v_data: Vec<f32> = v.iter().copied().collect();
             cache.push(KVCacheEntry {
-                k: k_flat.insert_axis(Axis(0)).to_owned(),
-                v: v_flat.insert_axis(Axis(0)).to_owned(),
+                k: k_data,
+                v: v_data,
+                kv_dim,
             });
         }
 
         let entry = &cache[layer_idx];
-        let k_cached = &entry.k;
-        let v_cached = &entry.v;
-        let total_seq = k_cached.shape()[0];
+        let k_slice = &entry.k;
+        let v_slice = &entry.v;
+        let total_seq = entry.seq_len();
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
         for b in 0..batch_size {
-            for h in 0..self.num_heads {
+            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads).into_par_iter().map(|h| {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
 
                 let mut scores = vec![0.0; total_seq];
                 let mut max_score = f32::NEG_INFINITY;
                 for t in 0..total_seq {
-                    let k_row = k_cached.row(t);
                     let mut score = 0.0;
+                    let k_idx = t * kv_dim + kv_off;
                     for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_row[kv_off + d];
+                        score += q[[b, h, d]] * k_slice[k_idx + d];
                     }
                     score *= self.head_dim_rs;
                     if score > max_score {
@@ -677,13 +658,21 @@ impl GQA {
                 }
 
                 let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                let out_base = h * self.head_dim;
+                let mut out_row = vec![0.0; self.head_dim];
                 for d in 0..self.head_dim {
                     let mut weighted = 0.0;
                     for t in 0..total_seq {
-                        weighted += scores[t] * inv_exp_sum * v_cached[[t, kv_off + d]];
+                        weighted += scores[t] * inv_exp_sum * v_slice[t * kv_dim + kv_off + d];
                     }
-                    output[[b, out_base + d]] = weighted;
+                    out_row[d] = weighted;
+                }
+                (h, out_row)
+            }).collect();
+
+            for (h, row) in results {
+                let out_base = h * self.head_dim;
+                for d in 0..self.head_dim {
+                    output[[b, out_base + d]] = row[d];
                 }
             }
         }
@@ -845,7 +834,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
@@ -883,8 +872,8 @@ impl GQA {
 
         // 5. GPU-side KV cache (no CPU round-trip)
         let (k_repeated, v_repeated) = {
-            let mut scratch_guard = self.gpu_scratch.lock().unwrap();
-            let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].k.shape()[0] } else { 0 };
+            let mut scratch_guard = self.gpu_scratch.lock();
+            let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].seq_len() } else { 0 };
 
             // Take existing scratch or create new one (avoids borrow conflicts)
             let mut gpu_entry = scratch_guard.take().unwrap_or_else(|| {
@@ -902,9 +891,9 @@ impl GQA {
                         self.num_kv_heads, self.head_dim, cpu_seq_len + 4096,
                     );
                     let ce = &cache[layer_idx];
-                    let seq = ce.k.shape()[0];
-                    let k_flat: Vec<f32> = ce.k.iter().copied().collect();
-                    let v_flat: Vec<f32> = ce.v.iter().copied().collect();
+                    let seq = ce.seq_len();
+                    let k_flat: Vec<f32> = ce.k.clone();
+                    let v_flat: Vec<f32> = ce.v.clone();
                     let k_cpu = ndarray::ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], k_flat)
                         .map_err(|e| GpuError::Unsupported(e.to_string()))?;
                     let v_cpu = ndarray::ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], v_flat)
@@ -967,7 +956,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
@@ -996,7 +985,7 @@ impl GQA {
         let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
         let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
 
-        // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin — no CPU upload per-layer!
+        // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin
         let q_rotated = ctx.rotary_embedding(&q_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
         let k_rotated = ctx.rotary_embedding(&k_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
 
@@ -1016,7 +1005,7 @@ impl GQA {
         let k_4d = k_repeated.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
         let v_4d = v_repeated.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
 
-        // 8. Fused attention on GPU
+        // 8. Fused attention on GPU — no CPU round-trip!
         let attn_output_4d = ctx.fused_attention(&q_4d, &k_4d, &v_4d, self.head_dim_rs, false)?;
 
         // 9. Reshape attention output
@@ -1041,7 +1030,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
@@ -1129,7 +1118,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
@@ -1175,32 +1164,27 @@ impl GQA {
 
         // 5. GPU-side KV cache (no CPU round-trip)
         let (k_repeated, v_repeated) = {
-            let mut scratch_guard = self.gpu_scratch.lock().unwrap();
-            if scratch_guard.is_none() {
-                *scratch_guard = Some(GpuKVCacheEntry::new(
-                    self.num_kv_heads, self.head_dim, 4096,
-                ));
-            }
-            let gpu_entry = scratch_guard.as_mut().unwrap();
+            let mut scratch_guard = self.gpu_scratch.lock();
+            let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].seq_len() } else { 0 };
 
-            // Sync existing CPU cache to GPU on first call or after cache reset
-            let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].k.shape()[0] } else { 0 };
+            let mut gpu_entry = scratch_guard.take().unwrap_or_else(|| {
+                GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, 4096.max(cpu_seq_len + 4096))
+            });
 
+            // Re-sync from CPU if cache was reset or different generation
             if gpu_entry.seq_len != cpu_seq_len {
                 if cpu_seq_len == 0 {
                     gpu_entry.seq_len = 0;
                     ctx.fill_zero(&gpu_entry.k)?;
                     ctx.fill_zero(&gpu_entry.v)?;
                 } else {
-                    let capacity = cpu_seq_len + 4096;
-                    *scratch_guard = Some(GpuKVCacheEntry::new(
-                        self.num_kv_heads, self.head_dim, capacity,
-                    ));
-                    let gpu_entry = scratch_guard.as_mut().unwrap();
+                    gpu_entry = GpuKVCacheEntry::new(
+                        self.num_kv_heads, self.head_dim, cpu_seq_len + 4096,
+                    );
                     let ce = &cache[layer_idx];
-                    let seq = ce.k.shape()[0];
-                    let k_flat: Vec<f32> = ce.k.iter().copied().collect();
-                    let v_flat: Vec<f32> = ce.v.iter().copied().collect();
+                    let seq = ce.seq_len();
+                    let k_flat: Vec<f32> = ce.k.clone();
+                    let v_flat: Vec<f32> = ce.v.clone();
                     let k_cpu = ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], k_flat)
                         .map_err(|e| GpuError::Unsupported(e.to_string()))?;
                     let v_cpu = ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], v_flat)
@@ -1230,8 +1214,9 @@ impl GQA {
             let v_4d = v_rep.reshape(vec![1, self.num_heads, total_seq, self.head_dim])?;
 
             // Sync back new token to CPU cache (O(1) per step)
-            self.sync_back_cpu_cache(&ctx, gpu_entry, cache, layer_idx)?;
+            self.sync_back_cpu_cache(&ctx, &gpu_entry, cache, layer_idx)?;
 
+            *scratch_guard = Some(gpu_entry);
             (k_4d, v_4d)
         };
 
@@ -1307,18 +1292,13 @@ impl GQA {
 
         if layer_idx < cache.len() {
             let entry = &mut cache[layer_idx];
-            let k_2d = ndarray::Array2::from_shape_vec((1, kv_elems), new_k)
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
-            let v_2d = ndarray::Array2::from_shape_vec((1, kv_elems), new_v)
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
-            entry.k = ndarray::concatenate![ndarray::Axis(0), entry.k.view(), k_2d.view()];
-            entry.v = ndarray::concatenate![ndarray::Axis(0), entry.v.view(), v_2d.view()];
+            entry.k.extend_from_slice(&new_k);
+            entry.v.extend_from_slice(&new_v);
         } else {
             cache.push(KVCacheEntry {
-                k: ndarray::Array2::from_shape_vec((1, kv_elems), new_k)
-                    .map_err(|e| GpuError::Unsupported(e.to_string()))?,
-                v: ndarray::Array2::from_shape_vec((1, kv_elems), new_v)
-                    .map_err(|e| GpuError::Unsupported(e.to_string()))?,
+                k: new_k,
+                v: new_v,
+                kv_dim: kv_elems,
             });
         }
 
@@ -1329,7 +1309,7 @@ impl GQA {
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
         let ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_some() {
             return Ok(());
         }

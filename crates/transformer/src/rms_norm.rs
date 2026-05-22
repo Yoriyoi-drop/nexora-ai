@@ -14,7 +14,7 @@ pub struct RMSNorm {
     pub weight: Array1<f32>,
     pub eps: f32,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: std::sync::Mutex<Option<RmsNormGpuWeights>>,
+    pub(crate) gpu_weights: parking_lot::Mutex<Option<RmsNormGpuWeights>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -33,7 +33,7 @@ impl Clone for RMSNorm {
         Self {
             weight: self.weight.clone(),
             eps: self.eps,
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
         }
     }
 }
@@ -45,7 +45,7 @@ impl RMSNorm {
             weight,
             eps,
             #[cfg(feature = "gpu")]
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
         }
     }
 
@@ -54,7 +54,7 @@ impl RMSNorm {
             weight,
             eps,
             #[cfg(feature = "gpu")]
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
         }
     }
 
@@ -107,7 +107,7 @@ impl RMSNorm {
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::GpuContext;
         let _ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_some() {
             return Ok(());
         }
@@ -129,7 +129,7 @@ impl RMSNorm {
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         let cached = guard.get_or_insert_with(|| {
             let weight_shape = vec![self.weight.len()];
             let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, self.weight.to_vec())

@@ -18,7 +18,7 @@ pub struct SwiGLU {
     pub w2: Array2<f32>,
     pub w3: Array2<f32>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: std::sync::Mutex<Option<SwigluGpuWeights>>,
+    pub(crate) gpu_weights: parking_lot::Mutex<Option<SwigluGpuWeights>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -39,7 +39,7 @@ impl Clone for SwiGLU {
             w1: self.w1.clone(),
             w2: self.w2.clone(),
             w3: self.w3.clone(),
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
         }
     }
 }
@@ -64,7 +64,7 @@ impl SwiGLU {
             w2,
             w3,
             #[cfg(feature = "gpu")]
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
         }
     }
 
@@ -112,7 +112,7 @@ impl SwiGLU {
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_some() {
             return Ok(());
         }
@@ -143,7 +143,7 @@ impl SwiGLU {
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         let cached = guard.get_or_insert_with(|| {
             let mk = |arr: &Array2<f32>| -> GpuTensor {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];

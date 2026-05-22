@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use tracing::{debug, warn};
 
+use std::sync::Arc;
+
 use crate::{GeneratedToken, InferenceError, Result};
 
 /// Configuration untuk decoding
@@ -67,7 +69,7 @@ pub trait DecodingStrategy: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct DecodingContext {
     /// Generated tokens so far
-    pub generated_tokens: Vec<GeneratedToken>,
+    pub generated_tokens: Vec<Arc<GeneratedToken>>,
     /// Token frequencies in current generation
     pub token_frequencies: HashMap<u32, usize>,
     /// Vocabulary size
@@ -473,7 +475,8 @@ impl TemperatureSampling {
         config: &DecodingConfig,
         context: &DecodingContext,
     ) -> Result<Vec<f32>> {
-        let mut adjusted = logits.to_vec();
+        let mut adjusted = Vec::with_capacity(logits.len());
+        adjusted.extend_from_slice(logits);
 
         // Apply penalties
         if config.presence_penalty != 0.0 {
@@ -610,7 +613,7 @@ impl DecodingContext {
     }
 
     /// Add generated token
-    pub fn add_token(&mut self, token: GeneratedToken) {
+    pub fn add_token(&mut self, token: Arc<GeneratedToken>) {
         let _token_id = token.token_id as usize;
         *self.token_frequencies.entry(token.token_id).or_insert(0) += 1;
         self.generated_tokens.push(token);

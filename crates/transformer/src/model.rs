@@ -121,9 +121,9 @@ pub struct CausalLM {
     pub precomputed_cos: Array1<f32>,
     pub precomputed_sin: Array1<f32>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: std::sync::Mutex<Option<GpuWeights>>,
+    pub(crate) gpu_weights: parking_lot::Mutex<Option<GpuWeights>>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_cache: std::sync::Mutex<Option<Vec<super::gqa::GpuKVCacheEntry>>>,
+    pub(crate) gpu_cache: parking_lot::Mutex<Option<Vec<super::gqa::GpuKVCacheEntry>>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -154,8 +154,8 @@ impl Clone for CausalLM {
             rope: self.rope.clone(),
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
-            gpu_weights: std::sync::Mutex::new(None),
-            gpu_cache: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_cache: parking_lot::Mutex::new(None),
         }
     }
 }
@@ -209,9 +209,9 @@ impl CausalLM {
             precomputed_cos,
             precomputed_sin,
             #[cfg(feature = "gpu")]
-            gpu_weights: std::sync::Mutex::new(None),
+            gpu_weights: parking_lot::Mutex::new(None),
             #[cfg(feature = "gpu")]
-            gpu_cache: std::sync::Mutex::new(None),
+            gpu_cache: parking_lot::Mutex::new(None),
         }
     }
 
@@ -253,7 +253,7 @@ impl CausalLM {
             h.row_mut(0).assign(&self.token_embedding.row(tid));
         }
 
-        let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+        let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
         let half = self.config.head_dim() / 2;
         let cos_slice = if pos * half < self.precomputed_cos.len() {
             self.precomputed_cos
@@ -414,7 +414,7 @@ impl CausalLM {
         use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
         use ndarray::ArrayD;
 
-        let mut guard = self.gpu_weights.lock().unwrap();
+        let mut guard = self.gpu_weights.lock();
         if guard.is_some() {
             return Ok(());
         }
@@ -500,7 +500,7 @@ impl CausalLM {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gpu_weights = self.gpu_weights.lock();
         let gw = gpu_weights.as_ref().unwrap();
 
         let mut h = match input_ids.last() {
@@ -546,7 +546,7 @@ impl CausalLM {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gpu_weights = self.gpu_weights.lock();
         let gw = gpu_weights.as_ref().unwrap();
 
         let mut h = match input_ids.last() {
@@ -636,7 +636,7 @@ impl CausalLM {
                 "forward_gpu_with_cache_provider needs CpuKVCache or GpuKVCache".into(),
             ))?;
 
-        let mut cache_guard = self.gpu_cache.lock().unwrap();
+        let mut cache_guard = self.gpu_cache.lock();
         if cache_guard.is_none() {
             let mut gpu_entries: Vec<super::gqa::GpuKVCacheEntry> =
                 (0..num_layers)
@@ -645,19 +645,17 @@ impl CausalLM {
 
             // Upload existing CPU K/V to GPU (one-time O(seq_len) cost)
             for layer_idx in 0..num_layers {
-                if layer_idx < cpu_entries.len() && cpu_entries[layer_idx].k.shape()[0] > 0 {
+                if layer_idx < cpu_entries.len() && cpu_entries[layer_idx].seq_len() > 0 {
                     let ce = &cpu_entries[layer_idx];
-                    let seq = ce.k.shape()[0];
-                    let k_flat: Vec<f32> = ce.k.iter().copied().collect();
-                    let v_flat: Vec<f32> = ce.v.iter().copied().collect();
+                    let seq = ce.seq_len();
                     let k_cpu = ArrayD::from_shape_vec(
                         vec![seq, n_kv_heads, head_dim],
-                        k_flat,
+                        ce.k.clone(),
                     )
                     .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
                     let v_cpu = ArrayD::from_shape_vec(
                         vec![seq, n_kv_heads, head_dim],
-                        v_flat,
+                        ce.v.clone(),
                     )
                     .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
 
@@ -768,12 +766,8 @@ impl CausalLM {
             // Append to CPU cache
             if layer_idx < cpu_entries.len() {
                 let cpu_entry = &mut cpu_entries[layer_idx];
-                let k_2d = Array2::from_shape_vec((1, kv_elems), new_k)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-                let v_2d = Array2::from_shape_vec((1, kv_elems), new_v)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-                cpu_entry.k = ndarray::concatenate![Axis(0), cpu_entry.k.view(), k_2d.view()];
-                cpu_entry.v = ndarray::concatenate![Axis(0), cpu_entry.v.view(), v_2d.view()];
+                cpu_entry.k.extend_from_slice(&new_k);
+                cpu_entry.v.extend_from_slice(&new_v);
             }
         }
 
@@ -846,17 +840,11 @@ impl CausalLM {
             .map(|entry| {
                 let k_cpu: ndarray::ArrayD<f32> = entry.k_view().to_cpu();
                 let v_cpu: ndarray::ArrayD<f32> = entry.v_view().to_cpu();
+                let kv_dim = entry.kv_heads * entry.head_dim;
                 KVCacheEntry {
-                    k: Array2::from_shape_vec(
-                        (entry.seq_len, entry.kv_heads * entry.head_dim),
-                        k_cpu.into_iter().collect(),
-                    )
-                    .unwrap(),
-                    v: Array2::from_shape_vec(
-                        (entry.seq_len, entry.kv_heads * entry.head_dim),
-                        v_cpu.into_iter().collect(),
-                    )
-                    .unwrap(),
+                    k: k_cpu.into_iter().collect(),
+                    v: v_cpu.into_iter().collect(),
+                    kv_dim,
                 }
             })
             .collect();
@@ -884,7 +872,7 @@ impl CausalLM {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gpu_weights = self.gpu_weights.lock();
         let gw = gpu_weights.as_ref().unwrap();
 
         // 1. Token embedding: buffer-to-buffer copy of ONE row from pre-uploaded embedding tensor.
@@ -905,7 +893,7 @@ impl CausalLM {
         };
 
         // 2. Get RoPE cos/sin for current position
-        let pos = kv_cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+        let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
         let half = self.config.head_dim() / 2;
         let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
             self.precomputed_cos
@@ -963,7 +951,7 @@ impl CausalLM {
         let n_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.head_dim();
         let max_seq = self.config.max_seq_len;
-        let gpu_weights = self.gpu_weights.lock().unwrap();
+        let gpu_weights = self.gpu_weights.lock();
         let gw = gpu_weights.as_ref().unwrap();
 
         if batch_size == 0 {
@@ -986,14 +974,12 @@ impl CausalLM {
         for seq_idx in 0..batch_size {
             let cpu_cache = &kv_caches[seq_idx];
             for layer_idx in 0..num_layers {
-                if layer_idx < cpu_cache.len() && cpu_cache[layer_idx].k.shape()[0] > 0 {
+                if layer_idx < cpu_cache.len() && cpu_cache[layer_idx].seq_len() > 0 {
                     let ce = &cpu_cache[layer_idx];
-                    let seq = ce.k.shape()[0];
-                    let k_flat: Vec<f32> = ce.k.iter().copied().collect();
-                    let v_flat: Vec<f32> = ce.v.iter().copied().collect();
-                    let k_cpu = ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], k_flat)
+                    let seq = ce.seq_len();
+                    let k_cpu = ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.k.clone())
                         .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-                    let v_cpu = ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], v_flat)
+                    let v_cpu = ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.v.clone())
                         .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
                     let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
                     let v_gpu = GpuTensor::from_cpu(&v_cpu)?;
@@ -1108,18 +1094,13 @@ impl CausalLM {
 
                 if layer_idx < cpu_cache.len() {
                     let entry = &mut cpu_cache[layer_idx];
-                    let k_2d = ndarray::Array2::from_shape_vec((1, kv_elems), new_k)
-                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-                    let v_2d = ndarray::Array2::from_shape_vec((1, kv_elems), new_v)
-                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-                    entry.k = ndarray::concatenate![Axis(0), entry.k.view(), k_2d.view()];
-                    entry.v = ndarray::concatenate![Axis(0), entry.v.view(), v_2d.view()];
+                    entry.k.extend_from_slice(&new_k);
+                    entry.v.extend_from_slice(&new_v);
                 } else {
                     cpu_cache.push(KVCacheEntry {
-                        k: ndarray::Array2::from_shape_vec((1, kv_elems), new_k)
-                            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-                        v: ndarray::Array2::from_shape_vec((1, kv_elems), new_v)
-                            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                        k: new_k,
+                        v: new_v,
+                        kv_dim: kv_elems,
                     });
                 }
             }

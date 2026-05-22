@@ -4501,14 +4501,12 @@ impl GpuTensor {
         let numel: usize = shape.iter().product();
         let byte_size = (numel * 4) as u64;
 
-        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::zeros"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::STORAGE
+        let buffer = ctx.alloc_buffer(
+            byte_size,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        ).buffer;
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GpuTensor::zeros_staging"),

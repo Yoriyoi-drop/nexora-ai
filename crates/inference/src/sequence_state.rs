@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{FinishReason, GeneratedToken, InferenceRequest};
 
 /// Lifecycle state of a single sequence in the continuous batching pool.

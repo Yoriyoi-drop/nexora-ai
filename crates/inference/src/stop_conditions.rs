@@ -36,7 +36,7 @@ pub enum StopCondition {
 /// Custom stop condition trait
 pub trait CustomStopCondition: Send + Sync + std::fmt::Debug {
     /// Check if generation should stop
-    fn should_stop(&self, tokens: &[GeneratedToken], context: &StopContext) -> bool;
+    fn should_stop(&self, tokens: &[Arc<GeneratedToken>], context: &StopContext) -> bool;
 
     /// Condition name
     fn name(&self) -> &str;
@@ -151,7 +151,7 @@ impl StopConditions {
     /// Check if generation should stop
     pub async fn should_stop(
         &self,
-        tokens: &[GeneratedToken],
+        tokens: &[Arc<GeneratedToken>],
         context: &StopContext,
     ) -> Option<String> {
         let start_time = std::time::Instant::now();
@@ -196,7 +196,7 @@ impl StopConditions {
     fn check_condition(
         &self,
         condition: &StopCondition,
-        tokens: &[GeneratedToken],
+        tokens: &[Arc<GeneratedToken>],
         context: &StopContext,
     ) -> Option<String> {
         match condition {
@@ -274,7 +274,7 @@ impl StopConditions {
     }
 
     /// Check if stop sequence is encountered
-    fn check_stop_sequence(&self, tokens: &[GeneratedToken], sequence: &str) -> bool {
+    fn check_stop_sequence(&self, tokens: &[Arc<GeneratedToken>], sequence: &str) -> bool {
         if tokens.is_empty() || sequence.is_empty() {
             return false;
         }
@@ -289,7 +289,7 @@ impl StopConditions {
     /// Check for repetition
     fn check_repetition(
         &self,
-        tokens: &[GeneratedToken],
+        tokens: &[Arc<GeneratedToken>],
         ngram_size: usize,
         max_repetitions: u32,
     ) -> bool {
@@ -374,7 +374,7 @@ pub mod custom_conditions {
     }
 
     impl CustomStopCondition for LengthStopCondition {
-        fn should_stop(&self, tokens: &[GeneratedToken], _context: &StopContext) -> bool {
+        fn should_stop(&self, tokens: &[Arc<GeneratedToken>], _context: &StopContext) -> bool {
             let total_length: usize = tokens.iter().map(|t| t.token_text.len()).sum();
             total_length >= self.max_length
         }
@@ -399,7 +399,7 @@ pub mod custom_conditions {
     }
 
     impl CustomStopCondition for CoherenceStopCondition {
-        fn should_stop(&self, tokens: &[GeneratedToken], _context: &StopContext) -> bool {
+        fn should_stop(&self, tokens: &[Arc<GeneratedToken>], _context: &StopContext) -> bool {
             if tokens.len() < 2 {
                 return false;
             }
@@ -436,7 +436,7 @@ pub mod custom_conditions {
     }
 
     impl CustomStopCondition for DiversityStopCondition {
-        fn should_stop(&self, tokens: &[GeneratedToken], _context: &StopContext) -> bool {
+        fn should_stop(&self, tokens: &[Arc<GeneratedToken>], _context: &StopContext) -> bool {
             if tokens.len() < self.window_size {
                 return false;
             }
