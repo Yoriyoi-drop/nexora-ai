@@ -506,6 +506,7 @@ impl GpuContext {
         self.compile_elementwise_inplace()?;
         self.compile_causal_softmax()?;
         self.compile_l2_norm()?;
+        self.compile_gradient_clip()?;
         self.compile_temperature_scale()?;
         self.compile_top_k_mask()?;
         self.compile_multinomial_sample()?;
@@ -564,6 +565,20 @@ impl GpuContext {
             ],
             std::borrow::Cow::Borrowed(L2_NORM_WGSL),
             "l2_norm_main",
+        )
+    }
+
+    fn compile_gradient_clip(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "gradient_clip",
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            std::borrow::Cow::Borrowed(GRADIENT_CLIP_WGSL),
+            "gradient_clip_main",
         )
     }
 
@@ -902,6 +917,24 @@ impl GpuContext {
         });
     }
 
+    /// Non-blocking poll — proses callback async tanpa blocking
+    pub fn poll_device(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+    }
+
+    /// Blocking wait — tunggu semua GPU work selesai
+    pub fn wait_device(&self) {
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+    }
+
+    /// Register callback ketika semua submitted work selesai
+    pub fn on_submitted_work_done(&self, callback: impl FnOnce() + Send + 'static) {
+        self.queue.on_submitted_work_done(callback);
+    }
+
     pub(crate) fn with_encoder<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut wgpu::CommandEncoder) -> R,
@@ -954,6 +987,41 @@ impl GpuContext {
             cpass.set_bind_group(0, bind_group, &[]);
             cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
         });
+    }
+
+    /// Slice tensor GPU — mengambil sub-view [pos..pos+len] dari dimension 0
+    /// GPU-side copy via buffer-to-buffer (no CPU round-trip).
+    pub fn slice_tensor(&self, tensor: &GpuTensor, pos: u32, len: u32) -> Result<GpuTensor, GpuError> {
+        let shape = tensor.shape();
+        let dim0 = shape[0];
+        let rest: usize = shape[1..].iter().product();
+        let slice_numel = (len as usize) * rest;
+        let element_size = match tensor.dtype {
+            GpuDtype::F32 | GpuDtype::F16 | GpuDtype::Bf16 => 4, // all 4-byte for now
+        };
+        let byte_offset = (pos as usize) * dim0 /* actually per-row */;
+        // Actual: each row has `rest` elements
+        let row_bytes = (rest * element_size) as u64;
+        let byte_offset = (pos as u64) * row_bytes;
+        let byte_size = (len as u64) * row_bytes;
+
+        let pooled = self.alloc_buffer(
+            byte_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        self.with_encoder(|enc| {
+            enc.copy_buffer_to_buffer(tensor.buffer(), byte_offset, &pooled.buffer, 0, byte_size);
+        });
+
+        let mut new_shape = shape.clone();
+        new_shape[0] = len as usize;
+
+        Ok(GpuTensor {
+            shape: new_shape,
+            buffer: pooled.buffer,
+            dtype: tensor.dtype,
+        })
     }
 
     /// Get next query index from ring buffer (wraps around at query_pool_size)
@@ -1853,6 +1921,11 @@ impl GpuContext {
     /// Convenience: element-wise div on GPU
     pub fn div(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
         self.elementwise_binary(a, b, ElemOp::Div)
+    }
+
+    /// Convenience: sqrt on GPU
+    pub fn sqrt(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Sqrt)
     }
 
     /// Convenience: exp on GPU
@@ -3094,6 +3167,47 @@ fn elementwise_inplace_main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 "#;
 
+// ── Phase 1.1.5: Gradient Clip ────────────────────────────────────────────────
+
+const GRADIENT_CLIP_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> gradient: array<f32>;
+@group(0) @binding(1) var<storage, read> norm_sq: array<f32>;
+@group(0) @binding(2) var<storage, read_write> output: array<f32>;
+@group(0) @binding(3) var<uniform> cfg: vec4<u32>;
+
+const BLOCK_SIZE: u32 = 256u;
+var<workgroup> wg_scale: f32;
+var<workgroup> wg_norm: f32;
+
+@compute @workgroup_size(BLOCK_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let idx = gid.x;
+    let max_norm = bitcast<f32>(cfg.y);
+
+    if (lid.x == 0u) {
+        let n = norm_sq[0];
+        wg_norm = sqrt(n);
+        if (wg_norm > max_norm && wg_norm > 0.0) {
+            wg_scale = max_norm / wg_norm;
+            output[3] = 1.0;
+        } else {
+            wg_scale = 1.0;
+            output[3] = 0.0;
+        }
+        output[0] = wg_norm;
+        output[1] = max_norm;
+        output[2] = wg_scale;
+    }
+    workgroupBarrier();
+
+    let numel = arrayLength(&gradient);
+    if (idx < numel) {
+        gradient[idx] = gradient[idx] * wg_scale;
+    }
+}
+"#;
+
 // ── Phase 1.2: Reduce ─────────────────────────────────────────────────────────
 
 const REDUCE_WGSL_TEMPLATE: &str = r#"
@@ -4105,6 +4219,15 @@ impl GpuTensor {
     /// Useful for wrapping GPU buffers allocated externally.
     pub fn from_raw(shape: Vec<usize>, buffer: wgpu::Buffer, dtype: GpuDtype) -> Self {
         Self { shape, buffer, dtype }
+    }
+
+    /// Non-blocking GPU→CPU readback via channel. Hasil siap ketika GPU selesai.
+    pub fn to_cpu_async(
+        &self,
+        ctx: &GpuContext,
+    ) -> Result<crate::gpu_async::AsyncReadback<Vec<f32>>, GpuError> {
+        let byte_size = (self.numel() * 4) as u64;
+        ctx.readback_f32_async(&self.buffer, byte_size)
     }
 
     /// Create a new GpuTensor with a different shape but the same underlying buffer.

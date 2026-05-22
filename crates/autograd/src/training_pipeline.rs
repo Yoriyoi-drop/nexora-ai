@@ -589,21 +589,47 @@ pub fn compute_grad_norm(params: &[Tensor]) -> f32 {
 }
 
 /// GPU-native gradient norm: compute L2 norm of GPU-resident gradient tensors
-/// using the WGSL l2_norm shader. Only reads back one scalar per tensor.
+/// using GPU reduce + sqrt — hanya 1 scalar readback (vs N sebelumnya).
 #[cfg(feature = "gpu")]
 pub fn compute_grad_norm_gpu(grads: &[crate::gpu::GpuTensor], ctx: &crate::gpu::GpuContext) -> f32 {
-    use crate::gpu::GpuTensor;
-    let mut total_sq = 0.0f32;
-    // Batch: compute all L2 norms in one encoder submission
-    ctx.begin_batch_mode();
+    if grads.is_empty() {
+        return 0.0;
+    }
+
+    // 1. Compute per-tensor L2 norm squared on GPU
+    let mut norm_sq_tensors = Vec::with_capacity(grads.len());
     for g in grads {
         if let Ok(norm_sq_t) = ctx.l2_norm(g) {
-            let val = norm_sq_t.to_cpu();
-            total_sq += val[0];
+            norm_sq_tensors.push(norm_sq_t);
         }
     }
-    ctx.end_batch_mode();
-    total_sq.sqrt()
+
+    if norm_sq_tensors.is_empty() {
+        return 0.0;
+    }
+
+    // 2. Sum all norms on GPU via elementwise add (no readback)
+    let mut total_norm_sq = norm_sq_tensors[0].clone();
+    for t in &norm_sq_tensors[1..] {
+        if let Ok(result) = ctx.add(&total_norm_sq, t) {
+            total_norm_sq = result;
+        }
+    }
+
+    // 3. Sqrt on GPU, then async readback single scalar via channel
+    if let Ok(norm_gpu) = ctx.sqrt(&total_norm_sq) {
+        // Non-blocking: mulai readback, GPU masih bisa kerja
+        if let Ok(rb) = ctx.readback_f32_async(norm_gpu.buffer(), 4) {
+            ctx.poll_device();
+            if let Some(val) = rb.try_recv() {
+                return val[0];
+            }
+            // Fallback: blocking wait jika belum siap
+            let cpu = norm_gpu.to_cpu();
+            return cpu[0];
+        }
+    }
+    0.0
 }
 
 #[cfg(test)]

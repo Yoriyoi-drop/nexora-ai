@@ -3978,6 +3978,7 @@ dependencies = [
  "half",
  "itertools 0.12.1",
  "ndarray 0.15.6",
+ "nexora-autograd",
  "num_cpus",
  "once_cell",
  "rand 0.8.6",

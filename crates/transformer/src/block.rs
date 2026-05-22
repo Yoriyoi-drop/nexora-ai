@@ -101,6 +101,32 @@ impl TransformerBlock {
         after_attn + ffn_out
     }
 
+    /// GPU forward with pre-uploaded cos/sin GPU tensors.
+    /// cos_gpu / sin_gpu shape [1, half] — uploaded once per step, reused across all layers.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_rope_gpu(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut Vec<KVCacheEntry>,
+        layer_idx: usize,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuContext;
+
+        let ctx = GpuContext::global()?;
+
+        let normed = self.attention_norm.forward_gpu(x_gpu)?;
+        let attn_out = self.attention.forward_gpu_with_rope_gpu(
+            &normed, cache, layer_idx, cos_gpu, sin_gpu,
+        )?;
+        let after_attn = ctx.add(x_gpu, &attn_out)?;
+
+        let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
+        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        ctx.add(&after_attn, &ffn_out)
+    }
+
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(
         &self,
@@ -110,7 +136,7 @@ impl TransformerBlock {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
 

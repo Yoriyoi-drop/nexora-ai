@@ -131,6 +131,197 @@ impl Clone for GpuKVCacheEntry {
     }
 }
 
+/// Unified trait for KV cache — supports both CPU (Vec<KVCacheEntry>) and GPU (GpuKVCacheEntry).
+/// Enables the inference engine to transparently switch between CPU and GPU KV cache
+/// without changing the model forward path.
+pub trait KVCacheProvider: Send {
+    /// Append a new token's K/V for a given layer.
+    /// `k` and `v` are flat slices of length num_kv_heads * head_dim.
+    fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]);
+
+    /// Read-only access to the cached K tensor for a layer.
+    fn get_k(&self, layer_idx: usize) -> &[f32];
+
+    /// Read-only access to the cached V tensor for a layer.
+    fn get_v(&self, layer_idx: usize) -> &[f32];
+
+    /// Number of tokens cached for a given layer.
+    fn seq_len(&self, layer_idx: usize) -> usize;
+
+    /// Clear all cached KV data.
+    fn clear(&mut self);
+
+    /// Number of layers in this cache.
+    fn num_layers(&self) -> usize;
+
+    /// Internal: expose inner `Vec<KVCacheEntry>` for the CPU forward path.
+    /// Returns `None` for GPU-backed caches.
+    #[doc(hidden)]
+    fn as_cpu_entries(&mut self) -> Option<&mut Vec<KVCacheEntry>> {
+        None
+    }
+
+    /// Internal: expose inner `Vec<GpuKVCacheEntry>` for the GPU forward path.
+    /// Returns `None` for CPU-backed caches.
+    #[cfg(feature = "gpu")]
+    #[doc(hidden)]
+    fn as_gpu_entries(&mut self) -> Option<&mut Vec<GpuKVCacheEntry>> {
+        None
+    }
+}
+
+/// CPU implementation of [`KVCacheProvider`].
+/// Wraps `Vec<KVCacheEntry>` with `Array2<f32>` storage.
+pub struct CpuKVCache {
+    pub entries: Vec<KVCacheEntry>,
+}
+
+impl CpuKVCache {
+    pub fn new(_num_layers: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl KVCacheProvider for CpuKVCache {
+    fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]) {
+        let kv_dim = k.len();
+        if layer_idx < self.entries.len() {
+            let entry = &mut self.entries[layer_idx];
+            let k_view = entry.k.view();
+            let v_view = entry.v.view();
+            let k_new = ndarray::concatenate![
+                ndarray::Axis(0),
+                k_view,
+                ndarray::Array2::from_shape_vec((1, kv_dim), k.to_vec()).unwrap()
+            ];
+            let v_new = ndarray::concatenate![
+                ndarray::Axis(0),
+                v_view,
+                ndarray::Array2::from_shape_vec((1, kv_dim), v.to_vec()).unwrap()
+            ];
+            entry.k = k_new;
+            entry.v = v_new;
+        } else {
+            self.entries.push(KVCacheEntry {
+                k: ndarray::Array2::from_shape_vec((1, kv_dim), k.to_vec()).unwrap(),
+                v: ndarray::Array2::from_shape_vec((1, kv_dim), v.to_vec()).unwrap(),
+            });
+        }
+    }
+
+    fn get_k(&self, layer_idx: usize) -> &[f32] {
+        if layer_idx < self.entries.len() {
+            self.entries[layer_idx].k.as_slice().unwrap_or(&[])
+        } else {
+            &[]
+        }
+    }
+
+    fn get_v(&self, layer_idx: usize) -> &[f32] {
+        if layer_idx < self.entries.len() {
+            self.entries[layer_idx].v.as_slice().unwrap_or(&[])
+        } else {
+            &[]
+        }
+    }
+
+    fn seq_len(&self, layer_idx: usize) -> usize {
+        if layer_idx < self.entries.len() {
+            self.entries[layer_idx].k.shape()[0]
+        } else {
+            0
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    fn num_layers(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn as_cpu_entries(&mut self) -> Option<&mut Vec<KVCacheEntry>> {
+        Some(&mut self.entries)
+    }
+}
+
+/// GPU implementation of [`KVCacheProvider`].
+/// Stores K/V directly on GPU without CPU round-trip.
+#[cfg(feature = "gpu")]
+pub struct GpuKVCache {
+    pub entries: Vec<GpuKVCacheEntry>,
+}
+
+#[cfg(feature = "gpu")]
+impl GpuKVCache {
+    pub fn new(
+        num_layers: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        max_seq_len: usize,
+    ) -> Self {
+        let ctx_ok = nexora_autograd::gpu::GpuContext::global().is_ok();
+        let entries = if ctx_ok {
+            (0..num_layers)
+                .map(|_| GpuKVCacheEntry::new(num_kv_heads, head_dim, max_seq_len))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Self { entries }
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl KVCacheProvider for GpuKVCache {
+    fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]) {
+        if let Ok(ref ctx) = nexora_autograd::gpu::GpuContext::global() {
+            if layer_idx < self.entries.len() {
+                use ndarray::ArrayD;
+                use nexora_autograd::gpu::GpuTensor;
+
+                let kv_heads = self.entries[layer_idx].kv_heads;
+                let head_dim = self.entries[layer_idx].head_dim;
+                let k_arr = ArrayD::from_shape_vec(vec![1, kv_heads, head_dim], k.to_vec()).unwrap();
+                let v_arr = ArrayD::from_shape_vec(vec![1, kv_heads, head_dim], v.to_vec()).unwrap();
+                if let (Ok(k_gpu), Ok(v_gpu)) = (GpuTensor::from_cpu(&k_arr), GpuTensor::from_cpu(&v_arr)) {
+                    let _ = self.entries[layer_idx].append(ctx, &k_gpu, &v_gpu);
+                }
+            }
+        }
+    }
+
+    fn get_k(&self, _layer_idx: usize) -> &[f32] {
+        &[]
+    } // GPU-resident, no CPU readback
+    fn get_v(&self, _layer_idx: usize) -> &[f32] {
+        &[]
+    }
+
+    fn seq_len(&self, layer_idx: usize) -> usize {
+        if layer_idx < self.entries.len() {
+            self.entries[layer_idx].seq_len
+        } else {
+            0
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    fn num_layers(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn as_gpu_entries(&mut self) -> Option<&mut Vec<GpuKVCacheEntry>> {
+        Some(&mut self.entries)
+    }
+}
+
 /// Minimal paged cache interface — avoids hard dependency on the inference crate.
 /// Inference crate's PagedKVCache implements this trait.
 pub trait PagedCacheReader {
@@ -628,6 +819,130 @@ impl GQA {
 
 #[cfg(feature = "gpu")]
 impl GQA {
+    /// GPU forward with pre-uploaded cos/sin GPU tensors.
+    /// cos_gpu / sin_gpu must be shape [1, half] — uploaded once per step, not per-layer.
+    pub fn forward_gpu_with_rope_gpu(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut Vec<KVCacheEntry>,
+        layer_idx: usize,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+
+        // 1. Lazy-init cached GPU weights
+        let mut guard = self.gpu_weights.lock().unwrap();
+        if guard.is_none() {
+            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
+                let shape = vec![arr.shape()[0], arr.shape()[1]];
+                let data = arr.as_slice().ok_or_else(|| {
+                    GpuError::Unsupported("non-contiguous weight".into())
+                })?.to_vec();
+                Ok(GpuTensor::from_cpu(
+                    &ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                )?)
+            };
+            let wq = mk(&self.wq)?;
+            let wk = mk(&self.wk)?;
+            let wv = mk(&self.wv)?;
+            let wo = mk(&self.wo)?;
+            *guard = Some(GqaGpuWeights {
+                wq_t: ctx.transpose(&wq)?,
+                wk_t: ctx.transpose(&wk)?,
+                wv_t: ctx.transpose(&wv)?,
+                wo_t: ctx.transpose(&wo)?,
+            });
+        }
+        let cached = guard.as_ref().unwrap();
+
+        // 2. QKV projection on GPU: matmul(x, W^T) with cached pre-transposed weights
+        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+
+        // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin — no CPU upload per-layer!
+        let q_rotated = ctx.rotary_embedding(&q_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
+
+        // 4. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
+        let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
+
+        // 5. Download K, V (1 token each) to CPU, append to cache
+        let k_cpu_arr = k_rotated.to_cpu();
+        let k_flat: Vec<f32> = k_cpu_arr.iter().copied().collect();
+        let k_cpu = Array2::from_shape_vec(
+            (batch_size, self.num_kv_heads * self.head_dim),
+            k_flat,
+        ).map_err(|e| GpuError::Unsupported(e.to_string()))?;
+        let v_cpu_arr = v_proj.to_cpu();
+        let v_flat: Vec<f32> = v_cpu_arr.iter().copied().collect();
+        let v_cpu = Array2::from_shape_vec(
+            (batch_size, self.num_kv_heads * self.head_dim),
+            v_flat,
+        ).map_err(|e| GpuError::Unsupported(e.to_string()))?;
+
+        if layer_idx < cache.len() {
+            let entry = &mut cache[layer_idx];
+            let new_k = ndarray::concatenate![ndarray::Axis(0), entry.k.view(), k_cpu.view()];
+            let new_v = ndarray::concatenate![ndarray::Axis(0), entry.v.view(), v_cpu.view()];
+            entry.k = new_k;
+            entry.v = new_v;
+        } else {
+            cache.push(KVCacheEntry {
+                k: k_cpu.to_owned(),
+                v: v_cpu.to_owned(),
+            });
+        }
+
+        // 6. Upload full KV cache to GPU, repeat heads for GQA if needed
+        let entry = &cache[layer_idx];
+        let total_seq = entry.k.shape()[0];
+
+        let eff_heads = self.num_heads;
+
+        let k_slice: Vec<f32> = entry.k.iter().copied().collect();
+        let v_slice: Vec<f32> = entry.v.iter().copied().collect();
+        let mut k_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
+        let mut v_4d_data = vec![0.0; total_seq * eff_heads * self.head_dim];
+
+        let groups = (self.num_heads / self.num_kv_heads.max(1)).max(1);
+        for s in 0..total_seq {
+            for h in 0..eff_heads {
+                let kv_h = (h / groups).min(self.num_kv_heads - 1);
+                let cache_off = s * (self.num_kv_heads * self.head_dim) + kv_h * self.head_dim;
+                let target_off = h * total_seq * self.head_dim + s * self.head_dim;
+                for d in 0..self.head_dim {
+                    k_4d_data[target_off + d] = k_slice[cache_off + d];
+                    v_4d_data[target_off + d] = v_slice[cache_off + d];
+                }
+            }
+        }
+
+        let kv_shape = vec![1, eff_heads, total_seq, self.head_dim];
+        let k_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(kv_shape.clone(), k_4d_data)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+        let v_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(kv_shape, v_4d_data)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+        )?;
+
+        // 7. Fused attention on GPU: O(n^2) on GPU instead of CPU
+        let attn_output_4d = ctx.fused_attention(&q_4d, &k_gpu, &v_gpu, self.head_dim_rs, false)?;
+
+        // 8. Reshape attention output: [1, num_heads, 1, head_dim] -> [1, num_heads * head_dim]
+        let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
+
+        // 9. Output projection on GPU: matmul(attn_flat, wo^T) with cached weight
+        ctx.matmul(&attn_flat, &cached.wo_t)
+    }
+
     /// GPU forward with GPU-resident KV cache.
     /// No CPU round-trip for K/V cache operations.
     pub fn forward_gpu_with_cache(

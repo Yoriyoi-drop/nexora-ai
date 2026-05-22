@@ -1,4 +1,86 @@
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
+
+// ─── AsyncReadback ─────────────────────────────────────────────────────────────
+
+/// Non-blocking GPU readback — hasil dikirim via channel ketika GPU selesai
+pub struct AsyncReadback<T: Send + 'static> {
+    pub receiver: mpsc::Receiver<T>,
+    ready: Arc<AtomicBool>,
+}
+
+impl<T: Send + 'static> AsyncReadback<T> {
+    /// Cek apakah hasil sudah siap (non-blocking)
+    pub fn try_recv(&self) -> Option<T> {
+        self.receiver.try_recv().ok()
+    }
+
+    /// Blocking wait untuk hasil
+    pub fn recv(&self) -> T {
+        self.receiver.recv().unwrap()
+    }
+
+    /// Non-blocking check
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
+    }
+}
+
+impl GpuContext {
+    /// Non-blocking GPU readback: copy buffer ke staging → map_async → hasil via channel
+    pub fn readback_f32_async(
+        &self,
+        buffer: &wgpu::Buffer,
+        size_bytes: u64,
+    ) -> Result<AsyncReadback<Vec<f32>>, GpuError> {
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("async_readback_staging"),
+            size: size_bytes,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("async_readback_encoder"),
+            });
+        encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, size_bytes);
+        self.queue.submit(Some(encoder.finish()));
+
+        let (tx, rx) = mpsc::channel();
+        let ready = Arc::new(AtomicBool::new(false));
+        let ready_clone = ready.clone();
+        let staging_clone = staging.clone();
+
+        staging.map_async(wgpu::MapMode::Read, 0..size_bytes, move |result| {
+            if let Ok(()) = result {
+                let slice = staging_clone.slice(..size_bytes);
+                let data = slice.get_mapped_range();
+                let floats: Vec<f32> = data.chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                drop(data);
+                staging_clone.unmap();
+                let _ = tx.send(floats);
+                ready_clone.store(true, Ordering::Release);
+            }
+        });
+
+        // Non-blocking poll — proses callback jika GPU sudah selesai
+        let _ = self.device.poll(wgpu::PollType::Poll);
+
+        Ok(AsyncReadback { receiver: rx, ready })
+    }
+
+    /// Proses callback async GPU tanpa blocking
+    pub fn poll_async_callbacks(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+    }
+}
 
 // ─── GpuStagingPool ────────────────────────────────────────────────────────────
 
@@ -150,7 +232,7 @@ impl CpuReadback {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        ctx.device.poll(wgpu::PollType::Wait {
+        let _ = ctx.device.poll(wgpu::PollType::Wait {
             submission_index: Some(self.submission),
             timeout: None,
         });

@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
-use nexora_transformer::KVCacheEntry;
+use nexora_transformer::CpuKVCache;
 
 /// Result of a single continuous batching step.
 #[derive(Debug)]
@@ -29,8 +29,8 @@ pub struct StepResult {
 pub struct ContinuousBatchingEngine<M> {
     /// Active sequences, keyed by sequence ID
     sequences: HashMap<u64, Sequence>,
-    /// KV cache per sequence: seq_id → Vec<KVCacheEntry>
-    kv_caches: HashMap<u64, Vec<KVCacheEntry>>,
+    /// KV cache per sequence: seq_id → CpuKVCache
+    kv_caches: HashMap<u64, CpuKVCache>,
     /// The underlying model
     model: M,
     /// Next available sequence ID
@@ -285,6 +285,7 @@ mod tests {
     use super::*;
     use crate::inference_trait::ModelForward;
     use ndarray::Array1;
+    use nexora_transformer::KVCacheProvider;
 
     /// Mock model: returns logits where the input token ID has highest value.
     struct MockModel {
@@ -292,7 +293,7 @@ mod tests {
     }
 
     impl ModelForward for MockModel {
-        fn forward(&self, input_ids: &[u32], _kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32> {
+        fn forward(&self, input_ids: &[u32], _kv_cache: &mut dyn KVCacheProvider) -> Array1<f32> {
             let mut logits = Array1::zeros(self.vocab_size);
             if let Some(&tid) = input_ids.last() {
                 let idx = (tid as usize).min(self.vocab_size - 1);
@@ -303,8 +304,8 @@ mod tests {
             logits
         }
 
-        fn reset_cache(&self) -> Vec<KVCacheEntry> {
-            Vec::new()
+        fn reset_cache(&self) -> CpuKVCache {
+            CpuKVCache::new(0)
         }
     }
 

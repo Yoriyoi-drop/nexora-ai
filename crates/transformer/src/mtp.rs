@@ -1,4 +1,6 @@
-use super::gqa::KVCacheEntry;
+#[cfg(feature = "gpu")]
+use super::gqa::GpuKVCache;
+use super::gqa::{CpuKVCache, KVCacheProvider};
 use crate::CausalLM;
 use ndarray::Array1;
 use rand::Rng;
@@ -182,11 +184,24 @@ impl MTPInference {
         }
     }
 
-    pub fn generate(&self, prompt_ids: &[u32], max_tokens: usize) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        let mut cache = self.model.reset_cache();
+    pub fn generate(&self, prompt_ids: &[u32], max_tokens: usize) -> (Vec<u32>, CpuKVCache) {
+        let mut cache: Box<dyn KVCacheProvider> = {
+            #[cfg(feature = "gpu")]
+            if nexora_autograd::gpu::GpuContext::global().is_ok() {
+                let num_layers = self.model.config.num_layers;
+                let n_kv_heads = self.model.config.num_kv_heads;
+                let head_dim = self.model.config.head_dim();
+                let max_seq = self.model.config.max_seq_len;
+                Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+            } else {
+                Box::new(self.model.reset_cache())
+            }
+            #[cfg(not(feature = "gpu"))]
+            Box::new(self.model.reset_cache())
+        };
 
         for &token_id in prompt_ids {
-            self.model.forward(&[token_id], &mut cache);
+            self.model.forward(&[token_id], &mut *cache);
         }
 
         let mut output = Vec::new();
@@ -194,7 +209,7 @@ impl MTPInference {
 
         let mut i = 0;
         while i < max_tokens {
-            let logits = self.model.forward(&[last_id], &mut cache);
+            let logits = self.model.forward(&[last_id], &mut *cache);
             let main_id = crate::sample_token(&logits, 0.0, 0);
             output.push(main_id);
 
@@ -220,7 +235,7 @@ impl MTPInference {
 
                 if draft_id == main_id || self.config.temperature > 0.5 {
                     if i + 1 < max_tokens && d < self.config.num_predictions.saturating_sub(1) {
-                        let verified_logits = self.model.forward(&[draft_id], &mut cache);
+                        let verified_logits = self.model.forward(&[draft_id], &mut *cache);
                         let verified_id = crate::sample_token(&verified_logits, 0.0, 0);
                         if verified_id == draft_id {
                             output.push(draft_id);
@@ -238,7 +253,7 @@ impl MTPInference {
             }
         }
 
-        (output, cache)
+        (output, self.model.reset_cache())
     }
 
     pub fn mtp_loss(&self, last_hidden: &[f32], target_tokens: &[u32]) -> f64 {

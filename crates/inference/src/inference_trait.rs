@@ -7,19 +7,19 @@ use std::collections::HashMap;
 use std::pin::Pin;
 
 use crate::{InferenceRequest, InferenceResponse, Result as InferenceResult};
-use nexora_transformer::KVCacheEntry;
+use nexora_transformer::{CpuKVCache, KVCacheProvider};
 
 /// Trait for model forward pass — abstracts over CausalLM for testing.
 pub trait ModelForward: Send + Sync {
     /// Run the model forward for a single token, updating the KV cache.
-    fn forward(&self, input_ids: &[u32], kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32>;
+    fn forward(&self, input_ids: &[u32], kv_cache: &mut dyn KVCacheProvider) -> Array1<f32>;
 
     /// Run batched forward: process multiple tokens with per-sequence KV caches.
     /// Default implementation falls back to per-sequence forward calls.
     fn forward_batched(
         &self,
         input_ids: &[u32],
-        kv_caches: &mut [Vec<KVCacheEntry>],
+        kv_caches: &mut [CpuKVCache],
     ) -> Vec<Array1<f32>> {
         input_ids
             .iter()
@@ -29,7 +29,7 @@ pub trait ModelForward: Send + Sync {
     }
 
     /// Create a fresh, empty KV cache for this model.
-    fn reset_cache(&self) -> Vec<KVCacheEntry>;
+    fn reset_cache(&self) -> CpuKVCache;
 }
 
 /// Trait for inference engines
@@ -71,26 +71,42 @@ pub trait InferenceEngine: Send + Sync {
 // for batched GPU execution.
 
 impl ModelForward for nexora_transformer::CausalLM {
-    fn forward(&self, input_ids: &[u32], kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32> {
+    fn forward(&self, input_ids: &[u32], kv_cache: &mut dyn KVCacheProvider) -> Array1<f32> {
         self.forward(input_ids, kv_cache)
     }
 
-    fn reset_cache(&self) -> Vec<KVCacheEntry> {
+    fn reset_cache(&self) -> CpuKVCache {
         self.reset_cache()
     }
 
     fn forward_batched(
         &self,
         input_ids: &[u32],
-        kv_caches: &mut [Vec<KVCacheEntry>],
+        kv_caches: &mut [CpuKVCache],
     ) -> Vec<Array1<f32>> {
         #[cfg(feature = "gpu")]
         if nexora_autograd::gpu::GpuContext::is_available() {
-            if let Ok(result) = self.forward_gpu_batched(input_ids, kv_caches) {
+            let mut vec_caches: Vec<Vec<nexora_transformer::KVCacheEntry>> = kv_caches
+                .iter_mut()
+                .map(|c| std::mem::take(&mut c.entries))
+                .collect();
+            if let Ok(result) = self.forward_gpu_batched(input_ids, &mut vec_caches) {
+                for (i, entries) in vec_caches.into_iter().enumerate() {
+                    kv_caches[i].entries = entries;
+                }
                 return result;
             }
+            // GPU failed, restore entries
+            for (i, entries) in vec_caches.into_iter().enumerate() {
+                kv_caches[i].entries = entries;
+            }
         }
-        // CPU fallback: per-sequence via default implementation
-        ModelForward::forward_batched(self, input_ids, kv_caches)
+
+        // CPU fallback: per-sequence via forward() which accepts &mut dyn KVCacheProvider
+        input_ids
+            .iter()
+            .zip(kv_caches.iter_mut())
+            .map(|(&id, cache)| self.forward(&[id], cache))
+            .collect()
     }
 }

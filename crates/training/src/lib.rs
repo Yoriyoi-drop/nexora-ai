@@ -7,10 +7,11 @@ use std::sync::Arc;
 use ndarray::ArrayD;
 use nexora_autograd::compute_grad_norm;
 #[cfg(feature = "gpu")]
-use nexora_autograd::compute_grad_norm_gpu;
+use nexora_autograd::gpu_grad_clip::GpuGradClipResult;
 use nexora_autograd::ops::cross_entropy_loss;
 #[cfg(feature = "gpu")]
 use nexora_autograd::device::Storage;
+#[cfg(feature = "gpu")]
 use nexora_autograd::Device;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
 use tracing::{info, warn};
@@ -601,7 +602,6 @@ fn train_batch_gpu(
     target_buffer: &GpuTensor,
     staging: &mut GpuStagingPool,
 ) -> Option<f32> {
-    use nexora_autograd::gpu_async::tensor_to_cpu_async;
     use std::sync::atomic::Ordering;
     let batch_start = std::time::Instant::now();
     let ctx = match GpuContext::global() {
@@ -636,14 +636,14 @@ fn train_batch_gpu(
     loss.backward();
     ctx.end_batch_mode();
 
-    // ── Async loss readback ──
+    // ── Async non-blocking loss readback ──
     let loss_gpu = match loss.storage() {
         nexora_autograd::Storage::Gpu(g) => g,
         _ => return None,
     };
-    let loss_readback = tensor_to_cpu_async(ctx, staging, &loss_gpu).ok()?;
+    let loss_readback = ctx.readback_f32_async(loss_gpu.buffer(), 4).ok()?;
 
-    // ── Gradients: read from tape for NaN check ──
+    // ── Gradients: read from tape for NaN check (CPU work while GPU processes) ──
     let owned_params: Vec<GpuTensor> = trainable
         .parameters()
         .iter()
@@ -654,9 +654,16 @@ fn train_batch_gpu(
         .collect();
     let params: Vec<&GpuTensor> = owned_params.iter().collect();
 
-    // ── Poll loss (non-blocking, GPU already working) ──
-    let loss_data = loss_readback.poll(ctx);
-    let loss_val = loss_data[0];
+    // ── Non-blocking poll + try_recv ──
+    ctx.poll_device();
+    let loss_val = match loss_readback.try_recv() {
+        Some(v) => v[0],
+        None => {
+            // Fallback: poll blocking sekali jika belum siap
+            ctx.wait_device();
+            loss_readback.recv()[0]
+        }
+    };
     if !loss_val.is_finite() {
         warn!("NaN/Inf loss detected ({}) — skipping GPU step", loss_val);
         let _ = gpu_opt.zero_grad(&ctx, &params);
@@ -699,12 +706,26 @@ fn train_batch_gpu(
             config.max_steps,
         );
 
+        // GPU-native gradient clipping: norm computation + scaling all on GPU
+        // Hanya 4 f32 readback — bukan N scalars per gradient tensor
+        // Matikan internal clipping di GpuAdam (sekarang dilakukan secara eksternal)
+        let internal_max_norm = gpu_opt.max_grad_norm.take();
+        let clip_result = if let Some(max_norm) = internal_max_norm.or(config.max_grad_norm) {
+            ctx.clip_gradients_gpu(&grad_refs, max_norm)?
+        } else {
+            GpuGradClipResult {
+                was_clipped: false,
+                scale_factor: 1.0,
+                norm: 0.0,
+            }
+        };
+        *last_grad_norm = Some(clip_result.norm);
+
         let _ = gpu_opt.step(&ctx, &params, &grad_refs);
         let _ = gpu_opt.zero_grad(&ctx, &params);
         for p in trainable.parameters().iter() {
             p.zero_grad();
         }
-        *last_grad_norm = Some(compute_grad_norm_gpu(&grad_tensors, &ctx));
         *step += 1;
         *accumulation_counter = 0;
 

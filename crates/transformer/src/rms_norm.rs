@@ -62,7 +62,7 @@ impl RMSNorm {
         #[cfg(feature = "gpu")]
         {
             use ndarray::ArrayD;
-            if let Ok(ctx) = GpuContext::global() {
+            if GpuContext::global().is_ok() {
                 let x_flat: Vec<f32> = x.iter().copied().collect();
                 if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![x.shape()[0], x.shape()[1]], x_flat) {
                     if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {

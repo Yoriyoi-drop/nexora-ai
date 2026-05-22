@@ -10,7 +10,9 @@ pub mod swiglu;
 pub mod trainable;
 
 pub use config::TransformerConfig;
-pub use gqa::{KVCacheEntry, PagedCacheReader};
+pub use gqa::{KVCacheEntry, KVCacheProvider, CpuKVCache, PagedCacheReader};
+#[cfg(feature = "gpu")]
+pub use gqa::GpuKVCache;
 pub use model::CausalLM;
 pub use mtp::{MTPConfig, MTPHeads, MTPInference};
 pub use rms_norm::RMSNorm;

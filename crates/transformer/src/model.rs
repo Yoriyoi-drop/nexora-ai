@@ -3,7 +3,7 @@ use rand::Rng;
 
 use super::block::TransformerBlock;
 use super::config::TransformerConfig;
-use super::gqa::{KVCacheEntry, PagedCacheReader};
+use super::gqa::{KVCacheEntry, KVCacheProvider, CpuKVCache, PagedCacheReader};
 use super::rope::RoPE;
 
 fn softmax(logits: &Array1<f32>) -> Array1<f32> {
@@ -185,12 +185,29 @@ impl CausalLM {
         }
     }
 
-    pub fn forward(&self, input_ids: &[u32], kv_cache: &mut Vec<KVCacheEntry>) -> Array1<f32> {
+    pub fn forward(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut dyn KVCacheProvider,
+    ) -> Array1<f32> {
         #[cfg(feature = "gpu")]
-        if let Ok(logits) = self.forward_gpu(input_ids, kv_cache) {
+        if let Ok(logits) = self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
             return logits;
         }
 
+        // CPU fallback: extract inner Vec<KVCacheEntry> from CpuKVCache
+        let entries = kv_cache
+            .as_cpu_entries()
+            .expect("CPU forward requires CpuKVCache");
+        self.forward_cpu_impl(input_ids, entries)
+    }
+
+    /// Internal CPU forward implementation operating on `Vec<KVCacheEntry>`.
+    fn forward_cpu_impl(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut Vec<KVCacheEntry>,
+    ) -> Array1<f32> {
         let batch_size = 1;
 
         let mut h = Array2::zeros((batch_size, self.config.hidden_size));
@@ -234,8 +251,8 @@ impl CausalLM {
         logits
     }
 
-    pub fn reset_cache(&self) -> Vec<KVCacheEntry> {
-        Vec::with_capacity(self.config.num_layers)
+    pub fn reset_cache(&self) -> CpuKVCache {
+        CpuKVCache::new(self.config.num_layers)
     }
 
     /// Forward pass using a paged KV cache.
@@ -358,53 +375,57 @@ impl CausalLM {
         Ok(model)
     }
 
+    /// GPU forward with pre-uploaded cos/sin GPU tensors.
+    /// cos/sin diupload SEKALI per step — tidak per-layer.
+    /// cos_gpu, sin_gpu: [1, half] GPU tensors for the current position.
     #[cfg(feature = "gpu")]
-    fn generate_gpu_impl(
+    pub fn forward_gpu_with_precomputed_rope(
         &self,
-        prompt_ids: &[u32],
-        max_tokens: usize,
-        temperature: f32,
-        top_k: usize,
-    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        use nexora_autograd::gpu::GpuContext;
+        input_ids: &[u32],
+        kv_cache: &mut Vec<KVCacheEntry>,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
 
-        let mut cache = self.reset_cache();
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
 
-        // Prefill prompt tokens (use GPU forward)
-        for &token_id in prompt_ids {
-            if self.forward_gpu(&[token_id], &mut cache).is_err() {
-                // Fallback to CPU if GPU fails
-                self.forward(&[token_id], &mut cache);
+        let h_data = match input_ids.last() {
+            Some(&token_id) => {
+                let tid = token_id as usize;
+                Some(self.token_embedding.row(tid).to_vec())
             }
+            None => None,
+        };
+        let h_cpu = if let Some(ref data) = h_data {
+            ArrayD::from_shape_vec(vec![batch_size, self.config.hidden_size], data.clone())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+        } else {
+            ArrayD::zeros(vec![batch_size, self.config.hidden_size])
+        };
+        let mut h = GpuTensor::from_cpu(&h_cpu)?;
+
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
+            h = block.forward_gpu_with_rope_gpu(&h, kv_cache, layer_idx, cos_gpu, sin_gpu)?;
         }
 
-        let mut output = Vec::new();
-        let mut last_id = *prompt_ids.last().unwrap_or(&0);
+        h = self.norm.forward_gpu(&h)?;
 
-        for _ in 0..max_tokens {
-            match self.forward_gpu(&[last_id], &mut cache) {
-                Ok(logits) => {
-                    let next_id = sample_token_gpu(&logits, temperature, top_k, 12345);
-                    output.push(next_id);
-                    if next_id == 0 {
-                        break;
-                    }
-                    last_id = next_id;
-                }
-                Err(_) => {
-                    // Fallback to CPU
-                    let logits = self.forward(&[last_id], &mut cache);
-                    let next_id = sample_token(&logits, temperature, top_k);
-                    output.push(next_id);
-                    if next_id == 0 {
-                        break;
-                    }
-                    last_id = next_id;
-                }
-            }
-        }
+        let mut guard = self.lm_head_gpu.lock().unwrap();
+        let lm_head_cached = guard.get_or_insert_with(|| {
+            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
+            let data = self.lm_head.as_slice().unwrap().to_vec();
+            let cpu_arr = ArrayD::from_shape_vec(shape, data).unwrap();
+            let gpu = GpuTensor::from_cpu(&cpu_arr).unwrap();
+            ctx.transpose(&gpu).unwrap()
+        });
+        let logits_gpu = ctx.matmul(&h, lm_head_cached)?;
 
-        (output, cache)
+        let logits_cpu = logits_gpu.to_cpu();
+        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+        Ok(Array1::from_vec(logits_flat))
     }
 
     /// GPU forward pass using GPU-resident KV cache.
@@ -477,6 +498,143 @@ impl CausalLM {
         let logits_cpu = logits_gpu.to_cpu();
         let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
+    }
+
+    /// GPU forward via [`KVCacheProvider`].
+    /// Routes to `GpuKVCache` for true zero-copy GPU→GPU cache,
+    /// or falls back to CPU round-trip via `CpuKVCache`.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache_provider(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut dyn KVCacheProvider,
+    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuContext;
+
+        let _ctx = GpuContext::global()?;
+
+        // Pure GPU path — no CPU round-trip for K/V
+        if let Some(gpu_entries) = kv_cache.as_gpu_entries() {
+            return self.forward_gpu_with_cache(input_ids, gpu_entries);
+        }
+
+        // CPU round-trip fallback
+        let mut entries: Vec<KVCacheEntry> = if let Some(cpu_entries) = kv_cache.as_cpu_entries()
+        {
+            cpu_entries.clone()
+        } else {
+            Vec::with_capacity(self.config.num_layers)
+        };
+
+        let result = self.forward_gpu(input_ids, &mut entries)?;
+
+        if let Some(cpu_entries) = kv_cache.as_cpu_entries() {
+            *cpu_entries = entries;
+        }
+
+        Ok(result)
+    }
+
+    /// Generate using GPU with pre-uploaded cos/sin.
+    /// cos/sin diupload SEKALI ke GPU di awal, lalu slice_tensor GPU-side copy per step.
+    /// Eliminates N_layers × 2 CPU→GPU uploads per step → 0 uploads.
+    #[cfg(feature = "gpu")]
+    fn generate_gpu_impl(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(_) => return self.generate(prompt_ids, max_tokens, temperature, top_k),
+        };
+
+        let half = self.config.head_dim() / 2;
+        let max_seq = self.config.max_seq_len;
+
+        // PRE-COMPUTE: Upload SEMUA cos/sin arrays ke GPU SEKALI
+        let cos_all = ArrayD::from_shape_vec(
+            vec![max_seq, half],
+            self.precomputed_cos.to_vec(),
+        ).unwrap();
+        let sin_all = ArrayD::from_shape_vec(
+            vec![max_seq, half],
+            self.precomputed_sin.to_vec(),
+        ).unwrap();
+        let cos_all_gpu = GpuTensor::from_cpu(&cos_all).unwrap();
+        let sin_all_gpu = GpuTensor::from_cpu(&sin_all).unwrap();
+
+        let mut cache: Vec<KVCacheEntry> = Vec::with_capacity(self.config.num_layers);
+
+        // Helper: GPU-side slice — no CPU round-trip per step
+        let get_rope_at = |pos: usize| -> Result<(GpuTensor, GpuTensor), nexora_autograd::gpu::GpuError> {
+            let cos_gpu = ctx.slice_tensor(&cos_all_gpu, pos as u32, 1)?;
+            let sin_gpu = ctx.slice_tensor(&sin_all_gpu, pos as u32, 1)?;
+            Ok((cos_gpu, sin_gpu))
+        };
+
+        // Prefill prompt tokens
+        for &token_id in prompt_ids {
+            let pos = cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+            if let Ok((cos_gpu, sin_gpu)) = get_rope_at(pos) {
+                if self.forward_gpu_with_precomputed_rope(&[token_id], &mut cache, &cos_gpu, &sin_gpu).is_err() {
+                    let mut cpu_cache = self.reset_cache();
+                    self.forward(&[token_id], &mut cpu_cache);
+                    cache = cpu_cache.entries;
+                }
+            } else {
+                let mut cpu_cache = self.reset_cache();
+                self.forward(&[token_id], &mut cpu_cache);
+                cache = cpu_cache.entries;
+            }
+        }
+
+        let mut output = Vec::new();
+        let mut last_id = *prompt_ids.last().unwrap_or(&0);
+
+        for _ in 0..max_tokens {
+            let pos = cache.first().map(|e| e.k.shape()[0]).unwrap_or(0);
+            let (cos_gpu, sin_gpu) = match get_rope_at(pos) {
+                Ok(t) => t,
+                Err(_) => {
+                    let mut cpu_cache = CpuKVCache::new(self.config.num_layers);
+                    cpu_cache.entries = cache;
+                    let logits = self.forward(&[last_id], &mut cpu_cache);
+                    cache = cpu_cache.entries;
+                    let next_id = sample_token(&logits, temperature, top_k);
+                    output.push(next_id);
+                    if next_id == 0 { break; }
+                    last_id = next_id;
+                    continue;
+                }
+            };
+
+            match self.forward_gpu_with_precomputed_rope(&[last_id], &mut cache, &cos_gpu, &sin_gpu) {
+                Ok(logits) => {
+                    let next_id = sample_token_gpu(&logits, temperature, top_k, 12345);
+                    output.push(next_id);
+                    if next_id == 0 { break; }
+                    last_id = next_id;
+                }
+                Err(_) => {
+                    let mut cpu_cache = CpuKVCache::new(self.config.num_layers);
+                    cpu_cache.entries = cache;
+                    let logits = self.forward(&[last_id], &mut cpu_cache);
+                    cache = cpu_cache.entries;
+                    let next_id = sample_token(&logits, temperature, top_k);
+                    output.push(next_id);
+                    if next_id == 0 { break; }
+                    last_id = next_id;
+                }
+            }
+        }
+
+        (output, cache)
     }
 
     /// Generate using GPU-resident KV cache for maximum performance.
@@ -765,6 +923,6 @@ impl CausalLM {
             last_id = next_id;
         }
 
-        (output, cache)
+        (output, cache.entries)
     }
 }

@@ -166,8 +166,18 @@ impl BlasOperations {
         a: ArrayView<f32, ndarray::Ix2>,
         b: ArrayView<f32, ndarray::Ix2>,
         beta: f32,
-        c: ArrayViewMut<f32, ndarray::Ix2>,
+        mut c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
+        #[cfg(feature = "gpu")]
+        {
+            let a_owned = a.to_owned();
+            let b_owned = b.to_owned();
+            let mut c_owned = c.to_owned();
+            if self.gemm_gpu(alpha, &a_owned, &b_owned, beta, &mut c_owned).is_ok() {
+                c.assign(&c_owned);
+                return Ok(());
+            }
+        }
         match self.backend {
             BlasBackend::IntelMKL => self.gemm_mkl(alpha, a, b, beta, c),
             BlasBackend::OpenBLAS => self.gemm_openblas(alpha, a, b, beta, c),
@@ -183,8 +193,18 @@ impl BlasOperations {
         a: ArrayView<f32, ndarray::Ix2>,
         x: ArrayView<f32, ndarray::Ix1>,
         beta: f32,
-        y: ArrayViewMut<f32, ndarray::Ix1>,
+        mut y: ArrayViewMut<f32, ndarray::Ix1>,
     ) -> DLResult<()> {
+        #[cfg(feature = "gpu")]
+        {
+            let a_owned = a.to_owned();
+            let x_owned = x.to_owned();
+            let mut y_owned = y.to_owned();
+            if self.gemv_gpu(alpha, &a_owned, &x_owned, beta, &mut y_owned).is_ok() {
+                y.assign(&y_owned);
+                return Ok(());
+            }
+        }
         match self.backend {
             BlasBackend::IntelMKL => self.gemv_mkl(alpha, a, x, beta, y),
             BlasBackend::OpenBLAS => self.gemv_openblas(alpha, a, x, beta, y),
@@ -435,6 +455,129 @@ impl BlasOperations {
                 }
                 c[[i, j]] = alpha * sum + beta * c[[i, j]];
             }
+        }
+
+        Ok(())
+    }
+
+    // ── GPU-accelerated operations ───────────────────────────────────────────────
+
+    #[cfg(feature = "gpu")]
+    pub fn gemm_gpu(
+        &self,
+        alpha: f32,
+        a: &Array2<f32>,
+        b: &Array2<f32>,
+        beta: f32,
+        c: &mut Array2<f32>,
+    ) -> DLResult<()> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(_) => return self.gemm_simd(alpha, a.view(), b.view(), beta, c.view_mut()),
+        };
+
+        let a_shape = vec![a.shape()[0], a.shape()[1]];
+        let b_shape = vec![b.shape()[0], b.shape()[1]];
+        let a_data = a
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation { reason: "a not contiguous".into() })?;
+        let b_data = b
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation { reason: "b not contiguous".into() })?;
+
+        let a_cpu = ndarray::ArrayD::from_shape_vec(a_shape.clone(), a_data.to_vec())
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let b_cpu = ndarray::ArrayD::from_shape_vec(b_shape.clone(), b_data.to_vec())
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        let a_gpu = GpuTensor::from_cpu(&a_cpu)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let b_gpu = GpuTensor::from_cpu(&b_cpu)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        // Transpose b for matmul: result = a * b^T (since ndarray stores row-major)
+        let b_t = ctx
+            .transpose(&b_gpu)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let result_gpu = ctx
+            .matmul(&a_gpu, &b_t)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        let result_cpu = result_gpu.to_cpu();
+        let result_slice = result_cpu.as_slice().ok_or_else(|| {
+            DeepLearningError::Computation {
+                reason: "result not contiguous".into(),
+            }
+        })?;
+
+        if (alpha - 1.0).abs() > f32::EPSILON || beta != 0.0 {
+            for i in 0..c.shape()[0] {
+                for j in 0..c.shape()[1] {
+                    c[[i, j]] = alpha * result_slice[i * c.shape()[1] + j] + beta * c[[i, j]];
+                }
+            }
+        } else {
+            let c_slice_mut = c.as_slice_mut().ok_or_else(|| {
+                DeepLearningError::Computation {
+                    reason: "c not contiguous mut".into(),
+                }
+            })?;
+            c_slice_mut.copy_from_slice(result_slice);
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn gemv_gpu(
+        &self,
+        alpha: f32,
+        a: &Array2<f32>,
+        x: &Array1<f32>,
+        beta: f32,
+        y: &mut Array1<f32>,
+    ) -> DLResult<()> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(_) => return self.gemv_simd(alpha, a.view(), x.view(), beta, y.view_mut()),
+        };
+
+        let a_shape = vec![a.shape()[0], a.shape()[1]];
+        let x_shape = vec![x.shape()[0], 1];
+        let a_data = a
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation { reason: "a not contiguous".into() })?;
+        let x_data = x
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation { reason: "x not contiguous".into() })?;
+
+        let a_cpu = ndarray::ArrayD::from_shape_vec(a_shape.clone(), a_data.to_vec())
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let x_cpu = ndarray::ArrayD::from_shape_vec(x_shape.clone(), x_data.to_vec())
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        let a_gpu = GpuTensor::from_cpu(&a_cpu)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let x_gpu = GpuTensor::from_cpu(&x_cpu)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        let result_gpu = ctx
+            .matmul(&a_gpu, &x_gpu)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        let result_cpu = result_gpu.to_cpu();
+        let result_slice = result_cpu.as_slice().ok_or_else(|| {
+            DeepLearningError::Computation {
+                reason: "result not contiguous".into(),
+            }
+        })?;
+
+        for i in 0..y.shape()[0] {
+            y[i] = alpha * result_slice[i] + beta * y[i];
         }
 
         Ok(())

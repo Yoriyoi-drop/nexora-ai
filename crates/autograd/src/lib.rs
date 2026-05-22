@@ -26,6 +26,8 @@ pub mod gpu_fused;
 #[cfg(feature = "gpu")]
 pub mod gpu_grad_clip;
 #[cfg(feature = "gpu")]
+pub use gpu_grad_clip::GpuGradClipResult;
+#[cfg(feature = "gpu")]
 pub mod gpu_kv_cache;
 #[cfg(feature = "gpu")]
 pub mod gpu_memory;

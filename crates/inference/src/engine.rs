@@ -15,7 +15,9 @@ use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
 use nexora_tokenizer::BpeTokenizer;
-use nexora_transformer::{CausalLM, TransformerConfig};
+use nexora_transformer::{CausalLM, KVCacheProvider, TransformerConfig};
+#[cfg(feature = "gpu")]
+use nexora_transformer::GpuKVCache;
 
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -29,6 +31,8 @@ pub struct InferenceConfig {
     pub default_timeout_seconds: u64,
     pub metrics_interval_seconds: u64,
     pub use_gpu: bool,
+    #[cfg(feature = "gpu")]
+    pub use_gpu_cache: bool,
 }
 
 impl Default for InferenceConfig {
@@ -44,6 +48,8 @@ impl Default for InferenceConfig {
             default_timeout_seconds: 30,
             metrics_interval_seconds: 60,
             use_gpu: false,
+            #[cfg(feature = "gpu")]
+            use_gpu_cache: false,
         }
     }
 }
@@ -61,6 +67,8 @@ pub struct InferenceEngine {
     request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     state: Arc<RwLock<EngineState>>,
+    #[cfg(feature = "gpu")]
+    gpu_cache: Option<GpuKVCache>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,6 +90,19 @@ impl InferenceEngine {
             model.parameter_count()
         );
 
+        #[cfg(feature = "gpu")]
+        let gpu_cache = if config.use_gpu_cache {
+            let num_layers = model.config.num_layers;
+            let n_kv_heads = model.config.num_kv_heads;
+            let head_dim = model.config.head_dim();
+            let max_seq = model.config.max_seq_len;
+            Some(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+        } else {
+            None
+        };
+        #[cfg(not(feature = "gpu"))]
+        let gpu_cache = ();
+
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
             scheduler: Arc::new(RwLock::new(RequestScheduler::new())),
@@ -99,6 +120,8 @@ impl InferenceEngine {
             active_requests: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(EngineState::Uninitialized)),
             config,
+            #[cfg(feature = "gpu")]
+            gpu_cache,
         }
     }
 
@@ -112,6 +135,19 @@ impl InferenceEngine {
             "Initializing inference engine with loaded model ({} params)",
             model.parameter_count()
         );
+
+        #[cfg(feature = "gpu")]
+        let gpu_cache = if config.use_gpu_cache {
+            let num_layers = model.config.num_layers;
+            let n_kv_heads = model.config.num_kv_heads;
+            let head_dim = model.config.head_dim();
+            let max_seq = model.config.max_seq_len;
+            Some(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+        } else {
+            None
+        };
+        #[cfg(not(feature = "gpu"))]
+        let gpu_cache = ();
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
@@ -130,6 +166,8 @@ impl InferenceEngine {
             active_requests: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(EngineState::Uninitialized)),
             config,
+            #[cfg(feature = "gpu")]
+            gpu_cache,
         }
     }
 
@@ -226,6 +264,8 @@ impl InferenceEngine {
         let model = self.model.clone();
         let tokenizer = self.tokenizer.clone();
         let use_gpu = self.config.use_gpu;
+        #[cfg(feature = "gpu")]
+        let use_gpu_cache = self.config.use_gpu_cache;
         let _scheduler = self.scheduler.clone();
         let se_clone = se.clone();
         let active = self.active_requests.clone();
@@ -245,7 +285,19 @@ impl InferenceEngine {
                 None => request.prompt.bytes().map(|b| b as u32).collect(),
             };
 
-            let mut kv_state = model.reset_cache();
+            let cpu_cache = model.reset_cache();
+            #[cfg(feature = "gpu")]
+            let mut kv_state: Box<dyn KVCacheProvider> = if use_gpu_cache {
+                let num_layers = model.config.num_layers;
+                let n_kv_heads = model.config.num_kv_heads;
+                let head_dim = model.config.head_dim();
+                let max_seq = model.config.max_seq_len;
+                Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+            } else {
+                Box::new(cpu_cache)
+            };
+            #[cfg(not(feature = "gpu"))]
+            let mut kv_state = Box::new(cpu_cache);
             let mut all_ids = prompt_ids.clone();
             let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
                 temperature,
@@ -264,7 +316,7 @@ impl InferenceEngine {
                     core::slice::from_ref(all_ids.last().unwrap_or(&0))
                 };
 
-                let logits = model.forward(input, &mut kv_state);
+                let logits = model.forward(input, &mut *kv_state);
                 let logits_slice = logits.as_slice().unwrap_or(&[]);
 
                 let token_id = match sampler.sample(logits_slice) {
@@ -334,9 +386,23 @@ impl InferenceEngine {
         }
 
         let prompt_ids = self.encode_prompt(&request.prompt);
-        let mut kv_state = self.model.reset_cache();
         let mut all_ids = prompt_ids.clone();
         let max_gen = request.max_tokens.min(2048) as usize;
+
+        // Use GPU-resident KV cache when configured
+        let mut cpu_cache = self.model.reset_cache();
+        #[cfg(feature = "gpu")]
+        let mut kv_state: Box<dyn KVCacheProvider> = if self.config.use_gpu_cache {
+            let num_layers = self.model.config.num_layers;
+            let n_kv_heads = self.model.config.num_kv_heads;
+            let head_dim = self.model.config.head_dim();
+            let max_seq = self.model.config.max_seq_len;
+            Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+        } else {
+            Box::new(cpu_cache)
+        };
+        #[cfg(not(feature = "gpu"))]
+        let mut kv_state = Box::new(cpu_cache);
 
         let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
             temperature: request.temperature,
@@ -353,7 +419,7 @@ impl InferenceEngine {
                 core::slice::from_ref(all_ids.last().unwrap_or(&0))
             };
 
-            let logits = self.model.forward(input, &mut kv_state);
+            let logits = self.model.forward(input, &mut *kv_state);
             let logits_slice = logits.as_slice().unwrap_or(&[]);
 
             let token_id = match sampler.sample(logits_slice) {
@@ -542,6 +608,8 @@ impl InferenceEngine {
                     tokenizer: self.tokenizer.clone(),
                     state: self.state.clone(),
                     use_gpu: self.config.use_gpu,
+                    #[cfg(feature = "gpu")]
+                    use_gpu_cache: self.config.use_gpu_cache,
                 };
                 let task = tokio::spawn(async move {
                     let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
@@ -575,7 +643,9 @@ impl InferenceEngine {
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
                             state: self.state.clone(),
-                    use_gpu: self.config.use_gpu,
+                            use_gpu: self.config.use_gpu,
+                            #[cfg(feature = "gpu")]
+                            use_gpu_cache: self.config.use_gpu_cache,
                         };
                         let task = tokio::spawn(async move {
                             let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
@@ -596,7 +666,9 @@ impl InferenceEngine {
                             model: self.model.clone(),
                             tokenizer: self.tokenizer.clone(),
                             state: self.state.clone(),
-                    use_gpu: self.config.use_gpu,
+                            use_gpu: self.config.use_gpu,
+                            #[cfg(feature = "gpu")]
+                            use_gpu_cache: self.config.use_gpu_cache,
                         };
                         let task = tokio::spawn(async move {
                             let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
@@ -669,6 +741,8 @@ struct InferenceEngineHandle {
     tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
     use_gpu: bool,
+    #[cfg(feature = "gpu")]
+    use_gpu_cache: bool,
 }
 
 impl InferenceEngineHandle {
@@ -717,7 +791,19 @@ impl InferenceEngineHandle {
                 None => breq.prompt.bytes().map(|b| b as u32).collect(),
             };
 
-            let mut kv_state = self.model.reset_cache();
+            let cpu_cache = self.model.reset_cache();
+            #[cfg(feature = "gpu")]
+            let mut kv_state: Box<dyn KVCacheProvider> = if self.use_gpu_cache {
+                let num_layers = self.model.config.num_layers;
+                let n_kv_heads = self.model.config.num_kv_heads;
+                let head_dim = self.model.config.head_dim();
+                let max_seq = self.model.config.max_seq_len;
+                Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+            } else {
+                Box::new(cpu_cache)
+            };
+            #[cfg(not(feature = "gpu"))]
+            let mut kv_state = Box::new(cpu_cache);
             let mut all_ids = prompt_ids.clone();
             let max_gen = breq.max_tokens.min(2048) as usize;
 
@@ -731,10 +817,10 @@ impl InferenceEngineHandle {
 
             for pos in 0..max_gen {
                 let logits = if pos == 0 {
-                    self.model.forward(all_ids.as_slice(), &mut kv_state)
+                    self.model.forward(all_ids.as_slice(), &mut *kv_state)
                 } else {
                     let last = vec![*all_ids.last().unwrap_or(&0)];
-                    self.model.forward(&last, &mut kv_state)
+                    self.model.forward(&last, &mut *kv_state)
                 };
 
                 let token_id = match sampler.sample(&logits.to_vec()) {

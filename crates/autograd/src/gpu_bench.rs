@@ -1,5 +1,56 @@
 //! Shared GPU benchmark helpers — used by tests and optional runtime profiling.
 
+#[cfg(feature = "gpu")]
+/// Benchmark: GPU gradient clipping vs legacy CPU readback approach.
+/// Returns (gpu_clip_us, legacy_clip_us, improvement_factor).
+pub fn benchmark_gradient_clip(grad_tensor_count: usize, elements_per_tensor: usize) -> Result<(f64, f64, f64), String> {
+    use std::time::Instant;
+
+    let ctx = match crate::gpu::GpuContext::global() {
+        Ok(c) => c,
+        Err(e) => return Err(format!("GpuContext not available: {}", e)),
+    };
+
+    // Create test gradient tensors
+    use ndarray::ArrayD;
+    let grad_tensors: Vec<crate::gpu::GpuTensor> = (0..grad_tensor_count)
+        .map(|_| {
+            let data = (0..elements_per_tensor)
+                .map(|i| (i as f32) * 0.01)
+                .collect::<Vec<_>>();
+            let arr = ArrayD::from_shape_vec(vec![elements_per_tensor], data).unwrap();
+            crate::gpu::GpuTensor::from_cpu(&arr).unwrap()
+        })
+        .collect();
+    let grad_refs: Vec<&crate::gpu::GpuTensor> = grad_tensors.iter().collect();
+
+    // Warmup
+    let _ = ctx.clip_gradients_gpu(&grad_refs, 10.0);
+
+    // Benchmark: new GPU-native clip (4 f32 readback)
+    let gpu_start = Instant::now();
+    const ITERS: usize = 10;
+    for _ in 0..ITERS {
+        let _ = ctx.clip_gradients_gpu(&grad_refs, 10.0);
+    }
+    let gpu_elapsed = gpu_start.elapsed().as_secs_f64() / ITERS as f64 * 1_000_000.0;
+
+    // Benchmark: legacy batched clip (N scalars readback)
+    let legacy_start = Instant::now();
+    for _ in 0..ITERS {
+        let _ = crate::gpu_grad_clip::clip_gradients_batched(&ctx, &grad_refs, 10.0);
+    }
+    let legacy_elapsed = legacy_start.elapsed().as_secs_f64() / ITERS as f64 * 1_000_000.0;
+
+    let improvement = if legacy_elapsed > 0.0 {
+        legacy_elapsed / gpu_elapsed
+    } else {
+        1.0
+    };
+
+    Ok((gpu_elapsed, legacy_elapsed, improvement))
+}
+
 use std::time::Duration;
 
 /// FLOPs for `C = A @ B` with shapes `[m,k] @ [k,n]`.
