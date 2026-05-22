@@ -88,7 +88,7 @@ impl Sampler {
         };
         let seed = self.config.seed.unwrap_or(42);
         let out = ctx
-            .gpu_sample(&gpu, self.config.temperature, top_k as u32, seed)
+            .gpu_sample(&gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
             .map_err(|e| InferenceError::DecodingError(format!("gpu_sample: {}", e)))?;
         let raw = out.to_cpu_raw_bytes();
         let token = u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]);
@@ -139,7 +139,7 @@ impl Sampler {
         let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
         let seed = self.config.seed.unwrap_or(42);
         let out = ctx
-            .gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, seed)
+            .gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed)
             .map_err(|e| InferenceError::DecodingError(format!("gpu_sample batched: {}", e)))?;
 
         let raw = out.to_cpu_raw_bytes();

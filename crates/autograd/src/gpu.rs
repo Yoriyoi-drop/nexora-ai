@@ -510,6 +510,7 @@ impl GpuContext {
         self.compile_gradient_clip()?;
         self.compile_temperature_scale()?;
         self.compile_top_k_mask()?;
+        self.compile_top_p_mask()?;
         self.compile_multinomial_sample()?;
         // Phase 2: Transformer ops (RoPE, repeat_heads)
         self.compile_rotary_embedding()?;
@@ -598,6 +599,15 @@ impl GpuContext {
             &[storage_binding(0, false), uniform_binding(1)],
             std::borrow::Cow::Borrowed(TOP_K_MASK_WGSL),
             "top_k_mask_main",
+        )
+    }
+
+    fn compile_top_p_mask(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "top_p_mask",
+            &[storage_binding(0, false), uniform_binding(1)],
+            std::borrow::Cow::Borrowed(TOP_P_MASK_WGSL),
+            "top_p_mask_main",
         )
     }
 
@@ -764,12 +774,13 @@ impl GpuContext {
         })
     }
 
-    /// GPU sampling: temperature → softmax → top-k → multinomial
+    /// GPU sampling: temperature → softmax → top-k → top-p → multinomial
     pub fn gpu_sample(
         &self,
         logits: &GpuTensor,
         temperature: f32,
         top_k: u32,
+        top_p: f32,
         seed: u64,
     ) -> Result<GpuTensor, GpuError> {
         let shape = logits.shape();
@@ -847,6 +858,26 @@ impl GpuContext {
         } else {
             GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32 }
         };
+
+        // Step 3b: top-p mask (in-place on masked buffer, after top-k)
+        if top_p > 0.0 && top_p < 1.0 {
+            let pipeline = self
+                .pipelines
+                .get("top_p_mask")
+                .ok_or_else(|| GpuError::Pipeline("top_p_mask not compiled".into()))?;
+            let cfg_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+            let cfg: [u32; 4] = [vocab, f32::to_bits(top_p), 0, 0];
+            self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
+            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("topp_bg"),
+                layout: &pipeline.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: masked.buffer().as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.buffer.as_entire_binding() },
+                ],
+            });
+            self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
+        }
 
         // Step 4: multinomial sample
         let pipeline = self
@@ -4125,6 +4156,81 @@ fn top_k_mask_main(
         if (probs[base + i] >= threshold && kept < effective_k) {
             kept = kept + 1u;
         } else if (probs[base + i] < threshold && lid.x < vocab) {
+            probs[base + i] = 0.0;
+        }
+        i += BLOCK_SIZE;
+    }
+}
+"#;
+
+const TOP_P_MASK_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> probs: array<f32>;
+@group(0) @binding(1) var<uniform> cfg: vec4<u32>;
+
+const BLOCK_SIZE = 256u;
+var<workgroup> wg_buf: array<f32, BLOCK_SIZE>;
+var<workgroup> wg_idx: array<u32, BLOCK_SIZE>;
+
+@compute @workgroup_size(BLOCK_SIZE)
+fn top_p_mask_main(
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wg: vec3<u32>,
+) {
+    let vocab = cfg.x;
+    let top_p = bitcast<f32>(cfg.y);
+    if (top_p <= 0.0 || top_p >= 1.0) {
+        return;
+    }
+    let row = wg.x;
+    let base = row * vocab;
+
+    // Iteratively accumulate largest probabilities until cum >= top_p
+    var threshold: f32 = 3.402823e+38;
+    var cum: f32 = 0.0;
+
+    for (var iter: u32 = 0u; iter < vocab; iter = iter + 1u) {
+        // Find max among elements below current threshold
+        var mx: f32 = -3.402823e+38;
+        var mx_idx: u32 = 0u;
+        var i = lid.x;
+        while (i < vocab) {
+            let v = probs[base + i];
+            if (v > mx && v < threshold - 1e-6) {
+                mx = v;
+                mx_idx = i;
+            }
+            i += BLOCK_SIZE;
+        }
+        wg_buf[lid.x] = mx;
+        wg_idx[lid.x] = mx_idx;
+        workgroupBarrier();
+
+        // Workgroup reduction: find max and its index
+        var stride = BLOCK_SIZE / 2u;
+        while (stride > 0u) {
+            if (lid.x < stride) {
+                if (wg_buf[lid.x] < wg_buf[lid.x + stride]) {
+                    wg_buf[lid.x] = wg_buf[lid.x + stride];
+                    wg_idx[lid.x] = wg_idx[lid.x + stride];
+                }
+            }
+            workgroupBarrier();
+            stride = stride / 2u;
+        }
+
+        let max_val = wg_buf[0u];
+        if (max_val <= 0.0) { break; }
+
+        cum += max_val;
+        threshold = max_val;
+
+        if (cum >= top_p) { break; }
+    }
+
+    // Zero out everything below the threshold
+    var i = lid.x;
+    while (i < vocab) {
+        if (probs[base + i] < threshold - 1e-6) {
             probs[base + i] = 0.0;
         }
         i += BLOCK_SIZE;

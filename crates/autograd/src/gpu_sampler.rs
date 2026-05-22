@@ -44,13 +44,27 @@ pub fn compile_multinomial_sample_pipeline(ctx: &mut GpuContext) -> Result<wgpu:
 pub struct GpuSamplerPipelines {
     pub temperature_scale: wgpu::ComputePipeline,
     pub top_k_mask: wgpu::ComputePipeline,
+    pub top_p_mask: wgpu::ComputePipeline,
     pub multinomial: wgpu::ComputePipeline,
+}
+
+pub fn compile_top_p_mask_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "top_p_mask_sampler",
+        &[
+            crate::gpu::storage_binding(0, false),
+            crate::gpu::uniform_binding(1),
+        ],
+        std::borrow::Cow::Borrowed(TOP_P_MASK_WGSL),
+        "main",
+    )
 }
 
 pub fn compile_sampler_pipelines(ctx: &mut GpuContext) -> Result<GpuSamplerPipelines, GpuError> {
     Ok(GpuSamplerPipelines {
         temperature_scale: compile_temperature_scale_pipeline(ctx)?,
         top_k_mask: compile_top_k_mask_pipeline(ctx)?,
+        top_p_mask: compile_top_p_mask_pipeline(ctx)?,
         multinomial: compile_multinomial_sample_pipeline(ctx)?,
     })
 }
@@ -186,6 +200,34 @@ pub fn gpu_sample(
         });
 
         dispatch_compute(ctx, &pipelines.top_k_mask, &topk_bg, (batch as u32, 1, 1), "topk_mask");
+    }
+
+    // Step 3b: top-p mask (in-place on working_buf, after top-k)
+    if top_p > 0.0 && top_p < 1.0 {
+        let topp_cfg_buf = ctx.alloc_buffer(
+            8,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        ).buffer;
+        let cfg: [u32; 2] = [vocab, f32::to_bits(top_p)];
+        ctx.queue
+            .write_buffer(&topp_cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        let topp_bg = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("topp_bg"),
+            layout: &pipelines.top_p_mask.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: working_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: topp_cfg_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        dispatch_compute(ctx, &pipelines.top_p_mask, &topp_bg, (batch as u32, 1, 1), "topp_mask");
     }
 
     // Step 4: multinomial sample
@@ -359,5 +401,68 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>) {
     }
 
     output[row] = chosen;
+}
+";
+
+const TOP_P_MASK_WGSL: &str = r"
+@group(0) @binding(0) var<storage, read_write> probs: array<f32>;
+@group(0) @binding(1) var<uniform> cfg: vec2<u32>;
+
+var<workgroup> scratch: array<f32, 256>;
+var<workgroup> scratch_idx: array<u32, 256>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>,
+        @builtin(workgroup_id) wg: vec3<u32>) {
+    let vocab = cfg.x;
+    let top_p = bitcast<f32>(cfg.y);
+    if (top_p <= 0.0 || top_p >= 1.0) { return; }
+    let row = wg.x;
+    let base = row * vocab;
+
+    var threshold: f32 = 3.402823e+38;
+    var cum: f32 = 0.0;
+
+    for (var iter: u32 = 0u; iter < vocab; iter = iter + 1u) {
+        var mx: f32 = -3.402823e+38;
+        var mx_idx: u32 = 0u;
+        var i = lid.x;
+        while (i < vocab) {
+            let v = probs[base + i];
+            if (v > mx && v < threshold - 1e-6) { mx = v; mx_idx = i; }
+            i += 256u;
+        }
+        scratch[lid.x] = mx;
+        scratch_idx[lid.x] = mx_idx;
+        workgroupBarrier();
+
+        var stride = 128u;
+        while stride > 0u {
+            if (lid.x < stride) {
+                if (scratch[lid.x] < scratch[lid.x + stride]) {
+                    scratch[lid.x] = scratch[lid.x + stride];
+                    scratch_idx[lid.x] = scratch_idx[lid.x + stride];
+                }
+            }
+            workgroupBarrier();
+            stride = stride / 2u;
+        }
+
+        let max_val = scratch[0u];
+        if (max_val <= 0.0) { break; }
+
+        cum += max_val;
+        threshold = max_val;
+        if (cum >= top_p) { break; }
+    }
+
+    var i = lid.x;
+    while (i < vocab) {
+        if (probs[base + i] < threshold - 1e-6) {
+            probs[base + i] = 0.0;
+        }
+        i += 256u;
+    }
 }
 ";
