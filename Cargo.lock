@@ -3542,6 +3542,7 @@ dependencies = [
 name = "nexora-echo-net"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "chrono",
  "ndarray 0.15.6",
  "nexora-autograd",
@@ -3552,6 +3553,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "uuid",
+ "wgpu",
 ]
 
 [[package]]

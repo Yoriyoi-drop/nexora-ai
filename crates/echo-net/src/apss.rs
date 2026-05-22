@@ -45,6 +45,9 @@ pub struct AdaptivePhaseSeparationStabilizer {
     // Phase normalization
     target_phase_range: (f32, f32),
     normalization_strength: f32,
+
+    /// Use GPU acceleration when available
+    pub use_gpu: bool,
 }
 
 impl AdaptivePhaseSeparationStabilizer {
@@ -68,6 +71,7 @@ impl AdaptivePhaseSeparationStabilizer {
             conflict_penalty: 2.0,
             target_phase_range: (-PI, PI),
             normalization_strength: 0.1,
+            use_gpu: false,
         })
     }
 
@@ -104,6 +108,13 @@ impl AdaptivePhaseSeparationStabilizer {
 
     /// Compute semantic similarity matrix between all token pairs
     fn compute_similarity_matrix(&self, embeddings: &ArrayD<f32>) -> DLResult<Array2<f32>> {
+        #[cfg(feature = "gpu")]
+        if self.use_gpu {
+            if let Ok(result) = crate::gpu_ops::gpu_cosine_similarity_matrix(embeddings) {
+                return Ok(result);
+            }
+        }
+
         let num_tokens = embeddings.shape()[0];
         let mut similarity_matrix = Array2::zeros((num_tokens, num_tokens));
 

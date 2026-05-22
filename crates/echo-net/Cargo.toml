@@ -14,7 +14,10 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 nexora-autograd = { path = "../autograd" }
 num-traits = "0.2"
+wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl"] }
+bytemuck = { version = "1", optional = true }
 
 [features]
 default = ["std"]
 std = []
+gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:bytemuck"]

@@ -84,6 +84,13 @@ pub struct ClusterQuality {
 pub struct ClusteringOrchestrator {
     pub history: Vec<OrchestratorEntry>,
     _quality_threshold: f32,
+
+    /// Use GPU acceleration for pairwise distance computations
+    pub use_gpu: bool,
+
+    /// Precomputed pairwise distance matrix (N×N), filled lazily (RefCell for &self access)
+    cached_distances: std::cell::RefCell<Option<Vec<Vec<f32>>>>,
+    cached_data_len: std::cell::Cell<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +107,9 @@ impl ClusteringOrchestrator {
         Self {
             history: Vec::with_capacity(100),
             _quality_threshold: 0.5,
+            use_gpu: false,
+            cached_distances: std::cell::RefCell::new(None),
+            cached_data_len: std::cell::Cell::new(0),
         }
     }
 
@@ -194,6 +204,7 @@ impl ClusteringOrchestrator {
 
     /// Compute silhouette score untuk hasil clustering
     pub fn silhouette_score(&self, data: &[Vec<f32>], labels: &[usize]) -> f32 {
+        self.ensure_distances(data);
         let n = data.len();
         if n < 2 || labels.len() != n {
             return 0.0;
@@ -226,7 +237,7 @@ impl ClusteringOrchestrator {
         let mut count = 0;
         for j in 0..data.len() {
             if i != j && labels[j] == labels[i] {
-                sum += self.euclidean(&data[i], &data[j]);
+                sum += self.dist(data, i, j);
                 count += 1;
             }
         }
@@ -251,7 +262,7 @@ impl ClusteringOrchestrator {
             let mut count = 0;
             for j in 0..data.len() {
                 if labels[j] == *other {
-                    sum += self.euclidean(&data[i], &data[j]);
+                    sum += self.dist(data, i, j);
                     count += 1;
                 }
             }
@@ -348,6 +359,50 @@ impl ClusteringOrchestrator {
             .map(|(x, y)| (x - y).powi(2))
             .sum::<f32>()
             .sqrt()
+    }
+
+    /// Get distance between two points, using cached matrix if available
+    fn dist(&self, data: &[Vec<f32>], i: usize, j: usize) -> f32 {
+        if let Some(ref dmat) = *self.cached_distances.borrow() {
+            if i < dmat.len() && j < dmat.len() {
+                return dmat[i][j];
+            }
+        }
+        self.euclidean(&data[i], &data[j])
+    }
+
+    /// Lazily compute full pairwise distance matrix on GPU (can be called with &self)
+    pub fn ensure_distances(&self, data: &[Vec<f32>]) {
+        let cached_len = self.cached_data_len.get();
+        if self.cached_distances.borrow().is_some() && cached_len == data.len() {
+            return;
+        }
+        #[cfg(feature = "gpu")]
+        if self.use_gpu {
+            if let Ok(dmat) = crate::gpu_cluster_ops::gpu_pairwise_distances(data) {
+                *self.cached_distances.borrow_mut() = Some(dmat);
+                self.cached_data_len.set(data.len());
+                return;
+            }
+        }
+        // CPU fallback: compute full N×N matrix
+        let n = data.len();
+        let mut dmat = vec![vec![0.0_f32; n]; n];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d = self.euclidean(&data[i], &data[j]);
+                dmat[i][j] = d;
+                dmat[j][i] = d;
+            }
+        }
+        *self.cached_distances.borrow_mut() = Some(dmat);
+        self.cached_data_len.set(n);
+    }
+
+    /// Invalidate cached distance matrix
+    pub fn invalidate_distances(&self) {
+        *self.cached_distances.borrow_mut() = None;
+        self.cached_data_len.set(0);
     }
 }
 

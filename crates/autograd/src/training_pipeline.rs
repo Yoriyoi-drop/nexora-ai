@@ -620,13 +620,24 @@ pub fn compute_grad_norm_gpu(grads: &[crate::gpu::GpuTensor], ctx: &crate::gpu::
     if let Ok(norm_gpu) = ctx.sqrt(&total_norm_sq) {
         // Non-blocking: mulai readback, GPU masih bisa kerja
         if let Ok(rb) = ctx.readback_f32_async(norm_gpu.buffer(), 4) {
+            // Attempt 1: non-blocking poll
             ctx.poll_device();
             if let Some(val) = rb.try_recv() {
                 return val[0];
             }
-            // Fallback: blocking wait jika belum siap
-            let cpu = norm_gpu.to_cpu();
-            return cpu[0];
+            // Attempt 2: 100μs timeout
+            ctx.poll_timeout(100_000);
+            if let Some(val) = rb.try_recv() {
+                return val[0];
+            }
+            // Attempt 3: 1ms timeout
+            ctx.poll_timeout(1_000_000);
+            if let Some(val) = rb.try_recv() {
+                return val[0];
+            }
+            // Final fallback: blocking wait
+            ctx.wait_device();
+            return rb.recv()[0];
         }
     }
     0.0

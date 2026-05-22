@@ -21,7 +21,7 @@ use nexora_autograd::gpu::{GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu_adam::GpuAdam;
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu_async::GpuStagingPool;
+use nexora_autograd::gpu_async::{AsyncReadback, GpuStagingPool};
 
 use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
 
@@ -579,6 +579,29 @@ impl Trainer {
 
 // --- GPU training batch (standalone, avoids borrow conflicts) ---
 
+/// Bounded polling for async GPU readback with 3 escalating timeouts.
+#[cfg(feature = "gpu")]
+fn poll_async_loss(ctx: &GpuContext, rb: &AsyncReadback<Vec<f32>>) -> f32 {
+    // Attempt 1: non-blocking poll
+    ctx.poll_device();
+    if let Some(v) = rb.try_recv() {
+        return v[0];
+    }
+    // Attempt 2: short timeout (100μs) — GPU likely done with backward
+    ctx.poll_timeout(100_000);
+    if let Some(v) = rb.try_recv() {
+        return v[0];
+    }
+    // Attempt 3: moderate timeout (1ms) — catch stragglers
+    ctx.poll_timeout(1_000_000);
+    if let Some(v) = rb.try_recv() {
+        return v[0];
+    }
+    // Final fallback: blocking wait
+    ctx.wait_device();
+    rb.recv()[0]
+}
+
 #[cfg(feature = "gpu")]
 #[allow(clippy::too_many_arguments)]
 fn train_batch_gpu(
@@ -629,19 +652,23 @@ fn train_batch_gpu(
         false,
     );
 
-    // ── Forward / Backward (batched) ──
+    // ── Forward / Backward (batched), with pipelined loss readback ──
     ctx.begin_batch_mode();
     let logits = trainable.forward(&input_t);
     let loss = cross_entropy_loss(&logits, &target_t).mean();
-    loss.backward();
-    ctx.end_batch_mode();
 
-    // ── Async non-blocking loss readback ──
+    // ── Queue loss copy to staging INSIDE batch (overlaps copy with backward) ──
     let loss_gpu = match loss.storage() {
         nexora_autograd::Storage::Gpu(g) => g,
         _ => return None,
     };
-    let loss_readback = ctx.readback_f32_async(loss_gpu.buffer(), 4).ok()?;
+    let loss_staging = ctx.create_readback_staging(loss_gpu.buffer(), 4, "loss");
+
+    loss.backward();
+    ctx.end_batch_mode();
+
+    // ── Register map_async after submission ──
+    let loss_readback = ctx.complete_readback(&loss_staging, 4);
 
     // ── Gradients: read from tape for NaN check (CPU work while GPU processes) ──
     let owned_params: Vec<GpuTensor> = trainable
@@ -654,16 +681,8 @@ fn train_batch_gpu(
         .collect();
     let params: Vec<&GpuTensor> = owned_params.iter().collect();
 
-    // ── Non-blocking poll + try_recv ──
-    ctx.poll_device();
-    let loss_val = match loss_readback.try_recv() {
-        Some(v) => v[0],
-        None => {
-            // Fallback: poll blocking sekali jika belum siap
-            ctx.wait_device();
-            loss_readback.recv()[0]
-        }
-    };
+    // ── Bounded poll + try_recv ──
+    let loss_val = poll_async_loss(&ctx, &loss_readback);
     if !loss_val.is_finite() {
         warn!("NaN/Inf loss detected ({}) — skipping GPU step", loss_val);
         let _ = gpu_opt.zero_grad(&ctx, &params);

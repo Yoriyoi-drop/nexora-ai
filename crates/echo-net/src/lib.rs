@@ -1,5 +1,7 @@
 pub mod apss;
 pub mod derr;
+#[cfg(feature = "gpu")]
+pub mod gpu_ops;
 pub mod irr;
 pub mod isc;
 pub mod mbhw;

@@ -113,7 +113,7 @@ impl GpuContext {
         });
         self.flush();
 
-        let slice = staging.slice(..);
+        let slice = staging.buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
@@ -131,7 +131,7 @@ impl GpuContext {
         let norm_val = data[0];
         let scale_factor = data[2];
         let clipped = data[3] as u32 != 0;
-        staging.unmap();
+        staging.buffer.unmap();
 
         Ok(GpuGradClipResult {
             was_clipped: clipped,

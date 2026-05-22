@@ -71,6 +71,7 @@ lru = "0.12"
 [features]
 default = ["hallucination"]
 hallucination = ["nexora-hallucination"]
+gpu = ["nexora-deeplearning/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true

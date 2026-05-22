@@ -85,6 +85,9 @@ pub struct InverseSpectralCollapse {
     collapse_latency: f32,
     output_quality: f32,
     spectral_fidelity: f32,
+
+    /// Use GPU acceleration when available
+    pub use_gpu: bool,
 }
 
 impl InverseSpectralCollapse {
@@ -214,6 +217,7 @@ impl InverseSpectralCollapse {
             collapse_latency: 0.0,
             output_quality: 0.0,
             spectral_fidelity: 0.0,
+            use_gpu: false,
         })
     }
 
@@ -343,7 +347,18 @@ impl InverseSpectralCollapse {
 
     /// Perform wave collapse using inverse FFT
     fn perform_wave_collapse(&self, context: &Array2<Complex>) -> DLResult<Array2<Complex>> {
-        // Apply 2D inverse FFT
+        #[cfg(feature = "gpu")]
+        if self.use_gpu {
+            if let Ok(result) = crate::gpu_ops::gpu_ifft_2d(
+                context,
+                &self.collapse_kernel,
+                self.config.collapse_strength,
+            ) {
+                return Ok(result);
+            }
+        }
+
+        // CPU fallback: simple inverse FFT
         let mut collapsed = Array2::zeros(context.dim());
 
         // Simple inverse FFT implementation (for demonstration)

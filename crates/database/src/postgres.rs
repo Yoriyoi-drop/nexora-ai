@@ -745,9 +745,12 @@ impl ConnectionPool for PostgreSQLConnectionPool {
 
         // Return to pool if the connection was active
         if was_active {
-            let mut pool_conn = connection;
-            pool_conn.is_active = false;
-            self.return_connection(pool_conn).await?;
+            let any_box = connection.into_any();
+            let mut pg_conn: Box<PostgreSQLConnection> = any_box
+                .downcast()
+                .map_err(|_| anyhow::anyhow!("Failed to downcast connection to PostgreSQLConnection"))?;
+            pg_conn.is_active = false;
+            self.return_connection(*pg_conn).await?;
         } else {
             drop(connection);
         }
@@ -986,6 +989,10 @@ impl crate::DatabaseConnection for PostgreSQLConnection {
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
         self
     }
 }

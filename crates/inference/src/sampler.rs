@@ -45,10 +45,14 @@ pub struct Sampler {
 impl Sampler {
     pub fn new(config: SamplingConfig) -> Self {
         let rng = config.seed.map(rand::rngs::StdRng::seed_from_u64);
+        #[cfg(feature = "gpu")]
+        let use_gpu = nexora_autograd::gpu::GpuContext::is_available();
+        #[cfg(not(feature = "gpu"))]
+        let use_gpu = false;
         Self {
             config,
             rng,
-            use_gpu: false,
+            use_gpu,
         }
     }
 

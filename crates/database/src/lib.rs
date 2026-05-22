@@ -318,6 +318,9 @@ pub trait DatabaseConnection: Send + Sync {
 
     /// Downcast to Any for type-safe downcasting (required for connection pool round-trip)
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+
+    /// Consume the box and return a Box<dyn Any> for downcast extraction
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any>;
 }
 
 /// Query result

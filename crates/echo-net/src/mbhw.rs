@@ -73,6 +73,9 @@ pub struct MultiBandHolographicWriter {
     // Interference management
     interference_matrix: Option<Array2<f32>>,
     last_write_timestamp: Vec<usize>,
+
+    /// Use GPU acceleration when available
+    pub use_gpu: bool,
 }
 
 impl MultiBandHolographicWriter {
@@ -118,6 +121,7 @@ impl MultiBandHolographicWriter {
             memory_utilization: vec![0.0; num_bands],
             interference_matrix: None,
             last_write_timestamp: vec![0; num_bands],
+            use_gpu: false,
         })
     }
 
@@ -230,6 +234,13 @@ impl MultiBandHolographicWriter {
         input: &Array2<Complex>,
         kernel: &Array2<Complex>,
     ) -> DLResult<Array2<Complex>> {
+        #[cfg(feature = "gpu")]
+        if self.use_gpu {
+            if let Ok(result) = crate::gpu_ops::gpu_conv_2d(input, kernel) {
+                return Ok(result);
+            }
+        }
+
         let (input_rows, input_cols) = input.dim();
         let (kernel_rows, kernel_cols) = kernel.dim();
 

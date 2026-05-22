@@ -80,6 +80,64 @@ impl GpuContext {
     pub fn poll_async_callbacks(&self) {
         let _ = self.device.poll(wgpu::PollType::Poll);
     }
+
+    /// Queue a GPU buffer → staging copy into the reusable encoder (batch-aware).
+    /// The staging buffer is NOT yet mapped — call `complete_readback()` after submission.
+    /// Use inside `begin_batch_mode()…end_batch_mode()` to pipeline copy with compute.
+    pub fn create_readback_staging(
+        &self,
+        source: &wgpu::Buffer,
+        size_bytes: u64,
+        label: &str,
+    ) -> wgpu::Buffer {
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("staging_{}", label)),
+            size: size_bytes,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        self.with_encoder(|enc| {
+            enc.copy_buffer_to_buffer(source, 0, &staging, 0, size_bytes);
+        });
+        staging
+    }
+
+    /// Complete an async readback: register `map_async` on a staging buffer that was
+    /// previously created via `create_readback_staging()` and submitted via `flush()`.
+    /// Returns immediately — call `try_recv()` after polling to get the data.
+    pub fn complete_readback(&self, staging: &wgpu::Buffer, size_bytes: u64) -> AsyncReadback<Vec<f32>> {
+        let (tx, rx) = mpsc::channel();
+        let ready = Arc::new(AtomicBool::new(false));
+        let ready_clone = ready.clone();
+        let staging_clone = staging.clone();
+
+        staging.map_async(wgpu::MapMode::Read, 0..size_bytes, move |result| {
+            if let Ok(()) = result {
+                let slice = staging_clone.slice(..size_bytes);
+                let data = slice.get_mapped_range();
+                let floats: Vec<f32> = data
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                drop(data);
+                staging_clone.unmap();
+                let _ = tx.send(floats);
+                ready_clone.store(true, Ordering::Release);
+            }
+        });
+
+        let _ = self.device.poll(wgpu::PollType::Poll);
+
+        AsyncReadback { receiver: rx, ready }
+    }
+
+    /// Poll with a bounded timeout (nanoseconds). Non-blocking if timeout ≤ 0.
+    pub fn poll_timeout(&self, timeout_ns: u64) {
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_nanos(timeout_ns)),
+        });
+    }
 }
 
 // ─── GpuStagingPool ────────────────────────────────────────────────────────────

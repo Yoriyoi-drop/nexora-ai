@@ -249,33 +249,43 @@ impl DecodingStrategy for TemperatureSampling {
             config.temperature, config.top_p, config.top_k
         );
 
-        // Adjust logits
+        // Adjust logits (CPU: HashMap lookups, not suitable for GPU)
         let adjusted_logits = self.adjust_logits(logits, config, context)?;
 
-        // Apply temperature
+        // GPU-accelerated sampling: softmax + top-k + top-p + sample in one GPU call
+        #[cfg(feature = "gpu")]
+        {
+            use nexora_autograd::gpu::GpuContext;
+            if GpuContext::is_available() {
+                let token_id = self.gpu_sample_full(&adjusted_logits, config)?;
+                let log_prob = adjusted_logits[token_id].ln();
+                let selection_prob = (log_prob).exp();
+                return Ok(TokenSelection {
+                    token_id: token_id as u32,
+                    token_text: alloc_token_text(token_id),
+                    log_prob,
+                    selection_prob,
+                    metadata: HashMap::new(),
+                });
+            }
+        }
+
+        // CPU fallback
         let scaled_logits: Vec<f32> = adjusted_logits
             .iter()
             .map(|&logit| logit / config.temperature)
             .collect();
-
-        // Compute probabilities
         let probs: Vec<f32> = self.compute_softmax(&scaled_logits)?;
-
-        // Apply top-k filtering
         let filtered_probs = if config.top_k > 0 && config.top_k < probs.len() as u32 {
             self.apply_top_k(&probs, config.top_k)?
         } else {
             probs
         };
-
-        // Apply top-p filtering
         let final_probs = if config.top_p < 1.0 {
             self.apply_top_p(&filtered_probs, config.top_p)?
         } else {
             filtered_probs
         };
-
-        // Sample token
         let token_id = self.sample_token(&final_probs)?;
 
         let log_prob = adjusted_logits[token_id].ln();
@@ -306,6 +316,61 @@ impl DecodingStrategy for TemperatureSampling {
 }
 
 impl TemperatureSampling {
+    /// GPU-accelerated full sampling pipeline: softmax + top-k + top-p + sample
+    /// Falls back to CPU seamlessly.
+    fn gpu_sample_full(
+        &self,
+        adjusted_logits: &[f32],
+        config: &DecodingConfig,
+    ) -> Result<usize> {
+        #[cfg(feature = "gpu")]
+        {
+            use nexora_autograd::gpu::{GpuContext, GpuTensor};
+            if let Ok(ctx) = GpuContext::global() {
+                let shape = vec![1, adjusted_logits.len()];
+                let cpu = match ndarray::ArrayD::from_shape_vec(shape, adjusted_logits.to_vec()) {
+                    Ok(a) => a,
+                    Err(_) => return self.sample_full_cpu(adjusted_logits, config),
+                };
+                let gpu = match GpuTensor::from_cpu(&cpu) {
+                    Ok(t) => t,
+                    Err(_) => return self.sample_full_cpu(adjusted_logits, config),
+                };
+                let top_k = if config.top_k > 0 { config.top_k } else { 0 };
+                let seed = 42u64;
+                match ctx.gpu_sample(&gpu, config.temperature, top_k, config.top_p, seed) {
+                    Ok(out) => {
+                        let raw = out.to_cpu_raw_bytes();
+                        if raw.len() >= 4 {
+                            return Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        self.sample_full_cpu(adjusted_logits, config)
+    }
+
+    fn sample_full_cpu(&self, adjusted_logits: &[f32], config: &DecodingConfig) -> Result<usize> {
+        let scaled_logits: Vec<f32> = adjusted_logits
+            .iter()
+            .map(|&logit| logit / config.temperature)
+            .collect();
+        let probs = self.compute_softmax(&scaled_logits)?;
+        let filtered_probs = if config.top_k > 0 && config.top_k < probs.len() as u32 {
+            self.apply_top_k(&probs, config.top_k)?
+        } else {
+            probs
+        };
+        let final_probs = if config.top_p < 1.0 {
+            self.apply_top_p(&filtered_probs, config.top_p)?
+        } else {
+            filtered_probs
+        };
+        self.sample_token(&final_probs)
+    }
+
     fn compute_softmax(&self, logits: &[f32]) -> Result<Vec<f32>> {
         let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let mut probs = Vec::with_capacity(logits.len());
@@ -338,7 +403,6 @@ impl TemperatureSampling {
             b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let threshold = indexed_probs[k.saturating_sub(1)].1;
         let mut filtered = vec![0.0; n];
         for &(idx, prob) in indexed_probs.iter().take(k) {
             filtered[idx] = prob;
@@ -400,7 +464,6 @@ impl TemperatureSampling {
             }
         }
 
-        // Fallback to last token (shouldn't happen if probabilities sum to 1)
         Ok(probs.len() - 1)
     }
 
