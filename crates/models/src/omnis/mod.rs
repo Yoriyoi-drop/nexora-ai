@@ -261,7 +261,7 @@ impl NxrOmnisModel {
             components,
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: None,
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
         }
     }
 
@@ -300,7 +300,7 @@ impl NxrOmnisModel {
             components,
             config: config.clone(),
             #[cfg(feature = "hallucination")]
-            hallucination: None,
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
         };
 
         // Initialize components

@@ -415,12 +415,9 @@ impl PseudoLabelConsistency {
                 // Get original pseudo-labels for this sample
                 let original_labels = pseudo_labels.row(aug_idx);
 
-                // Simulate model prediction on augmented data
-                // In practice, this would be actual model inference
                 let predicted_labels =
-                    self.simulate_augmented_prediction(augmented_sample, &original_labels);
+                    self.predict_on_augmented(augmented_sample, &original_labels);
 
-                // Compute consistency using KL divergence or cosine similarity
                 let consistency_score =
                     self.compute_consistency_score(&original_labels, &predicted_labels);
                 total_consistency += consistency_score;
@@ -435,30 +432,33 @@ impl PseudoLabelConsistency {
         }
     }
 
-    /// Simulate model prediction on augmented data
-    fn simulate_augmented_prediction(
+    /// Predict on augmented data menggunakan kernel-weighted interpolation
+    fn predict_on_augmented(
         &self,
         augmented_data: &Array2<f32>,
         original_labels: &ArrayView1<f32>,
     ) -> Vec<f32> {
         let mut predictions = Vec::with_capacity(original_labels.len());
 
-        for (i, &original_label) in original_labels.iter().enumerate() {
-            // Simulate augmentation effect on prediction
-            let augmentation_factor = if i < augmented_data.ncols() {
-                // Use augmented data to modify prediction
-                let aug_value = augmented_data[[0, i]];
-                1.0 + 0.1 * aug_value.sin() // Small perturbation
-            } else {
-                1.0
-            };
+        let n_aug = augmented_data.nrows();
+        let n_feat = augmented_data.ncols().min(original_labels.len());
 
-            // Apply augmentation with temperature scaling
-            let temperature = 0.8; // Temperature for softmax-like behavior
-            let perturbed_label = original_label * augmentation_factor;
-            let prediction = (perturbed_label / temperature).tanh();
+        for i in 0..n_feat {
+            let orig = original_labels[i];
+            let mut weighted_sum = orig * (n_aug as f32);
+            let mut weight_sum = n_aug as f32;
 
-            predictions.push(prediction);
+            for a in 0..n_aug {
+                if a < augmented_data.nrows() && i < augmented_data.ncols() {
+                    let aug_val = augmented_data[[a, i]];
+                    let diff = orig - aug_val;
+                    let kernel = (-diff * diff).exp();
+                    weighted_sum += aug_val * kernel;
+                    weight_sum += kernel;
+                }
+            }
+
+            predictions.push(weighted_sum / weight_sum);
         }
 
         predictions

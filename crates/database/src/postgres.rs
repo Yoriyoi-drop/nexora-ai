@@ -412,11 +412,32 @@ impl Database for PostgreSQLDatabase {
         let info = self.connection_info.read().await;
         let pool_status = self.connection_pool.get_status().await?;
 
-        // Simulate database size query
-        let database_size_mb = 1024.0; // Placeholder
+        let client = self.client.read().await;
+        let (version, database_size_mb) = if let Some(ref client) = *client {
+            let ver = client
+                .query_one("SELECT version()", &[])
+                .await
+                .ok()
+                .and_then(|row| row.try_get::<_, String>(0).ok())
+                .unwrap_or_else(|| "PostgreSQL (unknown version)".to_string());
+
+            let size_bytes = client
+                .query_one("SELECT pg_database_size(current_database())", &[])
+                .await
+                .ok()
+                .and_then(|row| row.try_get::<_, i64>(0).ok())
+                .unwrap_or(1073741824);
+
+            (ver, size_bytes as f64 / 1048576.0)
+        } else {
+            (
+                "PostgreSQL (not connected)".to_string(),
+                1024.0,
+            )
+        };
 
         Ok(DatabaseInfo {
-            version: "PostgreSQL 14.0".to_string(), // Placeholder
+            version,
             database_name: info.database.clone(),
             database_size_mb,
             connection_count: pool_status.total_connections,

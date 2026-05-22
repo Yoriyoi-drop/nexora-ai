@@ -371,11 +371,14 @@ impl RateLimitingMiddleware {
         self.rate_limiter.check_rate_limit(client_key).await
     }
 
-    /// Get current request count for a client (approximate, from counters)
-    pub async fn get_request_count(&self, _client_key: &str) -> Result<usize> {
-        // Sliding window counter tidak menyimpan per-request timestamp
-        // Kembalikan 0 sebagai placeholder — gunakan check_rate_limit untuk pengecekan
-        Ok(0)
+    /// Get current request count for a client dari rate limiter counters
+    pub async fn get_request_count(&self, client_key: &str) -> Result<usize> {
+        let counter = self
+            .rate_limiter
+            .window_count(client_key)
+            .await
+            .unwrap_or(0);
+        Ok(counter)
     }
 
     /// Reset rate limit for a client
@@ -386,11 +389,21 @@ impl RateLimitingMiddleware {
 
     /// Get rate limit statistics
     pub async fn get_statistics(&self) -> Result<RateLimitStatistics> {
+        let (total_clients, total_requests) = self.rate_limiter.total_stats().await;
+        let requests_per_minute = if total_clients > 0 {
+            total_requests as f64 / total_clients as f64 * 60.0
+        } else {
+            0.0
+        };
         Ok(RateLimitStatistics {
-            total_clients: 0,
-            total_requests: 0,
-            requests_per_minute: 0.0,
-            average_requests_per_client: 0.0,
+            total_clients,
+            total_requests,
+            requests_per_minute: requests_per_minute as f32,
+            average_requests_per_client: if total_clients > 0 {
+                total_requests as f32 / total_clients as f32
+            } else {
+                0.0
+            },
         })
     }
 

@@ -42,15 +42,51 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
     )
 }
 
-/// Stack tensors along a new axis. No grad tracking (placeholder).
+/// Stack tensors along a new axis.
 pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
-    assert!(!tensors.is_empty(), "stack: at least one tensor required");
-    let first = tensors[0];
-    let mut new_shape = first.shape().to_vec();
-    new_shape.insert(axis.min(new_shape.len()), 1);
-    let data = first
-        .data()
-        .into_shape(new_shape)
-        .expect("stack: reshape failed");
-    Tensor::new(data)
+    assert!(
+        !tensors.is_empty(),
+        "stack: at least one tensor required"
+    );
+
+    let mut expanded: Vec<ArrayD<f32>> = Vec::with_capacity(tensors.len());
+    for t in tensors {
+        let mut shape = t.shape().to_vec();
+        shape.insert(axis.min(shape.len()), 1);
+        let arr = t.data().into_shape(shape).expect("stack: reshape failed");
+        expanded.push(arr);
+    }
+
+    let views: Vec<ndarray::ArrayViewD<f32>> =
+        expanded.iter().map(|a| a.view()).collect();
+    let result =
+        ndarray::concatenate(Axis(axis), &views).expect("stack: concatenate failed");
+
+    let requires_grad = tensors.iter().any(|t| t.requires_grad());
+    if !requires_grad {
+        return Tensor::new(result);
+    }
+
+    let input_tensors: Vec<Tensor> = tensors.iter().map(|t| (*t).clone()).collect();
+    let n = tensors.len();
+    let saved_n = ArrayD::from_shape_vec(vec![1], vec![n as f32])
+        .expect("shape fits");
+
+    Tensor::with_grad_fn(
+        result,
+        input_tensors,
+        vec![saved_n],
+        Box::new(move |grad, saved| {
+            let count = saved[0][0] as usize;
+            let mut grads = Vec::with_capacity(count);
+            for i in 0..count {
+                let g = grad
+                    .index_axis_move(Axis(axis), i)
+                    .to_owned()
+                    .into_dyn();
+                grads.push(g);
+            }
+            grads
+        }),
+    )
 }

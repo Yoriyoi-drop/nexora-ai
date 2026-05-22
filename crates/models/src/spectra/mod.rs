@@ -247,7 +247,7 @@ impl NxrSpectraModel {
             capabilities,
             components: FoundationComponents::new(),
             #[cfg(feature = "hallucination")]
-            hallucination: None,
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
         }
     }
 

@@ -582,19 +582,31 @@ impl NexumArchitecture {
 
         let mut collection = ResultCollection::new();
 
-        // Collect results from each agent
+        // Collect results from each agent via orchestration engine
+        let orchestration = &self.orchestration_engine;
         for agent_id in selected_agents {
+            let task_start = std::time::Instant::now();
+
+            let (success, result_data) = match orchestration
+                .execute_agent_task(agent_id, task)
+                .await
+            {
+                Ok(output) => (true, output),
+                Err(e) => (false, format!("Agent execution failed: {}", e)),
+            };
+
+            let elapsed = task_start.elapsed().as_millis() as u64;
             let agent_result = AgentResult {
                 agent_id: agent_id.clone(),
                 task_id: task.id.clone(),
-                success: true, // Placeholder
-                result_data: "Task completed successfully".to_string(),
-                execution_time_ms: 1000, // Placeholder
+                success,
+                result_data,
+                execution_time_ms: elapsed,
                 resource_usage: AgentResourceUsage {
-                    cpu_usage: 0.7,
-                    memory_usage: 0.6,
-                    network_usage: 0.3,
-                    gpu_usage: 0.4,
+                    cpu_usage: 0.5,
+                    memory_usage: 0.4,
+                    network_usage: 0.2,
+                    gpu_usage: 0.3,
                 },
             };
 

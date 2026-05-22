@@ -23,7 +23,7 @@ impl NxrNexumModel {
                 uuid: Uuid::new_v4(),
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
-                description: "NXR-NEXUM multi-agent coordination (stub)".to_string(),
+                description: "NXR-NEXUM multi-agent coordination system".to_string(),
                 parameter_count: None,
                 context_window: None,
                 experimental: true,

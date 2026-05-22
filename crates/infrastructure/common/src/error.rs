@@ -615,7 +615,7 @@ impl ErrorRecoveryManager {
 
             RecoveryStrategy::Retry {
                 max_attempts,
-                base_delay: _,
+                base_delay,
             } => {
                 for attempt in 1..=*max_attempts {
                     let delay = error.retry_delay(attempt - 1);
@@ -623,10 +623,20 @@ impl ErrorRecoveryManager {
 
                     info!("Retry attempt {} for component {}", attempt, component);
 
-                    // In a real implementation, this would retry the actual operation
-                    // For now, we'll simulate success after a few attempts
-                    if attempt >= 2 {
-                        return Ok(RecoveryAction::RetrySuccess);
+                    match self.health.check_component(component).await {
+                        Ok(true) => {
+                            info!("Component {} recovered after retry {}", component, attempt);
+                            return Ok(RecoveryAction::RetrySuccess);
+                        }
+                        Ok(false) | Err(_) => {
+                            if attempt < *max_attempts {
+                                let backoff = *base_delay * (2u64.pow(attempt as u32 - 1));
+                                tokio::time::sleep(Duration::from_millis(
+                                    backoff.min(30_000),
+                                ))
+                                .await;
+                            }
+                        }
                     }
                 }
                 Ok(RecoveryAction::RetryExhausted)

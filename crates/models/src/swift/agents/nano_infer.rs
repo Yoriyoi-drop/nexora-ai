@@ -295,21 +295,81 @@ impl NanoInferAgent {
     }
 
     async fn quantize_model(&self, model_data: &[u8]) -> AgentResult<Vec<u8>> {
-        // Simulate quantization process
-        let compression_ratio = match self.config.quantization_level {
-            QuantizationLevel::INT8 => 4.0,
-            QuantizationLevel::INT4 => 8.0,
-            QuantizationLevel::Binary => 32.0,
-            QuantizationLevel::Dynamic => 6.0,
-        };
+        match self.config.quantization_level {
+            QuantizationLevel::INT8 => self.quantize_int8(model_data),
+            QuantizationLevel::INT4 => self.quantize_int4(model_data),
+            QuantizationLevel::Binary => self.quantize_binary(model_data),
+            QuantizationLevel::Dynamic => self.quantize_dynamic(model_data),
+        }
+    }
 
-        let compressed_size = (model_data.len() as f32 / compression_ratio) as usize;
-        let mut quantized = Vec::with_capacity(compressed_size);
+    fn quantize_int8(&self, data: &[u8]) -> AgentResult<Vec<u8>> {
+        let chunks: Vec<&[u8]> = data.chunks(4).collect();
+        let mut quantized = Vec::with_capacity(chunks.len());
 
-        // Simple quantization simulation
-        for chunk in model_data.chunks(8) {
-            let quantized_byte = chunk.iter().sum::<u8>() / chunk.len() as u8;
-            quantized.push(quantized_byte);
+        for chunk in chunks {
+            let val = if chunk.len() == 4 {
+                f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+            } else {
+                continue;
+            };
+            let q = (val.clamp(-128.0, 127.0).round() as i8) as u8;
+            quantized.push(q);
+        }
+
+        Ok(quantized)
+    }
+
+    fn quantize_int4(&self, data: &[u8]) -> AgentResult<Vec<u8>> {
+        let chunks: Vec<&[u8]> = data.chunks(8).collect();
+        let mut quantized = Vec::with_capacity(chunks.len());
+
+        for chunk in chunks {
+            let mut packed = 0u8;
+            for (j, &byte) in chunk.iter().enumerate().take(2) {
+                let q = (byte as f32 / 16.0).round() as u8;
+                packed |= (q & 0x0F) << (j * 4);
+            }
+            quantized.push(packed);
+        }
+
+        Ok(quantized)
+    }
+
+    fn quantize_binary(&self, data: &[u8]) -> AgentResult<Vec<u8>> {
+        let mut quantized = Vec::with_capacity(data.len() / 8 + 1);
+        for chunk in data.chunks(8) {
+            let mut byte = 0u8;
+            for (j, &b) in chunk.iter().enumerate() {
+                if b > 127 {
+                    byte |= 1 << j;
+                }
+            }
+            quantized.push(byte);
+        }
+        Ok(quantized)
+    }
+
+    fn quantize_dynamic(&self, data: &[u8]) -> AgentResult<Vec<u8>> {
+        let mean = data.iter().map(|&b| b as f32).sum::<f32>() / data.len() as f32;
+        let variance = data
+            .iter()
+            .map(|&b| {
+                let diff = b as f32 - mean;
+                diff * diff
+            })
+            .sum::<f32>()
+            / data.len() as f32;
+        let std = variance.sqrt().max(1e-8);
+
+        let mut quantized = Vec::with_capacity(data.len() / 2);
+        for pair in data.chunks(2) {
+            if pair.len() == 2 {
+                let n0 = ((pair[0] as f32 - mean) / std).clamp(-8.0, 7.0).round() as i8;
+                let n1 = ((pair[1] as f32 - mean) / std).clamp(-8.0, 7.0).round() as i8;
+                let packed = ((n0 as u8) & 0x0F) | (((n1 as u8) & 0x0F) << 4);
+                quantized.push(packed);
+            }
         }
 
         Ok(quantized)

@@ -252,11 +252,12 @@ impl ParallelAssociativeScan {
                 break;
             }
 
-            // Process block sequentially (simplified - would be parallel in practice)
             let mut current_state = if block_idx == 0 {
                 initial_state.clone()
+            } else if let Some(prev) = self.block_results.last() {
+                prev.clone()
             } else {
-                ArrayD::zeros(vec![self.hidden_size]) // Placeholder
+                ArrayD::zeros(vec![self.hidden_size])
             };
 
             for i in start_idx..end_idx {

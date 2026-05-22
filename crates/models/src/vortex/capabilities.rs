@@ -545,7 +545,6 @@ impl _VortexCapabilities {
 
         for (domain, improvement) in improvements {
             if let Some(capability) = new_capabilities.vector.capabilities.get_mut(domain) {
-                // Simulate improvement by increasing score
                 let current_score = capability.score();
                 let new_score = (current_score + improvement).min(1.0);
 

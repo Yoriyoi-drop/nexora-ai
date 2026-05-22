@@ -139,7 +139,7 @@ macro_rules! define_foundation_model {
                     total_time_ms: AtomicU64::new(0),
                     start_time: chrono::Utc::now(),
                     #[cfg(feature = "hallucination")]
-                    hallucination: None,
+                    hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
                 }
             }
 
@@ -243,7 +243,7 @@ macro_rules! define_foundation_model {
                         total_time_ms: AtomicU64::new(0),
                         start_time: chrono::Utc::now(),
                         #[cfg(feature = "hallucination")]
-                        hallucination: None,
+                        hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
                     },
                     Err(e) => {
                         tracing::warn!(target: stringify!($name), "Checkpoint load failed (will use random init): {}", e);
@@ -273,7 +273,7 @@ macro_rules! define_foundation_model {
                     total_time_ms: AtomicU64::new(self.total_time_ms.load(Ordering::Relaxed)),
                     start_time: self.start_time,
                     #[cfg(feature = "hallucination")]
-                    hallucination: None,
+                    hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
                 }
             }
         }

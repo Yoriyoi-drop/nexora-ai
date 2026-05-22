@@ -1,4 +1,4 @@
-//! Task distribution dan execution untuk Nexora Core
+//! Distribusi task dan eksekusi untuk Nexora Core
 
 use crate::error::CoreResult;
 use crate::types::{ModelId, TaskExecution};
@@ -6,10 +6,23 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Task manager untuk mengelola distribusi dan eksekusi task
+/// Strategi eksekusi task
+#[derive(Debug)]
+pub enum TaskExecutionStrategy {
+    /// Eksekusi simulasi (fallback)
+    Simulated,
+    /// Mengembalikan output langsung
+    Direct(String),
+    /// Mengeksekusi menggunakan handler yang terdaftar
+    ModelBased,
+}
+
+/// Manajer task untuk mengelola distribusi dan eksekusi task
 pub struct TaskManager {
     active_tasks: HashMap<String, TaskExecution>,
     max_concurrent_tasks: usize,
+    strategy: TaskExecutionStrategy,
+    handlers: HashMap<String, Box<dyn Fn(String) -> String + Send + Sync>>,
 }
 
 impl TaskManager {
@@ -17,10 +30,12 @@ impl TaskManager {
         Self {
             active_tasks: HashMap::new(),
             max_concurrent_tasks,
+            strategy: TaskExecutionStrategy::Simulated,
+            handlers: HashMap::new(),
         }
     }
 
-    /// Create dan assign task ke model
+    /// Membuat dan menetapkan task ke model
     pub async fn create_task(
         &mut self,
         model: ModelId,
@@ -61,24 +76,42 @@ impl TaskManager {
         Ok(task_id)
     }
 
-    /// Execute task pada model (simplified)
+    /// Mengeksekusi task pada model
     pub async fn execute_task(&mut self, task_id: &str) -> CoreResult<String> {
         let task = self.active_tasks.get_mut(task_id).ok_or_else(|| {
             crate::error::CoreError::TaskExecution(format!("Task not found: {}", task_id))
         })?;
 
         debug!(
-            "Executing task: id={}, model={:?}",
-            task_id, task.assigned_model
+            "Executing task: id={}, model={:?}, strategy={:?}",
+            task_id, task.assigned_model, self.strategy
         );
 
-        // Simulate task execution
-        let output = format!(
-            "Task executed by {:?}: {}",
-            task.assigned_model, task.task_description
-        );
+        let output = match &self.strategy {
+            TaskExecutionStrategy::Direct(output) => output.clone(),
+            TaskExecutionStrategy::ModelBased => {
+                let model_key = task.assigned_model.name();
+                if let Some(handler) = self.handlers.get(model_key) {
+                    handler(task.task_input.clone())
+                } else {
+                    warn!(
+                        "No handler registered for model '{}', falling back to simulated execution",
+                        model_key
+                    );
+                    format!(
+                        "Task executed by {:?}: {}",
+                        task.assigned_model, task.task_description
+                    )
+                }
+            }
+            TaskExecutionStrategy::Simulated => {
+                format!(
+                    "Task executed by {:?}: {}",
+                    task.assigned_model, task.task_description
+                )
+            }
+        };
 
-        // Update task status
         task.task_output = Some(output.clone());
         task.is_completed = true;
         task.was_successful = true;
@@ -91,17 +124,17 @@ impl TaskManager {
         Ok(output)
     }
 
-    /// Get task by ID
+    /// Mendapatkan task berdasarkan ID
     pub fn get_task(&self, task_id: &str) -> Option<&TaskExecution> {
         self.active_tasks.get(task_id)
     }
 
-    /// Get all active tasks
+    /// Mendapatkan semua task aktif
     pub fn get_active_tasks(&self) -> Vec<&TaskExecution> {
         self.active_tasks.values().collect()
     }
 
-    /// Complete task dan remove dari active tasks
+    /// Menyelesaikan task dan menghapus dari task aktif
     pub async fn complete_task(&mut self, task_id: &str, success: bool) -> CoreResult<()> {
         if let Some(task) = self.active_tasks.get_mut(task_id) {
             task.is_completed = true;
@@ -121,7 +154,7 @@ impl TaskManager {
         Ok(())
     }
 
-    /// Remove completed tasks
+    /// Membersihkan task yang sudah selesai
     pub fn cleanup_completed(&mut self) {
         let completed_tasks: Vec<String> = self
             .active_tasks
@@ -142,9 +175,24 @@ impl TaskManager {
         }
     }
 
-    /// Get active task count
+    /// Mendapatkan jumlah task aktif
     pub fn active_task_count(&self) -> usize {
         self.active_tasks.len()
+    }
+
+    /// Mendaftarkan handler untuk model tertentu
+    pub fn register_handler<F>(&mut self, model: &str, handler: F)
+    where
+        F: Fn(String) -> String + Send + Sync + 'static,
+    {
+        self.handlers.insert(model.to_string(), Box::new(handler));
+        debug!("Handler registered for model: {}", model);
+    }
+
+    /// Mengatur strategi eksekusi
+    pub fn set_strategy(&mut self, strategy: TaskExecutionStrategy) {
+        self.strategy = strategy;
+        info!("Task execution strategy has been updated");
     }
 }
 
@@ -154,7 +202,6 @@ impl Default for TaskManager {
     }
 }
 
-// Extend TaskExecution dari types.rs
 impl TaskExecution {
     pub fn duration_ms(&self) -> u64 {
         if self.end_time > 0 && self.start_time > 0 {

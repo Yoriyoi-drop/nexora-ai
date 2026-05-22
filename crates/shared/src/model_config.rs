@@ -555,8 +555,8 @@ impl Default for StorageConfig {
         Self {
             model_dir: "./models".to_string(),
             cache_dir: "./cache".to_string(),
-            use_compression: false,
-            compression_level: None,
+            use_compression: true,
+            compression_level: Some(5),
         }
     }
 }
@@ -611,7 +611,7 @@ impl Default for FeatureFlags {
             enable_batch: true,
             enable_async: true,
             enable_cache: true,
-            enable_compression: false,
+            enable_compression: true,
             enable_encryption: false,
             debug_mode: false,
             experimental_features: false,

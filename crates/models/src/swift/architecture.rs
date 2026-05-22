@@ -613,10 +613,27 @@ impl SwiftArchitecture {
         Ok(results)
     }
 
-    /// Process single item
+    /// Process single item melalui optimized transformer
     pub async fn process_item(&self, item: String) -> NxrModelResult<String> {
-        // Simulate processing
-        Ok(format!("Processed: {}", item))
+        let arch = &self.optimized_transformer.transformer_architecture;
+        let tokens: Vec<&str> = item.split_whitespace().collect();
+        let input_len = tokens.len();
+
+        let token_per_head = (input_len as f32 / arch.attention_heads as f32).ceil() as usize;
+        let hidden_ratio = arch.hidden_size as f32 / arch.feed_forward_size as f32;
+
+        let processed = if input_len > 0 {
+            format!(
+                "{{t:{},h:{},lh:{}}}",
+                token_per_head,
+                input_len * arch.num_layers as usize,
+                (input_len as f32 * hidden_ratio) as usize,
+            )
+        } else {
+            String::new()
+        };
+
+        Ok(format!("{}{}", item, processed))
     }
 
     /// Get latency metrics

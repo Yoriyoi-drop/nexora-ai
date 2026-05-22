@@ -299,6 +299,36 @@ impl RateLimiter {
         counters.insert(key.to_string(), (new_window_start, new_count));
         Ok(true)
     }
+
+    /// Dapatkan jumlah request dalam window saat ini untuk client
+    pub async fn window_count(&self, key: &str) -> Option<usize> {
+        let counters = self.counters.read().await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_secs();
+
+        counters.get(key).and_then(|(window_start, count)| {
+            let limits = self.limits.blocking_read();
+            let window_duration = limits
+                .get(key)
+                .map(|l| l.window_seconds)
+                .unwrap_or(60);
+
+            if now < window_start + window_duration {
+                Some(*count as usize)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Dapatkan total client dan request terdaftar
+    pub async fn total_stats(&self) -> (usize, usize) {
+        let limits = self.limits.read().await;
+        let counters = self.counters.read().await;
+        (limits.len(), counters.len())
+    }
 }
 
 impl Default for RateLimiter {
