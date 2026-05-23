@@ -69,6 +69,34 @@ pub fn sum(input: &Tensor) -> Tensor {
     )
 }
 
+/// CPU fallback for mean (used when GPU path fails)
+#[inline]
+fn fallback_mean(input: &Tensor) -> Tensor {
+    let data = input.data();
+    let numel = data.len() as f32;
+    let result = ArrayD::from_elem(vec![1], data.sum() / numel);
+    if !input.requires_grad() {
+        return Tensor::new(result);
+    }
+    let orig_shape = data.shape().to_vec();
+    let shape_saved = ArrayD::from_shape_vec(
+        vec![orig_shape.len()],
+        orig_shape.iter().map(|&x| x as f32).collect(),
+    ).expect("shape data fits vector");
+    Tensor::with_grad_fn(
+        result,
+        vec![input.clone()],
+        vec![shape_saved, ArrayD::from_elem(vec![1], numel)],
+        Box::new(|grad, saved| {
+            let shape_data: Vec<f32> = saved[0].iter().copied().collect();
+            let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+            let n = saved[1].iter().copied().next().unwrap_or(1.0);
+            let grad_val = grad.iter().copied().next().unwrap_or(1.0);
+            vec![ArrayD::from_elem(orig_shape, grad_val / n)]
+        }),
+    )
+}
+
 pub fn mean(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
@@ -78,8 +106,15 @@ pub fn mean(input: &Tensor) -> Tensor {
                 match ctx.reduce(gpu_input, ReduceOp::Sum) {
                     Ok(gpu_sum) => {
                         let numel = input.numel() as f32;
-                        let numel_tensor =
-                            GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], numel)).unwrap();
+                        let numel_tensor = match
+                            GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], numel))
+                        {
+                            Ok(t) => t,
+                            Err(e) => {
+                                debug!("autograd reduce numel_tensor failed: {e}");
+                                return fallback_mean(input);
+                            }
+                        };
                         if let Ok(gpu_result) = ctx.div(&gpu_sum, &numel_tensor) {
                             if !input.requires_grad() {
                                 let id = next_tensor_id();
@@ -113,28 +148,5 @@ pub fn mean(input: &Tensor) -> Tensor {
             }
         }
     }
-    let data = input.data();
-    let numel = data.len() as f32;
-    let result = ArrayD::from_elem(vec![1], data.sum() / numel);
-    if !input.requires_grad() {
-        return Tensor::new(result);
-    }
-    let orig_shape = data.shape().to_vec();
-    let shape_saved = ArrayD::from_shape_vec(
-        vec![orig_shape.len()],
-        orig_shape.iter().map(|&x| x as f32).collect(),
-    )
-    .expect("shape data fits vector");
-    Tensor::with_grad_fn(
-        result,
-        vec![input.clone()],
-        vec![shape_saved, ArrayD::from_elem(vec![1], numel)],
-        Box::new(|grad, saved| {
-            let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-            let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
-            let n = saved[1].iter().copied().next().unwrap_or(1.0);
-            let grad_val = grad.iter().copied().next().unwrap_or(1.0);
-            vec![ArrayD::from_elem(orig_shape, grad_val / n)]
-        }),
-    )
+    fallback_mean(input)
 }

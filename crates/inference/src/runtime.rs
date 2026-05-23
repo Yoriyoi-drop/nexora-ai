@@ -188,8 +188,6 @@ impl InferenceRuntime {
 
     /// Create runtime with configuration
     pub fn with_config(config: RuntimeConfig) -> Self {
-        let mut system = System::new_all();
-        system.refresh_all();
         let pid = std::process::id() as usize;
 
         Self {
@@ -198,7 +196,7 @@ impl InferenceRuntime {
             resource_usage: Arc::new(RwLock::new(ResourceUsage::default())),
             performance_metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
             events: Arc::new(RwLock::new(Vec::new())),
-            system: Arc::new(RwLock::new(system)),
+            system: Arc::new(RwLock::new(System::new())),
             pid,
         }
     }
@@ -459,14 +457,30 @@ impl InferenceRuntime {
                     runtime.config.metrics_interval_seconds,
                 ));
 
+                let mut prev_total_requests: u64 = 0;
+                let mut prev_tokens: u64 = 0;
                 loop {
                     interval.tick().await;
 
                     let state = runtime.get_state().await;
                     match state {
                         RuntimeState::Ready | RuntimeState::Busy => {
-                            // Performance metrics are updated externally by request processing
-                            // This task could handle periodic aggregation if needed
+                            let metrics = runtime.performance_metrics.read().await;
+                            let total = metrics.total_requests;
+                            let tokens = metrics.tokens_per_second as u64;
+                            let new_requests = total.saturating_sub(prev_total_requests);
+                            let new_tokens = tokens.saturating_sub(prev_tokens);
+                            drop(metrics);
+
+                            // Log aggregate activity every cycle
+                            if new_requests > 0 || new_tokens > 0 {
+                                debug!(
+                                    "Perf tracking: +{} requests, +{} tokens in interval",
+                                    new_requests, new_tokens
+                                );
+                            }
+                            prev_total_requests = total;
+                            prev_tokens = tokens;
                         }
                         RuntimeState::ShuttingDown | RuntimeState::Shutdown => break,
                         _ => continue,
@@ -582,25 +596,34 @@ impl InferenceRuntime {
 
     // Resource monitoring helper methods
     async fn get_cpu_usage(&self) -> Result<f64> {
-        let mut system = self.system.write().await;
-        system.refresh_cpu();
-
-        let total_cpu_usage: f64 = system.cpus().iter().map(|cpu| cpu.cpu_usage() as f64).sum();
-        let avg_cpu_usage = total_cpu_usage / system.cpus().len() as f64;
-
-        Ok(avg_cpu_usage)
+        let system_clone = Arc::clone(&self.system);
+        tokio::task::spawn_blocking(move || -> Result<f64> {
+            let mut system = system_clone.blocking_write();
+            system.refresh_cpu();
+            let total_cpu_usage: f64 = system.cpus().iter().map(|cpu| cpu.cpu_usage() as f64).sum();
+            if system.cpus().is_empty() {
+                return Ok(0.0);
+            }
+            Ok(total_cpu_usage / system.cpus().len() as f64)
+        })
+        .await
+        .map_err(|e| InferenceError::InternalError(format!("CPU usage read failed: {}", e)))?
     }
 
     async fn get_memory_usage(&self) -> Result<u64> {
-        let mut system = self.system.write().await;
-        system.refresh_memory();
-
-        if let Some(process) = system.process(self.pid.into()) {
-            Ok(process.memory())
-        } else {
-            // Fallback to system memory if process not found
-            Ok(system.used_memory())
-        }
+        let system_clone = Arc::clone(&self.system);
+        let pid = self.pid;
+        tokio::task::spawn_blocking(move || -> Result<u64> {
+            let mut system = system_clone.blocking_write();
+            system.refresh_memory();
+            if let Some(process) = system.process(pid.into()) {
+                Ok(process.memory())
+            } else {
+                Ok(system.used_memory())
+            }
+        })
+        .await
+        .map_err(|e| InferenceError::InternalError(format!("Memory usage read failed: {}", e)))?
     }
 
     async fn get_gpu_memory_usage(&self) -> Result<(u64, f64)> {

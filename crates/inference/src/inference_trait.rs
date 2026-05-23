@@ -5,9 +5,13 @@ use ndarray::Array1;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{InferenceRequest, InferenceResponse, Result as InferenceResult};
 use nexora_transformer::{CpuKVCache, KVCacheProvider};
+
+/// Global counter of GPU forward failures — resettable, observable.
+pub static GPU_FORWARD_ERRORS: AtomicU64 = AtomicU64::new(0);
 
 /// Trait for model forward pass — abstracts over CausalLM for testing.
 pub trait ModelForward: Send + Sync {
@@ -81,8 +85,6 @@ pub trait InferenceEngine: Send + Sync {
 
 impl ModelForward for nexora_transformer::CausalLM {
     fn forward(&self, input_ids: &[u32], kv_cache: &mut dyn KVCacheProvider) -> Array1<f32> {
-        // Use a free function to avoid ambiguity between the trait method
-        // and the inherent CausalLM::forward (which returns Result).
         fn fallible_forward(
             model: &nexora_transformer::CausalLM,
             ids: &[u32],
@@ -91,8 +93,15 @@ impl ModelForward for nexora_transformer::CausalLM {
             match model.forward(ids, cache) {
                 Ok(v) => v,
                 Err(e) => {
-                    tracing::warn!("CausalLM forward failed: {e}");
-                    Array1::zeros(model.config.vocab_size)
+                    GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
+                    tracing::error!("CausalLM forward failed: {e}");
+                    let mut zeros = Array1::zeros(model.config.vocab_size);
+                    // Inject a non-zero sentinel in the last position so callers
+                    // can detect the failure if they check for it.
+                    if zeros.len() > 0 {
+                        zeros[zeros.len() - 1] = -f32::INFINITY;
+                    }
+                    zeros
                 }
             }
         }
@@ -122,16 +131,15 @@ impl ModelForward for nexora_transformer::CausalLM {
                     return result;
                 }
                 Err(e) => {
-                    tracing::warn!("GPU batched forward failed: {}, falling back to CPU per-sequence", e);
+                    GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
+                    tracing::error!("GPU batched forward failed ({}), falling back to CPU per-sequence", e);
                 }
             }
-            // GPU failed, restore entries
             for (i, entries) in vec_caches.into_iter().enumerate() {
                 kv_caches[i].entries = entries;
             }
         }
 
-        // CPU fallback: per-sequence via ModelForward::forward
         input_ids
             .iter()
             .zip(kv_caches.iter_mut())

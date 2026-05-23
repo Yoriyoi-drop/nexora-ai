@@ -300,6 +300,16 @@ impl RequestScheduler {
         }
         Ok(())
     }
+
+    /// Complete a batch by batch ID without requiring the full Batch struct.
+    /// Releases the concurrent slot for the batch.
+    pub async fn complete_batch_id(&self, _batch_id: uuid::Uuid) -> Result<(), anyhow::Error> {
+        let mut active = self.active_count.write().await;
+        if *active > 0 {
+            *active -= 1;
+        }
+        Ok(())
+    }
 }
 
 impl Default for RequestScheduler {

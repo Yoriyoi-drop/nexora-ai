@@ -342,16 +342,9 @@ impl PagedKVCache {
         k_proj: &Array2<f32>,
         v_proj: &Array2<f32>,
     ) {
-        let k_slice: &[f32] = k_proj.as_slice().unwrap_or_else(|| {
-            // Fallback: alokasi hanya jika tidak contiguous (jarang)
-            let v: Vec<f32> = k_proj.iter().copied().collect();
-            Box::leak(v.into_boxed_slice())
-        });
-        let v_slice: &[f32] = v_proj.as_slice().unwrap_or_else(|| {
-            let v: Vec<f32> = v_proj.iter().copied().collect();
-            Box::leak(v.into_boxed_slice())
-        });
-        self.append(seq_id, layer, token_pos, k_slice, v_slice);
+        let k_vec: Vec<f32> = k_proj.iter().copied().collect();
+        let v_vec: Vec<f32> = v_proj.iter().copied().collect();
+        self.append(seq_id, layer, token_pos, &k_vec, &v_vec);
     }
 
     /// Read KV data for a token position.

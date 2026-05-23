@@ -453,7 +453,7 @@ impl GpuContext {
         // ── Persistent pipeline cache setup ──
         let adapter_info = adapter.get_info();
         // Include driver version in cache key so driver updates invalidate the cache
-        let driver_version = device.driver_info();
+        let driver_version = &adapter_info.driver_info;
         let cache_key = {
             use std::hash::{Hash, Hasher};
             match wgpu::util::pipeline_cache_key(&adapter_info) {

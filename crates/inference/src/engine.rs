@@ -63,6 +63,7 @@ pub struct InferenceEngine {
     model: CausalLM,
     tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
+    prefix_cache: Arc<PrefixCache>,
     request_tx: mpsc::Sender<InferenceRequest>,
     request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,

@@ -444,8 +444,20 @@ pub fn layer_norm_2d(
 
             // dL/dx_i = (1/N * sigma) * (N * dL/dy_i - sum(dL/dy) - x_hat_i * sum(dL/dy * x_hat))
             let mut dx = grad.clone();
-            let g_slice = grad.as_slice().expect("grad should be contiguous");
-            let x_slice = x.as_slice().expect("x should be contiguous");
+            let g_slice = match grad.as_slice() {
+                Some(s) => s,
+                None => {
+                    tracing::error!("layernorm backward: grad not contiguous");
+                    return vec![ArrayD::zeros(x.shape().to_vec())];
+                }
+            };
+            let x_slice = match x.as_slice() {
+                Some(s) => s,
+                None => {
+                    tracing::error!("layernorm backward: x not contiguous");
+                    return vec![ArrayD::zeros(x.shape().to_vec())];
+                }
+            };
             for b in 0..batch {
                 let m = mean[b];
                 let s = std[b];
@@ -460,7 +472,13 @@ pub fn layer_norm_2d(
                     sum_dy_xhat += gv * xhat;
                 }
                 let inv_s = 1.0 / s;
-                let dx_slice = dx.as_slice_mut().expect("dx should be contiguous");
+                let dx_slice = match dx.as_slice_mut() {
+                    Some(s) => s,
+                    None => {
+                        tracing::error!("layernorm backward: dx not contiguous");
+                        return vec![ArrayD::zeros(x.shape().to_vec())];
+                    }
+                };
                 for j in 0..dim {
                     let idx = b * dim + j;
                     let gv = g_slice[idx];

@@ -3,6 +3,7 @@
 //! Main token generation loop untuk inference.
 
 use chrono::{DateTime, Utc};
+use ndarray::Array1;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
@@ -11,11 +12,13 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::decoding::{DecodingContext, DecodingStrategy};
+use crate::inference_trait::ModelForward;
 use crate::stop_conditions::{StopConditions, StopContext};
 use crate::streaming::StreamingEngine;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
+use nexora_transformer::CpuKVCache;
 
 /// Configuration untuk token loop
 #[derive(Debug, Clone)]
@@ -183,11 +186,12 @@ impl TokenLoop {
         Ok(())
     }
 
-    /// Run token generation loop
+    /// Run token generation loop — calls the model forward itself to produce logits.
     pub async fn run_loop(
         &self,
         request: &InferenceRequest,
-        initial_logits: Vec<Vec<f32>>,
+        model: &dyn ModelForward,
+        kv_cache: &mut dyn nexora_transformer::KVCacheProvider,
     ) -> Result<InferenceResponse> {
         debug!(
             "Starting token generation loop for request: {}",
@@ -241,7 +245,7 @@ impl TokenLoop {
 
         // Run main generation loop
         let result = self
-            .run_generation_loop(loop_id, request, initial_logits, stream_id, start_time)
+            .run_generation_loop(loop_id, request, stream_id, start_time, model, kv_cache)
             .await;
 
         // Clean up
@@ -250,24 +254,26 @@ impl TokenLoop {
         result
     }
 
-    /// Run main generation loop
+    /// Run main generation loop — calls model forward at each step.
     async fn run_generation_loop(
         &self,
         loop_id: Uuid,
         request: &InferenceRequest,
-        initial_logits: Vec<Vec<f32>>,
         stream_id: Option<Uuid>,
         start_time: chrono::DateTime<Utc>,
+        model: &dyn ModelForward,
+        kv_cache: &mut dyn nexora_transformer::KVCacheProvider,
     ) -> Result<InferenceResponse> {
-        let mut tokens = Vec::with_capacity(initial_logits.len());
-        let mut token_frequencies = HashMap::with_capacity(initial_logits.len());
+        let prompt_ids: Vec<u32> = request.input_tokens.clone();
+        let mut all_ids = prompt_ids.clone();
+        let max_gen = request.max_tokens.min(2048) as usize;
         let mut finish_reason = FinishReason::Unknown;
 
-        let mut decoding_context = DecodingContext::new(initial_logits[0].len());
+        let mut decoding_context = DecodingContext::new(1024);
         let mut last_sample_time = Utc::now();
+        let mut tokens: Vec<Arc<GeneratedToken>> = Vec::with_capacity(max_gen);
 
-        for (step, logits) in initial_logits.iter().enumerate() {
-            // Check loop state
+        for step in 0..max_gen {
             let run_state = self.state.load(Ordering::Acquire);
             if run_state != STATE_RUNNING {
                 if run_state == STATE_CANCELLED {
@@ -291,6 +297,14 @@ impl TokenLoop {
                 ));
             }
 
+            // Run model forward to get logits
+            let input: &[u32] = if step == 0 {
+                &prompt_ids
+            } else {
+                core::slice::from_ref(all_ids.last().unwrap_or(&1))
+            };
+            let logits: Array1<f32> = model.forward(input, kv_cache);
+
             // Check stop conditions
             let current_time = if step % 10 == 0 {
                 let t = Utc::now();
@@ -301,7 +315,7 @@ impl TokenLoop {
             };
             let stop_context = StopContext {
                 token_count: tokens.len(),
-                start_time, // Use actual start time from loop creation
+                start_time,
                 current_time,
                 metadata: HashMap::new(),
             };
@@ -321,7 +335,6 @@ impl TokenLoop {
                 break;
             }
 
-            // Check token limit
             if tokens.len() >= request.max_tokens as usize {
                 finish_reason = FinishReason::MaxTokens;
                 break;
@@ -337,11 +350,11 @@ impl TokenLoop {
                 ..Default::default()
             };
 
+            let logits_slice: Vec<f32> = logits.into_raw_vec();
             let token_selection =
                 self.decoding_strategy
-                    .select_token(logits, &decoding_config, &decoding_context)?;
+                    .select_token(&logits_slice, &decoding_config, &decoding_context)?;
 
-            // Validate token if enabled
             if self.config.enable_token_validation {
                 if !self.validate_token(&token_selection).await? {
                     warn!(
@@ -352,24 +365,23 @@ impl TokenLoop {
                 }
             }
 
-            // Create generated token and store in vec first
-            tokens.push(Arc::new(GeneratedToken::new(
+            let gen = Arc::new(GeneratedToken::new(
                 token_selection.token_id,
                 token_selection.token_text.clone(),
                 token_selection.log_prob,
                 step,
-            )));
-            let gen = tokens.last().expect("token just pushed, must exist");
+            ));
 
-            decoding_context.add_token(Arc::clone(gen));
-            *token_frequencies.entry(gen.token_id).or_insert(0) += 1;
+            tokens.push(Arc::clone(&gen));
+            decoding_context.add_token(Arc::clone(&gen));
+            all_ids.push(token_selection.token_id);
 
             if let Some(stream_id) = stream_id {
                 if let Some(streaming_engine) = &self.streaming_engine {
                     streaming_engine
                         .write()
                         .await
-                        .send_token(stream_id, Arc::clone(gen))
+                        .send_token(stream_id, Arc::clone(&gen))
                         .await?;
                 }
             }
@@ -378,7 +390,7 @@ impl TokenLoop {
                 let mut active_loops = self.active_loops.write().await;
                 if let Some(info) = active_loops.get_mut(&loop_id) {
                     info.token_count = tokens.len();
-                    info.tokens.push(Arc::clone(gen));
+                    info.tokens.push(Arc::clone(&gen));
                 }
             }
 

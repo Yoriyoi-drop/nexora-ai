@@ -1,5 +1,7 @@
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
+use crate::gpu::GpuTensor;
+#[cfg(feature = "gpu")]
 use crate::Storage;
 #[cfg(feature = "gpu")]
 use ndarray::ArrayD;
@@ -41,15 +43,15 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                         match ctx.matmul_backward(ga, gb, grad_gpu) {
                                             Ok((da, db)) => vec![da, db],
                                             Err(_) => {
+                                                let zero_a = GpuTensor::from_cpu(
+                                                    &ArrayD::zeros(ga.shape()),
+                                                );
+                                                let zero_b = GpuTensor::from_cpu(
+                                                    &ArrayD::zeros(gb.shape()),
+                                                );
                                                 vec![
-                                                    crate::gpu::GpuTensor::from_cpu(
-                                                        &ArrayD::zeros(ga.shape()),
-                                                    )
-                                                    .unwrap(),
-                                                    crate::gpu::GpuTensor::from_cpu(
-                                                        &ArrayD::zeros(gb.shape()),
-                                                    )
-                                                    .unwrap(),
+                                                    zero_a.unwrap_or_else(|_| ga.clone()),
+                                                    zero_b.unwrap_or_else(|_| gb.clone()),
                                                 ]
                                             }
                                         }
@@ -61,18 +63,36 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                     let a_val = &saved[0];
                                     let b_val = &saved[1];
                                     let grad_arr = grad.clone();
-                                    let grad_mat = grad_arr
+                                    let grad_mat = match grad_arr
                                         .view()
                                         .into_dimensionality::<ndarray::Ix2>()
-                                        .expect("grad 2D");
-                                    let a_mat = a_val
+                                    {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            tracing::error!("matmul backward grad: {e}");
+                                            return vec![ArrayD::zeros(vec![0]), ArrayD::zeros(vec![0])];
+                                        }
+                                    };
+                                    let a_mat = match a_val
                                         .view()
                                         .into_dimensionality::<ndarray::Ix2>()
-                                        .expect("a 2D");
-                                    let b_mat = b_val
+                                    {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            tracing::error!("matmul backward a: {e}");
+                                            return vec![ArrayD::zeros(vec![0]), ArrayD::zeros(vec![0])];
+                                        }
+                                    };
+                                    let b_mat = match b_val
                                         .view()
                                         .into_dimensionality::<ndarray::Ix2>()
-                                        .expect("b 2D");
+                                    {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            tracing::error!("matmul backward b: {e}");
+                                            return vec![ArrayD::zeros(vec![0]), ArrayD::zeros(vec![0])];
+                                        }
+                                    };
                                     let da = grad_mat.dot(&b_mat.t()).into_dyn();
                                     let db = a_mat.t().dot(&grad_mat).into_dyn();
                                     vec![da, db]
@@ -103,10 +123,10 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
 
     let a_mat = a_view
         .into_dimensionality::<ndarray::Ix2>()
-        .expect("MatMul: a must be 2D");
+        .unwrap_or_else(|e| panic!("MatMul: a must be 2D: {e}"));
     let b_mat = b_view
         .into_dimensionality::<ndarray::Ix2>()
-        .expect("MatMul: b must be 2D");
+        .unwrap_or_else(|e| panic!("MatMul: b must be 2D: {e}"));
 
     let result = a_mat.dot(&b_mat).into_dyn();
 
@@ -126,20 +146,38 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
             let b_val = &saved[1];
             let grad_arr = grad.clone();
 
-            let grad_mat = grad_arr
+            let grad_mat = match grad_arr
                 .view()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("grad must be 2D");
+            {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!("matmul backward: grad must be 2D: {e}");
+                    return vec![ArrayD::zeros(vec![0]), ArrayD::zeros(vec![0])];
+                }
+            };
 
-            let a_mat = a_val
+            let a_mat = match a_val
                 .view()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("a must be 2D");
+            {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!("matmul backward: a must be 2D: {e}");
+                    return vec![ArrayD::zeros(vec![0]), ArrayD::zeros(vec![0])];
+                }
+            };
 
-            let b_mat = b_val
+            let b_mat = match b_val
                 .view()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("b must be 2D");
+            {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!("matmul backward: b must be 2D: {e}");
+                    return vec![ArrayD::zeros(vec![0]), ArrayD::zeros(vec![0])];
+                }
+            };
 
             let da = grad_mat.dot(&b_mat.t()).into_dyn();
             let db = a_mat.t().dot(&grad_mat).into_dyn();
