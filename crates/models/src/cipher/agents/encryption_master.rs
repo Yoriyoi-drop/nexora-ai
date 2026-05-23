@@ -305,15 +305,8 @@ impl EncryptionMasterAgent {
             "EndToEndProtection".to_string(),
         );
 
-        if input.encryption_parameters.contains_key("algorithm") {
-            metadata.insert(
-                "algorithm".to_string(),
-                input
-                    .encryption_parameters
-                    .get("algorithm")
-                    .expect("algorithm key exists")
-                    .clone(),
-            );
+        if let Some(algorithm) = input.encryption_parameters.get("algorithm") {
+            metadata.insert("algorithm".to_string(), algorithm.clone());
         }
 
         Ok(metadata)
@@ -330,14 +323,8 @@ impl EncryptionMasterAgent {
         controls.push("Implement role-based access control".to_string());
         controls.push("Log all access attempts".to_string());
 
-        if input.encryption_parameters.contains_key("access_level") {
-            controls.push(format!(
-                "Access level: {}",
-                input
-                    .encryption_parameters
-                    .get("access_level")
-                    .expect("access_level key exists")
-            ));
+        if let Some(access_level) = input.encryption_parameters.get("access_level") {
+            controls.push(format!("Access level: {}", access_level));
         }
 
         Ok(controls)

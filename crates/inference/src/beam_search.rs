@@ -10,10 +10,9 @@ use uuid::Uuid;
 
 /// Persistent, append-only token list using shared tails.
 /// Adding a token is O(1) — no full Vec clone.
-/// TODO: O(n²) clone — use persistent data structure for large beams
-/// NOTE: This is already mitigated by PersistentTokens Arc-based sharing.
+/// This implementation uses Arc-based sharing to avoid O(n²) clone complexity.
 /// The to_vec() path is O(n) and only used for final output; intermediate
-/// beam expansion never clones the full token vector.
+/// beam expansion never clones the full token vector, only shares Arc references.
 #[derive(Debug, Clone)]
 pub struct PersistentTokens {
     prefix: Option<Arc<PersistentTokens>>,

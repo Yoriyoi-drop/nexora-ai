@@ -12,12 +12,13 @@ use tracing::info;
 
 /// Generate noise array untuk GPU acceleration
 #[cfg(feature = "gpu")]
-fn generate_noise_array(shape: Vec<usize>, std: f32, rng: &mut ThreadRng) -> ndarray::ArrayD<f32> {
+fn generate_noise_array(shape: Vec<usize>, std: f32, rng: &mut ThreadRng) -> Result<ndarray::ArrayD<f32>, String> {
     let len: usize = shape.iter().product();
     let noise: Vec<f32> = (0..len)
         .map(|_| rng.sample::<f32, _>(StandardNormal) * std)
         .collect();
-    ndarray::ArrayD::from_shape_vec(shape, noise).expect("failed to create noise array from shape")
+    ndarray::ArrayD::from_shape_vec(shape, noise)
+        .map_err(|e| format!("failed to create noise array from shape: {}", e))
 }
 
 /// Data augmentation utilities untuk consistency learning
@@ -66,7 +67,7 @@ impl AugmentationUtils {
         use ndarray::ArrayD;
         let ctx = GpuContext::global().ok()?;
         let shape = vec![data.shape()[0], data.shape()[1]];
-        let noise_arr = generate_noise_array(shape.clone(), std, rng);
+        let noise_arr = generate_noise_array(shape.clone(), std, rng).ok()?;
         let data_gpu = GpuTensor::from_cpu(
             &ArrayD::from_shape_vec(shape, data.iter().copied().collect()).ok()?
         ).ok()?;

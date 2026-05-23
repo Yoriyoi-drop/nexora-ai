@@ -284,15 +284,15 @@ impl ERPTrainer {
         gradient: &Array2<f32>,
         learning_rate: f32,
     ) -> Result<(), ERPError> {
-        // Create a temporary gate network dengan weights dari reconstructor
-        let mut temp_gate_network = crate::reconstruction::GateNetwork::new(self.config.clone());
+        // Create a working gate network dengan weights dari reconstructor
+        let mut working_gate_network = crate::reconstruction::GateNetwork::new(self.config.clone());
 
         // Copy current weights dari reconstructor (dalam implementasi nyata, gunakan proper accessor)
-        let current_weights = temp_gate_network.get_weights();
+        let current_weights = working_gate_network.get_weights();
         let _weight_shape = current_weights.shape();
 
         // Update dengan gradient
-        temp_gate_network.update_weights(gradient, learning_rate);
+        working_gate_network.update_weights(gradient, learning_rate);
 
         // Update reconstructor dengan new weights (dalam implementasi nyata, gunakan proper setter)
         tracing::debug!(

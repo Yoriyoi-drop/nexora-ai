@@ -209,8 +209,11 @@ pub struct TrainingBatch {
     /// Noise yang ditambahkan
     pub noise: Tensor,
 
-    /// Latent representations
+    /// Latent representations (low-resolution)
     pub latents: Tensor,
+
+    /// High-resolution latents for upsampler training (optional)
+    pub high_res_latents: Option<Tensor>,
 }
 
 impl TrainingBatch {
@@ -227,7 +230,13 @@ impl TrainingBatch {
             timesteps,
             noise,
             latents,
+            high_res_latents: None,
         }
+    }
+
+    pub fn with_high_res_latents(mut self, high_res_latents: Tensor) -> Self {
+        self.high_res_latents = Some(high_res_latents);
+        self
     }
 
     pub fn batch_size(&self) -> usize {

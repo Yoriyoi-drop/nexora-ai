@@ -88,11 +88,11 @@ pub struct GpuContext {
     /// Reusable readback buffer for timestamp queries
     pub(crate) query_readback_buf: Option<Mutex<wgpu::Buffer>>,
     // ── Reusable command encoder (Mutex-protected for &self access) ───
-    // NOTE: This is a global encoder mutex which can cause contention under
-    // heavy multi-threaded dispatch. For high-throughput GPU workloads, use
-    // GpuCommandBatch (see gpu_batch.rs) which creates per-batch encoders,
+    // WARNING: This is a global encoder mutex which can cause contention under
+    // heavy multi-threaded dispatch. For high-throughput GPU workloads (>100 ops/sec),
+    // use GpuCommandBatch (see gpu_batch.rs) which creates per-batch encoders,
     // avoiding this mutex entirely. The global encoder is kept for simple
-    // single-threaded use and fallback paths.
+    // single-threaded use and fallback paths only.
     pub(crate) current_encoder: Mutex<Option<wgpu::CommandEncoder>>,
     pub(crate) ops_since_flush: std::sync::atomic::AtomicUsize,
     pub(crate) auto_flush_ops: usize,

@@ -351,7 +351,7 @@ impl InferenceEngine {
                     None => token_id_to_text_fallback(token_id),
                 };
 
-                let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
+                let log_prob = logits.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
                 let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
 
                 let is_last = pos == max_gen - 1 || token_id == 0;
@@ -772,7 +772,7 @@ fn run_generation_loop(
             None => token_id_to_text_fallback(token_id),
         };
 
-        let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
+        let log_prob = logits.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
         tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
         all_ids.push(token_id);
 

@@ -283,7 +283,7 @@ impl KVCache {
             }
 
             // Cache hit - update access info and LRU order
-            let mut entry = entry.clone();
+            // Update entry in-place to avoid clone
             entry.update_access();
 
             // Update LRU order - move key to front (more efficient)
@@ -298,7 +298,8 @@ impl KVCache {
                 self.update_hit_rate(&mut stats);
             }
 
-            Some(entry)
+            // Return the entry by cloning only at the end (unavoidable for return)
+            Some(entry.clone())
         } else {
             // Cache miss
             shard.stats.misses += 1;
@@ -378,8 +379,10 @@ impl KVCache {
             new_entry.expires_at = Some(Utc::now() + chrono::Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(i64::MAX)));
         }
 
-        shard.entries.insert(key.clone(), new_entry.clone());
-        shard.lru_order.push(key.clone());
+        // Insert with move semantics to avoid unnecessary clone
+        let key_for_lru = key.clone();
+        shard.entries.insert(key, new_entry);
+        shard.lru_order.push(key_for_lru);
         shard.current_size_bytes += size_bytes;
         shard.stats.entries += 1;
 
@@ -462,6 +465,7 @@ impl KVCache {
             let mut shard_guard = shard.write().await;
             let mut expired_keys = Vec::with_capacity(shard_guard.entries.len());
 
+            // Collect expired keys (clone is necessary for removal later)
             for (key, entry) in shard_guard.entries.iter() {
                 if let Some(expires_at) = entry.expires_at {
                     if now > expires_at {

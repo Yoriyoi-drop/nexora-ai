@@ -212,17 +212,17 @@ fn unfold_tensor(
         for j in 0..cols {
             // Map (i, j) to multi-dimensional indices
             let mut indices = Vec::new();
-            let mut temp_i = i;
-            let mut temp_j = j;
+            let mut row_index = i;
+            let mut col_index = j;
 
             // Extract indices for modes before and after the unfolding mode
             for m in 0..=mode {
-                indices.push(temp_i % shape[m]);
-                temp_i /= shape[m];
+                indices.push(row_index % shape[m]);
+                row_index /= shape[m];
             }
             for m in (mode + 1)..ndim {
-                indices.push(temp_j % shape[m]);
-                temp_j /= shape[m];
+                indices.push(col_index % shape[m]);
+                col_index /= shape[m];
             }
 
             unfolded[[i, j]] = tensor[indices.as_slice()];
@@ -473,7 +473,7 @@ fn compute_svd_truncated(
     let mut u = Array::zeros((m, actual_rank));
     let mut s = Vec::with_capacity(actual_rank);
     let mut vt = Array::zeros((actual_rank, n));
-    let mut temp_matrix = matrix.to_owned();
+    let mut working_matrix = matrix.to_owned();
 
     for i in 0..actual_rank {
         let mut v = Array::zeros(n);
@@ -486,11 +486,11 @@ fn compute_svd_truncated(
         }
 
         for _ in 0..50 {
-            let u_vec = temp_matrix.dot(&v);
+            let u_vec = working_matrix.dot(&v);
             let sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
 
             if sigma > 1e-10 {
-                v = temp_matrix.t().dot(&u_vec) / sigma;
+                v = working_matrix.t().dot(&u_vec) / sigma;
                 let v_norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
                 if v_norm > 1e-10 {
                     v.mapv_inplace(|x| x / v_norm);
@@ -498,7 +498,7 @@ fn compute_svd_truncated(
             }
         }
 
-        let u_vec = temp_matrix.dot(&v);
+        let u_vec = working_matrix.dot(&v);
         let sigma = u_vec.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         if sigma > 1e-10 {
@@ -517,7 +517,7 @@ fn compute_svd_truncated(
                     outer_product[[r, c]] = u_normalized[r] * v[c];
                 }
             }
-            temp_matrix = temp_matrix - &(outer_product * sigma);
+            working_matrix = working_matrix - &(outer_product * sigma);
         } else {
             for r in 0..m {
                 u[[r, i]] = rand::random::<f32>() * 0.01;

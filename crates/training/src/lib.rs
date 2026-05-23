@@ -273,10 +273,22 @@ impl Trainer {
         // ─── GPU training path ──────────────────────────────────────────────
         #[cfg(feature = "gpu")]
         if self.gpu_optimizer.is_some() {
-            let gpu_opt = self.gpu_optimizer.as_mut().expect("gpu_optimizer must be initialized");
-            let gpu_in = self.gpu_input_buf.as_ref().expect("gpu_input_buf must be initialized");
-            let gpu_tgt = self.gpu_target_buf.as_ref().expect("gpu_target_buf must be initialized");
-            let gpu_pool = self.gpu_staging.as_mut().expect("gpu_staging must be initialized");
+            let gpu_opt = match self.gpu_optimizer.as_mut() {
+                Some(opt) => opt,
+                None => return None,
+            };
+            let gpu_in = match self.gpu_input_buf.as_ref() {
+                Some(buf) => buf,
+                None => return None,
+            };
+            let gpu_tgt = match self.gpu_target_buf.as_ref() {
+                Some(buf) => buf,
+                None => return None,
+            };
+            let gpu_pool = match self.gpu_staging.as_mut() {
+                Some(pool) => pool,
+                None => return None,
+            };
             return train_batch_gpu(
                 &mut self.model,
                 trainable,

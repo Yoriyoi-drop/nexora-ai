@@ -165,7 +165,7 @@ impl Trie {
 
             current = current
                 .get_child_mut(token_id)
-                .expect("child was just inserted; this is a logic bug if missing");
+                .ok_or_else(|| anyhow::anyhow!("child was just inserted but missing; logic bug in trie"))?;
         }
 
         // Set as leaf with result

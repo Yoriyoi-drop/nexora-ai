@@ -597,11 +597,75 @@ impl DualEntropicResonanceRetrieval {
     }
 
     pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
-        vec![] // TODO: add trainable parameters (gate_alpha, gate_beta, gate_delta, etc.)
+        // Return trainable parameters as ArrayD<f32> for gradient computation
+        // Gate parameters: alpha, beta, delta
+        let gate_alpha = ArrayD::from_shape_vec(vec![1], vec![self.gate_alpha]).unwrap();
+        let gate_beta = ArrayD::from_shape_vec(vec![1], vec![self.gate_beta]).unwrap();
+        let gate_delta = ArrayD::from_shape_vec(vec![1], vec![self.gate_delta]).unwrap();
+
+        // Weight parameters: energy_weight, entropy_weight, coherence_weight
+        let energy_weight = ArrayD::from_shape_vec(vec![1], vec![self.energy_weight]).unwrap();
+        let entropy_weight = ArrayD::from_shape_vec(vec![1], vec![self.entropy_weight]).unwrap();
+        let coherence_weight = ArrayD::from_shape_vec(vec![1], vec![self.coherence_weight]).unwrap();
+
+        // Learning rate parameter
+        let weight_update_rate = ArrayD::from_shape_vec(vec![1], vec![self.weight_update_rate]).unwrap();
+
+        vec![
+            gate_alpha,
+            gate_beta,
+            gate_delta,
+            energy_weight,
+            entropy_weight,
+            coherence_weight,
+            weight_update_rate,
+        ]
     }
 
-    pub fn set_parameters_from_tensors(&mut self, _tensors: &[Tensor]) {
-        // No trainable ndarray weights yet
+    pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
+        // Set trainable parameters from tensor gradients
+        if tensors.len() >= 7 {
+            // Gate parameters
+            if let Ok(alpha_val) = tensors[0].to_vec::<f32>() {
+                if !alpha_val.is_empty() {
+                    self.gate_alpha = alpha_val[0];
+                }
+            }
+            if let Ok(beta_val) = tensors[1].to_vec::<f32>() {
+                if !beta_val.is_empty() {
+                    self.gate_beta = beta_val[0];
+                }
+            }
+            if let Ok(delta_val) = tensors[2].to_vec::<f32>() {
+                if !delta_val.is_empty() {
+                    self.gate_delta = delta_val[0];
+                }
+            }
+
+            // Weight parameters
+            if let Ok(energy_val) = tensors[3].to_vec::<f32>() {
+                if !energy_val.is_empty() {
+                    self.energy_weight = energy_val[0];
+                }
+            }
+            if let Ok(entropy_val) = tensors[4].to_vec::<f32>() {
+                if !entropy_val.is_empty() {
+                    self.entropy_weight = entropy_val[0];
+                }
+            }
+            if let Ok(coherence_val) = tensors[5].to_vec::<f32>() {
+                if !coherence_val.is_empty() {
+                    self.coherence_weight = coherence_val[0];
+                }
+            }
+
+            // Learning rate
+            if let Ok(update_rate_val) = tensors[6].to_vec::<f32>() {
+                if !update_rate_val.is_empty() {
+                    self.weight_update_rate = update_rate_val[0];
+                }
+            }
+        }
     }
 
     /// Reset retrieval state

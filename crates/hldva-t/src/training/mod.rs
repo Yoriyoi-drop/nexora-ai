@@ -310,12 +310,23 @@ impl HLDVATrainer {
         for batch_idx in 0..dataset.num_batches() {
             let batch = dataset.get_upsampler_batch(batch_idx, stage_idx)?;
 
-            // Get low-res dan high-res latents
+            // Get low-res latents
             let low_res_latent = batch.latents.clone();
-            // FIXME: high_res_latent should come from actual high-resolution data, not cloned low-res.
-            // Using same latent for both means upsampler learns identity mapping — fix by
-            // extracting proper high-res latents from the dataset's high-resolution targets.
-            let high_res_latent = batch.latents.clone();
+
+            // Get high-res latents from dataset - this is the ground truth for upsampling
+            let high_res_latent = batch.high_res_latents
+                .as_ref()
+                .ok_or_else(|| HLDVAError::Training(
+                    "High-resolution latents not provided in batch. Upsampler training requires ground truth high-res data.".to_string()
+                ))?
+                .clone();
+
+            // Validate that high_res_latent has different/higher resolution than low_res_latent
+            if high_res_latent.shape() == low_res_latent.shape() {
+                return Err(HLDVAError::Training(
+                    format!("High-res latents have same shape as low-res latents: {:?}. Upsampler training requires different resolutions.", high_res_latent.shape())
+                ));
+            }
 
             // Encode text
             let clip_embedding = self.pipeline.clip_encoder.encode(&batch.prompts[0])?;
@@ -329,7 +340,7 @@ impl HLDVATrainer {
                 &self.config.cascaded.upsamplers[stage_idx],
             )?;
 
-            // Calculate loss
+            // Calculate loss between upscaled output and ground truth high-res latents
             let upsampler_loss = self.mse_loss(&high_res_latent, &upscaled.data)?;
 
             // Backward pass dan update
