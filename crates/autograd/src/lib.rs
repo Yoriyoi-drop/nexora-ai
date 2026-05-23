@@ -575,41 +575,37 @@ impl Adam {
         names
     }
 
-    pub fn collect_optimizer_tensors(&self) -> Vec<(&str, ArrayD<f32>)> {
-        let mut tensors: Vec<(&str, ArrayD<f32>)> = Vec::with_capacity(self.m.len() * 2 + 6);
+    pub fn collect_optimizer_tensors(&self) -> Vec<(String, ArrayD<f32>)> {
+        let mut tensors: Vec<(String, ArrayD<f32>)> = Vec::with_capacity(self.m.len() * 2 + 6);
         tensors.push((
-            "opt.step",
+            "opt.step".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.step as f32]).unwrap(),
         ));
         tensors.push((
-            "opt.lr",
+            "opt.lr".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.lr]).unwrap(),
         ));
         tensors.push((
-            "opt.beta1",
+            "opt.beta1".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.beta1]).unwrap(),
         ));
         tensors.push((
-            "opt.beta2",
+            "opt.beta2".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.beta2]).unwrap(),
         ));
         tensors.push((
-            "opt.eps",
+            "opt.eps".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.eps]).unwrap(),
         ));
         tensors.push((
-            "opt.weight_decay",
+            "opt.weight_decay".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.weight_decay]).unwrap(),
         ));
         for (i, arr) in self.m.iter().enumerate() {
-            let key = format!("opt.m.{}", i);
-            let leaked: &'static str = Box::leak(key.into_boxed_str());
-            tensors.push((leaked, arr.clone()));
+            tensors.push((format!("opt.m.{}", i), arr.clone()));
         }
         for (i, arr) in self.v.iter().enumerate() {
-            let key = format!("opt.v.{}", i);
-            let leaked: &'static str = Box::leak(key.into_boxed_str());
-            tensors.push((leaked, arr.clone()));
+            tensors.push((format!("opt.v.{}", i), arr.clone()));
         }
         tensors
     }

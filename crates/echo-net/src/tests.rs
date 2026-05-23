@@ -1231,6 +1231,88 @@ mod tests {
     }
     
     #[test]
+    fn test_golden_softmax_values() {
+        // Known input → known output: softmax([0.0, 1.0, 2.0])
+        // exp(0) = 1, exp(1) ≈ 2.71828, exp(2) ≈ 7.38906
+        // sum = 1 + 2.71828 + 7.38906 ≈ 11.10734
+        // p0 = 1/11.10734 ≈ 0.09003
+        // p1 = 2.71828/11.10734 ≈ 0.24473
+        // p2 = 7.38906/11.10734 ≈ 0.66524
+        let input = ArrayD::from_shape_vec(vec![3], vec![0.0, 1.0, 2.0]).unwrap();
+        let max = input.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exp: Vec<f32> = input.iter().map(|&x| (x - max).exp()).collect();
+        let sum: f32 = exp.iter().sum();
+        let probs: Vec<f32> = exp.iter().map(|&e| e / sum).collect();
+        assert!((probs[0] - 0.09003).abs() < 1e-4, "p0 expected ~0.09003, got {}", probs[0]);
+        assert!((probs[1] - 0.24473).abs() < 1e-4, "p1 expected ~0.24473, got {}", probs[1]);
+        assert!((probs[2] - 0.66524).abs() < 1e-4, "p2 expected ~0.66524, got {}", probs[2]);
+        assert!((probs.iter().sum::<f32>() - 1.0).abs() < 1e-6, "probabilities must sum to 1");
+    }
+
+    #[test]
+    fn test_golden_entropy_values() {
+        // Entropy of uniform distribution over N elements = ln(N)
+        // Uniform [0.25, 0.25, 0.25, 0.25] → H = 4 * 0.25 * ln(0.25) = -ln(0.25) = 1.386294
+        let uniform = vec![0.25, 0.25, 0.25, 0.25];
+        let h: f32 = -uniform.iter().map(|&p| p * p.ln()).sum::<f32>();
+        assert!((h - 1.386294).abs() < 1e-5, "uniform entropy expected ~1.38629, got {}", h);
+
+        // Certain distribution [1.0, 0.0, 0.0] → H = 0.0
+        let certain = vec![1.0, 0.0, 0.0];
+        let h2: f32 = -certain.iter().filter(|&&p| p > 0.0).map(|&p| p * p.ln()).sum::<f32>();
+        assert!(h2.abs() < 1e-6, "certain entropy expected 0.0, got {}", h2);
+    }
+
+    #[test]
+    fn test_golden_xavier_init_range() {
+        // Xavier init for 128, 256: limit = sqrt(6/(128+256)) = sqrt(6/384) = sqrt(0.015625) = 0.125
+        let rows = 128usize;
+        let cols = 256usize;
+        let limit = (6.0 / (rows + cols) as f32).sqrt();
+        assert!((limit - 0.125).abs() < 1e-6, "xavier limit expected 0.125, got {}", limit);
+
+        // All values should be in [-limit, limit]
+        let matrix = Array2::from_shape_fn((rows, cols), |_| rand::random::<f32>() * 2.0 * limit - limit);
+        for val in matrix.iter() {
+            assert!(*val >= -limit && *val <= limit, "xavier value {} out of range [{}, {}]", val, -limit, limit);
+        }
+    }
+
+    #[test]
+    fn test_golden_cosine_similarity() {
+        // cos([1,0,0], [1,0,0]) = 1.0
+        let a = ArrayD::from_shape_vec(vec![3], vec![1.0, 0.0, 0.0]).unwrap();
+        let dot_aa: f32 = a.iter().map(|&x| x * x).sum();
+        let norm_a = dot_aa.sqrt();
+        assert!((norm_a - 1.0).abs() < 1e-6, "norm of [1,0,0] expected 1.0, got {}", norm_a);
+
+        // cos([1,0,0], [0,1,0]) = 0.0
+        let b = ArrayD::from_shape_vec(vec![3], vec![0.0, 1.0, 0.0]).unwrap();
+        let dot_ab: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        assert!((dot_ab).abs() < 1e-6, "dot([1,0,0],[0,1,0]) expected 0.0, got {}", dot_ab);
+
+        // cos([1,2,3], [4,5,6]) = (4+10+18)/(sqrt(14)*sqrt(77)) = 32/(3.742*8.775) ≈ 0.9746
+        let c = ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let d = ArrayD::from_shape_vec(vec![3], vec![4.0, 5.0, 6.0]).unwrap();
+        let dot_cd: f32 = c.iter().zip(d.iter()).map(|(x, y)| x * y).sum();
+        let norm_c: f32 = c.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        let norm_d: f32 = d.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        let cos_sim = dot_cd / (norm_c * norm_d);
+        assert!((cos_sim - 0.9746).abs() < 1e-3, "cos([1,2,3],[4,5,6]) expected ~0.9746, got {}", cos_sim);
+    }
+
+    #[test]
+    fn test_golden_top_k_selection() {
+        // Top-2 from [0.1, 0.9, 0.3, 0.8, 0.2] → indices [1, 3]
+        let scores = vec![0.1, 0.9, 0.3, 0.8, 0.2];
+        let k = 2usize;
+        let mut indexed: Vec<(usize, f32)> = scores.into_iter().enumerate().collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let selected: Vec<usize> = indexed.iter().take(k).map(|(idx, _)| *idx).collect();
+        assert_eq!(selected, vec![1, 3], "top-2 expected [1, 3], got {:?}", selected);
+    }
+
+    #[test]
     fn test_constants_values() {
         println!("[TEST] Memulai test_constants_values");
         assert_eq!(TEST_RNG_SEED, 42);

@@ -90,16 +90,15 @@ impl SwiGLU {
         let gate = x.dot(&self.w1.t());
         let hidden = x.dot(&self.w3.t());
 
-        let (rows, cols) = gate.dim();
-        let mut gated = Array2::zeros((rows, cols));
+        let mut gated = Array2::zeros(gate.dim());
 
-        for i in 0..rows {
-            for j in 0..cols {
-                let v = gate[[i, j]];
-                let sigmoid = 1.0 / (1.0 + (-v).exp());
-                gated[[i, j]] = v * sigmoid * hidden[[i, j]];
-            }
-        }
+        ndarray::Zip::from(gated.view_mut())
+            .and(gate.view())
+            .and(hidden.view())
+            .for_each(|g, &gv, &hv| {
+                let sigmoid = 1.0 / (1.0 + (-gv).exp());
+                *g = gv * sigmoid * hv;
+            });
 
         gated.dot(&self.w2.t())
     }

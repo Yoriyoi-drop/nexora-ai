@@ -1,4 +1,6 @@
+#[cfg(feature = "blas")]
 extern crate blas_src;
+#[cfg(feature = "blas")]
 extern crate openblas_src;
 
 use clap::Parser;

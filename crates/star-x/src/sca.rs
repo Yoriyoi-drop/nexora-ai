@@ -369,11 +369,8 @@ impl SparseAttention for SparseCausalAttention {
             .zip(value_heads.iter())
             .enumerate()
         {
-            // For simplicity, assume we have a sequence of keys/values
-            // In practice, this would be the full sequence
-
-            // Compute attention scores
-            let temporal_positions = vec![0; 1]; // Simplified
+            // Compute attention scores with proper temporal position tracking
+            let temporal_positions: Vec<usize> = (0..=h).collect();
             let scores = self.compute_attention_scores(
                 q_head,
                 &[k_head.clone()],
@@ -381,9 +378,24 @@ impl SparseAttention for SparseCausalAttention {
                 temporal_encoding,
             )?;
 
-            // Adaptive sparse routing
-            let base_entropy = 1.0; // Simplified
-            let k = self.adaptive_k_selection(1, base_entropy);
+            // Compute base entropy from actual attention score distribution
+            let score_entropy = if scores.len() > 1 {
+                let max_s = scores.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let exp_s: Vec<f32> = scores.iter().map(|&s| (s - max_s).exp()).collect();
+                let sum_exp: f32 = exp_s.iter().sum();
+                if sum_exp > 0.0 {
+                    let probs: Vec<f32> = exp_s.iter().map(|&e| e / sum_exp).collect();
+                    -probs.iter().filter(|&&p| p > 0.0).map(|&p| p * p.ln()).sum::<f32>()
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+
+            // Adaptive sparse routing using computed entropy
+            let base_entropy = score_entropy.max(0.1);
+            let k = self.adaptive_k_selection(temporal_positions.len(), base_entropy);
             let selected_indices = self.dynamic_sparse_routing(&scores, k)?;
             total_connections += selected_indices.len();
 

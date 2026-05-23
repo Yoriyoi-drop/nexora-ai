@@ -122,11 +122,9 @@ impl AgentIsolationLayer {
             },
         };
         let id = group.id;
+        let cloned = group.clone();
         self.groups.insert(id, group);
-        self.groups
-            .get(&id)
-            .expect("group was just inserted")
-            .clone()
+        cloned
     }
 
     pub fn spawn_pod(

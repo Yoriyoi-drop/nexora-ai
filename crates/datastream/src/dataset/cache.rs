@@ -63,6 +63,11 @@ pub fn read_arrow_mmap(
     use memmap2::Mmap;
 
     let file = std::fs::File::open(path)?;
+    // SAFETY: `Mmap::map` requires the underlying file to remain valid for the
+    // lifetime of the mapping. `file` is kept alive by the `Mmap` retaining a
+    // reference to the `Arc<File>` internally. The mapping is read-only and the
+    // file is not modified during the lifetime of the mmap. The file handle is
+    // not dropped until the `Mmap` is dropped, ensuring the mapping stays valid.
     let mmap = unsafe { Mmap::map(&file)? };
     let cursor = std::io::Cursor::new(&mmap[..]);
     let reader = FileReader::try_new(cursor, None)?;

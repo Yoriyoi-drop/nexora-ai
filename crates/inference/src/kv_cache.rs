@@ -44,6 +44,8 @@ pub struct KVCache {
     stats_misses: AtomicUsize,
     stats_evictions: AtomicUsize,
     stats_ttl_evictions: AtomicUsize,
+    cache_size_count: AtomicUsize,
+    estimated_memory: AtomicUsize,
     last_cleanup: RwLock<Instant>,
 }
 
@@ -60,6 +62,8 @@ impl KVCache {
             stats_misses: AtomicUsize::new(0),
             stats_evictions: AtomicUsize::new(0),
             stats_ttl_evictions: AtomicUsize::new(0),
+            cache_size_count: AtomicUsize::new(0),
+            estimated_memory: AtomicUsize::new(0),
             last_cleanup: RwLock::new(Instant::now()),
         }
     }
@@ -141,7 +145,9 @@ impl KVCache {
                         let freed =
                             removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                         self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+                        self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
                     }
+                    self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
                     self.stats_evictions.fetch_add(1, Ordering::Relaxed);
                 }
                 None => break,
@@ -158,6 +164,8 @@ impl KVCache {
                 last_access: AtomicU64::new(timestamp_nanos()),
             },
         );
+        self.cache_size_count.fetch_add(1, Ordering::Relaxed);
+        self.estimated_memory.fetch_add(entry_size, Ordering::Relaxed);
 
         drop(entries);
         self.maybe_cleanup().await;
@@ -174,19 +182,43 @@ impl KVCache {
     pub async fn clear(&self) {
         let mut entries = self.entries.write().await;
         entries.clear();
+        self.cache_size_count.store(0, Ordering::Relaxed);
+        self.estimated_memory.store(0, Ordering::Relaxed);
     }
 
     pub async fn remove(&self, key: &[u8]) -> bool {
         let hash = self.hash_key(key);
         let mut entries = self.entries.write().await;
-        entries.remove(&hash).is_some()
+        if let Some(removed) = entries.remove(&hash) {
+            let freed =
+                removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+            self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+            self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
+            self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     pub async fn evict_expired(&self) -> usize {
         let mut entries = self.entries.write().await;
         let before = entries.len();
-        entries.retain(|_, e| e.created_at.elapsed() <= self.ttl);
-        let evicted = before - entries.len();
+        let evicted_entries: Vec<u64> = entries
+            .iter()
+            .filter(|(_, e)| e.created_at.elapsed() > self.ttl)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in &evicted_entries {
+            if let Some(removed) = entries.remove(k) {
+                let freed =
+                    removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+                self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+                self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
+            }
+        }
+        self.cache_size_count.fetch_sub(evicted_entries.len(), Ordering::Relaxed);
+        let evicted = evicted_entries.len();
         self.stats_ttl_evictions
             .fetch_add(evicted, Ordering::Relaxed);
         evicted
@@ -201,20 +233,8 @@ impl KVCache {
         let hits = self.stats_hits.load(Ordering::Relaxed);
         let misses = self.stats_misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        let entries = self.entries.try_read();
-        let (cache_size, estimated_memory_bytes) = match entries {
-            Ok(guard) => {
-                let mem: usize = guard
-                    .values()
-                    .map(|e| e.value.len() * std::mem::size_of::<f32>() + e.key.len())
-                    .sum();
-                (guard.len(), mem)
-            }
-            Err(e) => {
-                warn!("KV cache stats read error: {:?}", e);
-                (0, 0)
-            }
-        };
+        let cache_size = self.cache_size_count.load(Ordering::Relaxed);
+        let estimated_memory_bytes = self.estimated_memory.load(Ordering::Relaxed);
         CacheStats {
             cache_size,
             cache_hits: hits,

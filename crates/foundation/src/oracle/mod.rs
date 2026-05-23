@@ -33,16 +33,21 @@ impl Default for OracleVortexConfig {
 }
 
 impl OracleVortexIntegration {
-    pub fn new() -> Self {
-        Self {
-            oracle_trainer: nexora_oracle::trainer::OracleTrainer::new(
-                nexora_oracle::trainer::OracleConfig::default(),
-                32_000,
-            )
-            .expect("failed to initialize ORACLE trainer"),
+    pub fn try_new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let oracle_trainer = nexora_oracle::trainer::OracleTrainer::new(
+            nexora_oracle::trainer::OracleConfig::default(),
+            32_000,
+        )?;
+        Ok(Self {
+            oracle_trainer,
             vortex_model: NxrVortexModel::new(),
             integration_config: OracleVortexConfig::default(),
-        }
+        })
+    }
+
+    /// Legacy constructor — panics on failure. Prefer try_new().
+    pub fn new() -> Self {
+        Self::try_new().expect("failed to initialize ORACLE trainer")
     }
 
     pub async fn enhanced_code_analysis(

@@ -5,7 +5,7 @@ use ndarray::ArrayD;
 /// Formula: dist²[i,j] = ||data[i]||² + ||data[j]||² - 2·data[i]·data[j]
 pub fn gpu_pairwise_distances(data: &[Vec<f32>]) -> Result<Vec<Vec<f32>>, String> {
     let ctx = nexora_deeplearning::gpu::GpuContext::global()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| { tracing::warn!("GPU context unavailable: {}", e); e.to_string() })?;
 
     let n = data.len();
     if n == 0 {
@@ -13,37 +13,47 @@ pub fn gpu_pairwise_distances(data: &[Vec<f32>]) -> Result<Vec<Vec<f32>>, String
     }
     let d = data[0].len();
 
-    // Flatten data to contiguous ArrayD<f32> [N, D]
     let flat: Vec<f32> = data.iter().flat_map(|v| v.iter()).cloned().collect();
     let arr = ArrayD::from_shape_vec(vec![n, d], flat)
         .map_err(|e| e.to_string())?;
 
-    // Upload to GPU
     let gpu = nexora_deeplearning::gpu::GpuTensor::from_cpu(&arr)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| { tracing::warn!("GPU upload failed: {}", e); e.to_string() })?;
 
-    // data @ data^T = [N, D] @ [D, N] = [N, N] (dot products)
-    let gpu_t = ctx.transpose(&gpu).map_err(|e| e.to_string())?;
-    let dots = ctx.matmul(&gpu, &gpu_t).map_err(|e| e.to_string())?;
+    #[cfg(feature = "gpu")]
+    {
+        let gpu_t = ctx.transpose(&gpu).map_err(|e| e.to_string())?;
+        let dots = ctx.matmul(&gpu, &gpu_t).map_err(|e| e.to_string())?;
 
-    // Compute squared norms on CPU (O(N·D) — negligible compared to O(N²·D) matmul)
-    let norms: Vec<f32> = data
-        .iter()
-        .map(|v| v.iter().map(|x| x * x).sum::<f32>())
-        .collect();
+        let dots_cpu = dots.to_cpu();
+        let dots_slice = dots_cpu.as_slice().ok_or("dots not contiguous")?;
 
-    // Download dot product matrix
-    let dots_cpu = dots.to_cpu();
-    let dots_slice = dots_cpu.as_slice().ok_or("dots not contiguous")?;
-
-    // Build distance matrix: dist²[i,j] = norms[i] + norms[j] - 2·dots[i,j]
-    let mut result = vec![vec![0.0_f32; n]; n];
-    for i in 0..n {
-        for j in 0..n {
-            let d2 = norms[i] + norms[j] - 2.0 * dots_slice[i * n + j];
-            result[i][j] = d2.max(0.0).sqrt();
+        let mut result = vec![vec![0.0_f32; n]; n];
+        for i in 0..n {
+            let norm_i: f32 = data[i].iter().map(|x| x * x).sum();
+            for j in 0..n {
+                let norm_j: f32 = data[j].iter().map(|x| x * x).sum();
+                let d2 = norm_i + norm_j - 2.0 * dots_slice[i * n + j];
+                result[i][j] = d2.max(0.0).sqrt();
+            }
         }
+        Ok(result)
     }
 
-    Ok(result)
+    #[cfg(not(feature = "gpu"))]
+    {
+        tracing::warn!("gpu feature not enabled, falling back to CPU distance computation");
+        let mut result = vec![vec![0.0_f32; n]; n];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d = data[i].iter().zip(data[j].iter())
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                result[i][j] = d;
+                result[j][i] = d;
+            }
+        }
+        Ok(result)
+    }
 }

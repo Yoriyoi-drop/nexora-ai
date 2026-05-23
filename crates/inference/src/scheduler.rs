@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -45,6 +45,7 @@ pub struct RequestScheduler {
     active_count: RwLock<usize>,
     batch_collector: Arc<RwLock<BatchCollector>>,
     shutdown: AtomicBool,
+    notify: Arc<Notify>,
 }
 
 impl RequestScheduler {
@@ -57,6 +58,7 @@ impl RequestScheduler {
             active_count: RwLock::new(0),
             batch_collector: Arc::new(RwLock::new(BatchCollector::new(8, 50))),
             shutdown: AtomicBool::new(false),
+            notify: Arc::new(Notify::new()),
         }
     }
 
@@ -80,6 +82,10 @@ impl RequestScheduler {
     /// request loop is busy elsewhere.
     pub fn start(this: Arc<RwLock<Self>>) {
         tokio::spawn(async move {
+            let notify = {
+                let s = this.read().await;
+                s.notify.clone()
+            };
             loop {
                 if this.read().await.shutdown.load(Ordering::Relaxed) {
                     break;
@@ -87,7 +93,10 @@ impl RequestScheduler {
                 while let Some(_batch) = this.read().await.pop_batch().await {
                     debug!("background worker popped ready batch");
                 }
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                tokio::select! {
+                    _ = notify.notified() => {},
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                }
             }
         });
     }
@@ -229,6 +238,11 @@ impl RequestScheduler {
 
     /// Register a submitted request with the batch collector for batching.
     /// Call this in the request loop after receiving the request from the channel.
+    /// Notify the background worker that new requests may be ready
+    pub fn notify_background(&self) {
+        self.notify.notify_one();
+    }
+
     pub async fn add_to_batch_collector(&self, request: &crate::InferenceRequest) {
         let requests = self.requests.read().await;
         if let Some(req) = requests.get(&request.request_id) {

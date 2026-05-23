@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::cell::RefCell;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
@@ -60,6 +61,9 @@ struct StopConditionInner {
     conditions: Vec<StopCondition>,
     stop_sequences: HashSet<String>,
     eos_tokens: HashSet<u32>,
+    /// Incrementally built text to avoid full string rebuild per token
+    built_text: String,
+    last_token_count: usize,
 }
 
 /// Stop conditions manager
@@ -91,6 +95,8 @@ impl StopConditions {
                 conditions: Vec::new(),
                 stop_sequences: HashSet::new(),
                 eos_tokens: HashSet::new(),
+                built_text: String::new(),
+                last_token_count: 0,
             })),
             stats: Arc::new(RwLock::new(StopStats::default())),
         }
@@ -156,10 +162,10 @@ impl StopConditions {
     ) -> Option<String> {
         let start_time = std::time::Instant::now();
 
-        let inner = self.inner.read().await;
+        let mut inner = self.inner.write().await;
 
         for condition in inner.conditions.iter() {
-            if let Some(reason) = self.check_condition(condition, tokens, context) {
+            if let Some(reason) = self.check_condition(&mut inner, condition, tokens, context) {
                 // Update statistics
                 {
                     let mut stats = self.stats.write().await;
@@ -195,6 +201,7 @@ impl StopConditions {
     /// Check individual condition
     fn check_condition(
         &self,
+        inner: &mut StopConditionInner,
         condition: &StopCondition,
         tokens: &[Arc<GeneratedToken>],
         context: &StopContext,
@@ -209,7 +216,7 @@ impl StopConditions {
             }
 
             StopCondition::StopSequence(seq) => {
-                if self.check_stop_sequence(tokens, seq) {
+                if self.check_stop_sequence(inner, tokens, seq) {
                     Some(format!("Stop sequence '{}' encountered", seq))
                 } else {
                     None
@@ -273,20 +280,29 @@ impl StopConditions {
         }
     }
 
-    /// Check if stop sequence is encountered
-    fn check_stop_sequence(&self, tokens: &[Arc<GeneratedToken>], sequence: &str) -> bool {
+    /// Check if stop sequence is encountered using incremental text building.
+    fn check_stop_sequence(
+        &self,
+        inner: &mut StopConditionInner,
+        tokens: &[Arc<GeneratedToken>],
+        sequence: &str,
+    ) -> bool {
         if tokens.is_empty() || sequence.is_empty() {
             return false;
         }
 
-        let generated_text: String = tokens
-            .iter()
-            .map(|t| (&*t.token_text).to_string())
-            .collect();
-        generated_text.contains(sequence)
+        // Incrementally build text: only append new tokens
+        if tokens.len() > inner.last_token_count {
+            for t in &tokens[inner.last_token_count..] {
+                inner.built_text.push_str(&t.token_text);
+            }
+            inner.last_token_count = tokens.len();
+        }
+
+        inner.built_text.contains(sequence)
     }
 
-    /// Check for repetition
+    /// Check for repetition using incremental n-gram tracking.
     fn check_repetition(
         &self,
         tokens: &[Arc<GeneratedToken>],
@@ -297,24 +313,17 @@ impl StopConditions {
             return false;
         }
 
-        // Extract n-grams from tokens
-        let ngrams: Vec<String> = tokens
-            .windows(ngram_size)
-            .map(|window| {
-                window
-                    .iter()
-                    .map(|t| (&*t.token_text).to_string())
-                    .collect::<String>()
-            })
-            .collect();
-
-        // Check for consecutive repetitions
-        for i in 0..=(ngrams.len() - max_repetitions as usize) {
-            let first_ngram = &ngrams[i];
+        // Compare n-grams by token ID to avoid string allocation
+        for i in 0..=(tokens.len() - ngram_size * max_repetitions as usize) {
+            let first_ngram: Vec<u32> = tokens[i..i + ngram_size].iter().map(|t| t.token_id).collect();
             let mut consecutive_count = 1;
 
-            for j in (i + 1)..ngrams.len() {
-                if ngrams[j] == *first_ngram {
+            for j in (i + ngram_size..tokens.len()).step_by(ngram_size) {
+                if j + ngram_size > tokens.len() {
+                    break;
+                }
+                let match_ngram: Vec<u32> = tokens[j..j + ngram_size].iter().map(|t| t.token_id).collect();
+                if match_ngram == first_ngram {
                     consecutive_count += 1;
                 } else {
                     break;

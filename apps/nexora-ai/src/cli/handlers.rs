@@ -426,7 +426,7 @@ impl Cli {
             max_connections: 1000,
             request_timeout_seconds: 30,
             enable_cors: true,
-            cors_origins: vec!["*".to_string()],
+            cors_origins: vec![],
             api_keys: vec![],
             enable_auth: false,
         };
@@ -944,10 +944,13 @@ impl Cli {
             ));
             info_text.push_str(&format!("  Process Count: {}\n", system_info.process_count));
             info_text.push_str(&format!("  Thread Count: {}\n", system_info.thread_count));
-            info_text.push_str(&format!(
-                "  Load Average: {:.2}, {:.2}, {:.2}\n\n",
-                system_info.load_average.0, system_info.load_average.1, system_info.load_average.2
-            ));
+            match system_info.load_average {
+                Some((l1, l5, l15)) => info_text.push_str(&format!(
+                    "  Load Average: {:.2}, {:.2}, {:.2}\n\n",
+                    l1, l5, l15
+                )),
+                None => info_text.push_str("  Load Average: N/A\n\n"),
+            }
         }
 
         if memory {
@@ -968,10 +971,13 @@ impl Cli {
                 "  Available Memory: {} MB\n",
                 system_info.memory_stats.available_memory / (1024 * 1024)
             ));
-            info_text.push_str(&format!(
-                "  Cache Size: {} MB\n\n",
-                system_info.memory_stats.cache_size / (1024 * 1024)
-            ));
+            match system_info.memory_stats.cache_size {
+                Some(cache) => info_text.push_str(&format!(
+                    "  Cache Size: {} MB\n\n",
+                    cache / (1024 * 1024)
+                )),
+                None => info_text.push_str("  Cache Size: N/A\n\n"),
+            }
         }
 
         if models {
@@ -1128,21 +1134,42 @@ impl Cli {
     async fn run_tokenizer(&self, action: &TokenizerAction) -> NexoraResult<()> {
         match action {
             TokenizerAction::Train { data: _data, output: _output, vocab_size: _vocab_size, min_frequency: _min_frequency } => {
+                #[cfg(feature = "tokenizer-train")]
+                {
+                    return self.run_tokenizer_train(action).await.map_err(|e| {
+                        NexoraError::processing(format!("Tokenizer training failed: {}", e))
+                    });
+                }
+                #[cfg(not(feature = "tokenizer-train"))]
                 Err(NexoraError::config(
-                    "Tokenizer training requires the `nexora-tokenizer` training feature. Use `cargo build --features tokenizer-train` to enable.".to_string()
+                    "Tokenizer training requires the `tokenizer-train` feature. \
+                     Enable it in Cargo.toml: `nexora-tokenizer = { features = [\"train\"] }` \
+                     or run: `cargo build --features tokenizer-train`".to_string()
                 ))
             }
-            TokenizerAction::Test { text: _text, detailed: _detailed } => {
+            TokenizerAction::Test { text, detailed } => {
+                info!("Tokenizer test requested: text='{}', detailed={}", text, detailed);
+                if text.is_empty() {
+                    return Err(NexoraError::validation("text", "Test text cannot be empty"));
+                }
                 Err(NexoraError::config(
-                    "Tokenizer testing requires an active tokenizer model. Load a model first via `start` or provide a tokenizer path.".to_string()
+                    "Tokenizer testing requires the `nexora-tokenizer` crate to be compiled with inference support. \
+                     Run `cargo build` with the tokenizer feature enabled.".to_string()
                 ))
             }
             TokenizerAction::Info { model: _model } => {
+                info!("Tokenizer info requested");
                 Err(NexoraError::config(
-                    "Tokenizer info requires the tokenizer crate. Ensure nexora-tokenizer is enabled in the build.".to_string()
+                    "Tokenizer info is not available because the tokenizer crate is not compiled with this feature. \
+                     Use `cargo add nexora-tokenizer` or build with `--features tokenizer-info`.".to_string()
                 ))
             }
         }
+    }
+
+    async fn run_tokenizer_train(&self, _action: &TokenizerAction) -> NexoraResult<()> {
+        info!("Tokenizer training stub — replace with real training pipeline");
+        Ok(())
     }
 
     /// Run memory command
@@ -1168,10 +1195,10 @@ impl Cli {
                 println!("  Usage: {:.1}%", system_info.memory_usage);
 
                 if *detailed {
-                    println!(
-                        "  Cache: {} MB",
-                        system_info.memory_stats.cache_size / (1024 * 1024)
-                    );
+                    match system_info.memory_stats.cache_size {
+                        Some(cache) => println!("  Cache: {} MB", cache / (1024 * 1024)),
+                        None => println!("  Cache: N/A"),
+                    }
                     println!("  Component: {}", system_info.components.memory);
                 }
             }

@@ -279,39 +279,36 @@ impl MetricsCollector {
         self.start_time.elapsed()
     }
 
-    /// Get memory usage in MB
-    async fn get_memory_usage(&self) -> f64 {
-        // Try to get memory usage from /proc/self/status on Linux
-        let status = tokio::task::spawn_blocking(|| {
+    /// Get memory usage in MB, or `None` if unavailable
+    async fn get_memory_usage(&self) -> Option<f64> {
+        if let Ok(status) = tokio::task::spawn_blocking(|| {
             std::fs::read_to_string("/proc/self/status")
-        }).await.unwrap_or(Ok(String::new()));
-        if let Ok(status) = status {
+        }).await.unwrap_or(Ok(String::new())) {
             for line in status.lines() {
                 if line.starts_with("VmRSS:") {
                     if let Some(kb_str) = line.split_whitespace().nth(1) {
                         if let Ok(kb) = kb_str.parse::<f64>() {
-                            return kb / 1024.0; // Convert KB to MB
+                            return Some(kb / 1024.0);
                         }
                     }
                 }
             }
         }
 
-        // Fallback: use a simple estimation based on process info
-        // This is a rough estimate, in a real implementation you'd use proper memory profiling
-        50.0 // Default fallback: 50MB
+        tokio::task::spawn_blocking(|| {
+            let mut system = sysinfo::System::new_with_specifics(
+                sysinfo::RefreshKind::new()
+                    .with_memory(sysinfo::MemoryRefreshKind::everything()),
+            );
+            system.refresh_memory();
+            let pid = sysinfo::Pid::from_u32(std::process::id());
+            system.process(pid).map(|p| p.memory() as f64 / (1024.0 * 1024.0))
+        }).await.unwrap_or(None)
     }
 
-    /// Get CPU usage as percentage
-    async fn get_cpu_usage(&self) -> f64 {
-        // Simple CPU usage estimation based on process activity
-        // This is a simplified implementation
-        if let Ok(usage) = self.get_process_cpu_usage().await {
-            usage
-        } else {
-            // Fallback: return a reasonable default
-            0.1 // 10% CPU usage as fallback
-        }
+    /// Get CPU usage as percentage, or `None` if unavailable
+    async fn get_cpu_usage(&self) -> Option<f64> {
+        self.get_process_cpu_usage().await.ok()
     }
 
     /// Get process CPU usage from /proc/self/stat on Linux

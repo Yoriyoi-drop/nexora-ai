@@ -88,6 +88,11 @@ pub struct GpuContext {
     /// Reusable readback buffer for timestamp queries
     pub(crate) query_readback_buf: Option<Mutex<wgpu::Buffer>>,
     // ── Reusable command encoder (Mutex-protected for &self access) ───
+    // NOTE: This is a global encoder mutex which can cause contention under
+    // heavy multi-threaded dispatch. For high-throughput GPU workloads, use
+    // GpuCommandBatch (see gpu_batch.rs) which creates per-batch encoders,
+    // avoiding this mutex entirely. The global encoder is kept for simple
+    // single-threaded use and fallback paths.
     pub(crate) current_encoder: Mutex<Option<wgpu::CommandEncoder>>,
     pub(crate) ops_since_flush: std::sync::atomic::AtomicUsize,
     pub(crate) auto_flush_ops: usize,
@@ -447,22 +452,26 @@ impl GpuContext {
 
         // ── Persistent pipeline cache setup ──
         let adapter_info = adapter.get_info();
+        // Include driver version in cache key so driver updates invalidate the cache
+        let driver_version = device.driver_info();
         let cache_key = {
             use std::hash::{Hash, Hasher};
             match wgpu::util::pipeline_cache_key(&adapter_info) {
                 Some(key_str) => {
                     let mut hasher = std::collections::hash_map::DefaultHasher::new();
                     key_str.hash(&mut hasher);
-                    const WGPU_CACHE_VERSION: u64 = 1;
+                    driver_version.hash(&mut hasher);
+                    const WGPU_CACHE_VERSION: u64 = 2;
                     WGPU_CACHE_VERSION.hash(&mut hasher);
                     hasher.finish()
                 }
                 None => {
-                    // Non-Vulkan backend: hash name + backend as fallback key
+                    // Non-Vulkan backend: hash name + backend + driver as fallback key
                     let mut hasher = std::collections::hash_map::DefaultHasher::new();
                     adapter_info.name.hash(&mut hasher);
                     adapter_info.backend.hash(&mut hasher);
-                    const FALLBACK_CACHE_VERSION: u64 = 1;
+                    driver_version.hash(&mut hasher);
+                    const FALLBACK_CACHE_VERSION: u64 = 2;
                     FALLBACK_CACHE_VERSION.hash(&mut hasher);
                     hasher.finish()
                 }
@@ -4413,11 +4422,25 @@ pub enum GpuDtype {
     Bf16,
 }
 
-// SAFETY: `GpuTensor` contains only a `Vec<usize>`, a `wgpu::Buffer`, and a
-// `GpuDtype` enum. `wgpu::Buffer` is `Send + Sync` as it is just a handle to
-// a GPU resource. Moving or sharing `GpuTensor` across threads is safe because
-// all GPU operations are sequenced through the `GpuContext`'s queue.
+// SAFETY:
+// `GpuTensor` contains:
+// - `shape: Vec<usize>` — trivially `Send + Sync`
+// - `buffer: wgpu::Buffer` — a wgpu GPU-resource handle. wgpu's `Buffer` is
+//   `Send + Sync` because it is reference-counted and thread-safe internally.
+// - `dtype: GpuDtype` — a `Copy` enum, trivially `Send + Sync`.
+//
+// All GPU operations (reads, writes, compute dispatches) are sequenced through
+// `GpuContext`'s single queue, so concurrent access to distinct `GpuTensor`
+// instances is safe. The Rust compiler cannot verify this automatically because
+// `wgpu::Buffer` does not implement `Send + Sync` in wgpu's type system, but
+// wgpu's own documentation states that Buffer handles are safe to send across
+// threads as long as the device is not dropped. We hold a reference to the
+// `GpuContext` via the global `OnceCell`, guaranteeing the device outlives all
+// tensors.
 unsafe impl Send for GpuTensor {}
+// SAFETY: Same reasoning as `Send`. Shared references to `GpuTensor` are safe
+// because `buffer` is an atomic ref-counted handle and all mutation goes through
+// `GpuContext`'s synchronized queue.
 unsafe impl Sync for GpuTensor {}
 
 /// Poll GPU with 30s timeout and wait for map_async result.
@@ -4444,10 +4467,9 @@ impl GpuTensor {
     pub fn from_cpu(data: &ArrayD<f32>) -> Result<Self, GpuError> {
         let ctx = Self::ctx()?;
         let shape = data.shape().to_vec();
-        let flat: &[u8] = bytemuck::cast_slice(
-            data.as_slice()
-                .ok_or_else(|| GpuError::Buffer("non-contiguous array".into()))?,
-        );
+        let data_slice = data.as_slice()
+            .ok_or_else(|| GpuError::Buffer("non-contiguous array in from_cpu — copy to contiguous first".into()))?;
+        let flat: &[u8] = bytemuck::cast_slice(data_slice);
 
         let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GpuTensor::from_cpu"),
@@ -4457,7 +4479,7 @@ impl GpuTensor {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(data.as_slice().unwrap()));
+        ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
         Ok(Self { shape, buffer, dtype: GpuDtype::F32 })
     }
 

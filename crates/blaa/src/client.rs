@@ -122,26 +122,13 @@ impl BlaaClient {
         self.rate_limiter.acquire().await;
 
         let request_body = serde_json::to_string(body)?;
-        let mut request = self.http_client.post(url).json(body);
-
-        request = self
-            .add_auth_headers(request, "POST", url, &request_body)
-            .await?;
-        request = self.add_custom_headers(request);
-
-        self.execute_request(request).await
+        self.execute_request("POST", url, Some(&request_body)).await
     }
 
     /// Internal GET request method
     async fn get(&mut self, url: &str) -> BlaaResult<Response> {
         self.rate_limiter.acquire().await;
-
-        let mut request = self.http_client.get(url);
-
-        request = self.add_auth_headers(request, "GET", url, "").await?;
-        request = self.add_custom_headers(request);
-
-        self.execute_request(request).await
+        self.execute_request("GET", url, None).await
     }
 
     /// Add authentication headers to request
@@ -179,9 +166,19 @@ impl BlaaClient {
         request
     }
 
-    /// Execute HTTP request with retry logic
-    async fn execute_request(&self, request: RequestBuilder) -> BlaaResult<Response> {
+    /// Execute HTTP request with retry logic.
+    /// Builds a fresh request on each attempt so we never need to clone.
+    async fn execute_request(
+        &mut self,
+        method: &str,
+        url: &str,
+        body: Option<&str>,
+    ) -> BlaaResult<Response> {
         let mut last_error = None;
+        let url_owned = url.to_string();
+        let body_owned = body.map(|s| s.to_string());
+        let http_method = reqwest::Method::from_bytes(method.as_bytes())
+            .unwrap_or(reqwest::Method::POST);
 
         for attempt in 1..=self.config.max_retries {
             debug!(
@@ -189,12 +186,22 @@ impl BlaaClient {
                 attempt, self.config.max_retries
             );
 
-            // Clone the request for each attempt to avoid move issues
-            let request_clone = request.try_clone().ok_or_else(|| {
-                BlaaError::ApiRequest("Failed to clone request for retry".to_string())
-            })?;
+            let mut request = match &body_owned {
+                Some(json) => self
+                    .http_client
+                    .request(http_method.clone(), &url_owned)
+                    .header("content-type", "application/json")
+                    .body(json.clone()),
+                None => self.http_client.request(http_method.clone(), &url_owned),
+            };
 
-            match timeout(self.config.timeout_duration(), request_clone.send()).await {
+            let body_str = body_owned.as_deref().unwrap_or("");
+            request = self
+                .add_auth_headers(request, method, &url_owned, body_str)
+                .await?;
+            request = self.add_custom_headers(request);
+
+            match timeout(self.config.timeout_duration(), request.send()).await {
                 Ok(Ok(response)) => {
                     let status = response.status();
 

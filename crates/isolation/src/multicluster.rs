@@ -186,11 +186,9 @@ impl MultiClusterSystem {
             latency_ms: 0,
             capacity_pct: 100.0,
         };
+        let cloned = cluster.clone();
         self.regions.insert(name.to_string(), cluster);
-        self.regions
-            .get(name)
-            .expect("region was just inserted")
-            .clone()
+        cloned
     }
 
     pub fn add_mode_to_region(
@@ -218,12 +216,9 @@ impl MultiClusterSystem {
             status: ModeClusterStatus::Provisioning,
             isolation_policy: format!("strict-{}", mode_id.0),
         };
+        let cloned = cluster.clone();
         region.mode_clusters.insert(mode_id.0.clone(), cluster);
-        Ok(region
-            .mode_clusters
-            .get(&mode_id.0)
-            .expect("mode cluster was just inserted")
-            .clone())
+        Ok(cloned)
     }
 
     pub fn spawn_agent_cluster(
@@ -253,13 +248,9 @@ impl MultiClusterSystem {
             status: AgentClusterStatus::Active,
             scaling_policy: scaling,
         };
+        let cloned = cluster.clone();
         mode.agent_clusters.insert(name.to_string(), cluster);
-        let cluster = mode
-            .agent_clusters
-            .get(name)
-            .expect("agent cluster was just inserted")
-            .clone();
-        Ok(cluster)
+        Ok(cloned)
     }
 
     pub fn spawn_micro_vm(
@@ -299,12 +290,9 @@ impl MultiClusterSystem {
                 network_mbps: 10,
             },
         };
+        let cloned = vm.clone();
         cluster.micro_vms.push(vm);
-        Ok(cluster
-            .micro_vms
-            .last()
-            .expect("micro vm was just added")
-            .clone())
+        Ok(cloned)
     }
 
     pub fn spawn_execution_thread(
@@ -345,12 +333,9 @@ impl MultiClusterSystem {
             return Err(MultiClusterError::MaxThreadsReached(vm.id));
         }
 
+        let cloned = thread.clone();
         vm.execution_threads.push(thread);
-        Ok(vm
-            .execution_threads
-            .last()
-            .expect("execution thread was just added")
-            .clone())
+        Ok(cloned)
     }
 
     pub fn get_region(&self, name: &str) -> Option<&RegionalCluster> {
@@ -459,12 +444,11 @@ mod tests {
             max: 10,
             target_pct: 70.0,
         };
-        match auto {
-            ScalingPolicy::AutoCpu { min, max, .. } => {
-                assert_eq!(min, 2);
-                assert_eq!(max, 10);
-            }
-            _ => panic!("Wrong variant"),
+        if let ScalingPolicy::AutoCpu { min, max, .. } = auto {
+            assert_eq!(min, 2);
+            assert_eq!(max, 10);
+        } else {
+            unreachable!("Expected AutoCpu variant from constructor")
         }
     }
 }

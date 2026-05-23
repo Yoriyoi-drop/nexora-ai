@@ -70,9 +70,15 @@ impl SimdVectorOps {
         let sum32 = _mm_add_ps(sum64, _mm_movehl_ps(sum64, sum64));
         let sum32 = _mm_add_ss(sum32, _mm_shuffle_ps(sum32, sum32, 1));
         
-        // SAFETY: `sum32` is an `__m128` (128-bit SSE register) which has the same
-        // memory layout as `[f32; 4]` — 4 × 32-bit floats = 128 bits. transmute is
-        // the standard way to reinterpret an SSE register as an array in Rust.
+        // SAFETY:
+        // `sum32` is a value of type `__m128` (a 128-bit SSE/AVX register). The Rust
+        // compiler guarantees that `__m128` has the same ABI as a 128-bit aligned
+        // memory block. `[f32; 4]` is exactly 128 bits (4 × 32 = 128) with the same
+        // alignment (16-byte aligned for both types). `std::mem::transmute` is
+        // defined to reinterpret the bits of the source type as the destination type,
+        // and this is the canonical way to extract individual lanes from an SSE/AVX
+        // register in Rust. The transmute itself is statically checked to have equal
+        // sizes at compile time — if the sizes ever diverge, the compiler rejects it.
         let mut result = unsafe { std::mem::transmute::<_, [f32; 4]>(sum32) }[0];
         
         // Process remainder
@@ -204,8 +210,10 @@ impl SimdVectorOps {
         let sum32 = _mm_add_ps(sum64, _mm_movehl_ps(sum64, sum64));
         let sum32 = _mm_add_ss(sum32, _mm_shuffle_ps(sum32, sum32, 1));
         
-        // SAFETY: `sum32` is an `__m128` (128-bit) which has the same memory layout
-        // as `[f32; 4]` — 4 × 32-bit floats = 128 bits.
+        // SAFETY:
+        // `sum32` is `__m128` (128-bit SSE register). `[f32; 4]` has the same size
+        // (128 bits) and alignment (16 bytes). The transmute is statically
+        // size-checked by the compiler and is the canonical way to extract lanes.
         let mut result = unsafe { std::mem::transmute::<_, [f32; 4]>(sum32) }[0];
         
         // Process remainder
@@ -494,8 +502,10 @@ impl SimdMatrixOps {
                 let sum32 = _mm_add_ps(sum64, _mm_movehl_ps(sum64, sum64));
                 let sum32 = _mm_add_ss(sum32, _mm_shuffle_ps(sum32, sum32, 1));
                 
-                // SAFETY: `sum32` is an `__m128` (128-bit) which has the same memory
-                // layout as `[f32; 4]` — 4 × 32-bit floats = 128 bits.
+                // SAFETY:
+                // `sum32` is `__m128` (128-bit SSE register). `[f32; 4]` has the same
+                // size (128 bits) and alignment (16 bytes). The transmute is statically
+                // size-checked and is the canonical lane-extraction pattern.
                 let mut result_val = unsafe { std::mem::transmute::<_, [f32; 4]>(sum32) }[0];
                 
                 // Process remainder

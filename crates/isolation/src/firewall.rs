@@ -194,9 +194,9 @@ impl InterAgentFirewall {
                 auto_block: true,
             },
         ];
-        let compiled_patterns = suspicious_patterns
+        let compiled_patterns: Vec<Regex> = suspicious_patterns
             .iter()
-            .map(|p| Regex::new(&p.pattern).expect("Invalid firewall pattern"))
+            .filter_map(|p| Regex::new(&p.pattern).ok())
             .collect();
 
         Self {

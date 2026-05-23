@@ -611,16 +611,12 @@ impl GQA {
 
         if layer_idx < cache.len() {
             let entry = &mut cache[layer_idx];
-            let k_data: Vec<f32> = k.iter().copied().collect();
-            let v_data: Vec<f32> = v.iter().copied().collect();
-            entry.k.extend_from_slice(&k_data);
-            entry.v.extend_from_slice(&v_data);
+            entry.k.extend(k.iter().copied());
+            entry.v.extend(v.iter().copied());
         } else {
-            let k_data: Vec<f32> = k.iter().copied().collect();
-            let v_data: Vec<f32> = v.iter().copied().collect();
             cache.push(KVCacheEntry {
-                k: k_data,
-                v: v_data,
+                k: k.iter().copied().collect(),
+                v: v.iter().copied().collect(),
                 kv_dim,
             });
         }
@@ -738,10 +734,8 @@ impl GQA {
         }
 
         // Append this token's K/V to the paged cache
-        let k_iter: Vec<f32> = k.iter().copied().collect();
-        let v_iter: Vec<f32> = v.iter().copied().collect();
-        let k_flat: Vec<f32> = k_iter;
-        let v_flat: Vec<f32> = v_iter;
+        let k_flat: Vec<f32> = k.iter().copied().collect();
+        let v_flat: Vec<f32> = v.iter().copied().collect();
         cache.append(seq_id, layer_idx, token_pos, &k_flat, &v_flat);
 
         // Read all cached positions for attention computation

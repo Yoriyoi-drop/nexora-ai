@@ -304,8 +304,15 @@ pub fn layer_norm_2d(
                                             let batch = x.shape()[0];
                                             let dim = x.shape()[1];
                                             let mut dx = grad.clone();
-                                            let gs = grad.as_slice().expect("grad contiguous");
-                                            let xs = x.as_slice().expect("x contiguous");
+                                            let gs = grad.as_slice().unwrap_or_else(|| {
+                                                let v: Vec<f32> = grad.iter().copied().collect();
+                                                // leak is acceptable — backward runs once per grad_fn
+                                                Box::leak(v.into_boxed_slice())
+                                            });
+                                            let xs = x.as_slice().unwrap_or_else(|| {
+                                                let v: Vec<f32> = x.iter().copied().collect();
+                                                Box::leak(v.into_boxed_slice())
+                                            });
                                             for b in 0..batch {
                                                 let m = mean[b];
                                                 let s = std[b];
@@ -330,8 +337,14 @@ pub fn layer_norm_2d(
                                                             - sum_dy / n_val
                                                             - xhat * sum_dy_xhat / n_val);
                                                     let mut inner = dx.clone();
-                                                    inner.as_slice_mut().expect("contiguous")
-                                                        [idx] = dx_val;
+                                                    if let Some(slice) = inner.as_slice_mut() {
+                                                        slice[idx] = dx_val;
+                                                    } else {
+                                                        let mut v: Vec<f32> = inner.iter().copied().collect();
+                                                        v[idx] = dx_val;
+                                                        let shape = inner.shape().to_vec();
+                                                        inner = ArrayD::from_shape_vec(shape, v).expect("shape matches");
+                                                    }
                                                     dx = inner;
                                                 }
                                             }

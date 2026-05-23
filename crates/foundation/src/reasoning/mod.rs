@@ -61,8 +61,29 @@ impl SacaAetherIntegration {
         result
     }
 
-    fn analyze_emotional_context(&self, _query: &str) -> String {
-        "emotionally aware".to_string()
+    fn analyze_emotional_context(&self, query: &str) -> String {
+        let lower = query.to_lowercase();
+        let positive_words = ["happy", "great", "excellent", "good", "love", "wonderful", "amazing", "fantastic", "beautiful", "joy", "hope", "grateful"];
+        let negative_words = ["sad", "angry", "bad", "terrible", "horrible", "hate", "awful", "depressed", "anxious", "fear", "scared", "angry", "frustrated"];
+        let urgent_words = ["urgent", "emergency", "critical", "immediately", "asap", "important", "deadline", "crisis"];
+        let analytical_words = ["analyze", "compare", "evaluate", "assess", "calculate", "determine", "investigate", "examine", "review"];
+
+        let pos_count = positive_words.iter().filter(|w| lower.contains(w)).count();
+        let neg_count = negative_words.iter().filter(|w| lower.contains(w)).count();
+        let urg_count = urgent_words.iter().filter(|w| lower.contains(w)).count();
+        let ana_count = analytical_words.iter().filter(|w| lower.contains(w)).count();
+
+        if urg_count > 0 {
+            format!("urgent (urgency_score: {})", urg_count)
+        } else if pos_count > neg_count {
+            format!("positive (positivity: {:.1})", pos_count as f32 / (pos_count + neg_count + 1) as f32)
+        } else if neg_count > pos_count {
+            format!("negative (negativity: {:.1})", neg_count as f32 / (pos_count + neg_count + 1) as f32)
+        } else if ana_count > 0 {
+            format!("analytical (analytical_score: {})", ana_count)
+        } else {
+            format!("neutral (query_length: {})", query.len())
+        }
     }
 }
 

@@ -1,8 +1,15 @@
 use crate::canvas::NeuralGraph;
 use crate::DLResult;
 
-/// Eager Execution — untuk editing visual responsif
-/// Setiap operasi dijalankan segera begitu ditambahkan ke graf
+/// Eager Execution — graph topology validation and shape propagation tool.
+///
+/// NOTE: This executor validates topological order and propagates shapes through
+/// the graph, but does NOT perform actual tensor computation. It is a graph
+/// validation and shape-inference pass intended for visual editing feedback.
+///
+/// Actual tensor dispatch is performed by the CompiledExecutor in `compiled.rs`.
+/// If you need eager tensor computation, use the autograd crate's TensorOps
+/// directly, or route through the CompiledExecutor.
 pub struct EagerExecutor;
 
 impl EagerExecutor {

@@ -472,21 +472,17 @@ fn render_logs(f: &mut Frame, area: Rect, logs: &[LogEntry]) {
     f.render_widget(list, area);
 }
 
-async fn run_app(mut terminal: Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut app = App::new();
-    app.update_system_info();
+    async fn run_app(mut terminal: Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+        let mut app = App::new();
+        app.update_system_info();
 
-    let mut last_log_time = Instant::now();
-    let mut should_run_tests = true; // Auto-run tests on startup
+        let mut last_log_time = Instant::now();
 
-    loop {
-        // Auto-run tests on startup
-        if should_run_tests && !app.is_running_tests {
-            should_run_tests = false;
-            if let Err(e) = app.run_tests().await {
-                app.add_log("ERROR", &format!("Failed to run tests: {}", e));
-            }
-        }
+        // Startup tests are no longer auto-run (would block UI).
+        // Press 't' to manually trigger test run.
+        app.add_log("INFO", "Dashboard ready — press 't' to run tests");
+
+        loop {
 
         // Update system info every 2 seconds
         if app.last_update.elapsed() >= Duration::from_secs(2) {

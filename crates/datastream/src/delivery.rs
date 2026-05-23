@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::types::{BatchConfig, DataSample};
 
@@ -9,6 +9,12 @@ pub struct TrainingDeliveryLayer {
     pub output_format: OutputFormat,
 }
 
+/// Output format for training data delivery.
+///
+/// - `JsonLines`: Newline-delimited JSON (default, always supported)
+/// - `Arrow`: Apache Arrow IPC format (requires `arrow` feature)
+/// - `TensorRecords`: Binary length-prefixed records (always supported)
+/// - `RawText`: Raw text with separators (always supported)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputFormat {
     JsonLines,
@@ -54,12 +60,10 @@ impl TrainingDeliveryLayer {
                     self.write_raw_text(&batch, &output_path).await?;
                 }
                 OutputFormat::Arrow => {
-                    warn!("Arrow output not yet implemented, falling back to JSON Lines");
-                    self.write_jsonlines(&batch, &output_path, total).await?;
+                    self.write_arrow(&batch, &output_path, total).await?;
                 }
                 OutputFormat::TensorRecords => {
-                    warn!("TensorRecords output not yet implemented, falling back to JSON Lines");
-                    self.write_jsonlines(&batch, &output_path, total).await?;
+                    self.write_tensor_records(&batch, &output_path, total).await?;
                 }
             }
             total += batch_size as u64;
@@ -123,6 +127,123 @@ impl TrainingDeliveryLayer {
             content.push_str("\n---NEXORA_SEPARATOR---\n");
         }
         file.write_all(content.as_bytes()).await?;
+        Ok(())
+    }
+
+    /// Write samples in Apache Arrow IPC format (requires `arrow` feature)
+    #[cfg(feature = "arrow")]
+    async fn write_arrow(
+        &self,
+        batch: &[DataSample],
+        output_path: &str,
+        offset: u64,
+    ) -> Result<(), anyhow::Error> {
+        use arrow::array::{Float64Array, StringArray};
+        use arrow::datatypes::{DataType, Field, Schema};
+        use arrow::ipc::writer::FileWriter;
+        use arrow::record_batch::RecordBatch;
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("text", DataType::Utf8, false),
+            Field::new("source_name", DataType::Utf8, false),
+            Field::new("source_url", DataType::Utf8, true),
+            Field::new("source_trust_score", DataType::Float64, false),
+            Field::new("source_category", DataType::Utf8, false),
+            Field::new("score", DataType::Float64, true),
+        ]));
+
+        let path = if offset == 0 {
+            output_path.to_string()
+        } else {
+            format!(
+                "{}.part{}",
+                output_path,
+                offset / self.batch_config.max_batch_size as u64
+            )
+        };
+
+        let id_array = StringArray::from(
+            batch.iter().map(|s| s.id.to_string()).collect::<Vec<_>>(),
+        );
+        let text_array = StringArray::from(
+            batch.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+        );
+        let source_name_array = StringArray::from(
+            batch.iter().map(|s| s.source.name.as_str()).collect::<Vec<_>>(),
+        );
+        let source_url_array = StringArray::from(
+            batch.iter().map(|s| s.source.url.as_deref().unwrap_or("")).collect::<Vec<_>>(),
+        );
+        let trust_score_array = Float64Array::from(
+            batch.iter().map(|s| s.source.trust_score).collect::<Vec<_>>(),
+        );
+        let source_category_array = StringArray::from(
+            batch.iter().map(|s| format!("{:?}", s.source.category)).collect::<Vec<_>>(),
+        );
+        let score_array = Float64Array::from(
+            batch.iter().map(|s| s.score.unwrap_or(f64::NAN)).collect::<Vec<_>>(),
+        );
+
+        let record_batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(id_array),
+                Arc::new(text_array),
+                Arc::new(source_name_array),
+                Arc::new(source_url_array),
+                Arc::new(trust_score_array),
+                Arc::new(source_category_array),
+                Arc::new(score_array),
+            ],
+        )?;
+
+        let file = std::fs::File::create(&path)?;
+        let mut writer = FileWriter::try_new(file, &record_batch.schema())?;
+        writer.write(&record_batch)?;
+        writer.finish()?;
+        Ok(())
+    }
+
+    /// Write samples in Apache Arrow IPC format — `arrow` feature required
+    #[cfg(not(feature = "arrow"))]
+    async fn write_arrow(
+        &self,
+        _batch: &[DataSample],
+        _output_path: &str,
+        _offset: u64,
+    ) -> Result<(), anyhow::Error> {
+        Err(anyhow::anyhow!(
+            "Arrow output format requires the 'arrow' feature to be enabled"
+        ))
+    }
+
+    /// Write samples as length-prefixed binary records (TensorRecords format)
+    async fn write_tensor_records(
+        &self,
+        batch: &[DataSample],
+        output_path: &str,
+        offset: u64,
+    ) -> Result<(), anyhow::Error> {
+        use tokio::io::AsyncWriteExt;
+        let path = if offset == 0 {
+            output_path.to_string()
+        } else {
+            format!(
+                "{}.part{}",
+                output_path,
+                offset / self.batch_config.max_batch_size as u64
+            )
+        };
+
+        let data = self.zero_copy_batch(batch);
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .await?;
+        file.write_all(&data).await?;
         Ok(())
     }
 

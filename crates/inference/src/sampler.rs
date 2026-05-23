@@ -1,6 +1,7 @@
 use rand::Rng;
 use rand::SeedableRng;
-use tracing::debug;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::{debug, warn};
 
 use crate::{InferenceError, Result};
 
@@ -40,6 +41,7 @@ pub struct Sampler {
     config: SamplingConfig,
     rng: Option<rand::rngs::StdRng>,
     use_gpu: bool,
+    gpu_fallback_count: AtomicU64,
 }
 
 impl Sampler {
@@ -53,6 +55,7 @@ impl Sampler {
             config,
             rng,
             use_gpu,
+            gpu_fallback_count: AtomicU64::new(0),
         }
     }
 
@@ -66,6 +69,7 @@ impl Sampler {
             use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
             #[cfg(not(feature = "gpu"))]
             use_gpu: false,
+            gpu_fallback_count: AtomicU64::new(0),
         }
     }
 
@@ -107,7 +111,8 @@ impl Sampler {
         match self.sample_gpu_impl(logits) {
             Ok(token) => Ok(token),
             Err(e) => {
-                tracing::warn!(err = %e, "GPU sampling failed, falling back to CPU");
+                warn!("GPU sampling failed: {}, falling back to CPU", e);
+                self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
                 self.sample_cpu(logits)
             }
         }
@@ -127,7 +132,8 @@ impl Sampler {
         let ctx = match GpuContext::global() {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!(err = %e, "GPU sampling batched failed, falling back to per-sequence");
+                warn!("GPU sampling batched failed: {}, falling back to per-sequence", e);
+                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
                 return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
             }
         };
@@ -145,9 +151,14 @@ impl Sampler {
 
         let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
         let seed = self.config.seed.unwrap_or(42);
-        let out = ctx
-            .gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed)
-            .map_err(|e| InferenceError::DecodingError(format!("gpu_sample batched: {}", e)))?;
+        let out = match ctx.gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed) {
+            Ok(o) => o,
+            Err(e) => {
+                warn!("GPU sampling batched call failed: {}, falling back to per-sequence", e);
+                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
+            }
+        };
 
         let raw = out.to_cpu_raw_bytes();
         let tokens: Vec<usize> = raw
@@ -224,6 +235,10 @@ impl Sampler {
         &self.config
     }
 
+    pub fn gpu_fallback_count(&self) -> u64 {
+        self.gpu_fallback_count.load(Ordering::Relaxed)
+    }
+
     pub fn get_stats(&self) -> SamplingStats {
         SamplingStats {
             method: self.config.method.clone(),
@@ -269,18 +284,25 @@ impl Sampler {
     }
 
     fn sample_from_probs(&mut self, probs: &[f32]) -> Result<usize> {
+        // Normalize probs to ensure they sum to 1.0 (handles floating point drift)
+        let sum: f32 = probs.iter().sum();
+        if sum <= 0.0 || !sum.is_finite() {
+            return Ok(probs.len() - 1);
+        }
+
         let r: f32 = match &mut self.rng {
             Some(rng) => rng.gen(),
             None => rand::thread_rng().gen(),
         };
         let mut cum = 0.0;
+        let epsilon = 1e-7;
         for (i, &p) in probs.iter().enumerate() {
-            cum += p;
-            if r <= cum {
+            cum += p / sum;
+            if r <= cum + epsilon {
                 return Ok(i);
             }
         }
-        Ok(probs.len() - 1)
+        Ok(probs.len().saturating_sub(1))
     }
 
     fn argmax(&self, logits: &[f32]) -> usize {

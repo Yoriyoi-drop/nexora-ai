@@ -15,6 +15,7 @@ use crate::utils::ResonanceCalculator;
 use crate::HolographicWave;
 use crate::{DLResult, DeepLearningError};
 use ndarray::{Array1, ArrayD};
+use nexora_autograd::Tensor;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::hash::Hasher;
@@ -718,6 +719,26 @@ impl TopKResonanceRouting {
         }
 
         Ok(())
+    }
+
+    pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
+        vec![
+            self.relevance_weights.clone().into_dyn(),
+        ]
+    }
+
+    pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
+        for (i, t) in tensors.iter().enumerate() {
+            let d = t.data();
+            match i {
+                0 => {
+                    if let Ok(arr) = d.clone().into_shape(self.relevance_weights.dim()) {
+                        self.relevance_weights = arr;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Get routing statistics

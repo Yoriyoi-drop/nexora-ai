@@ -219,7 +219,7 @@ pub struct SystemInfo {
     pub last_updated: DateTime<Utc>,
     pub process_count: u64,
     pub thread_count: u64,
-    pub load_average: (f64, f64, f64),
+    pub load_average: Option<(f64, f64, f64)>,
 }
 
 /// Component health status
@@ -239,7 +239,7 @@ pub struct MemoryStats {
     pub total_memory: u64,
     pub used_memory: u64,
     pub available_memory: u64,
-    pub cache_size: u64,
+    pub cache_size: Option<u64>,
 }
 
 /// Health check result

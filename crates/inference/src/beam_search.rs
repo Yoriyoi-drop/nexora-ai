@@ -8,6 +8,60 @@ use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;
 
+/// Persistent, append-only token list using shared tails.
+/// Adding a token is O(1) — no full Vec clone.
+/// Iteration is O(n) and only needed for final output.
+#[derive(Debug, Clone)]
+pub struct PersistentTokens {
+    prefix: Option<Arc<PersistentTokens>>,
+    token: Arc<GeneratedToken>,
+    len: usize,
+}
+
+impl PersistentTokens {
+    pub fn empty() -> Option<Arc<PersistentTokens>> {
+        None
+    }
+
+    pub fn append(prefix: Option<Arc<PersistentTokens>>, token: Arc<GeneratedToken>) -> Arc<PersistentTokens> {
+        let new_len = prefix.as_ref().map(|p| p.len).unwrap_or(0) + 1;
+        Arc::new(PersistentTokens { prefix: prefix.map(Arc::clone), token, len: new_len })
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn iter(&self) -> PersistentTokensIter {
+        PersistentTokensIter { current: Some(Arc::new(self.clone())) }
+    }
+
+    pub fn to_vec(&self) -> Vec<Arc<GeneratedToken>> {
+        let mut result = Vec::with_capacity(self.len);
+        let mut current = Some(Arc::new(self.clone()));
+        while let Some(node) = current.take() {
+            result.push(Arc::clone(&node.token));
+            current = node.prefix.clone();
+        }
+        result.reverse();
+        result
+    }
+}
+
+pub struct PersistentTokensIter {
+    current: Option<Arc<PersistentTokens>>,
+}
+
+impl Iterator for PersistentTokensIter {
+    type Item = Arc<GeneratedToken>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.current.take()?;
+        let token = Arc::clone(&node.token);
+        self.current = node.prefix.clone();
+        Some(token)
+    }
+}
+
 use crate::decoding;
 use crate::{GeneratedToken, InferenceError, Result};
 
@@ -55,8 +109,10 @@ impl Default for BeamSearchConfig {
 pub struct BeamHypothesis {
     /// Unique hypothesis ID
     pub id: Uuid,
-    /// Generated tokens
-    pub tokens: Arc<Vec<Arc<GeneratedToken>>>,
+    /// Generated tokens (persistent, O(1) append)
+    pub tokens: Option<Arc<PersistentTokens>>,
+    /// Cached token count
+    pub token_count: usize,
     /// Cumulative log probability
     pub cumulative_log_prob: f32,
     /// Normalized score
@@ -76,7 +132,8 @@ impl BeamHypothesis {
     pub fn new(length_penalty: f32) -> Self {
         Self {
             id: Uuid::new_v4(),
-            tokens: Arc::new(Vec::new()),
+            tokens: None,
+            token_count: 0,
             cumulative_log_prob: 0.0,
             score: 0.0,
             length_penalty,
@@ -86,12 +143,12 @@ impl BeamHypothesis {
         }
     }
 
-    /// Add token to hypothesis
+    /// Add token to hypothesis (O(1) — no full Vec clone)
     pub fn add_token(&mut self, token: Arc<GeneratedToken>) {
         self.cumulative_log_prob += token.log_prob;
-        let mut new_tokens = (*self.tokens).clone();
-        new_tokens.push(token);
-        self.tokens = Arc::new(new_tokens);
+        let prev = self.tokens.take();
+        self.tokens = Some(PersistentTokens::append(prev, token));
+        self.token_count += 1;
         self.update_score();
     }
 
@@ -104,7 +161,8 @@ impl BeamHypothesis {
 
     /// Get generated text
     pub fn get_text(&self) -> String {
-        self.tokens
+        let tokens = self.collect_tokens();
+        tokens
             .iter()
             .map(|t| (*t.token_text).to_string())
             .collect::<String>()
@@ -112,14 +170,29 @@ impl BeamHypothesis {
 
     /// Get token count
     pub fn token_count(&self) -> usize {
-        self.tokens.len()
+        self.token_count
+    }
+
+    /// Collect tokens into a Vec (O(n), called only for final output)
+    pub fn collect_tokens(&self) -> Vec<Arc<GeneratedToken>> {
+        match &self.tokens {
+            Some(chain) => chain.to_vec(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Iterate over tokens
+    pub fn iter_tokens(&self) -> PersistentTokensIter {
+        match &self.tokens {
+            Some(chain) => chain.iter(),
+            None => PersistentTokensIter { current: None },
+        }
     }
 
     /// Update normalized score
     fn update_score(&mut self) {
-        let length = self.tokens.len() as f32;
+        let length = self.token_count as f32;
         if length > 0.0 {
-            // Length penalty: (length + 5) / (5 + 1) ^ length_penalty
             let lp = ((length + 5.0) / (6.0)).powf(self.length_penalty);
             self.score = self.cumulative_log_prob / lp;
         } else {
@@ -129,7 +202,7 @@ impl BeamHypothesis {
 
     /// Check if hypothesis is valid
     pub fn is_valid(&self) -> bool {
-        !self.tokens.is_empty() && self.cumulative_log_prob.is_finite()
+        self.token_count > 0 && self.cumulative_log_prob.is_finite()
     }
 }
 
@@ -253,22 +326,24 @@ impl BeamSearchEngine {
                 .select_nth_unstable_by(k, |a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
 
             for &(token_id, logit) in indexed_logits.iter().take(candidates_per_hypothesis) {
-                let token = GeneratedToken::new(
+                let token = Arc::new(GeneratedToken::new(
                     token_id as u32,
                     decoding::alloc_token_text(token_id),
                     logit,
                     state.step,
-                );
+                ));
 
-                let mut new_tokens = (*hypothesis.tokens).clone();
-                new_tokens.push(Arc::new(token));
+                // O(1) append using persistent tokens — no full Vec clone
+                let new_tokens = PersistentTokens::append(hypothesis.tokens.clone(), Arc::clone(&token));
+                let new_token_count = hypothesis.token_count + 1;
                 let new_cumulative_log_prob = hypothesis.cumulative_log_prob + logit;
-                let new_len = new_tokens.len() as f32;
+                let new_len = new_token_count as f32;
                 let lp = ((new_len + 5.0) / (6.0)).powf(hypothesis.length_penalty);
                 let new_score = new_cumulative_log_prob / lp;
                 let new_hypothesis = BeamHypothesis {
                     id: hypothesis.id,
-                    tokens: Arc::new(new_tokens),
+                    tokens: Some(new_tokens),
+                    token_count: new_token_count,
                     cumulative_log_prob: new_cumulative_log_prob,
                     score: new_score,
                     length_penalty: hypothesis.length_penalty,
@@ -372,9 +447,11 @@ impl BeamSearchEngine {
 
         for candidate in candidates {
             // Check diversity using first token ID as key (avoids String allocation for dedup)
-            let key = candidate.tokens.first().map(|t| t.token_id).unwrap_or(0);
+            let first_token_id = candidate.tokens.as_ref().and_then(|pt| {
+                pt.iter().last().map(|t| t.token_id)
+            }).unwrap_or(0);
             let diversity_score =
-                self.calculate_diversity_score(&candidate.tokens, &diversity_tracker);
+                self.calculate_diversity_score(&candidate, &diversity_tracker);
 
             // Apply divergence penalty
             let adjusted_score =
@@ -436,8 +513,8 @@ impl BeamSearchEngine {
             for j in (i + 1)..hyp_len {
                 if !used[j] {
                     let similarity = Self::token_id_similarity(
-                        &state.hypotheses[i].tokens,
-                        &state.hypotheses[j].tokens,
+                        &state.hypotheses[i],
+                        &state.hypotheses[j],
                     );
                     if similarity > (1.0 - self.config.convergence_threshold) {
                         group.push(j);
@@ -473,9 +550,8 @@ impl BeamSearchEngine {
             return true;
         }
 
-        let first_tokens = &hypotheses[0].tokens;
         for hypothesis in hypotheses.iter().skip(1) {
-            let similarity = Self::token_id_similarity(first_tokens, &hypothesis.tokens);
+            let similarity = Self::token_id_similarity(&hypotheses[0], hypothesis);
             if similarity < (1.0 - self.config.convergence_threshold) {
                 return false;
             }
@@ -484,13 +560,20 @@ impl BeamSearchEngine {
         true
     }
 
-    /// Jaccard similarity on token IDs (avoids String allocation)
-    fn token_id_similarity(a: &Arc<Vec<Arc<GeneratedToken>>>, b: &Arc<Vec<Arc<GeneratedToken>>>) -> f32 {
-        if a.is_empty() || b.is_empty() {
+    /// Collect token IDs from a hypothesis into a Vec
+    fn collect_token_ids(hypothesis: &BeamHypothesis) -> Vec<u32> {
+        hypothesis.iter_tokens().map(|t| t.token_id).collect()
+    }
+
+    /// Jaccard similarity on token IDs from two hypotheses
+    fn token_id_similarity(a: &BeamHypothesis, b: &BeamHypothesis) -> f32 {
+        let a_count = a.token_count;
+        let b_count = b.token_count;
+        if a_count == 0 || b_count == 0 {
             return 0.0;
         }
-        let a_ids: HashSet<u32> = a.iter().map(|t| t.token_id).collect();
-        let b_ids: HashSet<u32> = b.iter().map(|t| t.token_id).collect();
+        let a_ids: HashSet<u32> = a.iter_tokens().map(|t| t.token_id).collect();
+        let b_ids: HashSet<u32> = b.iter_tokens().map(|t| t.token_id).collect();
         let intersection = a_ids.intersection(&b_ids).count();
         let union = a_ids.union(&b_ids).count();
         if union == 0 {
@@ -500,21 +583,21 @@ impl BeamSearchEngine {
         }
     }
 
-    /// Calculate diversity score using token IDs (avoids String allocation)
+    /// Calculate diversity score using token IDs
     fn calculate_diversity_score(
         &self,
-        tokens: &Arc<Vec<Arc<GeneratedToken>>>,
+        hypothesis: &BeamHypothesis,
         _existing: &HashMap<u32, f32>,
     ) -> f32 {
         if _existing.is_empty() {
             return 0.0;
         }
-        // Simplified diversity: ratio of unique token IDs
-        if tokens.is_empty() {
+        let count = hypothesis.token_count;
+        if count == 0 {
             return 0.0;
         }
-        let unique: HashSet<u32> = tokens.iter().map(|t| t.token_id).collect();
-        1.0 - (unique.len() as f32 / tokens.len() as f32)
+        let unique: HashSet<u32> = hypothesis.iter_tokens().map(|t| t.token_id).collect();
+        1.0 - (unique.len() as f32 / count as f32)
     }
 }
 

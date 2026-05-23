@@ -1,3 +1,23 @@
+//! Data-parallel training utilities.
+//!
+//! Provides gradient accumulation (`GradientAccumulator`), gradient averaging
+//! across workers (`all_reduce_gradients`), and multi-worker coordination
+//! (`DataParallel`).
+//!
+//! ## Current limitations
+//!
+//! - **CPU-only parallelism**: The current implementation shards data across
+//!   threads and averages gradients in CPU memory. No actual multi-GPU dispatch.
+//! - **No NCCL / all-reduce backend**: `all_reduce_gradients` performs a naive
+//!   CPU-side sum-and-divide. For multi-GPU training, integrate NCCL or similar.
+//! - **No automatic device placement**: Workers all run on the same device.
+//!   True data parallelism requires per-worker device assignment + gradient sync.
+//!
+//! To add multi-GPU support:
+//! 1. Spawn one OS thread per GPU.
+//! 2. Set `GpuContext` per-thread (or use device IDs).
+//! 3. Replace `all_reduce_gradients` with NCCL all-reduce or wgpu buffer copy.
+
 use std::collections::HashMap;
 
 use ndarray::ArrayD;

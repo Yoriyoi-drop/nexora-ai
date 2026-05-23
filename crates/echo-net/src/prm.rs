@@ -22,6 +22,7 @@
 use crate::HolographicWave;
 use crate::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
+use nexora_autograd::Tensor;
 use std::collections::HashMap;
 
 /// Memory entry with metadata
@@ -597,6 +598,33 @@ impl PersistentResonanceMemory {
 }
 
 /// Memory statistics
+    pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
+        vec![
+            self.novelty_weights.clone().into_dyn(),
+            self.resonance_kernel.clone().into_dyn(),
+        ]
+    }
+
+    pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
+        for (i, t) in tensors.iter().enumerate() {
+            let d = t.data();
+            match i {
+                0 => {
+                    if let Ok(arr) = d.clone().into_shape(self.novelty_weights.dim()) {
+                        self.novelty_weights = arr;
+                    }
+                }
+                1 => {
+                    if let Ok(arr) = d.clone().into_shape(self.resonance_kernel.dim()) {
+                        self.resonance_kernel = arr;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemoryStatistics {
     pub memory_size: usize,

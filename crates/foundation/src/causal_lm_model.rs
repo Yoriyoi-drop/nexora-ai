@@ -1,10 +1,14 @@
 use async_trait::async_trait;
+use ndarray::Array1;
 use rand::seq::SliceRandom;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+use unicode_segmentation::UnicodeSegmentation;
 
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
@@ -12,13 +16,127 @@ use nexora_transformer::{CausalLM, TransformerConfig};
 use crate::shared::base_model::ValidationResult;
 use crate::shared::{
     CapabilityVector, FinishReason, GenerationMetadata, InputData, ModelMeta, ModelStatistics,
-    ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
+    ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelResult, NxrOutput,
     NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
 };
 
-/// Byte-level tokenizer for MVP: maps bytes 0-255 to token IDs directly.
+/// Byte + BPE tokenizer: bytes 0-255 as base (BOS=1, EOS=2), plus optional learned merge rules for IDs ≥ 256.
 pub struct MiniTokenizer {
     vocab_size: usize,
+    bpe_token_to_id: HashMap<String, u32>,
+    bpe_id_to_token: HashMap<u32, String>,
+    merges: Vec<(String, String)>,
+}
+
+impl MiniTokenizer {
+    pub fn new(vocab_size: usize) -> Self {
+        Self {
+            vocab_size,
+            bpe_token_to_id: HashMap::new(),
+            bpe_id_to_token: HashMap::new(),
+            merges: Vec::new(),
+        }
+    }
+
+    /// Byte-level encode (backward compatible): [BOS=1, byte0, byte1, ..., EOS=2]
+    pub fn encode(&self, text: &str) -> Vec<u32> {
+        let mut ids = vec![1u32];
+        for &b in text.as_bytes() {
+            let id = b as u32;
+            if (id as usize) < self.vocab_size {
+                ids.push(id);
+            }
+        }
+        ids.push(2);
+        ids
+    }
+
+    /// Decode: reconstruct string from token IDs.
+    /// Byte IDs (0-255) are converted directly.
+    /// BPE token IDs (≥256) are looked up in the BPE vocab.
+    /// BOS(1) and EOS(2) are skipped in output.
+    pub fn decode(&self, token_ids: &[u32]) -> String {
+        let mut result = String::new();
+        for &id in token_ids {
+            if id == 1 || id == 2 {
+                continue;
+            }
+            if id < 256 {
+                result.push(char::from(id as u8));
+            } else if let Some(s) = self.bpe_id_to_token.get(&id) {
+                result.push_str(s);
+            }
+        }
+        result
+    }
+
+    /// Train BPE merges on provided texts. This extends the vocab with merged tokens
+    /// that get IDs ≥ 256.
+    pub fn train_bpe(&mut self, texts: &[String], num_merges: usize) {
+        let mut pair_counts: HashMap<(String, String), usize> = HashMap::new();
+        for text in texts {
+            let graphemes: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
+            for pair in graphemes.windows(2) {
+                *pair_counts
+                    .entry((pair[0].clone(), pair[1].clone()))
+                    .or_default() += 1;
+            }
+        }
+        let max_merges = num_merges.min(self.vocab_size.saturating_sub(256));
+        for _ in 0..max_merges {
+            let best = pair_counts.iter().max_by_key(|&(_, &c)| c).map(|(k, _)| k.clone());
+            let Some((left, right)) = best else { break };
+            let merged = format!("{}{}", left, right);
+            let id = 256u32 + self.merges.len() as u32;
+            if id >= self.vocab_size as u32 {
+                break;
+            }
+            self.bpe_token_to_id.insert(merged.clone(), id);
+            self.bpe_id_to_token.insert(id, merged.clone());
+            self.merges.push((left.clone(), right.clone()));
+            pair_counts.remove(&(left, right));
+        }
+    }
+
+    /// BPE-aware tokenization: applies learned merge rules then encodes.
+    /// Falls back to byte-level for unknown character sequences.
+    pub fn bpe_tokenize(&self, text: &str) -> Vec<u32> {
+        let mut ids = vec![1u32];
+        let mut tokens: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
+        if !self.merges.is_empty() {
+            loop {
+                let mut best_i = None;
+                for i in 0..tokens.len().saturating_sub(1) {
+                    let merged = format!("{}{}", tokens[i], tokens[i + 1]);
+                    if self.bpe_token_to_id.contains_key(&merged) {
+                        best_i = Some(i);
+                        break;
+                    }
+                }
+                match best_i {
+                    Some(i) => {
+                        let merged = format!("{}{}", tokens[i], tokens[i + 1]);
+                        tokens[i] = merged;
+                        tokens.remove(i + 1);
+                    }
+                    None => break,
+                }
+            }
+        }
+        for token in &tokens {
+            if let Some(&id) = self.bpe_token_to_id.get(token.as_str()) {
+                ids.push(id);
+            } else {
+                for &b in token.as_bytes() {
+                    if (b as usize) < self.vocab_size {
+                        ids.push(b as u32);
+                    }
+                }
+            }
+        }
+        ids.push(2);
+        ids
+    }
 }
 
 impl MiniTokenizer {
@@ -56,7 +174,7 @@ pub struct CausalLmModel {
     transformer_config: Arc<RwLock<TransformerConfig>>,
     initialized: Arc<RwLock<bool>>,
     statistics: Arc<RwLock<ModelStatistics>>,
-    use_gpu: Arc<RwLock<bool>>,
+    use_gpu: AtomicBool,
 }
 
 impl CausalLmModel {
@@ -88,7 +206,7 @@ impl CausalLmModel {
             transformer_config: Arc::new(RwLock::new(transformer_config)),
             initialized: Arc::new(RwLock::new(false)),
             statistics: Arc::new(RwLock::new(ModelStatistics::default())),
-            use_gpu: Arc::new(RwLock::new(true)),
+            use_gpu: AtomicBool::new(true),
         }
     }
 
@@ -135,8 +253,8 @@ impl CausalLmModel {
         Ok(())
     }
 
-    pub async fn set_use_gpu(&self, enabled: bool) {
-        *self.use_gpu.write().await = enabled;
+    pub fn set_use_gpu(&self, enabled: bool) {
+        self.use_gpu.store(enabled, Ordering::Relaxed);
     }
 
     pub async fn generate_text(
@@ -145,7 +263,7 @@ impl CausalLmModel {
         max_tokens: usize,
         temperature: f32,
     ) -> NxrModelResult<String> {
-        self.generate_text_with_gpu(prompt, max_tokens, temperature, *self.use_gpu.read().await)
+        self.generate_text_with_gpu(prompt, max_tokens, temperature, self.use_gpu.load(Ordering::Relaxed))
             .await
     }
 
@@ -178,7 +296,7 @@ impl CausalLmModel {
         val_data: Option<&[String]>,
     ) -> NxrModelResult<TrainingReport> {
         let seq_length = cfg.seq_length;
-        let _batch_size = cfg.batch_size;
+        let batch_size = cfg.batch_size;
         let max_steps = cfg.max_steps;
 
         let tokenizer = self.tokenizer.read().await;
@@ -241,6 +359,8 @@ impl CausalLmModel {
         let start = Instant::now();
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::from_entropy();
+        let mut best_val_loss = f64::MAX;
+        let mut early_stop_counter = 0;
 
         while trainer.step < max_steps {
             let mut epoch: Vec<&Vec<u32>> = train_tokens.iter().collect();
@@ -285,7 +405,18 @@ impl CausalLmModel {
                 && trainer.step % trainer.config.val_every_steps == 0
                 && trainer.step > 0
             {
-                let _val_metrics = trainer.evaluate_loss(&val_tokens, seq_length);
+                let val_metrics = trainer.evaluate_loss(&val_tokens, seq_length);
+                info!("  Validation | step {} | loss: {:.4} | perplexity: {:.2}", trainer.step, val_metrics.avg_loss, val_metrics.perplexity);
+                if val_metrics.avg_loss < best_val_loss {
+                    best_val_loss = val_metrics.avg_loss;
+                    early_stop_counter = 0;
+                } else {
+                    early_stop_counter += 1;
+                    if early_stop_counter >= 3 && trainer.step > max_steps / 2 {
+                        info!("  Early stopping triggered at step {}", trainer.step);
+                        break;
+                    }
+                }
             }
         }
 
@@ -406,12 +537,6 @@ impl NxrModel for CausalLmModel {
     }
 
     async fn infer(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
-        let model = self.model.read().await;
-        let _model_ref = model
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
-        drop(model);
-
         let tokenizer = self.tokenizer.read().await;
         let tok_ref = tokenizer
             .as_ref()
@@ -420,7 +545,11 @@ impl NxrModel for CausalLmModel {
         let text = match &input.data {
             InputData::Text(t) => t.clone(),
             InputData::Tokens(t) => {
-                let _decoded = tok_ref.decode(t);
+                let decoded = tok_ref.decode(t);
+                let elapsed = std::time::Instant::now();
+                let total = t.len() as u64;
+                let dur = elapsed.elapsed().as_millis() as u64;
+                let tp_s = if dur > 0 { total as f32 / (dur as f32 / 1000.0) } else { 0.0 };
                 return Ok(NxrOutput {
                     id: uuid::Uuid::new_v4(),
                     input_id: input.id,
@@ -442,13 +571,13 @@ impl NxrModel for CausalLmModel {
                     metadata: GenerationMetadata {
                         finish_reason: FinishReason::MaxTokens,
                         total_tokens: t.len(),
-                        generation_time_ms: 0,
+                        generation_time_ms: dur,
                         model_version: "0.1.0".to_string(),
                         seed: None,
                         extras: Default::default(),
                     },
                     performance: PerformanceMetrics {
-                        tokens_per_second: 0.0,
+                        tokens_per_second: tp_s,
                         memory_usage_gb: 0.0,
                         gpu_utilization: None,
                         cpu_utilization: 0.0,
@@ -487,7 +616,7 @@ impl NxrModel for CausalLmModel {
             NxrModelError::NotInitialized("Model was reset before generation".to_string())
         })?;
 
-        let use_gpu = *self.use_gpu.read().await;
+        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
         let (output_ids, _cache) =
             model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
 
@@ -504,20 +633,6 @@ impl NxrModel for CausalLmModel {
         } else {
             0.0
         };
-
-        let _token_outputs: Vec<TokenOutput> = output_ids
-            .iter()
-            .enumerate()
-            .map(|(i, &tid)| {
-                let t = tok_ref.decode(&[tid]);
-                TokenOutput {
-                    token_id: tid,
-                    text: t,
-                    log_prob: 0.0,
-                    position: input_ids.len() + i,
-                }
-            })
-            .collect();
 
         Ok(NxrOutput {
             id: uuid::Uuid::new_v4(),
@@ -547,16 +662,84 @@ impl NxrModel for CausalLmModel {
         input: &NxrInput,
         callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
     ) -> NxrModelResult<()> {
-        let result = self.infer(input).await?;
-        if let OutputData::Text(text) = &result.data {
+        let tokenizer = self.tokenizer.read().await;
+        let tok_ref = tokenizer
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+
+        let text = match &input.data {
+            InputData::Text(t) => t.clone(),
+            InputData::Tokens(t) => {
+                let decoded = tok_ref.decode(t);
+                callback(NxrStreamChunk {
+                    id: uuid::Uuid::new_v4(),
+                    input_id: input.id,
+                    timestamp: chrono::Utc::now(),
+                    data: StreamChunkData::TextDelta(decoded),
+                    is_final: true,
+                });
+                return Ok(());
+            }
+            _ => {
+                return Err(NxrModelError::Inference(
+                    "Unsupported input type".to_string(),
+                ))
+            }
+        };
+
+        let max_tokens = input
+            .parameters
+            .get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100) as usize;
+        let temperature = input
+            .parameters
+            .get("temperature")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.7) as f32;
+        let top_k = input
+            .parameters
+            .get("top_k")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(50) as usize;
+
+        let model = self.model.read().await;
+        let model_ref = model
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
+
+        let input_ids = tok_ref.encode(&text);
+        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
+        let mut cache = model_ref.reset_cache();
+        for &token_id in &input_ids {
+            let _ = model_ref.forward(&[token_id], &mut cache);
+        }
+        let mut last_id = *input_ids.last().unwrap_or(&0);
+        for _ in 0..max_tokens {
+            let logits = model_ref
+                .forward(&[last_id], &mut cache)
+                .unwrap_or_else(|_| Array1::zeros(model_ref.config.vocab_size));
+            let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
+            let token_text = tok_ref.decode(&[next_id]);
             callback(NxrStreamChunk {
                 id: uuid::Uuid::new_v4(),
                 input_id: input.id,
                 timestamp: chrono::Utc::now(),
-                data: StreamChunkData::TextDelta(text.clone()),
-                is_final: true,
+                data: StreamChunkData::TextDelta(token_text),
+                is_final: false,
             });
+            if next_id == 0 || next_id == 2 {
+                break;
+            }
+            last_id = next_id;
         }
+        callback(NxrStreamChunk {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: StreamChunkData::Status("done".to_string()),
+            is_final: true,
+        });
         Ok(())
     }
 
@@ -605,10 +788,59 @@ impl NxrModel for CausalLmModel {
     }
 
     async fn resource_usage(&self) -> NxrModelResult<ResourceUsage> {
+        let memory_gb = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status
+                    .lines()
+                    .find(|l| l.starts_with("VmRSS:"))
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .map(|kb| (kb / 1_048_576.0) as f32)
+            })
+            .unwrap_or(0.0);
+
+        let cpu_percent = std::fs::read_to_string("/proc/self/stat")
+            .ok()
+            .and_then(|stat| {
+                let parts: Vec<&str> = stat.split_whitespace().collect();
+                if parts.len() >= 15 {
+                    let utime: f64 = parts[13].parse().unwrap_or(0.0);
+                    let stime: f64 = parts[14].parse().unwrap_or(0.0);
+                    let total_ticks = utime + stime;
+                    let uptime = std::fs::read_to_string("/proc/uptime")
+                        .ok()
+                        .and_then(|u| u.split_whitespace().next()?.parse::<f64>().ok())
+                        .unwrap_or(1.0);
+                    let hertz = 100.0;
+                    Some(((total_ticks / hertz / uptime) * 100.0) as f32)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
+
+        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
+        let gpu_percent = if use_gpu {
+            std::fs::read_to_string("/proc/driver/nvidia/gpus/0/status")
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find(|l| l.contains("GPU Utilization"))
+                        .and_then(|l| {
+                            l.split_whitespace()
+                                .find(|w| w.ends_with('%'))
+                                .and_then(|w| w.trim_end_matches('%').parse::<f32>().ok())
+                        })
+                })
+        } else {
+            None
+        };
+
         Ok(ResourceUsage {
-            memory_gb: 0.0,
-            cpu_percent: 0.0,
-            gpu_percent: None,
+            memory_gb,
+            cpu_percent,
+            gpu_percent,
             gpu_memory_gb: None,
             disk_gb: 0.0,
             network_mbps: 0.0,

@@ -20,6 +20,8 @@ rand = "0.8"
 async-trait = "0.1"
 # Compression support
 flate2 = "1.0"
+# System monitoring
+sysinfo = "0.30"
 # Infrastructure
 nexora-infrastructure = { path = "../infrastructure" }
 

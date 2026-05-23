@@ -191,8 +191,8 @@ pub struct MetricsData {
     pub average_response_time_ms: f64,
     pub error_rate_percent: f64,
     pub active_connections: usize,
-    pub memory_usage_mb: f64,
-    pub cpu_usage_percent: f64,
+    pub memory_usage_mb: Option<f64>,
+    pub cpu_usage_percent: Option<f64>,
     pub top_routes: Vec<RouteMetrics>,
 }
 

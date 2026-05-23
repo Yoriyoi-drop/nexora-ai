@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
 use tracing::info;
 
 use crate::NexoraAI;
@@ -26,6 +29,17 @@ impl NexoraServer {
 
     pub async fn start(&self, nexora: Arc<NexoraAI>) -> Result<(), anyhow::Error> {
         let app = create_router(nexora, &self.config).await?;
+
+        info!(
+            "Enforcing connection limit ({}) and request timeout ({}s)",
+            self.config.max_connections, self.config.request_timeout_seconds
+        );
+        let app = app
+            .layer(ConcurrencyLimitLayer::new(self.config.max_connections))
+            .layer(TimeoutLayer::new(Duration::from_secs(
+                self.config.request_timeout_seconds,
+            )));
+
         let addr: SocketAddr = format!("{}:{}", self.config.host, self.config.port).parse()?;
         let listener = TcpListener::bind(addr).await?;
         info!("Server listening on {}", addr);

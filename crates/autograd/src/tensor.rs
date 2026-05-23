@@ -1,7 +1,7 @@
 use ndarray::ArrayD;
 use rand::Rng;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use super::device::{Device, Storage};
 use super::mixed_precision::DType;
@@ -32,11 +32,11 @@ pub fn next_tensor_id() -> usize {
 }
 
 #[derive(Clone)]
-pub struct Tensor(Arc<Mutex<TensorInner>>);
+pub struct Tensor(Arc<RwLock<TensorInner>>);
 
 impl std::fmt::Debug for Tensor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let inner = self.0.read().unwrap_or_else(|e| e.into_inner());
         f.debug_struct("Tensor")
             .field("id", &inner.id)
             .field("shape", &inner.storage.shape())
@@ -64,7 +64,7 @@ impl Tensor {
             if let Ok(_ctx) = crate::gpu::GpuContext::global() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&data) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    return Tensor(Arc::new(Mutex::new(TensorInner {
+                    return Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
                         storage: Storage::Gpu(gpu_t),
                         device: Device::Gpu(0),
@@ -77,7 +77,7 @@ impl Tensor {
             }
         }
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-        Self(Arc::new(Mutex::new(TensorInner {
+        Self(Arc::new(RwLock::new(TensorInner {
             id,
             storage: Storage::Cpu(data),
             device: Device::Cpu,
@@ -91,7 +91,7 @@ impl Tensor {
     /// Create tensor from GPU tensor (no grad tracking)
     #[cfg(feature = "gpu")]
     pub fn from_gpu(gpu_tensor: crate::gpu::GpuTensor, id: usize, requires_grad: bool) -> Self {
-        Self(Arc::new(Mutex::new(TensorInner {
+        Self(Arc::new(RwLock::new(TensorInner {
             id,
             storage: Storage::Gpu(gpu_tensor),
             device: Device::Gpu(0),
@@ -104,37 +104,37 @@ impl Tensor {
 
     pub fn set_requires_grad(&self, val: bool) {
         self.0
-            .lock()
+            .write()
             .unwrap_or_else(|e| e.into_inner())
             .requires_grad = val;
     }
 
     pub fn requires_grad(&self) -> bool {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .requires_grad
     }
 
     pub fn id(&self) -> usize {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).id
+        self.0.read().unwrap_or_else(|e| e.into_inner()).id
     }
 
     pub fn device(&self) -> Device {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .device
             .clone()
     }
 
     pub fn dtype(&self) -> DType {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).dtype
+        self.0.read().unwrap_or_else(|e| e.into_inner()).dtype
     }
 
     pub fn shape(&self) -> Vec<usize> {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .storage
             .shape()
@@ -142,7 +142,7 @@ impl Tensor {
 
     pub fn ndim(&self) -> usize {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .storage
             .ndim()
@@ -150,7 +150,7 @@ impl Tensor {
 
     pub fn numel(&self) -> usize {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .storage
             .numel()
@@ -158,7 +158,7 @@ impl Tensor {
 
     pub fn storage(&self) -> Storage {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .storage
             .clone()
@@ -166,7 +166,7 @@ impl Tensor {
 
     pub fn data(&self) -> ArrayD<f32> {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .storage
             .to_cpu()
@@ -174,7 +174,7 @@ impl Tensor {
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .grad
             .as_ref()
@@ -186,7 +186,7 @@ impl Tensor {
     #[cfg(feature = "gpu")]
     pub fn grad_storage(&self) -> Option<Storage> {
         self.0
-            .lock()
+            .read()
             .unwrap_or_else(|e| e.into_inner())
             .grad
             .clone()
@@ -194,32 +194,32 @@ impl Tensor {
 
     /// Move tensor to a specific device.
     pub fn to_device(&self, target: &Device) -> Self {
-        let inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let inner = self.0.read().unwrap_or_else(|e| e.into_inner());
         if inner.device == *target {
             return self.clone();
         }
+        let cpu_data = inner.storage.to_cpu();
+        let requires_grad = inner.requires_grad;
+        let grad = inner.grad.clone();
+        drop(inner);
         match target {
             Device::Cpu => {
-                let cpu_data = inner.storage.to_cpu();
-                let requires_grad = inner.requires_grad;
-                drop(inner);
                 let t = Tensor::new(cpu_data);
                 t.set_requires_grad(requires_grad);
                 t
             }
             #[cfg(feature = "gpu")]
             Device::Gpu(_device_id) => {
-                let cpu_data = inner.storage.to_cpu();
                 let gpu_tensor = crate::gpu::GpuTensor::from_cpu(&cpu_data)
                     .expect("Failed to transfer tensor to GPU");
                 let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                let t = Tensor(Arc::new(Mutex::new(TensorInner {
+                let t = Tensor(Arc::new(RwLock::new(TensorInner {
                     id,
                     storage: Storage::Gpu(gpu_tensor),
                     device: Device::Gpu(0),
                     dtype: DType::F32,
-                    grad: inner.grad.clone(),
-                    requires_grad: inner.requires_grad,
+                    grad,
+                    requires_grad,
                     grad_fn_idx: None,
                 })));
                 t
@@ -237,7 +237,7 @@ impl Tensor {
         #[cfg(feature = "gpu")]
         {
             matches!(
-                self.0.lock().unwrap_or_else(|e| e.into_inner()).device,
+                self.0.read().unwrap_or_else(|e| e.into_inner()).device,
                 Device::Gpu(_)
             )
         }
@@ -284,7 +284,7 @@ impl Tensor {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    let t = Tensor(Arc::new(Mutex::new(TensorInner {
+                    let t = Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
                         storage: Storage::Gpu(gpu_t),
                         device: Device::Gpu(0),
@@ -309,7 +309,7 @@ impl Tensor {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    let t = Tensor(Arc::new(Mutex::new(TensorInner {
+                    let t = Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
                         storage: Storage::Gpu(gpu_t),
                         device: Device::Gpu(0),
@@ -335,7 +335,7 @@ impl Tensor {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    return Tensor(Arc::new(Mutex::new(TensorInner {
+                    return Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
                         storage: Storage::Gpu(gpu_t),
                         device: Device::Gpu(0),
@@ -358,7 +358,7 @@ impl Tensor {
     ) -> Self {
         let grad_fn_idx = tape::register_grad_fn(inputs, saved, backward);
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-        Self(Arc::new(Mutex::new(TensorInner {
+        Self(Arc::new(RwLock::new(TensorInner {
             id,
             storage: Storage::Cpu(data),
             device: Device::Cpu,
@@ -384,7 +384,7 @@ impl Tensor {
         let grad_fn_idx =
             crate::tape::register_gpu_grad_fn(inputs, saved, saved_gpu, backward, gpu_backward);
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-        Self(Arc::new(Mutex::new(TensorInner {
+        Self(Arc::new(RwLock::new(TensorInner {
             id,
             storage: Storage::Gpu(gpu_tensor),
             device: Device::Gpu(0),
@@ -396,7 +396,7 @@ impl Tensor {
     }
 
     pub(crate) fn accumulate_grad(&self, grad: &ArrayD<f32>) {
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         match inner.grad {
             Some(Storage::Cpu(ref mut arr)) => {
                 *arr += grad;
@@ -417,7 +417,7 @@ impl Tensor {
     /// GPU+GPU accumulates entirely on GPU without CPU round-trip.
     #[cfg(feature = "gpu")]
     pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         match (&mut inner.grad, grad) {
             (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => *existing += g,
             (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
@@ -445,18 +445,18 @@ impl Tensor {
     }
 
     pub(crate) fn get_grad_fn_idx(&self) -> Option<usize> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).grad_fn_idx
+        self.0.read().unwrap_or_else(|e| e.into_inner()).grad_fn_idx
     }
 
     pub fn zero_grad(&self) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).grad = None;
+        self.0.write().unwrap_or_else(|e| e.into_inner()).grad = None;
     }
 
     /// Zero grads on GPU when tensor storage is on GPU.
     #[cfg(feature = "gpu")]
     pub fn zero_grad_gpu(&self) -> Result<(), crate::gpu::GpuError> {
         use crate::gpu::GpuContext;
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         inner.grad = None;
         if let Storage::Gpu(gpu_t) = &inner.storage {
             let ctx = GpuContext::global()?;
@@ -466,23 +466,23 @@ impl Tensor {
     }
 
     pub fn set_data(&self, new_data: ArrayD<f32>) {
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         inner.storage = Storage::Cpu(new_data);
     }
 
     pub fn set_storage(&self, storage: Storage) {
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         inner.storage = storage;
     }
 
     pub fn set_device(&self, device: Device) {
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         inner.device = device;
     }
 
     pub fn set_grad(&self, grad: ArrayD<f32>) {
         self.0
-            .lock()
+            .write()
             .unwrap_or_else(|e| e.into_inner())
             .grad = Some(Storage::Cpu(grad));
     }
@@ -491,13 +491,13 @@ impl Tensor {
     #[cfg(feature = "gpu")]
     pub fn set_grad_storage(&self, grad: Storage) {
         self.0
-            .lock()
+            .write()
             .unwrap_or_else(|e| e.into_inner())
             .grad = Some(grad);
     }
 
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
-        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.0.write().unwrap_or_else(|e| e.into_inner());
         let current = inner.storage.to_cpu();
         let new_data = &current - delta;
         inner.storage = Storage::Cpu(new_data);
@@ -505,7 +505,7 @@ impl Tensor {
 
     pub fn backward(&self) {
         let shape = {
-            let inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            let inner = self.0.read().unwrap_or_else(|e| e.into_inner());
             inner.storage.shape()
         };
         let grad = ArrayD::ones(shape);

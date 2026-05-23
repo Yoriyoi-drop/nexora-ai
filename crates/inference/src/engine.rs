@@ -323,12 +323,17 @@ impl InferenceEngine {
                     Ok(idx) => idx as u32,
                     Err(e) => {
                         warn!("Sampler failed, error: {:?}, falling back to argmax", e);
-                        logits
+                        match logits
                             .iter()
                             .enumerate()
-                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
-                            .map(|(i, _)| i as u32)
-                            .unwrap_or(0)
+                            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                        {
+                            Some((i, _)) => i as u32,
+                            None => {
+                                warn!("Empty logits in streaming, using default token 1");
+                                1
+                            }
+                        }
                     }
                 };
 
@@ -429,12 +434,17 @@ impl InferenceEngine {
                         "Sampler failed in greedy path: {:?}, falling back to argmax",
                         e
                     );
-                    logits
+                    match logits
                         .iter()
                         .enumerate()
-                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
-                        .map(|(i, _)| i as u32)
-                        .unwrap_or(0)
+                        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                    {
+                        Some((i, _)) => i as u32,
+                        None => {
+                            warn!("Empty logits in generate_internal, using default token 1");
+                            1
+                        }
+                    }
                 }
             };
 
@@ -572,6 +582,35 @@ impl InferenceEngine {
         Ok(())
     }
 
+    /// Spawn a batch processing task with proper panic recovery and state tracking.
+    async fn spawn_batch_processor(&self, batch: crate::batching::Batch) {
+        let engine = InferenceEngineHandle {
+            scheduler: self.scheduler.clone(),
+            model: self.model.clone(),
+            tokenizer: self.tokenizer.clone(),
+            state: self.state.clone(),
+            use_gpu: self.config.use_gpu,
+            #[cfg(feature = "gpu")]
+            use_gpu_cache: self.config.use_gpu_cache,
+        };
+        let bid = batch.batch_id;
+        let active = self.active_requests.clone();
+        let task = tokio::spawn(async move {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                engine.process_batch(batch),
+            ));
+            match result {
+                Ok(()) => {}
+                Err(panic) => {
+                    error!("Batch {} processing panicked: {:?}", bid, panic);
+                    // State reset: batch is lost, release concurrent slot
+                    let _ = engine.scheduler.write().await.complete_batch_id(bid).await;
+                }
+            }
+        });
+        active.write().await.insert(bid, task);
+    }
+
     // --- private ---
 
     async fn start_request_loop(&self) -> Result<()> {
@@ -602,24 +641,7 @@ impl InferenceEngine {
 
             // Try to pop a batch first
             if let Some(batch) = self.scheduler.read().await.pop_batch().await {
-                let engine = InferenceEngineHandle {
-                    scheduler: self.scheduler.clone(),
-                    model: self.model.clone(),
-                    tokenizer: self.tokenizer.clone(),
-                    state: self.state.clone(),
-                    use_gpu: self.config.use_gpu,
-                    #[cfg(feature = "gpu")]
-                    use_gpu_cache: self.config.use_gpu_cache,
-                };
-                let task = tokio::spawn(async move {
-                    let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
-                    if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
-                        error!("Batch processing panicked: {:?}", e);
-                    }
-                });
-                // Track under a synthetic batch ID
-                let bid = Uuid::new_v4();
-                self.active_requests.write().await.insert(bid, task);
+                self.spawn_batch_processor(batch).await;
                 continue;
             }
 
@@ -628,56 +650,21 @@ impl InferenceEngine {
 
             match request {
                 Ok(Some(req)) => {
-                    let _rid = req.request_id;
-                    // Add to batch collector
                     self.scheduler
                         .write()
                         .await
                         .add_to_batch_collector(&req)
                         .await;
 
-                    // Try to form a batch with the newly arrived request
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
-                        let engine = InferenceEngineHandle {
-                            scheduler: self.scheduler.clone(),
-                            model: self.model.clone(),
-                            tokenizer: self.tokenizer.clone(),
-                            state: self.state.clone(),
-                            use_gpu: self.config.use_gpu,
-                            #[cfg(feature = "gpu")]
-                            use_gpu_cache: self.config.use_gpu_cache,
-                        };
-                        let task = tokio::spawn(async move {
-                            let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
-                            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
-                                error!("Batch processing panicked: {:?}", e);
-                            }
-                        });
-                        let bid = Uuid::new_v4();
-                        self.active_requests.write().await.insert(bid, task);
+                        self.spawn_batch_processor(batch).await;
                     }
                 }
                 Ok(None) => break,
                 Err(e) => {
                     warn!("Batch scheduler error: {:?}, flushing timed-out batches", e);
                     if let Some(batch) = self.scheduler.read().await.pop_batch().await {
-                        let engine = InferenceEngineHandle {
-                            scheduler: self.scheduler.clone(),
-                            model: self.model.clone(),
-                            tokenizer: self.tokenizer.clone(),
-                            state: self.state.clone(),
-                            use_gpu: self.config.use_gpu,
-                            #[cfg(feature = "gpu")]
-                            use_gpu_cache: self.config.use_gpu_cache,
-                        };
-                        let task = tokio::spawn(async move {
-                            let fut = std::panic::AssertUnwindSafe(engine.process_batch(batch));
-                            if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
-                                error!("Batch processing panicked: {:?}", e);
-                            }
-                        });
-                        let bid = Uuid::new_v4();
-                        self.active_requests.write().await.insert(bid, task);
+                        self.spawn_batch_processor(batch).await;
                     }
                     continue;
                 }
@@ -746,142 +733,171 @@ struct InferenceEngineHandle {
 }
 
 impl InferenceEngineHandle {
-    /// Process a batch of requests.
-    /// Each request is processed sequentially through the model (single-sequence forward).
-    /// Results are fanned out to individual response channels.
+    /// Process a batch of requests in parallel using tokio::spawn.
+    /// Each request runs in its own task and results are fanned out individually.
     pub async fn process_batch(&self, batch: crate::batching::Batch) {
         let batch_size = batch.requests.len();
+        if batch_size == 0 {
+            return;
+        }
         debug!(
             "Processing batch {} with {} requests",
             batch.batch_id, batch_size
         );
 
-        for breq in &batch.requests {
+        if self.is_shutdown().await {
+            let _ = self.scheduler.write().await.complete_batch(&batch).await;
+            return;
+        }
+
+        let batch_id = batch.batch_id;
+        let mut handles = Vec::with_capacity(batch_size);
+
+        for breq in batch.requests {
             if self.is_shutdown().await {
                 break;
             }
 
-            let start = std::time::Instant::now();
-            let mut response = InferenceResponse::new(breq.request_id);
+            let scheduler = self.scheduler.clone();
+            let model = self.model.clone();
+            let tokenizer = self.tokenizer.clone();
+            let use_gpu = self.use_gpu;
+            #[cfg(feature = "gpu")]
+            let use_gpu_cache = self.use_gpu_cache;
 
-            if breq.prompt.is_empty() {
-                let err_resp = response
-                    .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
-                    .with_inference_time(start.elapsed().as_millis() as u64);
-                if let Err(e) = self
-                    .scheduler
+            let handle = tokio::spawn(async move {
+                let start = std::time::Instant::now();
+                let mut response = InferenceResponse::new(breq.request_id);
+
+                if breq.prompt.is_empty() {
+                    let err_resp = response
+                        .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
+                        .with_inference_time(start.elapsed().as_millis() as u64);
+                    if let Err(e) = scheduler
+                        .write()
+                        .await
+                        .send_response(breq.request_id, err_resp)
+                        .await
+                    {
+                        warn!(
+                            "Failed to send empty-prompt error to {}: {}",
+                            breq.request_id, e
+                        );
+                    }
+                    return;
+                }
+
+                let prompt_ids: Vec<u32> = match &tokenizer {
+                    Some(tok) => {
+                        let t = tok.read();
+                        t.encode(&breq.prompt)
+                    }
+                    None => breq.prompt.bytes().map(|b| b as u32).collect(),
+                };
+
+                let cpu_cache = model.reset_cache();
+                #[cfg(feature = "gpu")]
+                let mut kv_state: Box<dyn KVCacheProvider> = if use_gpu_cache {
+                    let num_layers = model.config.num_layers;
+                    let n_kv_heads = model.config.num_kv_heads;
+                    let head_dim = model.config.head_dim();
+                    let max_seq = model.config.max_seq_len;
+                    Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
+                } else {
+                    Box::new(cpu_cache)
+                };
+                #[cfg(not(feature = "gpu"))]
+                let mut kv_state = Box::new(cpu_cache);
+                let mut all_ids = prompt_ids.clone();
+                let max_gen = breq.max_tokens.min(2048) as usize;
+
+                let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
+                    temperature: breq.temperature,
+                    top_k: breq.top_k as usize,
+                    top_p: breq.top_p,
+                    ..Default::default()
+                });
+                sampler.set_use_gpu(use_gpu);
+
+                for pos in 0..max_gen {
+                    let logits = if pos == 0 {
+                        model.forward(all_ids.as_slice(), &mut *kv_state)
+                    } else {
+                        let last_token = *all_ids.last().unwrap_or(&1);
+                        model.forward(&[last_token], &mut *kv_state)
+                    };
+
+                    let logits_slice = logits.as_slice().unwrap_or(&[]);
+                    let token_id = match sampler.sample(logits_slice) {
+                        Ok(idx) => idx as u32,
+                        Err(e) => {
+                            warn!(
+                                "Sampler failed in batch path: {:?}, falling back to argmax",
+                                e
+                            );
+                            match logits
+                                .iter()
+                                .enumerate()
+                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                            {
+                                Some((i, _)) => i as u32,
+                                None => {
+                                    warn!("Empty logits in batch, using default token 1");
+                                    1
+                                }
+                            }
+                        }
+                    };
+
+                    let token_text: String = match &tokenizer {
+                        Some(tok) => {
+                            let t = tok.read();
+                            t.decode(&[token_id])
+                        }
+                        None => token_id_to_text_fallback(token_id),
+                    };
+
+                    let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
+                    let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
+                    response.add_token(token);
+                    all_ids.push(token_id);
+
+                    if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
+                        break;
+                    }
+                }
+
+                if start.elapsed() > Duration::from_secs(60) {
+                    response.finish_reason = FinishReason::Timeout;
+                } else {
+                    response.finish_reason = FinishReason::MaxTokens;
+                }
+                response.inference_time_ms = start.elapsed().as_millis() as u64;
+
+                if let Err(e) = scheduler
                     .write()
                     .await
-                    .send_response(breq.request_id, err_resp)
+                    .send_response(breq.request_id, response)
                     .await
                 {
-                    warn!(
-                        "Failed to send empty-prompt error to {}: {}",
+                    error!(
+                        "Failed to send batch response for {}: {}",
                         breq.request_id, e
                     );
                 }
-                continue;
-            }
-
-            let prompt_ids: Vec<u32> = match &self.tokenizer {
-                Some(tok) => {
-                    let t = tok.read();
-                    t.encode(&breq.prompt)
-                }
-                None => breq.prompt.bytes().map(|b| b as u32).collect(),
-            };
-
-            let cpu_cache = self.model.reset_cache();
-            #[cfg(feature = "gpu")]
-            let mut kv_state: Box<dyn KVCacheProvider> = if self.use_gpu_cache {
-                let num_layers = self.model.config.num_layers;
-                let n_kv_heads = self.model.config.num_kv_heads;
-                let head_dim = self.model.config.head_dim();
-                let max_seq = self.model.config.max_seq_len;
-                Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
-            } else {
-                Box::new(cpu_cache)
-            };
-            #[cfg(not(feature = "gpu"))]
-            let mut kv_state = Box::new(cpu_cache);
-            let mut all_ids = prompt_ids.clone();
-            let max_gen = breq.max_tokens.min(2048) as usize;
-
-            let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
-                temperature: breq.temperature,
-                top_k: breq.top_k as usize,
-                top_p: breq.top_p,
-                ..Default::default()
             });
-            sampler.set_use_gpu(self.use_gpu);
-
-            for pos in 0..max_gen {
-                let logits = if pos == 0 {
-                    self.model.forward(all_ids.as_slice(), &mut *kv_state)
-                } else {
-                    let last = vec![*all_ids.last().unwrap_or(&0)];
-                    self.model.forward(&last, &mut *kv_state)
-                };
-
-                let token_id = match sampler.sample(logits.as_slice().unwrap_or(&[])) {
-                    Ok(idx) => idx as u32,
-                    Err(e) => {
-                        warn!(
-                            "Sampler failed in speculative path: {:?}, falling back to argmax",
-                            e
-                        );
-                        logits
-                            .iter()
-                            .enumerate()
-                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal))
-                            .map(|(i, _)| i as u32)
-                            .unwrap_or(0)
-                    }
-                };
-
-                let token_text: String = match &self.tokenizer {
-                    Some(tok) => {
-                        let t = tok.read();
-                        t.decode(&[token_id])
-                    }
-                    None => token_id_to_text_fallback(token_id),
-                };
-
-                let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
-                let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
-                response.add_token(token);
-                all_ids.push(token_id);
-
-                if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
-                    break;
-                }
-            }
-
-            if start.elapsed() > Duration::from_secs(60) {
-                response.finish_reason = FinishReason::Timeout;
-            } else {
-                response.finish_reason = FinishReason::MaxTokens;
-            }
-            response.inference_time_ms = start.elapsed().as_millis() as u64;
-
-            if let Err(e) = self
-                .scheduler
-                .write()
-                .await
-                .send_response(breq.request_id, response)
-                .await
-            {
-                error!(
-                    "Failed to send batch response for {}: {}",
-                    breq.request_id, e
-                );
-            }
+            handles.push(handle);
         }
 
-        if let Err(e) = self.scheduler.write().await.complete_batch(&batch).await {
-            error!("Failed to complete batch {}: {}", batch.batch_id, e);
+        // Wait for all parallel tasks to complete
+        for handle in handles {
+            let _ = handle.await;
         }
-        debug!("Batch {} completed", batch.batch_id);
+
+        if let Err(e) = self.scheduler.write().await.complete_batch_id(batch_id).await {
+            error!("Failed to complete batch {}: {}", batch_id, e);
+        }
+        debug!("Batch {} completed", batch_id);
     }
 
     async fn is_shutdown(&self) -> bool {

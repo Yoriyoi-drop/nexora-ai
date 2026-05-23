@@ -1,11 +1,16 @@
 //! BLAS Backend Abstraction for STAR-X Performance Optimization
 //!
-//! High-performance linear algebra operations dengan multiple backend support:
-//! - Intel MKL (Intel Math Kernel Library)
-//! - OpenBLAS (Open-source BLAS implementation)
-//! - Accelerate (Apple's BLAS framework)
-//! - Custom SIMD implementation (fallback)
-//! - Auto-detection dan runtime selection
+//! Linear algebra operations with multiple backend declarations:
+//! - Intel MKL (declared, but implemented as ndarray fallback — no actual MKL linkage)
+//! - OpenBLAS (declared, but implemented as ndarray fallback — no actual OpenBLAS linkage)
+//! - Accelerate (declared, but implemented as ndarray fallback — no actual Accelerate linkage)
+//! - Custom SIMD implementation (true SIMD via AVX2)
+//!
+//! NOTE: The MKL/OpenBLAS/Accelerate backends all delegate to `ndarray::dot`
+//! internally because no actual C BLAS library is linked. These are ndarray-based
+//! fallbacks, not true BLAS-accelerated paths. To enable real BLAS, add
+//! `cblas-sys`, `accelerate`, or `intel-mkl-src` as a dependency and replace the
+//! body of their gemm methods with actual FFI calls.
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError};
@@ -153,10 +158,10 @@ impl BlasOperations {
         Self::check_library_exists("libAccelerate.dylib")
     }
 
-    /// Check if library exists in system
+    /// Check if library exists in system using libloading.
+    /// Tries to open the library; if it loads, the library is present.
     fn check_library_exists(lib_name: &str) -> bool {
-        // Simple check - in production, use proper library detection
-        std::path::Path::new(lib_name).exists()
+        unsafe { libloading::Library::new(lib_name).is_ok() }
     }
 
     /// High-performance matrix multiplication (GEMM)
@@ -298,7 +303,11 @@ impl BlasOperations {
     }
 
     // Backend-specific implementations
-    fn gemm_mkl(
+    // NOTE: These are all ndarray-based fallbacks. No actual BLAS library is linked.
+    // To add real BLAS acceleration, replace the body with FFI calls to cblas_sgemm etc.
+
+    /// GEMM via ndarray::dot (ndarray fallback — not actual MKL/OpenBLAS/Accelerate).
+    fn gemm_ndarray_fallback(
         &self,
         alpha: f32,
         a: ArrayView<f32, ndarray::Ix2>,
@@ -306,9 +315,6 @@ impl BlasOperations {
         beta: f32,
         mut c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
-        // Intel MKL SGEMM implementation
-        // In production, use actual MKL C bindings
-
         let (m, k) = a.dim();
         let (k2, n) = b.dim();
 
@@ -327,8 +333,6 @@ impl BlasOperations {
             });
         }
 
-        // For now, fallback to ndarray implementation
-        // In production, call cblas_sgemm from MKL
         let mut result = a.dot(&b) * alpha;
         result = result + beta * c.to_owned();
 
@@ -339,6 +343,17 @@ impl BlasOperations {
         Ok(())
     }
 
+    fn gemm_mkl(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
+        self.gemm_ndarray_fallback(alpha, a, b, beta, c) // ndarray fallback — not actual MKL
+    }
+
     fn gemm_openblas(
         &self,
         alpha: f32,
@@ -347,9 +362,7 @@ impl BlasOperations {
         beta: f32,
         c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
-        // OpenBLAS SGEMM implementation
-        // Similar to MKL but with OpenBLAS C bindings
-        self.gemm_mkl(alpha, a, b, beta, c) // Fallback for now
+        self.gemm_ndarray_fallback(alpha, a, b, beta, c) // ndarray fallback — not actual OpenBLAS
     }
 
     fn gemm_accelerate(
@@ -360,8 +373,7 @@ impl BlasOperations {
         beta: f32,
         c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
-        // Apple Accelerate vDSP BLAS implementation
-        self.gemm_mkl(alpha, a, b, beta, c) // Fallback for now
+        self.gemm_ndarray_fallback(alpha, a, b, beta, c) // ndarray fallback — not actual Accelerate
     }
 
     fn gemm_simd(

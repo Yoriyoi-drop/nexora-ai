@@ -49,10 +49,12 @@ impl AtqsSwiftIntegration {
         }
 
         if self.integration_config.enable_edge_optimization {
+            let safe_len = data.len().to_string();
+            let sanitized_input = format!("Optimize {} bytes for edge deployment", safe_len);
             let swift_input = NxrInput {
                 id: uuid::Uuid::new_v4(),
                 timestamp: chrono::Utc::now(),
-                data: InputData::Text(format!("Optimize {} bytes for edge deployment", data.len())),
+                data: InputData::Text(sanitized_input),
                 parameters: std::collections::HashMap::new(),
                 metadata: std::collections::HashMap::new(),
             };
@@ -99,14 +101,24 @@ impl EdgeOptimizedCompression {
                 self.combined_insights
                     .push(format!("Edge Optimization: {}", text));
 
-                if text.contains("edge") && text.contains("optimized") {
-                    self.edge_recommendations
-                        .push("Deploy with 4-bit quantization for maximum efficiency".to_string());
-                }
-                if text.contains("latency") && text.contains("1ms") {
-                    self.edge_recommendations.push(
-                        "Sub-millisecond latency achieved for real-time processing".to_string(),
-                    );
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Some(is_edge) = json.get("edge_optimized").and_then(|v| v.as_bool()) {
+                        if is_edge {
+                            self.edge_recommendations.push("Deploy with 4-bit quantization for maximum efficiency".to_string());
+                        }
+                    }
+                    if let Some(latency) = json.get("latency_ms").and_then(|v| v.as_f64()) {
+                        if latency <= 1.0 {
+                            self.edge_recommendations.push("Sub-millisecond latency achieved for real-time processing".to_string());
+                        }
+                    }
+                } else {
+                    if text.to_lowercase().contains("edge") && text.to_lowercase().contains("optimized") {
+                        self.edge_recommendations.push("Deploy with 4-bit quantization for maximum efficiency".to_string());
+                    }
+                    if text.to_lowercase().contains("latency") {
+                        self.edge_recommendations.push("Latency optimization recommended for edge deployment".to_string());
+                    }
                 }
             }
         }

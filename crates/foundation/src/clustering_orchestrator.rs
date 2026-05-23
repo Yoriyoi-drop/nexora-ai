@@ -10,6 +10,8 @@
 //! Quality Scorer: silhouette, davies-bouldin, cluster stability
 //! Cross-Level Mapper: hubungkan cluster neuron ↔ cluster layer → strategi kompresi
 
+use rand::Rng;
+
 /// Unified clustering request — semua komponen pakai format ini
 #[derive(Debug, Clone)]
 pub struct ClusterRequest<T> {
@@ -182,20 +184,133 @@ impl ClusteringOrchestrator {
     /// Execute clustering with the selected algorithm
     fn execute_clustering(
         &self,
-        _request: ClusterRequest<Vec<f32>>,
+        request: ClusterRequest<Vec<f32>>,
         algorithm: &str,
     ) -> ClusterResult {
+        let n = request.data.len();
+        if n == 0 {
+            return ClusterResult {
+                labels: Vec::new(),
+                cluster_centers: Vec::new(),
+                quality_scores: ClusterQuality {
+                    silhouette_score: 0.0,
+                    davies_bouldin_index: 0.0,
+                    cluster_stability: 0.0,
+                    intra_cluster_variance: 0.0,
+                    inter_cluster_distance: 0.0,
+                },
+                algorithm_used: algorithm.to_string(),
+                data_type: "generic".to_string(),
+            };
+        }
+
+        let k = request
+            .constraints
+            .max_clusters
+            .min(n)
+            .max(request.constraints.min_clusters.max(2));
+        let dim = request.data[0].len();
+
+        // K-means++ initialization
+        let mut rng = rand::thread_rng();
+        let mut centroids: Vec<Vec<f32>> = Vec::with_capacity(k);
+        let mut used = vec![false; n];
+        let first_idx = rand::Rng::gen_range(&mut rng, 0..n);
+        centroids.push(request.data[first_idx].clone());
+        used[first_idx] = true;
+
+        for _ in 1..k {
+            let mut dists = Vec::with_capacity(n);
+            for (i, point) in request.data.iter().enumerate() {
+                if used[i] {
+                    dists.push(0.0);
+                    continue;
+                }
+                let d2 = centroids
+                    .iter()
+                    .map(|c| self.euclidean(point, c).powi(2))
+                    .fold(f32::INFINITY, f32::min);
+                dists.push(d2);
+            }
+            let total: f32 = dists.iter().sum();
+            if total <= 0.0 {
+                break;
+            }
+            let r = rand::Rng::gen_range(&mut rng, 0.0..total);
+            let mut cum = 0.0;
+            for (i, &d) in dists.iter().enumerate() {
+                cum += d;
+                if cum >= r {
+                    centroids.push(request.data[i].clone());
+                    used[i] = true;
+                    break;
+                }
+            }
+        }
+
+        let max_iter = 100;
+        let mut labels = vec![0usize; n];
+        let mut changed = true;
+
+        for _ in 0..max_iter {
+            if !changed {
+                break;
+            }
+            changed = false;
+
+            // Assignment step
+            for (i, point) in request.data.iter().enumerate() {
+                let mut best_d = f32::INFINITY;
+                let mut best_c = 0;
+                for (j, c) in centroids.iter().enumerate() {
+                    let d = self.euclidean(point, c);
+                    if d < best_d {
+                        best_d = d;
+                        best_c = j;
+                    }
+                }
+                if labels[i] != best_c {
+                    labels[i] = best_c;
+                    changed = true;
+                }
+            }
+
+            // Update step
+            let mut new_centroids = vec![vec![0.0f32; dim]; k];
+            let mut counts = vec![0usize; k];
+            for (i, &c) in labels.iter().enumerate() {
+                for (d, &v) in request.data[i].iter().enumerate() {
+                    new_centroids[c][d] += v;
+                }
+                counts[c] += 1;
+            }
+            for (j, nc) in new_centroids.iter_mut().enumerate() {
+                if counts[j] > 0 {
+                    for v in nc.iter_mut() {
+                        *v /= counts[j] as f32;
+                    }
+                } else {
+                    *nc = centroids[j].clone();
+                }
+            }
+            centroids = new_centroids;
+        }
+
+        self.ensure_distances(&request.data);
+        let silhouette = self.silhouette_score(&request.data, &labels);
+        let db = self.davies_bouldin_index(&request.data, &labels);
+
         let quality = ClusterQuality {
-            silhouette_score: 0.0,
-            davies_bouldin_index: 0.0,
+            silhouette_score: silhouette,
+            davies_bouldin_index: db,
             cluster_stability: 0.0,
             intra_cluster_variance: 0.0,
             inter_cluster_distance: 0.0,
         };
 
         ClusterResult {
-            labels: Vec::new(),
-            cluster_centers: Vec::new(),
+            labels,
+            cluster_centers: centroids,
             quality_scores: quality,
             algorithm_used: algorithm.to_string(),
             data_type: "generic".to_string(),
@@ -252,16 +367,27 @@ impl ClusteringOrchestrator {
         let mut best_min = f32::INFINITY;
         let my_cluster = labels[i];
 
-        let unique: std::collections::HashSet<&usize> = labels.iter().collect();
-        for &other in &unique {
-            if *other == my_cluster {
-                continue;
+        let mut seen = [false; 256];
+        let mut unique = Vec::with_capacity(16);
+        for &l in labels {
+            let idx = l;
+            if idx != my_cluster {
+                if idx < 256 {
+                    if !seen[idx] {
+                        seen[idx] = true;
+                        unique.push(idx);
+                    }
+                } else if !unique.contains(&idx) {
+                    unique.push(idx);
+                }
             }
+        }
 
+        for &other in &unique {
             let mut sum = 0.0;
             let mut count = 0;
             for j in 0..data.len() {
-                if labels[j] == *other {
+                if labels[j] == other {
                     sum += self.dist(data, i, j);
                     count += 1;
                 }
@@ -379,10 +505,15 @@ impl ClusteringOrchestrator {
         }
         #[cfg(feature = "gpu")]
         if self.use_gpu {
-            if let Ok(dmat) = crate::gpu_cluster_ops::gpu_pairwise_distances(data) {
-                *self.cached_distances.borrow_mut() = Some(dmat);
-                self.cached_data_len.set(data.len());
-                return;
+            match crate::gpu_cluster_ops::gpu_pairwise_distances(data) {
+                Ok(dmat) => {
+                    *self.cached_distances.borrow_mut() = Some(dmat);
+                    self.cached_data_len.set(data.len());
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!("GPU distance computation failed, falling back to CPU: {}", e);
+                }
             }
         }
         // CPU fallback: compute full N×N matrix

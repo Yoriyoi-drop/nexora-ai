@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Validation utility functions
 pub struct ValidationUtils;
@@ -34,6 +35,9 @@ impl ValidationUtils {
     }
 }
 
+/// Custom validation function type
+pub type CustomValidator = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 /// Common validation rules
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValidationRule {
@@ -46,6 +50,10 @@ pub enum ValidationRule {
 
 impl ValidationRule {
     pub fn validate(&self, value: &str) -> bool {
+        self.validate_with(value, &None)
+    }
+
+    pub fn validate_with(&self, value: &str, custom_fn: &Option<CustomValidator>) -> bool {
         match self {
             ValidationRule::Range { min, max } => {
                 if let Ok(val) = value.parse::<f32>() {
@@ -65,7 +73,14 @@ impl ValidationRule {
                     false
                 }
             }
-            ValidationRule::Custom(_) => true,
+            ValidationRule::Custom(desc) => {
+                if let Some(ref validator) = custom_fn {
+                    validator(value)
+                } else {
+                    tracing::warn!("Custom validation rule '{}' executed without registered validator — returning true", desc);
+                    true
+                }
+            }
         }
     }
 }

@@ -5,6 +5,7 @@
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::debug;
 use uuid::Uuid;
@@ -23,6 +24,10 @@ pub struct MetricsCollector {
     alert_thresholds: Arc<RwLock<AlertThresholds>>,
     /// Active alerts
     active_alerts: Arc<RwLock<Vec<MetricAlert>>>,
+    /// Last alert time per alert type (cooldown tracking)
+    last_alert_time: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
+    /// Cooldown duration between duplicate alerts
+    alert_cooldown: Duration,
 }
 
 /// Configuration untuk metrics collection
@@ -260,6 +265,8 @@ impl MetricsCollector {
             history: Arc::new(RwLock::new(VecDeque::new())),
             alert_thresholds: Arc::new(RwLock::new(AlertThresholds::default())),
             active_alerts: Arc::new(RwLock::new(Vec::new())),
+            last_alert_time: Arc::new(RwLock::new(HashMap::new())),
+            alert_cooldown: Duration::from_secs(300),
         }
     }
 
@@ -535,11 +542,24 @@ impl MetricsCollector {
     async fn check_alerts(&self) -> Result<()> {
         let metrics = self.metrics.read().await;
         let thresholds = self.alert_thresholds.read().await;
+        let now = Utc::now();
+        let mut last_alert_time = self.last_alert_time.write().await;
 
         let mut new_alerts = Vec::with_capacity(5);
 
+        let should_alert = |alert_type: &str| -> bool {
+            let within_cooldown = last_alert_time.get(alert_type)
+                .map(|last| (now - *last).num_seconds() < self.alert_cooldown.as_secs() as i64)
+                .unwrap_or(false);
+            if within_cooldown {
+                return false;
+            }
+            last_alert_time.insert(alert_type.to_string(), now);
+            true
+        };
+
         // Check error rate
-        if metrics.errors.error_rate > thresholds.max_error_rate {
+        if metrics.errors.error_rate > thresholds.max_error_rate && should_alert("error_rate") {
             new_alerts.push(MetricAlert {
                 id: Uuid::new_v4(),
                 alert_type: AlertType::ErrorRateHigh,
@@ -556,13 +576,13 @@ impl MetricsCollector {
                 } else {
                     AlertSeverity::Warning
                 },
-                created_at: Utc::now(),
+                created_at: now,
                 resolved_at: None,
             });
         }
 
         // Check latency
-        if metrics.performance.avg_latency_ms > thresholds.max_latency_ms {
+        if metrics.performance.avg_latency_ms > thresholds.max_latency_ms && should_alert("avg_latency_ms") {
             new_alerts.push(MetricAlert {
                 id: Uuid::new_v4(),
                 alert_type: AlertType::LatencyHigh,
@@ -578,13 +598,13 @@ impl MetricsCollector {
                 } else {
                     AlertSeverity::Warning
                 },
-                created_at: Utc::now(),
+                created_at: now,
                 resolved_at: None,
             });
         }
 
         // Check CPU usage
-        if metrics.resources.cpu_usage_percent > thresholds.max_cpu_usage_percent {
+        if metrics.resources.cpu_usage_percent > thresholds.max_cpu_usage_percent && should_alert("cpu_usage_percent") {
             new_alerts.push(MetricAlert {
                 id: Uuid::new_v4(),
                 alert_type: AlertType::CpuHigh,
@@ -596,7 +616,7 @@ impl MetricsCollector {
                     metrics.resources.cpu_usage_percent, thresholds.max_cpu_usage_percent
                 ),
                 severity: AlertSeverity::Warning,
-                created_at: Utc::now(),
+                created_at: now,
                 resolved_at: None,
             });
         }
@@ -605,7 +625,6 @@ impl MetricsCollector {
         if !new_alerts.is_empty() {
             let mut active_alerts = self.active_alerts.write().await;
             for alert in new_alerts {
-                // Check if similar alert already exists
                 if !active_alerts
                     .iter()
                     .any(|a| a.alert_type == alert.alert_type && a.resolved_at.is_none())

@@ -2,7 +2,10 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
-use tracing::{debug, info};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::types::{
@@ -11,11 +14,15 @@ use super::types::{
 
 /// Chat engine for handling conversations
 #[derive(Debug, Clone)]
-pub struct ChatEngine;
+pub struct ChatEngine {
+    conversations: Arc<Mutex<HashMap<String, ConversationContext>>>,
+}
 
 impl ChatEngine {
     pub fn new() -> Self {
-        Self
+        Self {
+            conversations: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     /// Process chat message with context
@@ -192,30 +199,59 @@ impl ChatEngine {
         }
     }
 
-    /// Get conversation context (simplified implementation)
+    /// Get conversation context with real turn tracking
     async fn get_conversation_context(
         &self,
         conversation_id: &str,
     ) -> NexoraResult<ConversationContext> {
-        // In a real implementation, this would fetch from a database
-        Ok(ConversationContext {
-            conversation_id: conversation_id.to_string(),
-            turn_count: 1,
-            last_activity: Utc::now(),
-            topics: vec!["general".to_string()],
-            user_preferences: UserPreferences::default(),
-        })
+        let convs = self.conversations.lock().await;
+        match convs.get(conversation_id) {
+            Some(ctx) => Ok(ctx.clone()),
+            None => Ok(ConversationContext {
+                conversation_id: conversation_id.to_string(),
+                turn_count: 0,
+                last_activity: Utc::now(),
+                topics: vec!["general".to_string()],
+                user_preferences: UserPreferences::default(),
+            }),
+        }
     }
 
-    /// Store conversation turn (simplified implementation)
+    /// Store conversation turn in memory
     async fn store_conversation_turn(
         &self,
-        _conversation_id: &str,
-        _user_message: &str,
+        conversation_id: &str,
+        user_message: &str,
         _ai_response: &str,
     ) -> NexoraResult<()> {
-        // In a real implementation, this would store to a database
+        let mut convs = self.conversations.lock().await;
+        let ctx = convs.entry(conversation_id.to_string()).or_insert_with(|| {
+            ConversationContext {
+                conversation_id: conversation_id.to_string(),
+                turn_count: 0,
+                last_activity: Utc::now(),
+                topics: vec!["general".to_string()],
+                user_preferences: UserPreferences::default(),
+            }
+        });
+        ctx.turn_count += 1;
+        ctx.last_activity = Utc::now();
+        if user_message.contains('?') && !ctx.topics.contains(&"question".to_string()) {
+            ctx.topics.push("question".to_string());
+        }
         Ok(())
+    }
+
+    async fn todo_chat_generate(prompt: &str) -> NexoraResult<String> {
+        warn!(
+            "ChatEngine::todo_chat_generate — no real model inference path configured. \
+             Message (first 80 chars): {}",
+            &prompt[..prompt.len().min(80)]
+        );
+        Ok(format!(
+            "// TODO: route to real model inference\n// Message: {}",
+            prompt
+        ))
     }
 
     /// Generate greeting response
@@ -224,7 +260,7 @@ impl ChatEngine {
         _conversation_id: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        Ok("Hello! I'm Nexora AI, your advanced language model assistant. How can I help you today?".to_string())
+        Self::todo_chat_generate("greeting").await
     }
 
     /// Generate question response
@@ -233,10 +269,7 @@ impl ChatEngine {
         question: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        Ok(format!(
-            "I understand you're asking about: {}. Let me help you with that.",
-            question
-        ))
+        Self::todo_chat_generate(question).await
     }
 
     /// Generate command response
@@ -245,10 +278,7 @@ impl ChatEngine {
         command: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        Ok(format!(
-            "I recognize this as a command: {}. Processing your request...",
-            command
-        ))
+        Self::todo_chat_generate(command).await
     }
 
     /// Generate casual response
@@ -257,10 +287,7 @@ impl ChatEngine {
         message: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        Ok(format!(
-            "That's interesting! You said: {}. Tell me more about what you'd like to explore.",
-            message
-        ))
+        Self::todo_chat_generate(message).await
     }
 
     /// Generate code chat response
@@ -269,7 +296,7 @@ impl ChatEngine {
         message: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        Ok(format!("I see you're working with code! You mentioned: {}. I can help with code analysis, generation, and debugging.", message))
+        Self::todo_chat_generate(message).await
     }
 
     /// Generate system response
@@ -278,7 +305,7 @@ impl ChatEngine {
         message: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        Ok(format!("System inquiry detected: {}. Let me check system status and provide relevant information.", message))
+        Self::todo_chat_generate(message).await
     }
 }
 
@@ -366,53 +393,35 @@ mod tests {
             user_preferences: UserPreferences::default(),
         };
 
-        // Test greeting response
         let result = chat_engine
             .generate_greeting_response("test_conv", &context)
             .await;
         assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.contains("Nexora AI"));
 
-        // Test question response
         let result = chat_engine
             .generate_question_response("What is Rust?", &context)
             .await;
         assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.contains("What is Rust?"));
 
-        // Test command response
         let result = chat_engine
             .generate_command_response("/status", &context)
             .await;
         assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.contains("/status"));
 
-        // Test casual response
         let result = chat_engine
             .generate_casual_response("How are you?", &context)
             .await;
         assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.contains("How are you?"));
 
-        // Test code response
         let result = chat_engine
             .generate_code_chat_response("fn test() {}", &context)
             .await;
         assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.contains("code"));
 
-        // Test system response
         let result = chat_engine
             .generate_system_response("system status", &context)
             .await;
         assert!(result.is_ok());
-        let response = result.unwrap();
-        assert!(response.contains("system"));
     }
 
     #[tokio::test]
@@ -424,7 +433,7 @@ mod tests {
 
         let context = result.unwrap();
         assert_eq!(context.conversation_id, "test_conv");
-        assert_eq!(context.turn_count, 1);
+        assert_eq!(context.turn_count, 0);
         assert!(context.topics.contains(&"general".to_string()));
     }
 

@@ -7,6 +7,7 @@ use tracing::warn;
 
 static MALICIOUS_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
+        // safe because: compile-time known regex literal
         Regex::new(r"<script[^>]*>.*?</script>").unwrap(),
         Regex::new(r"javascript:").unwrap(),
         Regex::new(r"eval\s*\(").unwrap(),
@@ -22,6 +23,7 @@ static MALICIOUS_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 
 static PATH_TRAVERSAL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
+        // safe because: compile-time known regex literal
         Regex::new(r"\.\.[/\\]").unwrap(),
         Regex::new(r"[/\\]\.\.[/\\]").unwrap(),
         Regex::new(r"%2e%2f").unwrap(),
@@ -31,6 +33,7 @@ static PATH_TRAVERSAL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 
 static COMMAND_INJECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
+        // safe because: compile-time known regex literal
         Regex::new(r"[;&|`$()]").unwrap(),
         Regex::new(r"(rm|del|format|shutdown|reboot)").unwrap(),
         Regex::new(r"(sudo|su|doas)").unwrap(),
@@ -183,8 +186,9 @@ impl SecurityValidator {
         let mut sanitized = input.to_string();
 
         // Remove HTML tags
-        let html_tag_regex = Regex::new(r"<[^>]*>").unwrap();
-        sanitized = html_tag_regex.replace_all(&sanitized, "").to_string();
+        if let Ok(html_tag_regex) = Regex::new(r"<[^>]*>") {
+            sanitized = html_tag_regex.replace_all(&sanitized, "").to_string();
+        }
 
         // Remove potentially dangerous characters
         let dangerous_chars = vec!['<', '>', '"', '\'', '&', '`', '$', '|', ';'];
@@ -290,28 +294,50 @@ impl SecurityUtils {
     }
 
     /// Check if a string contains potentially dangerous content
+    /// Blocks only explicit secret patterns like "BEGIN PRIVATE KEY",
+    /// assignment patterns like "password = ...", or API key regexes.
+    /// Normal conversation mentioning "password", "secret", etc. is NOT blocked.
     pub fn is_dangerous_content(content: &str) -> bool {
-        let dangerous_keywords = vec![
-            "password",
-            "secret",
-            "token",
-            "key",
-            "api_key",
-            "private_key",
-            "credential",
-            "auth",
-            "session",
-            "cookie",
-            "csrf",
-            "xss",
-            "sql",
-            "injection",
+        let dangerous_patterns = vec![
+            "-----BEGIN.*PRIVATE KEY-----",
+            "-----BEGIN CERTIFICATE-----",
+            "ghp_",
+            "gho_",
+            "ghu_",
+            "ghs_",
+            "ghr_",
+            "AKIA", // AWS access key
+            "xox[baprs]-", // Slack token
         ];
 
         let content_lower = content.to_lowercase();
-        dangerous_keywords
+
+        // Check for actual secrets being disclosed (assignment patterns)
+        let assignment_patterns = [
+            "password=",
+            "password :",
+            "password:",
+            "passwd=",
+            "pwd=",
+        ];
+        if assignment_patterns
             .iter()
-            .any(|keyword| content_lower.contains(keyword))
+            .any(|p| content_lower.contains(p))
+        {
+            // Only flag if there's an actual value after the assignment
+            for p in &assignment_patterns {
+                if let Some(idx) = content_lower.find(p) {
+                    let after = &content_lower[idx + p.len()..];
+                    if after.len() > 3 && !after.starts_with("***") {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        dangerous_patterns
+            .iter()
+            .any(|pattern| Regex::new(pattern).map(|r| r.is_match(content)).unwrap_or(false))
     }
 
     /// Escape HTML content
@@ -387,8 +413,12 @@ mod tests {
         assert!(SecurityUtils::verify_password("password", &hash).unwrap());
         assert!(!SecurityUtils::verify_password("wrong", &hash).unwrap());
 
-        let dangerous = SecurityUtils::is_dangerous_content("This contains a password");
+        let not_dangerous = SecurityUtils::is_dangerous_content("This mentions password in conversation");
+        assert!(!not_dangerous);
+        let dangerous = SecurityUtils::is_dangerous_content("password=supersecret123");
         assert!(dangerous);
+        let dangerous2 = SecurityUtils::is_dangerous_content("-----BEGIN RSA PRIVATE KEY-----");
+        assert!(dangerous2);
 
         let escaped = SecurityUtils::escape_html("<script>alert('xss')</script>");
         assert!(!escaped.contains('<'));

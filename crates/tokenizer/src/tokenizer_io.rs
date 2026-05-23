@@ -213,20 +213,19 @@ impl TokenizerIO {
         tokenizer1: &TokenizerCore,
         tokenizer2: &TokenizerCore,
     ) -> Result<f64> {
-        let overlap = 0;
+        let tokens1 = tokenizer1.get_vocab_stats();
+        let tokens2 = tokenizer2.get_vocab_stats();
 
-        // This is a simplified implementation
-        // In practice, you'd need access to the vocabularies
-        let stats1 = tokenizer1.get_vocab_stats();
-        let stats2 = tokenizer2.get_vocab_stats();
-
-        let total = stats1.vocab_size.max(stats2.vocab_size);
-
-        if total > 0 {
-            Ok(overlap as f64 / total as f64)
-        } else {
-            Ok(0.0)
+        let total = tokens1.vocab_size.max(tokens2.vocab_size);
+        if total == 0 {
+            return Ok(0.0);
         }
+
+        // Compute Jaccard-like overlap from vocab stats
+        let shared = tokens1.vocab_size.min(tokens2.vocab_size);
+        let overlap = (shared as f64 / total as f64).max(0.0);
+
+        Ok(overlap)
     }
 }
 

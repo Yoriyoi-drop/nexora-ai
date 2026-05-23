@@ -129,8 +129,8 @@ impl CaffeineSpectraIntegration {
                 tokens: None,
                 language: "en".to_string(),
             }),
-            image: None,
-            audio: None,
+            image: inputs.image.as_ref().cloned(),
+            audio: inputs.audio.as_ref().cloned(),
             video: None,
             context: None,
         }

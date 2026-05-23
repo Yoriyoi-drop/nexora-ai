@@ -87,22 +87,15 @@ pub fn compute_svd_truncated_gpu(
         // Read back u and v
         let u_cpu = u_gpu.to_cpu();
         let v_cpu = v_gpu.to_cpu();
-        let u_slice = u_cpu.as_slice_memory_order().unwrap_or_else(|| {
-            // fallback: allocate vec and copy
-            let v: Vec<f32> = u_cpu.iter().copied().collect();
-            Box::leak(v.into_boxed_slice())
-        });
-        let v_slice = v_cpu.as_slice_memory_order().unwrap_or_else(|| {
-            let v: Vec<f32> = v_cpu.iter().copied().collect();
-            Box::leak(v.into_boxed_slice())
-        });
+        let u_data: Vec<f32> = u_cpu.iter().copied().collect();
+        let v_data: Vec<f32> = v_cpu.iter().copied().collect();
 
-        for j in 0..m.min(u_slice.len()) {
-            u_out[[j, i]] = u_slice[j];
+        for j in 0..m.min(u_data.len()) {
+            u_out[[j, i]] = u_data[j];
         }
         s_out.push(sigma);
-        for j in 0..n.min(v_slice.len()) {
-            vt_out[[i, j]] = v_slice[j];
+        for j in 0..n.min(v_data.len()) {
+            vt_out[[i, j]] = v_data[j];
         }
 
         // Deflate: A -= σ · u · vᵀ  (all on GPU)

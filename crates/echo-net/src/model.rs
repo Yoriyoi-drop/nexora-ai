@@ -15,6 +15,11 @@ use crate::{
 
 /// Pipeline Echo Net lengkap dengan autograd.
 /// Pipeline: SSE → APSS → MBHW → RHC → PRM → IRR → DERR → TKRR → ISC
+///
+/// All 9 blocks are registered as parameter groups. Blocks that currently use
+/// raw ndarray (not autograd Tensor) for their internal operations return empty
+/// parameter lists — gradient flow stops at those boundaries. To enable full
+/// autograd, convert the internal ndarray ops in those blocks to use Tensor.
 pub struct EchoNetModel {
     pub config: EchoNetConfig,
     pub state: EchoNetState,
@@ -30,9 +35,15 @@ pub struct EchoNetModel {
     pub tkrr: TopKResonanceRouting,
     pub isc: InverseSpectralCollapse,
 
-    // Tensor parameters (disync ke block internal ArrayD)
+    // Tensor parameters (sync ke block internal ArrayD)
     sse_params: Vec<Tensor>,
+    apss_params: Vec<Tensor>,
+    mbhw_params: Vec<Tensor>,
+    rhc_params: Vec<Tensor>,
+    prm_params: Vec<Tensor>,
     irr_params: Vec<Tensor>,
+    derr_params: Vec<Tensor>,
+    tkrr_params: Vec<Tensor>,
     isc_params: Vec<Tensor>,
 }
 
@@ -119,7 +130,7 @@ impl EchoNetModel {
         };
         let isc = InverseSpectralCollapse::new(embedding_dim, isc_cfg)?;
 
-        // SSE params jadi Tensor
+        // SSE params jadi Tensor (block 1)
         let sse_params = sse
             .get_parameters()
             .iter()
@@ -130,7 +141,27 @@ impl EchoNetModel {
             })
             .collect();
 
-        // IRR params jadi Tensor
+        // APSS params (block 2) — hyperparameters only, no learnable weights
+        let apss_params: Vec<Tensor> = Vec::new();
+
+        // MBHW params (block 3) — no learnable weights currently
+        let mbhw_params: Vec<Tensor> = Vec::new();
+
+        // RHC params (block 4) — no learnable weights currently
+        let rhc_params: Vec<Tensor> = Vec::new();
+
+        // PRM params (block 5) — novelty_weights + resonance_kernel wrapped as Tensor
+        let prm_params = prm
+            .get_parameters()
+            .iter()
+            .map(|arr| {
+                let t = Tensor::new(arr.clone().into_dyn());
+                t.set_requires_grad(true);
+                t
+            })
+            .collect::<Vec<_>>();
+
+        // IRR params (block 6)
         let irr_params = vec![
             irr.get_query_weights(),
             irr.get_refinement_weights(),
@@ -143,7 +174,21 @@ impl EchoNetModel {
         })
         .collect();
 
-        // ISC params jadi Tensor
+        // DERR params (block 7) — no learnable weights currently
+        let derr_params: Vec<Tensor> = Vec::new();
+
+        // TKRR params (block 8) — relevance_weights wrapped as Tensor
+        let tkrr_params = tkrr
+            .get_parameters()
+            .iter()
+            .map(|arr| {
+                let t = Tensor::new(arr.clone().into_dyn());
+                t.set_requires_grad(true);
+                t
+            })
+            .collect::<Vec<_>>();
+
+        // ISC params (block 9)
         let isc_params = vec![isc.get_output_weights(), isc.get_output_bias()]
             .into_iter()
             .map(|t| {
@@ -164,7 +209,13 @@ impl EchoNetModel {
             tkrr,
             isc,
             sse_params,
+            apss_params,
+            mbhw_params,
+            rhc_params,
+            prm_params,
             irr_params,
+            derr_params,
+            tkrr_params,
             isc_params,
             config,
         })
@@ -174,15 +225,28 @@ impl EchoNetModel {
     fn sync_params_to_blocks(&mut self) {
         self.sse.set_parameters_from_tensors(&self.sse_params);
 
-        let irr_weights = [
-            &self.irr_params[0],
-            &self.irr_params[1],
-            &self.irr_params[2],
-        ];
-        self.irr.set_query_weights(irr_weights[0]);
-        self.irr.set_refinement_weights(irr_weights[1]);
-        self.irr.set_output_weights(irr_weights[2]);
+        // APSS (block 2) — no param sync needed
 
+        // MBHW (block 3) — no param sync needed
+
+        // RHC (block 4) — no param sync needed
+
+        // PRM (block 5) — if params are registered, sync them
+        self.prm.set_parameters_from_tensors(&self.prm_params);
+
+        // IRR (block 6)
+        if self.irr_params.len() >= 3 {
+            self.irr.set_query_weights(&self.irr_params[0]);
+            self.irr.set_refinement_weights(&self.irr_params[1]);
+            self.irr.set_output_weights(&self.irr_params[2]);
+        }
+
+        // DERR (block 7) — no param sync needed
+
+        // TKRR (block 8) — if params are registered, sync them
+        self.tkrr.set_parameters_from_tensors(&self.tkrr_params);
+
+        // ISC (block 9)
         self.isc.set_output_weights(&self.isc_params[0]);
         self.isc.set_output_bias(&self.isc_params[1]);
     }
@@ -266,11 +330,24 @@ impl EchoNetModel {
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {
-        let mut params = Vec::with_capacity(
-            self.sse_params.len() + self.irr_params.len() + self.isc_params.len(),
-        );
+        let total = self.sse_params.len()
+            + self.apss_params.len()
+            + self.mbhw_params.len()
+            + self.rhc_params.len()
+            + self.prm_params.len()
+            + self.irr_params.len()
+            + self.derr_params.len()
+            + self.tkrr_params.len()
+            + self.isc_params.len();
+        let mut params = Vec::with_capacity(total);
         params.extend(self.sse_params.iter().cloned());
+        params.extend(self.apss_params.iter().cloned());
+        params.extend(self.mbhw_params.iter().cloned());
+        params.extend(self.rhc_params.iter().cloned());
+        params.extend(self.prm_params.iter().cloned());
         params.extend(self.irr_params.iter().cloned());
+        params.extend(self.derr_params.iter().cloned());
+        params.extend(self.tkrr_params.iter().cloned());
         params.extend(self.isc_params.iter().cloned());
         params
     }

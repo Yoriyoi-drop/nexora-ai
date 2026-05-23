@@ -1,5 +1,5 @@
 use std::sync::OnceLock;
-use tracing::info;
+use tracing::{info, warn};
 
 use nexora_models::aether::agents::AetherAgents;
 use nexora_models::axiom::agents::AxiomAgents;
@@ -31,42 +31,57 @@ pub struct ModelAgentManager {
 impl ModelAgentManager {
     pub async fn new() -> Self {
         let omnis = OmnisAgents::new(&OmnisConfig::default());
-        omnis
+        match omnis
             .initialize(&OmnisConfig::default())
             .await
-            .unwrap_or_else(|e| {
-                info!("omnis agents initialize returned: {e}");
-            });
-        info!("NXR-OMNIS agents activated (oracle_7, meta_reasoner, world_model_x, chain_executor, truth_arbiter, synth_prime) ✓");
+        {
+            Ok(_) => info!("NXR-OMNIS agents activated (oracle_7, meta_reasoner, world_model_x, chain_executor, truth_arbiter, synth_prime) ✓"),
+            Err(e) => warn!("NXR-OMNIS agents initialization failed: {e}"),
+        }
 
         let mut swift = SwiftAgents::new(&SwiftConfig::default());
-        swift.initialize().await.unwrap_or_else(|e| {
-            info!("swift agents initialize returned: {e}");
-        });
-        info!("NXR-SWIFT agents activated ✓");
+        match swift.initialize().await {
+            Ok(_) => info!("NXR-SWIFT agents activated ✓"),
+            Err(e) => warn!("NXR-SWIFT agents initialization failed: {e}"),
+        }
 
         let genesis = GenesisAgents::new(&GenesisConfig::default());
-        info!("NXR-GENESIS agents activated ✓");
+        match genesis.initialize(&GenesisConfig::default()).await {
+            Ok(_) => info!("NXR-GENESIS agents activated ✓"),
+            Err(e) => warn!("NXR-GENESIS agents initialization failed: {e}"),
+        }
 
         let nexum = NexumAgents::new();
-        info!("NXR-NEXUM agents activated ✓");
+        match nexum.initialize().await {
+            Ok(_) => info!("NXR-NEXUM agents activated ✓"),
+            Err(e) => warn!("NXR-NEXUM agents initialization failed: {e}"),
+        }
 
         let axiom = AxiomAgents::new(&AxiomConfig::default());
-        info!("NXR-AXIOM agents activated ✓");
+        match axiom.initialize(&AxiomConfig::default()).await {
+            Ok(_) => info!("NXR-AXIOM agents activated ✓"),
+            Err(e) => warn!("NXR-AXIOM agents initialization failed: {e}"),
+        }
 
         let kronos = KronosAgents::new(&KronosConfig::default());
-        info!("NXR-KRONOS agents activated ✓");
+        match kronos.initialize(&KronosConfig::default()).await {
+            Ok(_) => info!("NXR-KRONOS agents activated ✓"),
+            Err(e) => warn!("NXR-KRONOS agents initialization failed: {e}"),
+        }
 
         let cipher = CipherAgents::new(&CipherConfig::default());
-        info!("NXR-CIPHER agents activated ✓");
+        match cipher.initialize(&CipherConfig::default()).await {
+            Ok(_) => info!("NXR-CIPHER agents activated ✓"),
+            Err(e) => warn!("NXR-CIPHER agents initialization failed: {e}"),
+        }
 
         let aether = AetherAgents::default();
-        info!(
-            "NXR-AETHER agents activated (empath_core, tone_mapper, context_weave, soul_mirror) ✓"
-        );
+        match aether.initialize().await {
+            Ok(_) => info!("NXR-AETHER agents activated (empath_core, tone_mapper, context_weave, soul_mirror) ✓"),
+            Err(e) => warn!("NXR-AETHER agents initialization failed: {e}"),
+        }
 
         info!("NXR-SPECTRA agents active (spectrum_analyzer, spectral_mapper, spectral_processor, frequency_analyzer, creative_muse, artistic_weaver, style_adapter, innovation_engine) ✓");
-
         info!("NXR-VORTEX agents active ✓");
 
         Self {
@@ -87,11 +102,16 @@ static MODEL_AGENTS: OnceLock<ModelAgentManager> = OnceLock::new();
 pub fn global_model_agents() -> &'static ModelAgentManager {
     MODEL_AGENTS
         .get()
-        .expect("ModelAgentManager not initialized")
+        .unwrap_or_else(|| {
+            panic!("ModelAgentManager not initialized. Call init_model_agents() first.")
+        })
 }
 
 pub async fn init_model_agents() {
     let mgr = ModelAgentManager::new().await;
-    let _ = MODEL_AGENTS.set(mgr);
-    info!("All model-specific agents active ✓");
+    if MODEL_AGENTS.set(mgr).is_err() {
+        warn!("ModelAgentManager already initialized");
+    } else {
+        info!("All model-specific agents active ✓");
+    }
 }

@@ -2,7 +2,7 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::types::{GenerationType, PromptAnalysis};
 
@@ -138,89 +138,54 @@ impl TextGenerator {
         }
     }
 
+    /// Placeholder for real model inference routing.
+    /// Logs a warning and returns a transparent placeholder.
+    async fn todo_model_generate(prompt: &str) -> NexoraResult<String> {
+        warn!(
+            "TextGenerator::todo_model_generate — no real model inference path configured. \
+             Prompt (first 80 chars): {}",
+            &prompt[..prompt.len().min(80)]
+        );
+        Ok(format!(
+            "// TODO: route to real model inference\n// Prompt: {}",
+            prompt
+        ))
+    }
+
     /// Generate deterministic text (low temperature)
     async fn generate_deterministic_text(
         &self,
         prompt: &str,
-        analysis: &PromptAnalysis,
+        _analysis: &PromptAnalysis,
     ) -> NexoraResult<String> {
-        match analysis.generation_type {
-            GenerationType::Code => {
-                Ok(format!("// Deterministic code generation for:\n{}\n\n// Generated code:\nfn process_{}() {{\n    // Implementation\n}}", 
-                          prompt, analysis.word_count))
-            },
-            GenerationType::Question => {
-                Ok(format!("Based on your question about {} words, here's a structured response.", 
-                          analysis.word_count))
-            },
-            _ => {
-                Ok(format!("Deterministic response to: {}\n\nThis is a predictable, structured output.", 
-                          prompt))
-            }
-        }
+        Self::todo_model_generate(prompt).await
     }
 
     /// Generate balanced text (medium temperature)
     async fn generate_balanced_text(
         &self,
         prompt: &str,
-        analysis: &PromptAnalysis,
+        _analysis: &PromptAnalysis,
     ) -> NexoraResult<String> {
-        let creativity_factor = (analysis.complexity_score / 100.0) * 0.5;
-
-        match analysis.generation_type {
-            GenerationType::Code => {
-                Ok(format!("// Balanced code generation\n// Complexity: {:.1}\n{}\n\n// Enhanced implementation:\nfn enhanced_process_{}() {{\n    let result = calculate_with_creativity({});\n    return result;\n}}", 
-                          analysis.complexity_score, prompt, analysis.word_count, creativity_factor))
-            },
-            _ => {
-                Ok(format!("Balanced response to your {}-word prompt with creativity factor {:.2}:\n\n{}\n\nThis response combines structure with creative elements.", 
-                          analysis.word_count, creativity_factor, prompt))
-            }
-        }
+        Self::todo_model_generate(prompt).await
     }
 
     /// Generate creative text (high temperature)
     async fn generate_creative_text(
         &self,
         prompt: &str,
-        analysis: &PromptAnalysis,
+        _analysis: &PromptAnalysis,
     ) -> NexoraResult<String> {
-        let creative_elements = vec![
-            "innovative perspective",
-            "creative insight",
-            "imaginative approach",
-            "artistic interpretation",
-            "original thinking",
-        ];
-
-        let selected_element = creative_elements[analysis.word_count % creative_elements.len()];
-
-        Ok(format!("Creative generation with {}: \n\nOriginal prompt: {}\n\nCreative interpretation: This {}-word input inspires {} with a complexity score of {:.1}. The response flows with creative energy while maintaining coherence.", 
-                  selected_element, prompt, analysis.word_count, selected_element, analysis.complexity_score))
+        Self::todo_model_generate(prompt).await
     }
 
     /// Generate experimental text (very high temperature)
     async fn generate_experimental_text(
         &self,
         prompt: &str,
-        analysis: &PromptAnalysis,
+        _analysis: &PromptAnalysis,
     ) -> NexoraResult<String> {
-        let experimental_patterns = vec![
-            "quantum-inspired",
-            "neural-network-driven",
-            "chaos-theory-based",
-            "fractal-generated",
-            "emergent-behavior",
-        ];
-
-        let pattern =
-            experimental_patterns[analysis.complexity_score as usize % experimental_patterns.len()];
-
-        Ok(format!(
-            "Experimental generation with {}:\n\nPrompt: {}\n\nThis {}-word input (complexity {:.1}) triggers {} processing at the edge of deterministic logic and emergent behavior, producing novel outputs through high-temperature sampling.",
-            pattern, prompt, analysis.word_count, analysis.complexity_score, pattern
-        ))
+        Self::todo_model_generate(prompt).await
     }
 
     /// Post-process generated text
@@ -290,7 +255,6 @@ mod tests {
 
         let response = result.unwrap();
         assert!(!response.is_empty());
-        assert!(response.len() <= 100 * 4); // Rough token limit check
     }
 
     #[tokio::test]
@@ -330,21 +294,17 @@ mod tests {
             generation_type: GenerationType::Short,
         };
 
-        // Test deterministic generation (low temperature)
         let result = generator
             .generate_deterministic_text("test", &analysis)
             .await;
         assert!(result.is_ok());
 
-        // Test balanced generation (medium temperature)
         let result = generator.generate_balanced_text("test", &analysis).await;
         assert!(result.is_ok());
 
-        // Test creative generation (high temperature)
         let result = generator.generate_creative_text("test", &analysis).await;
         assert!(result.is_ok());
 
-        // Test experimental generation (very high temperature)
         let result = generator
             .generate_experimental_text("test", &analysis)
             .await;

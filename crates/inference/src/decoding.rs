@@ -646,7 +646,18 @@ impl DecodingContext {
     }
 }
 
+/// Allocate text for a token ID.
+/// Uses the global tokenizer if available, otherwise falls back to placeholder format.
+/// The tokenizer is set via [`set_global_tokenizer`] during engine initialization.
 pub(crate) fn alloc_token_text(token_id: usize) -> String {
+    let guard = GLOBAL_TOKENIZER.read().unwrap_or_else(|e| e.into_inner());
+    if let Some(ref tokenizer) = *guard {
+        let decoded = tokenizer.decode(&[token_id as u32]);
+        if !decoded.is_empty() {
+            return decoded;
+        }
+    }
+    // Fallback: placeholder format
     let mut buf = String::with_capacity(12);
     buf.push_str("[t");
     let mut n = token_id;
@@ -664,4 +675,14 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
     }
     buf.push(']');
     buf
+}
+
+use std::sync::OnceLock;
+static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_tokenizer::BpeTokenizer>>> = OnceLock::new();
+
+/// Set the global tokenizer for use by `alloc_token_text`.
+/// Called once during engine initialization.
+pub fn set_global_tokenizer(tokenizer: nexora_tokenizer::BpeTokenizer) {
+    let lock = GLOBAL_TOKENIZER.get_or_init(|| parking_lot::RwLock::new(None));
+    *lock.write() = Some(tokenizer);
 }

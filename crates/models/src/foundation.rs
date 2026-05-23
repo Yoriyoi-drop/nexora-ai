@@ -9,6 +9,7 @@
 //! (omnis::NxrOmnisModel, etc.) are available for multi-agent orchestration flows.
 
 use async_trait::async_trait;
+use ndarray::Array1;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -438,7 +439,9 @@ macro_rules! define_foundation_model {
                 let mut count = 0usize;
 
                 for pos in 0..max_tokens {
-                    let logits = model.forward(&[last_id], &mut cache);
+                    let logits = model
+                        .forward(&[last_id], &mut cache)
+                        .unwrap_or_else(|_| Array1::zeros(model.config.vocab_size));
                     let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
                     last_id = next_id;
 
