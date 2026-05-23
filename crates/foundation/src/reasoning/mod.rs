@@ -68,10 +68,10 @@ impl SacaAetherIntegration {
         let urgent_words = ["urgent", "emergency", "critical", "immediately", "asap", "important", "deadline", "crisis"];
         let analytical_words = ["analyze", "compare", "evaluate", "assess", "calculate", "determine", "investigate", "examine", "review"];
 
-        let pos_count = positive_words.iter().filter(|w| lower.contains(w)).count();
-        let neg_count = negative_words.iter().filter(|w| lower.contains(w)).count();
-        let urg_count = urgent_words.iter().filter(|w| lower.contains(w)).count();
-        let ana_count = analytical_words.iter().filter(|w| lower.contains(w)).count();
+        let pos_count = positive_words.iter().filter(|w| lower.contains(*w)).count();
+        let neg_count = negative_words.iter().filter(|w| lower.contains(*w)).count();
+        let urg_count = urgent_words.iter().filter(|w| lower.contains(*w)).count();
+        let ana_count = analytical_words.iter().filter(|w| lower.contains(*w)).count();
 
         if urg_count > 0 {
             format!("urgent (urgency_score: {})", urg_count)

@@ -140,12 +140,20 @@ async fn register_causal_lm(
 pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
     let vocab_size = 512;
 
-    // Register ALL 10 NXR models with per-tier CausalLM instances
-    for model_id in NxrModelId::all() {
+    // Register only actively used models (Omnis by default).
+    // Set NEXORA_ALL_MODELS=1 or enable feature "all-models" to load all 10.
+    let model_ids: Vec<NxrModelId> = if std::env::var("NEXORA_ALL_MODELS").is_ok() {
+        info!("NEXORA_ALL_MODELS set — registering all 10 NXR models");
+        NxrModelId::all()
+    } else {
+        vec![NxrModelId::Omnis]
+    };
+
+    for model_id in model_ids {
         let tc = tier_config(model_id, vocab_size);
         register_causal_lm(model_id, vocab_size, tc).await?;
     }
 
-    info!("All 10 NXR foundation models are ACTIVE ✓");
+    info!("Foundation model(s) registered ✓");
     Ok(())
 }

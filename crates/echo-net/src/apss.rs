@@ -126,13 +126,11 @@ impl AdaptivePhaseSeparationStabilizer {
                     let emb_i = embeddings
                         .slice(s![i, ..])
                         .to_owned()
-                        .into_dimensionality()
-                        .expect("dimensions match");
+                        .into_dimensionality()?;
                     let emb_j = embeddings
                         .slice(s![j, ..])
                         .to_owned()
-                        .into_dimensionality()
-                        .expect("dimensions match");
+                        .into_dimensionality()?;
 
                     let similarity = self.cosine_similarity(&emb_i, &emb_j);
                     similarity_matrix[[i, j]] = similarity;
@@ -371,6 +369,14 @@ impl AdaptivePhaseSeparationStabilizer {
     /// Set maximum phase adjustment
     pub fn set_max_phase_adjustment(&mut self, max_adjustment: f32) {
         self.max_phase_adjustment = max_adjustment;
+    }
+
+    pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
+        vec![] // TODO: add trainable parameters (phase_separation_strength, etc.)
+    }
+
+    pub fn set_parameters_from_tensors(&mut self, _tensors: &[nexora_autograd::Tensor]) {
+        // No trainable ndarray weights yet
     }
 }
 

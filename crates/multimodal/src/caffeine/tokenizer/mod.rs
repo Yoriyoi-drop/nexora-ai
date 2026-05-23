@@ -23,6 +23,7 @@ pub struct UnifiedTokenizer {
     vocabulary: MultimodalVocabulary,
     sequence_processor: TokenSequenceProcessor,
     config: crate::caffeine::config::TokenizerConfig,
+    tokens_processed: usize,
 }
 
 impl UnifiedTokenizer {
@@ -45,6 +46,7 @@ impl UnifiedTokenizer {
             vocabulary,
             sequence_processor,
             config,
+            tokens_processed: 0,
         })
     }
 
@@ -68,6 +70,8 @@ impl UnifiedTokenizer {
 
         // Process sequence (handle interleaving, special tokens, etc.)
         let processed_tokens = self.sequence_processor.process_sequence(all_tokens)?;
+
+        self.tokens_processed += processed_tokens.len();
 
         Ok(processed_tokens)
     }
@@ -198,31 +202,11 @@ impl UnifiedTokenizer {
         Ok(generated_tokens)
     }
 
-    /// Predict next token (simplified implementation)
-    fn predict_next_token(&self, context_tokens: &[UnifiedToken]) -> Result<UnifiedToken> {
-        // Simple prediction based on context
-        let default_token = UnifiedToken {
-            token_id: 0,
-            modality: ModalityType::Text,
-            embedding: vec![0.0; 768],
-            position: 0,
-            timestamp: None,
-            spatial_coords: None,
-        };
-        let last_token = context_tokens.last().unwrap_or(&default_token);
-
-        // In real implementation, this would use the LLM backbone
-        let next_token_id = (last_token.token_id + 1) % self.config.vocab_size;
-        let next_modality = self.predict_next_modality(context_tokens)?;
-
-        Ok(UnifiedToken {
-            token_id: next_token_id,
-            modality: next_modality,
-            embedding: last_token.embedding.clone(),
-            position: last_token.position + 1,
-            timestamp: None,
-            spatial_coords: None,
-        })
+    /// Predict next token using the LLM backbone (not available in this context)
+    fn predict_next_token(&self, _context_tokens: &[UnifiedToken]) -> Result<UnifiedToken> {
+        Err(crate::caffeine::error::CaffeineError::tokenizer(
+            "LLM backbone not available. Autoregressive generation requires a language model that is not loaded in the tokenizer layer. Use the inference engine with a loaded model instead.",
+        ))
     }
 
     /// Predict next modality type
@@ -264,7 +248,7 @@ impl UnifiedTokenizer {
             token_dim: self.config.token_dim,
             codebook_size: self.config.codebook_size,
             num_codebooks: self.config.num_codebooks,
-            total_tokens_processed: 0, // Would track in real implementation
+            total_tokens_processed: self.tokens_processed,
             compression_ratio: self.vq_vae.get_compression_ratio(),
         }
     }

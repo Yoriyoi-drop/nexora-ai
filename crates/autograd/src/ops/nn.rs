@@ -44,7 +44,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                             dx[idx] = soft[idx] * (g[idx] - sum_sg);
                                         }
                                     }
-                                    vec![ArrayD::from_shape_vec(soft_shape.clone(), dx).unwrap()]
+                                    vec![ArrayD::from_shape_vec(soft_shape.clone(), dx).expect("dx length matches shape")]
                                 }),
                                 None,
                             );
@@ -156,7 +156,7 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                     return Tensor::from_gpu(gpu_result, id, false);
                                 }
                                 let soft_cpu = soft.to_cpu();
-                                let shape = soft_cpu.shape().to_vec();
+                                let _shape = soft_cpu.shape().to_vec();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![input.clone()],
@@ -289,9 +289,9 @@ pub fn layer_norm_2d(
                                                 vec![input.shape()[0]],
                                                 mean_arr,
                                             )
-                                            .unwrap(),
+                                            .expect("mean arr length matches batch"),
                                             ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr)
-                                                .unwrap(),
+                                                .expect("std arr length matches batch"),
                                             ArrayD::from_elem(vec![1], n),
                                         ],
                                         vec![],
@@ -304,15 +304,12 @@ pub fn layer_norm_2d(
                                             let batch = x.shape()[0];
                                             let dim = x.shape()[1];
                                             let mut dx = grad.clone();
-                                            let gs = grad.as_slice().unwrap_or_else(|| {
-                                                let v: Vec<f32> = grad.iter().copied().collect();
-                                                // leak is acceptable — backward runs once per grad_fn
-                                                Box::leak(v.into_boxed_slice())
-                                            });
-                                            let xs = x.as_slice().unwrap_or_else(|| {
-                                                let v: Vec<f32> = x.iter().copied().collect();
-                                                Box::leak(v.into_boxed_slice())
-                                            });
+                                            let gs: Vec<f32> = grad.as_slice()
+                                                .map(|s| s.to_vec())
+                                                .unwrap_or_else(|| grad.iter().copied().collect());
+                                            let xs: Vec<f32> = x.as_slice()
+                                                .map(|s| s.to_vec())
+                                                .unwrap_or_else(|| x.iter().copied().collect());
                                             for b in 0..batch {
                                                 let m = mean[b];
                                                 let s = std[b];
@@ -524,35 +521,81 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                     .expect("data length matches shape")]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                // d(bce)/dx = g * (p - t) / (p * (1-p))  where p = clamp(x, 1e-7, 1-1e-7)
-                                // clamp via relu trick: min(max(x, lo), hi) = hi - relu(hi - x - relu(x - lo))
                                 let x = &saved_gpu[0];
                                 let t = &saved_gpu[1];
                                 let shape = x.shape();
-                                let eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7)).unwrap();
-                                let one_minus_eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7)).unwrap();
-                                // max(x, 1e-7) = relu(x - 1e-7) + 1e-7
-                                let x_minus_eps = ctx.sub(x, &eps).unwrap();
-                                let r = ctx.relu(&x_minus_eps).unwrap();
-                                let p = ctx.add(&r, &eps).unwrap();
-                                // min(p, 1-1e-7) = (1-1e-7) - relu((1-1e-7) - p)
-                                let diff = ctx.sub(&one_minus_eps, &p).unwrap();
-                                let r2 = ctx.relu(&diff).unwrap();
-                                let p = ctx.sub(&one_minus_eps, &r2).unwrap();
-                                // numerator = grad * (p - t)
-                                let p_minus_t = ctx.sub(&p, t).unwrap();
-                                let num = ctx.mul(grad_gpu, &p_minus_t).unwrap();
-                                // denominator = p * (1-p), clamped to 1e-12
-                                let ones = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0)).unwrap();
-                                let one_minus_p = ctx.sub(&ones, &p).unwrap();
-                                let denom = ctx.mul(&p, &one_minus_p).unwrap();
-                                let eps2 = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12)).unwrap();
-                                // max(denom, 1e-12) = relu(denom - 1e-12) + 1e-12
-                                let denom_minus_eps2 = ctx.sub(&denom, &eps2).unwrap();
-                                let r3 = ctx.relu(&denom_minus_eps2).unwrap();
-                                let denom = ctx.add(&r3, &eps2).unwrap();
-                                // result = num / denom
-                                vec![ctx.div(&num, &denom).unwrap()]
+                                let eps = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7)) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: eps from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let one_minus_eps = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7)) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: 1-eps from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let x_minus_eps = match ctx.sub(x, &eps) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: sub failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let r = match ctx.relu(&x_minus_eps) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: relu failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let p = match ctx.add(&r, &eps) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: add failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let diff = match ctx.sub(&one_minus_eps, &p) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: sub2 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let r2 = match ctx.relu(&diff) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: relu2 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let p = match ctx.sub(&one_minus_eps, &r2) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: sub3 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let p_minus_t = match ctx.sub(&p, t) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: sub4 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let num = match ctx.mul(grad_gpu, &p_minus_t) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: mul failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let ones = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0)) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: ones from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let one_minus_p = match ctx.sub(&ones, &p) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: sub5 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let denom = match ctx.mul(&p, &one_minus_p) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: mul2 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let eps2 = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12)) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: eps2 from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let denom_minus_eps2 = match ctx.sub(&denom, &eps2) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: sub6 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let r3 = match ctx.relu(&denom_minus_eps2) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: relu3 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                let denom = match ctx.add(&r3, &eps2) {
+                                    Ok(v) => v,
+                                    Err(e) => { tracing::error!("BCE backward: add2 failed: {e}"); return vec![grad_gpu.clone()]; }
+                                };
+                                match ctx.div(&num, &denom) {
+                                    Ok(v) => vec![v],
+                                    Err(e) => { tracing::error!("BCE backward: div failed: {e}"); vec![grad_gpu.clone()] }
+                                }
                             })),
                         );
                     }
@@ -612,7 +655,7 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                         }
                         let lsm_data = {
                             let data = input.data();
-                            let tgt = target.data();
+                            let _tgt = target.data();
                             let batch = data.shape()[0];
                             let classes = data.shape()[1];
                             let mut lsm = vec![0.0f32; data.len()];
@@ -999,7 +1042,7 @@ fn attention_backward_cpu(
     let mut dk = ArrayD::zeros(vec![batch, heads, seq, dim]);
     let mut dv = ArrayD::zeros(vec![batch, heads, seq, dim]);
 
-    let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).unwrap();
+    let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).expect("grad shape matches attention dims");
 
     for b in 0..batch {
         for h in 0..heads {
@@ -1154,10 +1197,10 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
             let v_saved = &saved[2];
             let s = saved[3].iter().copied().next().unwrap_or(1.0);
 
-            let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
-            let q_4d = q_saved.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
-            let k_4d = k_saved.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
-            let v_4d = v_saved.to_shape(vec![batch, heads, seq, dim]).unwrap().to_owned().into_dyn();
+            let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).expect("grad shape matches attention dims").to_owned().into_dyn();
+            let q_4d = q_saved.to_shape(vec![batch, heads, seq, dim]).expect("q shape matches attention dims").to_owned().into_dyn();
+            let k_4d = k_saved.to_shape(vec![batch, heads, seq, dim]).expect("k shape matches attention dims").to_owned().into_dyn();
+            let v_4d = v_saved.to_shape(vec![batch, heads, seq, dim]).expect("v shape matches attention dims").to_owned().into_dyn();
 
             attention_backward_cpu(&grad_4d, &q_4d, &k_4d, &v_4d, s)
         }),
@@ -1201,7 +1244,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                                         dx[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                                     }
                                 }
-                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx).unwrap()]
+                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx).expect("dx length matches softmax shape")]
                             }),
                             None,
                         );

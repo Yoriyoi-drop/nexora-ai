@@ -61,6 +61,21 @@ impl From<ndarray::ShapeError> for DeepLearningError {
     }
 }
 
+/// Convert an `Option` (from ndarray contiguity check) into a `DLResult`.
+/// Used to avoid `.unwrap()` on hot paths.
+pub fn require_contiguous<'a, T>(slice: Option<&'a [T]>) -> DLResult<&'a [T]> {
+    slice.ok_or_else(|| DeepLearningError::Computation {
+        reason: "tensor not contiguous".to_string(),
+    })
+}
+
+/// Convert an `Option` mutable slice into a `DLResult`.
+pub fn require_contiguous_mut<'a, T>(slice: Option<&'a mut [T]>) -> DLResult<&'a mut [T]> {
+    slice.ok_or_else(|| DeepLearningError::Computation {
+        reason: "tensor not contiguous".to_string(),
+    })
+}
+
 pub mod traits {
     use super::*;
     pub trait Forward {

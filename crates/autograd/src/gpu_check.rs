@@ -269,24 +269,27 @@ impl GpuNanDetector {
         }
     }
 
-    pub fn ensure_pipelines(&mut self, ctx: &mut GpuContext) {
+    pub fn ensure_pipelines(&mut self, ctx: &mut GpuContext) -> Result<(), crate::gpu::GpuError> {
         if self.pipelines.is_some() {
-            return;
+            return Ok(());
         }
         let pipelines = (
-            compile_nan_check_pipeline(ctx).expect("Failed to compile nan_check pipeline"),
-            compile_nan_check_reduce_pipeline(ctx).expect("Failed to compile nan_check_reduce pipeline"),
-            compile_nan_check_final_pipeline(ctx).expect("Failed to compile nan_check_final pipeline"),
+            compile_nan_check_pipeline(ctx)?,
+            compile_nan_check_reduce_pipeline(ctx)?,
+            compile_nan_check_final_pipeline(ctx)?,
         );
         self.pipelines = Some(pipelines);
+        Ok(())
     }
 
-    pub fn check(&mut self, ctx: &mut GpuContext, tensor: &GpuTensor, label: &str) -> bool {
+    pub fn check(&mut self, ctx: &mut GpuContext, tensor: &GpuTensor, label: &str) -> Result<bool, crate::gpu::GpuError> {
         if !self.enabled {
-            return false;
+            return Ok(false);
         }
-        self.ensure_pipelines(ctx);
-        let pipelines = self.pipelines.as_ref().unwrap();
+        self.ensure_pipelines(ctx)?;
+        let Some(pipelines) = self.pipelines.as_ref() else {
+            return Ok(false);
+        };
         let has_nan = has_nan_or_inf_gpu(ctx, tensor, pipelines);
         if has_nan {
             self.nan_detected.store(true, Ordering::SeqCst);
@@ -300,7 +303,7 @@ impl GpuNanDetector {
                 panic!("GPU NaN detected in '{}' — aborting", label);
             }
         }
-        has_nan
+        Ok(has_nan)
     }
 
     pub fn was_nan_detected(&self) -> bool {

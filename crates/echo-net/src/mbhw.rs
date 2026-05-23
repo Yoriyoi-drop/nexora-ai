@@ -15,7 +15,8 @@
 use crate::utils::Complex;
 use crate::{ComplexTensor, HolographicWave};
 use crate::{DLResult, DeepLearningError};
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, ArrayD};
+use nexora_autograd::Tensor;
 use std::f32::consts::PI;
 
 /// Frequency band configuration
@@ -498,6 +499,25 @@ impl MultiBandHolographicWriter {
     /// Set decay factor
     pub fn set_decay_factor(&mut self, decay: f32) {
         self.decay_factor = decay;
+    }
+
+    pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
+        let mut params = Vec::new();
+        for filter in &self.frequency_filters {
+            params.push(filter.clone().into_dyn());
+        }
+        params
+    }
+
+    pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
+        for (i, t) in tensors.iter().enumerate() {
+            if i < self.frequency_filters.len() {
+                let d = t.data();
+                if let Ok(arr) = d.clone().into_shape(self.frequency_filters[i].dim()) {
+                    self.frequency_filters[i] = arr;
+                }
+            }
+        }
     }
 }
 

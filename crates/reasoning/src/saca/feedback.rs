@@ -420,17 +420,24 @@ struct QualityAnalysis {
 }
 
 /// Pattern analyzer for feedback
-struct PatternAnalyzer {
-    _private: (),
-}
+/// NOTE: Pattern analysis is not implemented. Real implementation would
+/// cluster feedback across sessions to identify recurring issues.
+struct PatternAnalyzer;
 
 impl PatternAnalyzer {
     fn new() -> Self {
-        Self { _private: () }
+        Self
     }
 
-    // In a real implementation, this would analyze patterns in feedback
-    // to identify recurring issues and improvement opportunities
+    /// Analyze patterns — not implemented
+    fn analyze_patterns(
+        &self,
+        _history: &[(uuid::Uuid, Vec<SACAFeedback>)],
+    ) -> SACAResult<Vec<String>> {
+        Err(SACAError::FeedbackError(
+            "Pattern analysis not implemented; requires clustering and trend detection".to_string(),
+        ))
+    }
 }
 
 #[cfg(test)]

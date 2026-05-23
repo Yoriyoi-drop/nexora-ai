@@ -3,7 +3,7 @@ use tracing::debug;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
-use crate::gpu::{GpuContext, GpuTensor};
+use crate::gpu::GpuContext;
 #[cfg(feature = "gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 
@@ -39,7 +39,7 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
             let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
             let reshaped = grad
                 .clone()
-                .into_shape(orig_shape);
+                .into_shape(orig_shape.clone());
             match reshaped {
                 Ok(t) => vec![t],
                 Err(e) => {

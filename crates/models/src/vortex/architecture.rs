@@ -1297,14 +1297,28 @@ impl _VortexArchitecture {
     }
 
     /// Match pattern against code
+    /// Implements simple wildcard-style matching (`*` matches any sequence).
+    /// This is NOT regex — full regex requires the `regex` crate.
     fn match_pattern(&self, code: &str, pattern: &str) -> Option<String> {
-        // Simple regex-based pattern matching
-        // In a real implementation, this would use more sophisticated pattern matching
-        if code.contains(pattern) {
-            Some("pattern matched".to_string())
-        } else {
-            None
+        // Simple wildcard matching: split on `*` and check segments appear in order
+        let segments: Vec<&str> = pattern.split('*').collect();
+        if segments.is_empty() {
+            return None;
         }
+        let mut pos = 0;
+        let code_bytes = code.as_bytes();
+        for segment in segments {
+            if segment.is_empty() {
+                continue;
+            }
+            let seg_bytes = segment.as_bytes();
+            let found = code_bytes[pos..].windows(seg_bytes.len()).position(|w| w == seg_bytes);
+            match found {
+                Some(idx) => pos += idx + seg_bytes.len(),
+                None => return None,
+            }
+        }
+        Some(code[pos..].to_string())
     }
 
     /// Calculate code complexity
@@ -1539,13 +1553,15 @@ impl _VortexArchitecture {
     }
 
     /// Calculate metric using ML
+    /// NOTE: ML-based metric calculation is not available. All metrics
+    /// return 0.0 — real implementation requires a trained regression model.
     async fn calculate_metric_ml(&self, code: &str, metric_name: &str) -> f32 {
-        // Placeholder for ML-based metric calculation
-        // In a real implementation, this would use trained models
-        match metric_name {
-            "Cyclomatic Complexity" => self.calculate_code_complexity(code) * 20.0,
-            _ => 0.0,
-        }
+        tracing::warn!(
+            "ML metrics not available; returning 0.0 for '{}'",
+            metric_name
+        );
+        let _ = code;
+        0.0
     }
 
     /// Calculate overall quality score

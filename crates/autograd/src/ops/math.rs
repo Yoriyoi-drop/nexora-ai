@@ -31,12 +31,12 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -120,12 +120,12 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -211,12 +211,12 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -306,12 +306,12 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .unwrap();
+                                .expect("shape data fits in array");
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -403,9 +403,14 @@ pub fn exp(input: &Tensor) -> Tensor {
                                 vec![grad.clone() * e]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                // d(exp(x))/dx = exp(x) = y
                                 let y = &saved_gpu[0];
-                                vec![ctx.mul(grad_gpu, y).unwrap()]
+                                match ctx.mul(grad_gpu, y) {
+                                    Ok(v) => vec![v],
+                                    Err(e) => {
+                                        tracing::error!("GPU backward exp mul failed: {e}");
+                                        vec![grad_gpu.clone()]
+                                    }
+                                }
                             })),
                         );
                     }
@@ -455,9 +460,14 @@ pub fn ln(input: &Tensor) -> Tensor {
                                 vec![grad.clone() * dx]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                // d(ln(x))/dx = 1/x
                                 let x = &saved_gpu[0];
-                                vec![ctx.div(grad_gpu, x).unwrap()]
+                                match ctx.div(grad_gpu, x) {
+                                    Ok(v) => vec![v],
+                                    Err(e) => {
+                                        tracing::error!("GPU backward ln div failed: {e}");
+                                        vec![grad_gpu.clone()]
+                                    }
+                                }
                             })),
                         );
                     }
@@ -490,8 +500,37 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
         let storage = input.storage();
         if let Storage::Gpu(gpu_input) = &storage {
             if let Ok(ctx) = GpuContext::global() {
-                let exp_tensor =
-                    GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], exponent)).unwrap();
+                let exp_tensor = match
+                    GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], exponent))
+                {
+                    Ok(t) => t,
+                    Err(e) => {
+                        debug!("GPU powf from_cpu failed, falling back to CPU: {e}");
+                        let data = input.data();
+                        let result = data.mapv(|x| x.powf(exponent));
+                        if !input.requires_grad() {
+                            let id = crate::tensor::next_tensor_id();
+                            return Tensor::new(result);
+                        }
+                        let saved_x = data.clone();
+                        return Tensor::with_grad_fn(
+                            result,
+                            vec![input.clone()],
+                            vec![saved_x],
+                            Box::new(move |grad, saved| {
+                                let x = &saved[0];
+                                let dx = x.mapv(|v| {
+                                    if v == 0.0 && exponent < 1.0 {
+                                        0.0
+                                    } else {
+                                        exponent * v.powf(exponent - 1.0)
+                                    }
+                                });
+                                vec![grad.clone() * dx]
+                            }),
+                        );
+                    }
+                };
                 match ctx.elementwise_binary(gpu_input, &exp_tensor, ElemOp::Powf) {
                     Ok(gpu_result) => {
                         if !input.requires_grad() {
@@ -572,11 +611,28 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                                 vec![grad.clone() * dx]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                // d(sqrt(x))/dx = 0.5 / sqrt(x) = 0.5 / y
                                 let y = &saved_gpu[0];
-                                let half = GpuTensor::from_cpu(&ArrayD::from_elem(y.shape(), 0.5)).unwrap();
-                                let inv = ctx.div(&half, y).unwrap();
-                                vec![ctx.mul(grad_gpu, &inv).unwrap()]
+                                let half = match GpuTensor::from_cpu(&ArrayD::from_elem(y.shape(), 0.5)) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!("GPU backward sqrt from_cpu failed: {e}");
+                                        return vec![grad_gpu.clone()];
+                                    }
+                                };
+                                let inv = match ctx.div(&half, y) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        tracing::error!("GPU backward sqrt div failed: {e}");
+                                        return vec![grad_gpu.clone()];
+                                    }
+                                };
+                                match ctx.mul(grad_gpu, &inv) {
+                                    Ok(v) => vec![v],
+                                    Err(e) => {
+                                        tracing::error!("GPU backward sqrt mul failed: {e}");
+                                        vec![grad_gpu.clone()]
+                                    }
+                                }
                             })),
                         );
                     }
@@ -622,8 +678,13 @@ pub fn neg(a: &Tensor) -> Tensor {
                             vec![],
                             Box::new(|grad, _| vec![-grad.clone()]),
                             Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                // d(-x)/dx = -1 → grad * -1 = -grad
-                                vec![ctx.elementwise_unary(grad_gpu, ElemOp::Neg).unwrap()]
+                                match ctx.elementwise_unary(grad_gpu, ElemOp::Neg) {
+                                    Ok(v) => vec![v],
+                                    Err(e) => {
+                                        tracing::error!("GPU backward neg failed: {e}");
+                                        vec![grad_gpu.clone()]
+                                    }
+                                }
                             })),
                         );
                     }

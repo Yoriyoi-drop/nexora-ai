@@ -160,23 +160,13 @@ impl TextOutputGenerator {
     }
 
     /// Convert token ID to word
-    fn token_to_word(&self, token_id: usize) -> Result<String> {
-        // Simple mapping (in real implementation, use proper vocabulary)
-        let common_words = vec![
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
-            "by", "from", "up", "about", "into", "through", "during", "hello", "world", "thanks",
-            "please", "sorry", "yes", "no", "maybe", "this", "that", "these", "those", "is", "are",
-            "was", "were", "be", "have", "has", "had", "do", "does", "did", "will", "would",
-            "could",
-        ];
-
-        if token_id < common_words.len() {
-            Ok(common_words[token_id].to_string())
-        } else {
-            // Generate word from token ID
-            let word_seed = token_id % 1000;
-            Ok(format!("word{}", word_seed))
-        }
+    ///
+    /// This requires a loaded vocabulary. Without one, we return an error
+    /// indicating that the vocabulary is not available.
+    fn token_to_word(&self, _token_id: usize) -> Result<String> {
+        Err(crate::caffeine::error::CaffeineError::action_head(
+            "Vocabulary not loaded. token_to_word requires a vocabulary file to map token IDs to words. Load a vocabulary via SemanticOutputGenerator::load_vocabulary before generating text.",
+        ))
     }
 }
 

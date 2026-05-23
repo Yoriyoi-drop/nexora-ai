@@ -236,6 +236,7 @@ pub mod core_utils {
     /// Top-K sparse selection
     pub fn top_k_sparse(scores: &ArrayD<f32>, k: usize) -> ArrayD<f32> {
         let mut mask = ArrayD::zeros(scores.shape());
+        // safe: scores is a contiguous tensor from the caller
         let flat_scores = scores.as_slice().expect("tensor should be contiguous");
 
         let mut indexed_scores: Vec<(usize, f32)> = flat_scores

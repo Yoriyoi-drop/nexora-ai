@@ -113,6 +113,7 @@ impl PrefixCache {
 
         for &token in tokens {
             let child_id = {
+                // safe: tree walk starts from root, every child ID comes from parent's children map
                 let current = nodes.get(&current_id).expect("invariant: node must exist");
                 current.children.get(&(token as u64)).copied()
             };
@@ -120,6 +121,7 @@ impl PrefixCache {
             match child_id {
                 Some(cid) => {
                     current_id = cid;
+                    // safe: child was just looked up from parent's children map
                     let child = nodes
                         .get_mut(&current_id)
                         .expect("invariant: child must exist");
@@ -134,6 +136,7 @@ impl PrefixCache {
                     if tokens.last().map_or(false, |t| token == *t) {
                         new_node.value = Some(value.clone());
                     }
+                    // safe: parent was verified in the same iteration's get() above
                     {
                         let parent = nodes
                             .get_mut(&current_id)

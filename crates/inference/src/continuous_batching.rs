@@ -100,6 +100,10 @@ where
 
     /// Run a single step, processing up to `max_batch_size` ready sequences
     /// in a batched forward pass.
+    ///
+    /// NOTE: Currently processes sequences one-by-one via `forward_batched`.
+    /// True batched forward (all sequences in a single kernel launch) is not
+    /// yet implemented.
     pub fn step(&mut self) -> StepResult {
         let step_start = Instant::now();
         let mut completed = Vec::with_capacity(self.max_batch_size.min(self.sequences.len()));
@@ -161,7 +165,13 @@ where
             let logits_vec: Vec<f32> = logits_arr.clone().into_raw_vec();
             let was_prefill = prefill_flags[i];
 
-            let sampler = self.samplers.get_mut(&seq_id).unwrap();
+            let sampler = match self.samplers.get_mut(&seq_id) {
+                Some(s) => s,
+                None => {
+                    warn!("Sampler not found for sequence {}, skipping", seq_id);
+                    continue;
+                }
+            };
             let token_id = match sampler.sample(&logits_vec) {
                 Ok(idx) => idx as u32,
                 Err(e) => {
@@ -178,7 +188,13 @@ where
                 }
             };
 
-            let seq = self.sequences.get_mut(&seq_id).unwrap();
+            let seq = match self.sequences.get_mut(&seq_id) {
+                Some(s) => s,
+                None => {
+                    warn!("Sequence {} not found, skipping", seq_id);
+                    continue;
+                }
+            };
             if was_prefill {
                 seq.advance_prompt();
                 if seq.has_pending_prompt() {
@@ -207,8 +223,7 @@ where
 
             if let Some(reason) = finish_reason {
                 seq.finish(reason.clone());
-                if let Some(mut resp) = self.build_response(seq_id, reason) {
-                    resp.inference_time_ms = step_start.elapsed().as_millis() as u64;
+                if let Some(resp) = self.build_response(seq_id, reason, step_start.elapsed().as_millis() as u64) {
                     completed.push(resp);
                 }
             }
@@ -222,7 +237,7 @@ where
         }
     }
 
-    fn build_response(&self, seq_id: u64, reason: FinishReason) -> Option<InferenceResponse> {
+    fn build_response(&self, seq_id: u64, reason: FinishReason, elapsed_ms: u64) -> Option<InferenceResponse> {
         let seq = self.sequences.get(&seq_id)?;
         let text: String = seq
             .generated
@@ -235,7 +250,7 @@ where
             text,
             finish_reason: reason,
             total_tokens: seq.total_tokens(),
-            inference_time_ms: 0,
+            inference_time_ms: elapsed_ms,
             metadata: HashMap::new(),
         })
     }

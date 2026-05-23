@@ -417,16 +417,17 @@ fn compute_overall_compression_ratio(
     Ok(total_compression / assignments.len() as f32)
 }
 
-/// Helper functions with realistic implementations
+/// Helper: simple scalar surrogate for a neural layer output.
+/// This computes sum(weights) → tanh → normalization.
+/// It is NOT a realistic neural network — no learned parameters, no backprop.
 fn compute_layer_output(weights: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
     if weights.is_empty() {
         return Ok(0.0);
     }
 
-    // Compute weighted sum with non-linear activation
     let weighted_sum: f32 = weights.iter().sum();
-    let activation = weighted_sum.tanh(); // Apply tanh activation
-    let normalized_output = activation * (1.0 / (1.0 + weighted_sum.abs() * 0.1)); // Normalization
+    let activation = weighted_sum.tanh();
+    let normalized_output = activation * (1.0 / (1.0 + weighted_sum.abs() * 0.1));
 
     Ok(normalized_output)
 }
@@ -597,31 +598,18 @@ impl CompressionEngine {
     }
 
     /// Compress tensor using adaptive rank selection
+    /// NOTE: True tensor compression requires SVD, Tucker, or TT decomposition.
+    /// Simple truncation (dropping elements) is data loss, not compression.
     fn compress_tensor(
         &self,
-        tensor: &ndarray::ArrayD<f32>,
+        _tensor: &ndarray::ArrayD<f32>,
     ) -> crate::ATQSResult<ndarray::ArrayD<f32>> {
-        // Apply adaptive rank compression
-        let _rank = self.adaptive_rank_selector.select_rank(tensor);
-
-        // Simplified tensor compression - in real implementation would use SVD/Tucker decomposition
-        let _original_shape = tensor.shape().to_vec();
-        let flattened: Vec<f32> = tensor.iter().cloned().collect();
-
-        // Apply compression by reducing dimensionality
-        let compressed_size =
-            (flattened.len() as f32 * (1.0 - self.config.target_compression_ratio)) as usize;
-        let compressed_data = flattened
-            .into_iter()
-            .take(compressed_size)
-            .collect::<Vec<f32>>();
-
-        // Reshape to compressed format
-        let compressed_shape = vec![compressed_size / 8, 8]; // Keep feature dimension
-        Ok(ndarray::ArrayD::from_shape_vec(
-            compressed_shape,
-            compressed_data,
-        )?)
+        let _rank = self.adaptive_rank_selector.select_rank(_tensor);
+        Err(crate::ATQSError::CompressionError(
+            "Tensor compression via SVD/Tucker decomposition not implemented; \
+             use TensorCompressor with Tucker or TT method instead"
+                .to_string(),
+        ))
     }
 
     /// Convert tensor back to string representation

@@ -16,7 +16,7 @@ use nexora_transformer::{CausalLM, TransformerConfig};
 use crate::shared::base_model::ValidationResult;
 use crate::shared::{
     CapabilityVector, FinishReason, GenerationMetadata, InputData, ModelMeta, ModelStatistics,
-    ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelResult, NxrOutput,
+    ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
     NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
 };
 
@@ -139,32 +139,6 @@ impl MiniTokenizer {
     }
 }
 
-impl MiniTokenizer {
-    pub fn new(vocab_size: usize) -> Self {
-        Self { vocab_size }
-    }
-
-    pub fn encode(&self, text: &str) -> Vec<u32> {
-        let mut ids = vec![1u32];
-        for &b in text.as_bytes() {
-            let id = b as u32;
-            if (id as usize) < self.vocab_size {
-                ids.push(id);
-            }
-        }
-        ids.push(2);
-        ids
-    }
-
-    pub fn decode(&self, token_ids: &[u32]) -> String {
-        let bytes: Vec<u8> = token_ids
-            .iter()
-            .filter_map(|&id| if id < 256 { Some(id as u8) } else { None })
-            .collect();
-        String::from_utf8_lossy(&bytes).to_string()
-    }
-}
-
 pub struct CausalLmModel {
     meta: ModelMeta,
     capabilities: CapabilityVector,
@@ -274,17 +248,34 @@ impl CausalLmModel {
         temperature: f32,
         use_gpu: bool,
     ) -> NxrModelResult<String> {
-        let model = self.model.read().await;
-        let model_ref = model
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         let tokenizer = self.tokenizer.read().await;
         let tok_ref = tokenizer
             .as_ref()
             .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
         let input_ids = tok_ref.encode(prompt);
-        let (output_ids, _) =
-            model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, 50, use_gpu);
+        drop(tokenizer);
+
+        let model_arc = self.model.clone();
+        let (output_ids, _) = tokio::task::spawn_blocking(move || {
+            let guard = model_arc.blocking_read();
+            let m = guard.as_ref().ok_or_else(|| {
+                NxrModelError::NotInitialized("Model not loaded".to_string())
+            })?;
+            Ok::<_, NxrModelError>(m.generate_with_gpu(
+                &input_ids,
+                max_tokens,
+                temperature,
+                50,
+                use_gpu,
+            ))
+        })
+        .await
+        .map_err(|e| NxrModelError::Internal(e.to_string()))??;
+
+        let tokenizer = self.tokenizer.read().await;
+        let tok_ref = tokenizer
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
         let text = tok_ref.decode(&output_ids);
         Ok(text)
     }
@@ -609,16 +600,26 @@ impl NxrModel for CausalLmModel {
             .unwrap_or(50) as usize;
 
         let input_ids = tok_ref.encode(&text);
+        drop(tokenizer);
         let start = std::time::Instant::now();
 
-        let model = self.model.read().await;
-        let model_ref = model.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model was reset before generation".to_string())
-        })?;
-
+        let model_arc = self.model.clone();
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-        let (output_ids, _cache) =
-            model_ref.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
+        let (output_ids, _cache) = tokio::task::spawn_blocking(move || {
+            let guard = model_arc.blocking_read();
+            let m = guard.as_ref().ok_or_else(|| {
+                NxrModelError::NotInitialized("Model was reset before generation".to_string())
+            })?;
+            Ok::<_, NxrModelError>(m.generate_with_gpu(
+                &input_ids,
+                max_tokens,
+                temperature,
+                top_k,
+                use_gpu,
+            ))
+        })
+        .await
+        .map_err(|e| NxrModelError::Internal(e.to_string()))??;
 
         let elapsed = start.elapsed().as_millis() as u64;
         let generated_text = tok_ref.decode(&output_ids);
@@ -703,22 +704,40 @@ impl NxrModel for CausalLmModel {
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let model = self.model.read().await;
-        let model_ref = model
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
-
         let input_ids = tok_ref.encode(&text);
+        drop(tokenizer);
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-        let mut cache = model_ref.reset_cache();
-        for &token_id in &input_ids {
-            let _ = model_ref.forward(&[token_id], &mut cache);
-        }
-        let mut last_id = *input_ids.last().unwrap_or(&0);
+
+        let model_arc = self.model.clone();
+        let (mut cache, mut last_id) = tokio::task::spawn_blocking(move || {
+            let guard = model_arc.blocking_read();
+            let m = guard.as_ref().ok_or_else(|| {
+                NxrModelError::NotInitialized("Model not loaded".to_string())
+            })?;
+            let mut c = m.reset_cache();
+            for &tid in &input_ids {
+                let _ = m.forward(&[tid], &mut c);
+            }
+            let lid = *input_ids.last().unwrap_or(&0);
+            Ok::<_, NxrModelError>((c, lid))
+        })
+        .await
+        .map_err(|e| NxrModelError::Internal(e.to_string()))??;
+
+        let tokenizer = self.tokenizer.read().await;
+        let tok_ref = tokenizer
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
         for _ in 0..max_tokens {
-            let logits = model_ref
+            let model = self.model.read().await;
+            let m = model
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
+            let vs = m.config.vocab_size;
+            let logits = m
                 .forward(&[last_id], &mut cache)
-                .unwrap_or_else(|_| Array1::zeros(model_ref.config.vocab_size));
+                .unwrap_or_else(|_| Array1::zeros(vs));
+            drop(model);
             let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
             let token_text = tok_ref.decode(&[next_id]);
             callback(NxrStreamChunk {
@@ -821,18 +840,34 @@ impl NxrModel for CausalLmModel {
             .unwrap_or(0.0);
 
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
+        // Iterate over multiple GPU status files (multi-GPU support).
+        // Returns the average utilization across all available GPUs.
         let gpu_percent = if use_gpu {
-            std::fs::read_to_string("/proc/driver/nvidia/gpus/0/status")
-                .ok()
-                .and_then(|s| {
-                    s.lines()
-                        .find(|l| l.contains("GPU Utilization"))
-                        .and_then(|l| {
-                            l.split_whitespace()
-                                .find(|w| w.ends_with('%'))
-                                .and_then(|w| w.trim_end_matches('%').parse::<f32>().ok())
-                        })
+            let total: f32 = (0..8)
+                .filter_map(|i| {
+                    let path = format!("/proc/driver/nvidia/gpus/{i}/status");
+                    std::fs::read_to_string(&path).ok().and_then(|s| {
+                        s.lines()
+                            .find(|l| l.contains("GPU Utilization"))
+                            .and_then(|l| {
+                                l.split_whitespace()
+                                    .find(|w| w.ends_with('%'))
+                                    .and_then(|w| w.trim_end_matches('%').parse::<f32>().ok())
+                            })
+                    })
                 })
+                .sum();
+            let count = (0..8)
+                .filter(|i| {
+                    let path = format!("/proc/driver/nvidia/gpus/{i}/status");
+                    std::path::Path::new(&path).exists()
+                })
+                .count() as f32;
+            if count > 0.0 {
+                Some(total / count)
+            } else {
+                None
+            }
         } else {
             None
         };

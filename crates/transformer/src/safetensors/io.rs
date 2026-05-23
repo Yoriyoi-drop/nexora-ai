@@ -18,15 +18,16 @@ pub struct SafetensorsHeader {
     pub tensors: HashMap<String, TensorEntry>,
 }
 
-pub fn save_safetensors(
+pub fn save_safetensors<S: AsRef<str>>(
     path: impl AsRef<Path>,
-    tensors: &[(&str, ArrayD<f32>)],
+    tensors: &[(S, ArrayD<f32>)],
 ) -> TransformerResult<()> {
     let mut header_map = HashMap::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut offset: usize = 0;
 
     for (name, arr) in tensors {
+        let name = name.as_ref();
         let flat: Vec<u8> = arr.iter().flat_map(|v| v.to_le_bytes()).collect();
         let len = flat.len();
 

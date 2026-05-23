@@ -529,14 +529,40 @@ impl Middleware for CorsMiddleware {
     async fn process_response(
         &self,
         ctx: &mut RequestContext,
-        _response: &mut Vec<u8>,
+        response: &mut Vec<u8>,
     ) -> Result<()> {
-        // Add CORS headers to response
-        // Note: In a real implementation, this would modify HTTP headers
-        // For now, we just log the CORS information
+        // Add CORS headers to response context
+        let origin = ctx
+            .headers
+            .get("origin")
+            .cloned()
+            .unwrap_or_else(|| "*".to_string());
+        let allowed_origin = if self.is_origin_allowed(&origin) {
+            origin
+        } else {
+            "*".to_string()
+        };
 
+        ctx.headers
+            .insert("Access-Control-Allow-Origin".to_string(), allowed_origin);
+        ctx.headers.insert(
+            "Access-Control-Allow-Methods".to_string(),
+            "GET, POST, PUT, DELETE, PATCH, OPTIONS".to_string(),
+        );
+        ctx.headers.insert(
+            "Access-Control-Allow-Headers".to_string(),
+            "Content-Type, Authorization, X-API-Key, X-Requested-With".to_string(),
+        );
+        ctx.headers
+            .insert("Access-Control-Max-Age".to_string(), "86400".to_string());
+
+        // For preflight requests, write a proper response with CORS headers
         if ctx.method == "OPTIONS" {
-            tracing::debug!("CORS preflight request processed");
+            let cors_response = format!(
+                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: {}\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-API-Key, X-Requested-With\r\nAccess-Control-Max-Age: 86400\r\n\r\n",
+                self.allowed_origins.first().map(|s| s.as_str()).unwrap_or("*")
+            );
+            *response = cors_response.into_bytes();
         }
 
         Ok(())

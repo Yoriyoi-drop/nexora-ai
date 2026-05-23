@@ -6,7 +6,7 @@
 //! - Macro Gate: episodic memory eksternal
 
 use crate::core::HierarchicalGating;
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
@@ -99,7 +99,7 @@ impl TemporalGatingHierarchy {
         // Pool chunk - simple average pooling
         let mut pooled = Array1::zeros(self.hidden_size);
         for state in chunk {
-            let flat = state.as_slice().expect("tensor should be contiguous");
+            let flat = require_contiguous(state.as_slice())?;
             for (i, &val) in flat.iter().enumerate().take(self.hidden_size) {
                 pooled[i] += val;
             }
@@ -135,6 +135,7 @@ impl TemporalGatingHierarchy {
 
     /// Concatenate input dan hidden state
     fn concatenate(&self, input: &ArrayD<f32>, hidden: &ArrayD<f32>) -> ArrayD<f32> {
+        // safe: both tensors are contiguous by construction
         let input_flat = input.as_slice().expect("tensor should be contiguous");
         let hidden_flat = hidden.as_slice().expect("tensor should be contiguous");
 
@@ -152,7 +153,7 @@ impl TemporalGatingHierarchy {
             return Ok(result);
         }
 
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -197,6 +198,7 @@ impl TemporalGatingHierarchy {
 
     /// Add bias
     fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
+        // safe: output is freshly computed and contiguous
         let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
@@ -216,6 +218,7 @@ impl TemporalGatingHierarchy {
 
     /// Get current fusion weights
     pub fn get_fusion_weights(&self) -> (f32, f32, f32) {
+        // safe: fusion_weights is a fixed-size Array1, always contiguous
         let weights = self
             .fusion_weights
             .as_slice()
@@ -283,10 +286,10 @@ impl HierarchicalGating for TemporalGatingHierarchy {
 
         // Weighted combination
         let mut fused = ArrayD::zeros(micro.shape());
-        let micro_flat = micro.as_slice().expect("tensor should be contiguous");
-        let meso_flat = meso.as_slice().expect("tensor should be contiguous");
-        let macro_flat = macro_out.as_slice().expect("tensor should be contiguous");
-        let fused_flat = fused.as_slice_mut().expect("tensor should be contiguous");
+        let micro_flat = require_contiguous(micro.as_slice())?;
+        let meso_flat = require_contiguous(meso.as_slice())?;
+        let macro_flat = require_contiguous(macro_out.as_slice())?;
+        let fused_flat = require_contiguous_mut(fused.as_slice_mut())?;
 
         for i in 0..fused_flat.len() {
             fused_flat[i] =

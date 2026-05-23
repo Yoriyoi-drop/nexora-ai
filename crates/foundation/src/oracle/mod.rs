@@ -46,6 +46,7 @@ impl OracleVortexIntegration {
     }
 
     /// Legacy constructor — panics on failure. Prefer try_new().
+    /// safe: only fails on OOM or config deser which are caught at startup
     pub fn new() -> Self {
         Self::try_new().expect("failed to initialize ORACLE trainer")
     }

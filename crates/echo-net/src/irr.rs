@@ -205,15 +205,14 @@ impl IterativeResonanceReasoner {
     fn initialize_query(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
         let input_view: Array2<f32> = input
             .view()
-            .into_dimensionality()
-            .expect("input is 2D")
+            .into_dimensionality()?
             .to_owned();
         let query = input_view.dot(&self.query_weights.t());
 
         // Apply non-linearity
         let activated_query = query.mapv(|x| x.tanh());
 
-        Ok(activated_query.into_dimensionality().expect("query is 2D"))
+        Ok(activated_query.into_dimensionality()?)
     }
 
     /// Compute resonance between query and holographic memory
@@ -289,8 +288,7 @@ impl IterativeResonanceReasoner {
         // Apply refinement transformation
         let resonance_view: Array2<f32> = resonance
             .view()
-            .into_dimensionality()
-            .expect("resonance is 2D")
+            .into_dimensionality()?
             .to_owned();
         let refined = resonance_view.dot(&self.refinement_weights.t());
 
@@ -413,13 +411,12 @@ impl IterativeResonanceReasoner {
         // Apply final transformation
         let output_view: Array2<f32> = final_output
             .view()
-            .into_dimensionality()
-            .expect("output is 2D")
+            .into_dimensionality()?
             .to_owned();
         let transformed = output_view.dot(&self.output_weights.t());
         let activated = transformed.mapv(|x| x.tanh());
 
-        Ok(activated.into_dimensionality().expect("activated is 2D"))
+        Ok(activated.into_dimensionality()?)
     }
 
     /// Update performance metrics
@@ -463,10 +460,7 @@ impl IterativeResonanceReasoner {
     ) -> DLResult<ArrayD<f32>> {
         let total_size = original_shape.iter().product();
         let vec: Vec<f32> = array_1d.iter().take(total_size).cloned().collect();
-        Ok(
-            ArrayD::from_shape_vec(original_shape.to_vec(), vec)
-                .expect("data length matches shape"),
-        )
+        Ok(ArrayD::from_shape_vec(original_shape.to_vec(), vec)?)
     }
 
     /// Utility: Cosine similarity
@@ -506,6 +500,7 @@ impl IterativeResonanceReasoner {
 
     /// Get reasoning history
     pub fn get_query_weights(&self) -> Tensor {
+        // safe: iterated from same array, length always matches
         let data = ArrayD::from_shape_vec(
             vec![self.query_weights.shape()[0], self.query_weights.shape()[1]],
             self.query_weights.iter().copied().collect(),
@@ -514,6 +509,7 @@ impl IterativeResonanceReasoner {
         Tensor::new(data)
     }
     pub fn get_refinement_weights(&self) -> Tensor {
+        // safe: iterated from same array, length always matches
         let data = ArrayD::from_shape_vec(
             vec![
                 self.refinement_weights.shape()[0],
@@ -525,6 +521,7 @@ impl IterativeResonanceReasoner {
         Tensor::new(data)
     }
     pub fn get_output_weights(&self) -> Tensor {
+        // safe: iterated from same array, length always matches
         let data = ArrayD::from_shape_vec(
             vec![
                 self.output_weights.shape()[0],

@@ -9,7 +9,7 @@
 use crate::core::TemporalProcessor;
 use crate::fused_ops::{FusedElementWise, FusedLinearActivation};
 use crate::tensor_pool::PooledTensor1D;
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, ArrayD};
 use once_cell;
 use rand;
@@ -129,9 +129,7 @@ impl HarmonicTemporalEncoding {
         // Use pooled tensor untuk mengurangi alokasi
         let mut pooled_tensor = PooledTensor1D::new(self.embedding_dim)?;
         let encoding = pooled_tensor.get_mut();
-        let encoding_flat = encoding
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
+        let encoding_flat = require_contiguous_mut(encoding.as_slice_mut())?;
 
         for i in 0..self.num_harmonics {
             let freq = self.frequencies[i];
@@ -186,9 +184,7 @@ impl HarmonicTemporalEncoding {
     ) -> DLResult<ArrayD<f32>> {
         let relative_pos = query_pos as f32 - key_pos as f32;
         let mut encoding = Array1::zeros(self.embedding_dim);
-        let encoding_flat = encoding
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
+        let encoding_flat = require_contiguous_mut(encoding.as_slice_mut())?;
 
         for i in 0..self.num_harmonics {
             let freq = self.frequencies[i];
@@ -219,9 +215,7 @@ impl HarmonicTemporalEncoding {
     ) -> DLResult<ArrayD<f32>> {
         let normalized_pos = (position % period) as f32 / period as f32;
         let mut encoding = Array1::zeros(self.embedding_dim);
-        let encoding_flat = encoding
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
+        let encoding_flat = require_contiguous_mut(encoding.as_slice_mut())?;
 
         for i in 0..self.num_harmonics {
             let freq = 2.0 * PI * (i as f32 + 1.0) * normalized_pos;
@@ -251,15 +245,12 @@ impl HarmonicTemporalEncoding {
         modality_frequencies: &[f32],
     ) -> DLResult<ArrayD<f32>> {
         let mut encoding = Array1::zeros(self.embedding_dim);
-        let encoding_flat = encoding
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
+        let encoding_flat = require_contiguous_mut(encoding.as_slice_mut())?;
 
         // Base harmonic encoding
         let base_encoding = self.compute_harmonic_encoding(position)?;
         let base_flat = base_encoding
-            .as_slice()
-            .expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
 
         // Blend with modality-specific frequencies
         for i in 0..self.embedding_dim.min(base_flat.len()) {
@@ -352,10 +343,9 @@ impl TemporalProcessor for HarmonicTemporalEncoding {
         let temporal_encoding = self.compute_harmonic_encoding(temporal_pos)?;
 
         // Combine input dengan temporal encoding
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         let temp_flat = temporal_encoding
-            .as_slice()
-            .expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
 
         let mut combined = Vec::with_capacity(input_flat.len());
         for (i, &input_val) in input_flat.iter().enumerate() {
@@ -411,10 +401,8 @@ impl HarmonicTemporalEncoding {
                 let count = sequence.len() - period;
 
                 for j in 0..count {
-                    let seq_j_flat = sequence[j].as_slice().expect("tensor should be contiguous");
-                    let seq_jp_flat = sequence[j + period]
-                        .as_slice()
-                        .expect("tensor should be contiguous");
+                    let seq_j_flat = require_contiguous(sequence[j].as_slice())?;
+                    let seq_jp_flat = require_contiguous(sequence[j + period].as_slice())?;
 
                     for (a, b) in seq_j_flat.iter().zip(seq_jp_flat.iter()) {
                         correlation += a * b;
@@ -441,10 +429,8 @@ impl HarmonicTemporalEncoding {
 
         // Compute pairwise coherence
         for i in 0..sequence.len() - 1 {
-            let seq_i_flat = sequence[i].as_slice().expect("tensor should be contiguous");
-            let seq_ip1_flat = sequence[i + 1]
-                .as_slice()
-                .expect("tensor should be contiguous");
+            let seq_i_flat = require_contiguous(sequence[i].as_slice())?;
+            let seq_ip1_flat = require_contiguous(sequence[i + 1].as_slice())?;
 
             // Compute cosine similarity
             let mut dot_product = 0.0;

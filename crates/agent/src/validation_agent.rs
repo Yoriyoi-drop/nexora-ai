@@ -284,12 +284,14 @@ impl ValidationAgent {
             }
         }
 
-        // Check for made-up facts (simplified)
+        // NOTE: Factual validation via string containment only.
+        // This does NOT perform semantic fact-checking — it only flags
+        // content that is missing expected strings. Real validation
+        // requires an external knowledge base or LLM-based fact scoring.
         if let Some(facts) = context.get("known_facts").and_then(|v| v.as_array()) {
             for fact in facts {
                 if let Some(fact_str) = fact.as_str() {
                     if !content.contains(fact_str) {
-                        // This is a very simplified check - real implementation would be more sophisticated
                         issues.push(ValidationIssue {
                             issue_type: ValidationIssueType::FactualError,
                             severity: SeverityLevel::High,
@@ -360,11 +362,12 @@ impl ValidationAgent {
                     let sentence1 = sentences[i].trim().to_lowercase();
                     let sentence2 = sentences[j].trim().to_lowercase();
 
-                    // Simple contradiction detection
+                    // NOTE: Contradiction detection uses keyword heuristics only
+                    // (presence of "not"/"no"). This does NOT perform semantic
+                    // contradiction analysis. Real detection requires NLP/LLM.
                     if (sentence1.contains("not") || sentence1.contains("no"))
                         && (sentence2.contains("not") || sentence2.contains("no"))
                     {
-                        // This is very simplified - real implementation would use NLP
                         continue;
                     }
 

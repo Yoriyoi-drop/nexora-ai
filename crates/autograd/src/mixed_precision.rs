@@ -175,24 +175,60 @@ pub fn bf16_bytes_to_f32(data: &[u8]) -> Vec<f32> {
 
 /// Convert f32 ndarray to f16 ndarray (byte-compact form)
 pub fn array_f32_to_f16_bytes(arr: &ArrayD<f32>) -> Vec<u8> {
-    f32_to_f16_bytes(arr.as_slice().expect("non-contiguous array"))
+    if let Some(slice) = arr.as_slice() {
+        f32_to_f16_bytes(slice)
+    } else {
+        let flat: Vec<f32> = arr.iter().copied().collect();
+        f32_to_f16_bytes(&flat)
+    }
 }
 
 /// Convert f32 ndarray to bf16 ndarray (byte-compact form)
 pub fn array_f32_to_bf16_bytes(arr: &ArrayD<f32>) -> Vec<u8> {
-    f32_to_bf16_bytes(arr.as_slice().expect("non-contiguous array"))
+    if let Some(slice) = arr.as_slice() {
+        f32_to_bf16_bytes(slice)
+    } else {
+        let flat: Vec<f32> = arr.iter().copied().collect();
+        f32_to_bf16_bytes(&flat)
+    }
 }
 
 /// Expand f16 bytes back to f32 ndarray
+///
+/// # Panics
+/// If the data length does not match the given shape's element count.
 pub fn f16_bytes_to_array(data: &[u8], shape: &[usize]) -> ArrayD<f32> {
     let flat = f16_bytes_to_f32(data);
-    ArrayD::from_shape_vec(shape.to_vec(), flat).expect("shape mismatch")
+    let expected: usize = shape.iter().product();
+    if flat.len() != expected {
+        panic!(
+            "f16_bytes_to_array: data length {} does not match shape product {} (shape={:?})",
+            flat.len(),
+            expected,
+            shape
+        );
+    }
+    ArrayD::from_shape_vec(shape.to_vec(), flat)
+        .unwrap_or_else(|e| panic!("f16_bytes_to_array shape mismatch: {e}"))
 }
 
 /// Expand bf16 bytes back to f32 ndarray
+///
+/// # Panics
+/// If the data length does not match the given shape's element count.
 pub fn bf16_bytes_to_array(data: &[u8], shape: &[usize]) -> ArrayD<f32> {
     let flat = bf16_bytes_to_f32(data);
-    ArrayD::from_shape_vec(shape.to_vec(), flat).expect("shape mismatch")
+    let expected: usize = shape.iter().product();
+    if flat.len() != expected {
+        panic!(
+            "bf16_bytes_to_array: data length {} does not match shape product {} (shape={:?})",
+            flat.len(),
+            expected,
+            shape
+        );
+    }
+    ArrayD::from_shape_vec(shape.to_vec(), flat)
+        .unwrap_or_else(|e| panic!("bf16_bytes_to_array shape mismatch: {e}"))
 }
 
 // ─── Automatic Mixed Precision (AMP) Optimizer ───────────────────────────────

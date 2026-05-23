@@ -332,11 +332,17 @@ impl TemperatureSampling {
                 let shape = vec![1, adjusted_logits.len()];
                 let cpu = match ndarray::ArrayD::from_shape_vec(shape, adjusted_logits.to_vec()) {
                     Ok(a) => a,
-                    Err(_) => return self.sample_full_cpu(adjusted_logits, config),
+                    Err(e) => {
+                        warn!("GPU sampling reshape failed: {}, falling back to CPU", e);
+                        return self.sample_full_cpu(adjusted_logits, config);
+                    }
                 };
                 let gpu = match GpuTensor::from_cpu(&cpu) {
                     Ok(t) => t,
-                    Err(_) => return self.sample_full_cpu(adjusted_logits, config),
+                    Err(e) => {
+                        warn!("GPU tensor creation failed: {}, falling back to CPU", e);
+                        return self.sample_full_cpu(adjusted_logits, config);
+                    }
                 };
                 let top_k = if config.top_k > 0 { config.top_k } else { 0 };
                 let seed = 42u64;
@@ -347,7 +353,9 @@ impl TemperatureSampling {
                             return Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
                         }
                     }
-                    Err(_) => {}
+                    Err(e) => {
+                        warn!("GPU sample call failed: {}, falling back to CPU", e);
+                    }
                 }
             }
         }
@@ -650,11 +658,13 @@ impl DecodingContext {
 /// Uses the global tokenizer if available, otherwise falls back to placeholder format.
 /// The tokenizer is set via [`set_global_tokenizer`] during engine initialization.
 pub(crate) fn alloc_token_text(token_id: usize) -> String {
-    let guard = GLOBAL_TOKENIZER.read().unwrap_or_else(|e| e.into_inner());
-    if let Some(ref tokenizer) = *guard {
-        let decoded = tokenizer.decode(&[token_id as u32]);
-        if !decoded.is_empty() {
-            return decoded;
+    if let Some(lock) = GLOBAL_TOKENIZER.get() {
+        let guard = lock.read();
+        if let Some(ref tokenizer) = *guard {
+            let decoded = tokenizer.decode(&[token_id as u32]);
+            if !decoded.is_empty() {
+                return decoded;
+            }
         }
     }
     // Fallback: placeholder format
@@ -671,6 +681,7 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
             digits[i] = (n % 10) as u8 + b'0';
             n /= 10;
         }
+        // safe: digits are ASCII b'0'-b'9', always valid UTF-8
         buf.push_str(core::str::from_utf8(&digits[i..]).unwrap());
     }
     buf.push(']');

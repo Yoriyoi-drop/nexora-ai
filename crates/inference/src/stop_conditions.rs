@@ -164,7 +164,8 @@ impl StopConditions {
 
         let mut inner = self.inner.write().await;
 
-        for condition in inner.conditions.iter() {
+        let conditions = inner.conditions.clone();
+        for condition in conditions.iter() {
             if let Some(reason) = self.check_condition(&mut inner, condition, tokens, context) {
                 // Update statistics
                 {

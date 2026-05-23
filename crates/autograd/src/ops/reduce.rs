@@ -24,7 +24,7 @@ pub fn sum(input: &Tensor) -> Tensor {
                             vec![orig_shape.len()],
                             orig_shape.iter().map(|&x| x as f32).collect(),
                         )
-                        .unwrap();
+                        .expect("shape data fits in array");
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -125,7 +125,7 @@ pub fn mean(input: &Tensor) -> Tensor {
                                 vec![orig_shape.len()],
                                 orig_shape.iter().map(|&x| x as f32).collect(),
                             )
-                            .unwrap();
+                            .expect("shape data fits in array");
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![input.clone()],

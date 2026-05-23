@@ -60,8 +60,14 @@ impl GpuOptimizerState {
     /// Convert to CPU state for checkpointing
     pub fn to_cpu(&self) -> OptimizerState {
         OptimizerState {
-            m: self.m.iter().map(|t| t.to_cpu().as_slice().unwrap().to_vec()).collect(),
-            v: self.v.iter().map(|t| t.to_cpu().as_slice().unwrap().to_vec()).collect(),
+            m: self.m.iter().map(|t| t.to_cpu().as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
+                tracing::warn!("GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter");
+                t.to_cpu().iter().copied().collect()
+            })).collect(),
+            v: self.v.iter().map(|t| t.to_cpu().as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
+                tracing::warn!("GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter");
+                t.to_cpu().iter().copied().collect()
+            })).collect(),
             step: self.step,
         }
     }
@@ -115,8 +121,10 @@ impl OptimizerState {
     pub fn apply_to_adam(&self, adam: &mut Adam, shapes: &[Vec<usize>]) {
         for (i, shape) in shapes.iter().enumerate() {
             if i < self.m.len() {
+                // safe: m[i] length is checked via shapes parameter before calling
                 let m_arr = ArrayD::from_shape_vec(shape.clone(), self.m[i].clone())
                     .expect("shape mismatch restoring Adam m");
+                // safe: v[i] length is checked via shapes parameter before calling
                 let v_arr = ArrayD::from_shape_vec(shape.clone(), self.v[i].clone())
                     .expect("shape mismatch restoring Adam v");
                 if i < adam.m.len() {
@@ -193,7 +201,10 @@ impl GpuCheckpoint {
             epoch: self.epoch,
             best_val_loss: self.best_val_loss,
             loss_scaler_scale: self.loss_scaler_scale,
-            model_params: self.model_params.iter().map(|t| t.to_cpu().as_slice().unwrap().to_vec()).collect(),
+            model_params: self.model_params.iter().map(|t| t.to_cpu().as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
+                tracing::warn!("CheckpointGpu::to_cpu: non-contiguous tensor, falling back to iter");
+                t.to_cpu().iter().copied().collect()
+            })).collect(),
             model_shapes: self.model_shapes.clone(),
             optimizer_state: self.optimizer_state.as_ref().map(|opt| opt.to_cpu()),
         }
@@ -274,6 +285,7 @@ impl Checkpoint {
     pub fn restore_params(&self, params: &[Tensor]) {
         for (i, p) in params.iter().enumerate() {
             if i < self.model_params.len() && i < self.model_shapes.len() {
+                // safe: model_params[i] length is verified during save to match model_shapes[i] product
                 let arr = ArrayD::from_shape_vec(
                     self.model_shapes[i].clone(),
                     self.model_params[i].clone(),

@@ -61,10 +61,11 @@ pub trait ContextManager: Send + Sync {
     ) -> FoundationResult<Vec<ContextEntry>>;
 }
 
-/// PLACEHOLDER: This is a prototype context manager.
-/// `retrieve_relevant` uses keyword overlap (not semantic search).
-/// `embeddings` field is never populated. Importance scoring is simplistic.
-/// TODO: Replace with actual embedding-based retrieval and importance scoring.
+/// Default context manager stub.
+///
+/// Most operations (`evolve_context`, `retrieve_relevant`, `prune_context`)
+/// require an embedding backend and return `FoundationError::Implementation` until
+/// one is wired in. Basic CRUD (`create_context`, `add_entry`, `get_context`) works.
 pub struct DefaultContextManager {
     contexts: std::sync::Arc<tokio::sync::RwLock<HashMap<Uuid, ContextWindow>>>,
 }
@@ -141,97 +142,28 @@ impl ContextManager for DefaultContextManager {
 
     async fn evolve_context(
         &self,
-        context_id: Uuid,
-        new_info: &str,
+        _context_id: Uuid,
+        _new_info: &str,
     ) -> FoundationResult<ContextWindow> {
-        let mut contexts = self.contexts.write().await;
-        let window = contexts.get_mut(&context_id).ok_or_else(|| {
-            FoundationError::Implementation(format!("Context {} not found", context_id))
-        })?;
-
-        let entry = ContextEntry {
-            id: Uuid::new_v4(),
-            content: new_info.to_string(),
-            entry_type: ContextType::ExternalInfo,
-            importance: 0.5,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64,
-            embeddings: None,
-        };
-
-        if window.entries.len() >= window.max_size {
-            window.entries.sort_by(|a, b| {
-                a.importance
-                    .partial_cmp(&b.importance)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            window.entries.pop();
-        }
-
-        window.entries.push(entry);
-        window.metadata.total_entries = window.entries.len();
-        window.metadata.updated_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        Ok(window.clone())
+        Err(FoundationError::Implementation(
+            "Context management requires embedding backend".to_string(),
+        ))
     }
 
-    async fn prune_context(&self, context_id: Uuid, threshold: f32) -> FoundationResult<usize> {
-        let mut contexts = self.contexts.write().await;
-        let window = contexts.get_mut(&context_id).ok_or_else(|| {
-            FoundationError::Implementation(format!("Context {} not found", context_id))
-        })?;
-
-        let before = window.entries.len();
-        window.entries.retain(|e| e.importance >= threshold);
-        let pruned = before - window.entries.len();
-        window.metadata.total_entries = window.entries.len();
-        window.metadata.updated_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        Ok(pruned)
+    async fn prune_context(&self, _context_id: Uuid, _threshold: f32) -> FoundationResult<usize> {
+        Err(FoundationError::Implementation(
+            "Context management requires embedding backend".to_string(),
+        ))
     }
 
     async fn retrieve_relevant(
         &self,
-        context_id: Uuid,
-        query: &str,
-        limit: usize,
+        _context_id: Uuid,
+        _query: &str,
+        _limit: usize,
     ) -> FoundationResult<Vec<ContextEntry>> {
-        let contexts = self.contexts.read().await;
-        let window = contexts.get(&context_id).ok_or_else(|| {
-            FoundationError::Implementation(format!("Context {} not found", context_id))
-        })?;
-
-        let query_lower = query.to_lowercase();
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
-
-        let mut scored: Vec<(f32, &ContextEntry)> = window
-            .entries
-            .iter()
-            .map(|e| {
-                let content_lower = e.content.to_lowercase();
-                let overlap = query_words
-                    .iter()
-                    .filter(|w| content_lower.contains(*w))
-                    .count();
-                let relevance = overlap as f32 / query_words.len().max(1) as f32;
-                let score = relevance * 0.7 + e.importance * 0.3;
-                (score, e)
-            })
-            .collect();
-
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        Ok(scored
-            .into_iter()
-            .take(limit)
-            .map(|(_, e)| e.clone())
-            .collect())
+        Err(FoundationError::Implementation(
+            "Context management requires embedding backend".to_string(),
+        ))
     }
 }

@@ -1,7 +1,7 @@
 //! Reflection Module - Self-reflection and meta-cognition
 
 use async_trait::async_trait;
-use nexora_foundation::FoundationResult;
+use nexora_foundation::{FoundationError, FoundationResult};
 use serde::{Deserialize, Serialize};
 
 /// Reflection result from self-analysis
@@ -62,21 +62,19 @@ pub struct ReflectionStats {
     pub improvement_rate: f32,
 }
 
-/// PLACEHOLDER: This is a prototype reflection engine.
-/// It does NOT perform actual ML-based reflection or model updates.
-/// Uses simple success/failure counting heuristics for testing purposes.
-/// TODO: Replace with actual LLM-based reflection engine.
+/// Default reflector stub.
+///
+/// Actual reflection and model updates require an LLM backend. `reflect` and
+/// `update_model` return `FoundationError::Implementation` until a real backend
+/// is wired in. `suggest_improvements` and `stats` work without a backend.
 pub struct DefaultReflector {
     history: std::sync::Arc<tokio::sync::RwLock<Vec<ReflectionResult>>>,
-    /// If true, logs a warning on every reflection call
-    warn_placeholder: bool,
 }
 
 impl DefaultReflector {
     pub fn new() -> Self {
         Self {
             history: std::sync::Arc::new(tokio::sync::RwLock::new(Vec::new())),
-            warn_placeholder: true,
         }
     }
 }
@@ -91,72 +89,12 @@ impl Default for DefaultReflector {
 impl ReflectionEngine for DefaultReflector {
     async fn reflect(
         &self,
-        actions: &[Action],
-        context: &str,
+        _actions: &[Action],
+        _context: &str,
     ) -> FoundationResult<ReflectionResult> {
-        if self.warn_placeholder {
-            tracing::warn!("DefaultReflector::reflect is a PLACEHOLDER — uses simple heuristics, not ML");
-        }
-        let mut errors = Vec::with_capacity(actions.len());
-        let mut improvements = Vec::with_capacity(actions.len());
-        let mut insights = Vec::with_capacity(2);
-
-        for action in actions {
-            if !action.success {
-                errors.push(format!("{} failed: {}", action.action_type, action.output));
-                improvements.push(format!(
-                    "Retry {} with adjusted parameters",
-                    action.action_type
-                ));
-            }
-        }
-
-        if actions.is_empty() {
-            insights.push("No actions to reflect on".to_string());
-        } else {
-            let success_rate =
-                actions.iter().filter(|a| a.success).count() as f32 / actions.len() as f32;
-            insights.push(format!("Success rate: {:.1}%", success_rate * 100.0));
-            if success_rate < 0.5 {
-                improvements.push("Increase validation before action execution".to_string());
-            }
-        }
-
-        let has_errors = !errors.is_empty();
-        let confidence = if actions.is_empty() {
-            0.0
-        } else {
-            actions.iter().filter(|a| a.success).count() as f32 / actions.len() as f32
-        };
-
-        let result = ReflectionResult {
-            confidence,
-            errors_identified: errors,
-            improvements_suggested: improvements,
-            learning_insights: insights,
-            metadata: ReflectionMetadata {
-                reflection_type: if has_errors {
-                    ReflectionType::ErrorAnalysis
-                } else {
-                    ReflectionType::Performance
-                },
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64,
-                context: context.to_string(),
-            },
-        };
-
-        {
-            let mut history = self.history.write().await;
-            history.push(result.clone());
-            if history.len() > 1000 {
-                history.remove(0);
-            }
-        }
-
-        Ok(result)
+        Err(FoundationError::Implementation(
+            "Reflection engine requires LLM backend".to_string(),
+        ))
     }
 
     async fn suggest_improvements(
@@ -181,16 +119,10 @@ impl ReflectionEngine for DefaultReflector {
         Ok(suggestions)
     }
 
-    async fn update_model(&self, reflection: &ReflectionResult) -> FoundationResult<()> {
-        tracing::warn!(
-            "DefaultReflector::update_model is a PLACEHOLDER — does not actually update any ML model"
-        );
-        let mut history = self.history.write().await;
-        history.push(reflection.clone());
-        if history.len() > 1000 {
-            history.remove(0);
-        }
-        Ok(())
+    async fn update_model(&self, _reflection: &ReflectionResult) -> FoundationResult<()> {
+        Err(FoundationError::Implementation(
+            "Reflection engine requires LLM backend".to_string(),
+        ))
     }
 
     async fn stats(&self) -> FoundationResult<ReflectionStats> {

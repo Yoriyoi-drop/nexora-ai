@@ -3,7 +3,7 @@
 //! Implementation of the MoE + Transformer-XL hybrid architecture
 
 use super::config::OmnisConfig;
-use nexora_shared::base_model::NxrModelResult;
+use nexora_shared::base_model::{NxrModelError, NxrModelResult};
 use std::collections::HashMap;
 
 /// NXR-OMNIS Architecture Implementation
@@ -912,15 +912,12 @@ impl OmnisArchitecture {
     }
 
     /// Arbitrate truth claims
-    pub async fn arbitrate_truth(&self, claims: Vec<String>) -> NxrModelResult<String> {
-        // Simple truth arbitration
-        if claims.is_empty() {
-            return Ok("No claims to arbitrate".to_string());
-        }
-
-        // For now, return the most confident claim
-        // In a real implementation, this would be much more sophisticated
-        Ok(claims.first().expect("claims is non-empty here").clone())
+    pub async fn arbitrate_truth(&self, _claims: Vec<String>) -> NxrModelResult<String> {
+        // Truth arbitration not implemented — requires confidence scoring,
+        // cross-referencing with knowledge base, and conflict resolution.
+        Err(NxrModelError::UnsupportedCapability(
+            "Truth arbitration not implemented; requires confidence scoring and knowledge base lookup".to_string(),
+        ))
     }
 
     /// Execute reasoning chain

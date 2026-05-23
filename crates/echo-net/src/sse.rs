@@ -120,8 +120,7 @@ impl SemanticSpectralEmbedding {
             // Transform to spectral components
             let embedding_view: ArrayView1<f32> = embedding
                 .view()
-                .into_dimensionality()
-                .expect("dimensions match");
+                .into_dimensionality()?;
 
             // Amplitude spectrum: weights.t() @ embedding
             for j in 0..self.amplitude_dim {

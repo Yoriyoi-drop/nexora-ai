@@ -62,10 +62,18 @@ impl CryptoUtils {
     }
 
     /// Generate UUID v5 (namespace + name)
-    pub fn generate_uuid_v5(_namespace: &str, _name: &str) -> Result<String> {
-        // For simplicity, just generate a v4 UUID for now
-        // In a real implementation, you'd use proper v5 generation
-        let uuid = Uuid::new_v4();
+    ///
+    /// UUID v5 is deterministic: the same namespace and name always produce
+    /// the same UUID. Uses the standard UUIDv5 algorithm from the `uuid` crate.
+    /// The namespace should be a valid UUID string (e.g., "6ba7b810-9dad-11d1-80b4-00c04fd430c8" for DNS).
+    /// If the namespace is not a valid UUID, a deterministic namespace is derived from it.
+    pub fn generate_uuid_v5(namespace: &str, name: &str) -> Result<String> {
+        use uuid::Uuid;
+
+        let ns = Uuid::parse_str(namespace).unwrap_or_else(|_| {
+            Uuid::new_v5(&Uuid::nil(), namespace.as_bytes())
+        });
+        let uuid = Uuid::new_v5(&ns, name.as_bytes());
         Ok(uuid.to_string())
     }
 

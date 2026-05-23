@@ -626,7 +626,7 @@ impl Cli {
                         .downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
                         .map_err(|_| "Failed to downcast".to_string())?;
                     if gpu {
-                        model.set_use_gpu(true).await;
+                        model.set_use_gpu(true);
                     }
                     let val_opt: Option<&[String]> = if vr.is_empty() { None } else { Some(&vr) };
                     let report = model
@@ -677,7 +677,7 @@ impl Cli {
 
                 // Enable GPU on model if requested
                 if gpu {
-                    model.set_use_gpu(true).await;
+                    model.set_use_gpu(true);
                 }
 
                 let report = model

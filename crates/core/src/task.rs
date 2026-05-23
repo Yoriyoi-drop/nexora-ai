@@ -9,9 +9,9 @@ use uuid::Uuid;
 /// Strategi eksekusi task
 #[derive(Debug)]
 pub enum TaskExecutionStrategy {
-    /// Eksekusi simulasi (fallback)
+    /// Eksekusi simulasi (tidak disarankan — akan return error)
     Simulated,
-    /// Mengembalikan output langsung
+    /// Mengembalikan output langsung (default: string kosong, akan return error jika tidak di-set)
     Direct(String),
     /// Mengeksekusi menggunakan handler yang terdaftar
     ModelBased,
@@ -30,7 +30,7 @@ impl TaskManager {
         Self {
             active_tasks: HashMap::new(),
             max_concurrent_tasks,
-            strategy: TaskExecutionStrategy::Simulated,
+            strategy: TaskExecutionStrategy::Direct(String::new()),
             handlers: HashMap::new(),
         }
     }
@@ -105,10 +105,9 @@ impl TaskManager {
                 }
             }
             TaskExecutionStrategy::Simulated => {
-                format!(
-                    "Task executed by {:?}: {}",
-                    task.assigned_model, task.task_description
-                )
+                return Err(crate::error::CoreError::TaskExecution(
+                    "Simulated execution is not supported — set a valid strategy via set_strategy or use Direct output".to_string(),
+                ));
             }
         };
 

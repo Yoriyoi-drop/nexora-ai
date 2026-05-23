@@ -6,7 +6,8 @@ use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 pub mod api;

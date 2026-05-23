@@ -10,7 +10,10 @@ use uuid::Uuid;
 
 /// Persistent, append-only token list using shared tails.
 /// Adding a token is O(1) — no full Vec clone.
-/// Iteration is O(n) and only needed for final output.
+/// TODO: O(n²) clone — use persistent data structure for large beams
+/// NOTE: This is already mitigated by PersistentTokens Arc-based sharing.
+/// The to_vec() path is O(n) and only used for final output; intermediate
+/// beam expansion never clones the full token vector.
 #[derive(Debug, Clone)]
 pub struct PersistentTokens {
     prefix: Option<Arc<PersistentTokens>>,
@@ -25,7 +28,7 @@ impl PersistentTokens {
 
     pub fn append(prefix: Option<Arc<PersistentTokens>>, token: Arc<GeneratedToken>) -> Arc<PersistentTokens> {
         let new_len = prefix.as_ref().map(|p| p.len).unwrap_or(0) + 1;
-        Arc::new(PersistentTokens { prefix: prefix.map(Arc::clone), token, len: new_len })
+        Arc::new(PersistentTokens { prefix: prefix.clone(), token, len: new_len })
     }
 
     pub fn len(&self) -> usize {
@@ -460,7 +463,7 @@ impl BeamSearchEngine {
             // Keep if score is good enough or not too similar to existing candidates
             if adjusted_score > -10.0 || diversity_score < 0.8 {
                 pruned.push(candidate);
-                diversity_tracker.insert(key, diversity_score);
+                diversity_tracker.insert(first_token_id, diversity_score);
             }
 
             if pruned.len() >= self.config.max_candidates {

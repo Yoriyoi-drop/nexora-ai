@@ -13,15 +13,16 @@ pub fn benchmark_gradient_clip(grad_tensor_count: usize, elements_per_tensor: us
 
     // Create test gradient tensors
     use ndarray::ArrayD;
-    let grad_tensors: Vec<crate::gpu::GpuTensor> = (0..grad_tensor_count)
-        .map(|_| {
-            let data = (0..elements_per_tensor)
-                .map(|i| (i as f32) * 0.01)
-                .collect::<Vec<_>>();
-            let arr = ArrayD::from_shape_vec(vec![elements_per_tensor], data).unwrap();
-            crate::gpu::GpuTensor::from_cpu(&arr).unwrap()
-        })
-        .collect();
+    let mut grad_tensors = Vec::with_capacity(grad_tensor_count);
+    for _ in 0..grad_tensor_count {
+        let data = (0..elements_per_tensor)
+            .map(|i| (i as f32) * 0.01)
+            .collect::<Vec<_>>();
+        let arr = ArrayD::from_shape_vec(vec![elements_per_tensor], data)
+            .map_err(|e| format!("benchmark shape error: {e}"))?;
+        grad_tensors.push(crate::gpu::GpuTensor::from_cpu(&arr)
+            .map_err(|e| format!("benchmark gpu transfer error: {e}"))?);
+    }
     let grad_refs: Vec<&crate::gpu::GpuTensor> = grad_tensors.iter().collect();
 
     // Warmup

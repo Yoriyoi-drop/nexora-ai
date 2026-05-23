@@ -20,8 +20,11 @@ impl<T: Send + 'static> AsyncReadback<T> {
     }
 
     /// Blocking wait untuk hasil
+    /// # Panics
+    /// Panics if the sender was dropped before sending a value (GPU context destroyed).
     pub fn recv(&self) -> T {
-        self.receiver.recv().unwrap()
+        // safe: sender stays alive until value is sent; only fails on GPU context destruction
+        self.receiver.recv().expect("GPU async readback channel disconnected — GPU context destroyed before readback completed")
     }
 
     /// Non-blocking check
@@ -291,6 +294,7 @@ impl CpuReadback {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
+        // safe: device polling ensures readback completes; only fails on GPU loss
         readback_with_timeout(&ctx.device, &rx)
             .expect("GPU readback failed in CpuReadback::poll");
         let mapped = slice.get_mapped_range();

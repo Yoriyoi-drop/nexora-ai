@@ -49,6 +49,11 @@ impl SimdVectorOps {
         let mut b_ptr = b.as_ptr();
         
         for _ in 0..chunks {
+            // SAFETY: Loop runs `chunks` times, each advancing ptr by 8 f32 elements.
+            // chunks = n / 8, so the max accessed index is chunks * 8 - 1 < n.
+            // Both slices have length n (asserted at function entry).
+            debug_assert!((a_ptr as usize - a.as_ptr() as usize) / std::mem::size_of::<f32>() + 8 <= a.len());
+            debug_assert!((b_ptr as usize - b.as_ptr() as usize) / std::mem::size_of::<f32>() + 8 <= b.len());
             let va = _mm256_loadu_ps(a_ptr);
             let vb = _mm256_loadu_ps(b_ptr);
             let product = _mm256_mul_ps(va, vb);
@@ -105,6 +110,10 @@ impl SimdVectorOps {
         let remainder = n % 8;
         
         for i in 0..chunks {
+            // SAFETY: i < chunks = n / 8, so offset i*8 ≤ n - 8, all slices have length n
+            debug_assert!(i * 8 + 7 < a.len());
+            debug_assert!(i * 8 + 7 < b.len());
+            debug_assert!(i * 8 + 7 < result.len());
             let va = _mm256_loadu_ps(a.as_ptr().add(i * 8));
             let vb = _mm256_loadu_ps(b.as_ptr().add(i * 8));
             let sum = _mm256_add_ps(va, vb);
@@ -133,6 +142,10 @@ impl SimdVectorOps {
         let remainder = n % 8;
         
         for i in 0..chunks {
+            // SAFETY: i < chunks = n / 8, so offset i*8 ≤ n - 8, all slices have length n
+            debug_assert!(i * 8 + 7 < a.len());
+            debug_assert!(i * 8 + 7 < b.len());
+            debug_assert!(i * 8 + 7 < result.len());
             let va = _mm256_loadu_ps(a.as_ptr().add(i * 8));
             let vb = _mm256_loadu_ps(b.as_ptr().add(i * 8));
             let product = _mm256_mul_ps(va, vb);
@@ -188,6 +201,10 @@ impl SimdVectorOps {
         let mut b_ptr = b.as_ptr();
         
         for _ in 0..chunks {
+            // SAFETY: Loop runs `chunks` times, each advancing ptr by 8 f32 elements.
+            // chunks = n / 8, so the max accessed index is chunks * 8 - 1 < n.
+            debug_assert!((a_ptr as usize - a.as_ptr() as usize) / std::mem::size_of::<f32>() + 8 <= a.len());
+            debug_assert!((b_ptr as usize - b.as_ptr() as usize) / std::mem::size_of::<f32>() + 8 <= b.len());
             let va = _mm256_loadu_ps(a_ptr);
             let vb = _mm256_loadu_ps(b_ptr);
             let diff = _mm256_sub_ps(va, vb);
@@ -321,6 +338,9 @@ impl SimdTextOps {
         let mut b_ptr = b.as_ptr();
         
         for _ in 0..chunks {
+            // SAFETY: chunks = min_len / 32, max offset = chunks * 32 ≤ min_len
+            debug_assert!((a_ptr as usize - a.as_ptr() as usize) + 32 <= a.len());
+            debug_assert!((b_ptr as usize - b.as_ptr() as usize) + 32 <= b.len());
             let va = _mm256_loadu_si256(a_ptr as *const __m256i);
             let vb = _mm256_loadu_si256(b_ptr as *const __m256i);
             
@@ -378,6 +398,8 @@ impl SimdTextOps {
         let mut text_ptr = text.as_ptr();
         
         for _ in 0..chunks {
+            // SAFETY: chunks = text.len() / 32, max offset = chunks * 32 ≤ text.len()
+            debug_assert!((text_ptr as usize - text.as_ptr() as usize) + 32 <= text.len());
             let text_vec = _mm256_loadu_si256(text_ptr as *const __m256i);
             let cmp = _mm256_cmpeq_epi8(text_vec, target_vec);
             let mask = _mm256_movemask_epi8(cmp);

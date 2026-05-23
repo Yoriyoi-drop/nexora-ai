@@ -1,4 +1,5 @@
-use std::cmp::Ordering;
+use futures::FutureExt;
+use ndarray::Array1;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,7 +7,9 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
+use crate::prefix_cache::PrefixCache;
 use crate::runtime::InferenceRuntime;
 use crate::scheduler::RequestScheduler;
 use crate::session::InferenceSession;
@@ -116,6 +119,7 @@ impl InferenceEngine {
             } else {
                 None
             },
+            prefix_cache: Arc::new(PrefixCache::default()),
             request_tx,
             request_rx: Arc::new(Mutex::new(Some(request_rx))),
             active_requests: Arc::new(RwLock::new(HashMap::new())),
@@ -162,6 +166,7 @@ impl InferenceEngine {
             } else {
                 None
             },
+            prefix_cache: Arc::new(PrefixCache::default()),
             request_tx,
             request_rx: Arc::new(Mutex::new(Some(request_rx))),
             active_requests: Arc::new(RwLock::new(HashMap::new())),
@@ -317,7 +322,7 @@ impl InferenceEngine {
                     core::slice::from_ref(all_ids.last().unwrap_or(&0))
                 };
 
-                let logits = model.forward(input, &mut *kv_state);
+                let logits = ModelForward::forward(&model, input, &mut *kv_state);
                 let logits_slice = logits.as_slice().unwrap_or(&[]);
 
                 let token_id = match sampler.sample(logits_slice) {
@@ -392,8 +397,17 @@ impl InferenceEngine {
         }
 
         let prompt_ids = self.encode_prompt(&request.prompt);
-        let mut all_ids = prompt_ids.clone();
         let max_gen = request.max_tokens.min(2048) as usize;
+
+        // Check prefix cache (informational hit/miss tracking)
+        let prefix_match = self.prefix_cache.match_prefix(&prompt_ids).await;
+        if prefix_match.prefix_len > 0 {
+            debug!(
+                "Prefix cache hit: {}/{} tokens matched",
+                prefix_match.prefix_len,
+                prompt_ids.len()
+            );
+        }
 
         // Use GPU-resident KV cache when configured
         let mut cpu_cache = self.model.reset_cache();
@@ -418,54 +432,40 @@ impl InferenceEngine {
         });
         sampler.set_use_gpu(self.config.use_gpu);
 
-        for pos in 0..max_gen {
-            let input: &[u32] = if pos == 0 {
-                &prompt_ids
-            } else {
-                core::slice::from_ref(all_ids.last().unwrap_or(&0))
-            };
+        let (tokens, timed_out) = run_generation_loop(
+            &self.model,
+            &prompt_ids,
+            max_gen,
+            &mut sampler,
+            &mut *kv_state,
+            self.tokenizer.as_ref(),
+        );
 
-            let logits = self.model.forward(input, &mut *kv_state);
-            let logits_slice = logits.as_slice().unwrap_or(&[]);
-
-            let token_id = match sampler.sample(logits_slice) {
-                Ok(idx) => idx as u32,
-                Err(e) => {
-                    warn!(
-                        "Sampler failed in greedy path: {:?}, falling back to argmax",
-                        e
-                    );
-                    match logits
-                        .iter()
-                        .enumerate()
-                        .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                    {
-                        Some((i, _)) => i as u32,
-                        None => {
-                            warn!("Empty logits in generate_internal, using default token 1");
-                            1
-                        }
-                    }
-                }
-            };
-
-            let token_text = self.token_id_to_text(token_id);
-            let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
-            let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
+        for token in tokens {
             response.add_token(token);
-            all_ids.push(token_id);
-
-            if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
-                break;
-            }
         }
 
-        if start.elapsed() > Duration::from_secs(60) {
+        if timed_out {
             response.finish_reason = FinishReason::Timeout;
         } else {
             response.finish_reason = FinishReason::MaxTokens;
         }
         response.inference_time_ms = start.elapsed().as_millis() as u64;
+
+        // Insert generated sequence into prefix cache for future reuse
+        let all_ids = prompt_ids.iter().copied().chain(response.tokens.iter().map(|t| t.token_id)).collect::<Vec<_>>();
+        if all_ids.len() > 1 {
+            let last_logits = Array1::zeros(self.model.config.vocab_size);
+            self.prefix_cache
+                .insert(&all_ids, last_logits.into_raw_vec())
+                .await;
+        }
+
+        debug!(
+            "Prefix cache stats: hit_rate={:.3}",
+            self.prefix_cache.hit_rate()
+        );
+
         Ok(response)
     }
 
@@ -597,14 +597,13 @@ impl InferenceEngine {
         let bid = batch.batch_id;
         let active = self.active_requests.clone();
         let task = tokio::spawn(async move {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                engine.process_batch(batch),
-            ));
+            let result = std::panic::AssertUnwindSafe(engine.process_batch(batch))
+                .catch_unwind()
+                .await;
             match result {
                 Ok(()) => {}
                 Err(panic) => {
                     error!("Batch {} processing panicked: {:?}", bid, panic);
-                    // State reset: batch is lost, release concurrent slot
                     let _ = engine.scheduler.write().await.complete_batch_id(bid).await;
                 }
             }
@@ -722,6 +721,65 @@ fn token_id_to_text_fallback(token_id: u32) -> String {
     }
 }
 
+/// Core generation loop shared by single-request and batch-request paths.
+/// Returns generated tokens and whether a timeout occurred.
+fn run_generation_loop(
+    model: &CausalLM,
+    prompt_ids: &[u32],
+    max_gen: usize,
+    sampler: &mut crate::sampler::Sampler,
+    kv_state: &mut dyn KVCacheProvider,
+    tokenizer: Option<&Arc<parking_lot::RwLock<BpeTokenizer>>>,
+) -> (Vec<GeneratedToken>, bool) {
+    let start = std::time::Instant::now();
+    let mut all_ids = prompt_ids.to_vec();
+    let mut tokens = Vec::with_capacity(max_gen);
+
+    for pos in 0..max_gen {
+        let input: &[u32] = if pos == 0 {
+            prompt_ids
+        } else {
+            core::slice::from_ref(all_ids.last().unwrap_or(&0))
+        };
+
+        let logits = ModelForward::forward(model, input, kv_state);
+        let logits_slice = logits.as_slice().unwrap_or(&[]);
+
+        let token_id = match sampler.sample(logits_slice) {
+            Ok(idx) => idx as u32,
+            Err(e) => {
+                warn!("Sampler failed in generation loop: {:?}, falling back to argmax", e);
+                match logits.iter().enumerate().max_by(|(_, a), (_, b)| a.total_cmp(b)) {
+                    Some((i, _)) => i as u32,
+                    None => {
+                        warn!("Empty logits, using default token 1");
+                        1
+                    }
+                }
+            }
+        };
+
+        let token_text: String = match tokenizer {
+            Some(tok) => {
+                let t = tok.read();
+                t.decode(&[token_id])
+            }
+            None => token_id_to_text_fallback(token_id),
+        };
+
+        let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
+        tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
+        all_ids.push(token_id);
+
+        if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
+            let timed_out = start.elapsed() > Duration::from_secs(60);
+            return (tokens, timed_out);
+        }
+    }
+
+    (tokens, false)
+}
+
 /// Handle used inside spawned tasks to avoid borrowing self
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
@@ -809,7 +867,6 @@ impl InferenceEngineHandle {
                 };
                 #[cfg(not(feature = "gpu"))]
                 let mut kv_state = Box::new(cpu_cache);
-                let mut all_ids = prompt_ids.clone();
                 let max_gen = breq.max_tokens.min(2048) as usize;
 
                 let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
@@ -820,55 +877,20 @@ impl InferenceEngineHandle {
                 });
                 sampler.set_use_gpu(use_gpu);
 
-                for pos in 0..max_gen {
-                    let logits = if pos == 0 {
-                        model.forward(all_ids.as_slice(), &mut *kv_state)
-                    } else {
-                        let last_token = *all_ids.last().unwrap_or(&1);
-                        model.forward(&[last_token], &mut *kv_state)
-                    };
+                let (tokens, timed_out) = run_generation_loop(
+                    &model,
+                    &prompt_ids,
+                    max_gen,
+                    &mut sampler,
+                    &mut *kv_state,
+                    tokenizer.as_ref(),
+                );
 
-                    let logits_slice = logits.as_slice().unwrap_or(&[]);
-                    let token_id = match sampler.sample(logits_slice) {
-                        Ok(idx) => idx as u32,
-                        Err(e) => {
-                            warn!(
-                                "Sampler failed in batch path: {:?}, falling back to argmax",
-                                e
-                            );
-                            match logits
-                                .iter()
-                                .enumerate()
-                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                            {
-                                Some((i, _)) => i as u32,
-                                None => {
-                                    warn!("Empty logits in batch, using default token 1");
-                                    1
-                                }
-                            }
-                        }
-                    };
-
-                    let token_text: String = match &tokenizer {
-                        Some(tok) => {
-                            let t = tok.read();
-                            t.decode(&[token_id])
-                        }
-                        None => token_id_to_text_fallback(token_id),
-                    };
-
-                    let log_prob = logits.get(token_id as usize).copied().unwrap_or(0.0).ln();
-                    let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
+                for token in tokens {
                     response.add_token(token);
-                    all_ids.push(token_id);
-
-                    if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
-                        break;
-                    }
                 }
 
-                if start.elapsed() > Duration::from_secs(60) {
+                if timed_out {
                     response.finish_reason = FinishReason::Timeout;
                 } else {
                     response.finish_reason = FinishReason::MaxTokens;

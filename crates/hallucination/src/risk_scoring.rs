@@ -100,8 +100,12 @@ impl RiskScorer {
         (high_risk_ratio * 0.8).min(1.0)
     }
 
-    fn compute_domain_niche(&self, _pre: &PreGenCheckResult) -> f32 {
-        0.2
+    fn compute_domain_niche(&self, pre: &PreGenCheckResult) -> f32 {
+        // Domain niche risk: out-of-scope + high ambiguity + low context sufficiency
+        let scope_risk = if !pre.in_scope { 0.4 } else { 0.0 };
+        let ambiguity_risk = pre.ambiguity_score * 0.3;
+        let context_risk = (1.0 - pre.context_sufficiency) * 0.3;
+        (scope_risk + ambiguity_risk + context_risk).min(1.0)
     }
 
     fn compute_citation(&self, post: &PostGenCheckResult) -> f32 {
@@ -121,7 +125,11 @@ impl RiskScorer {
         (ratio * 1.0).min(1.0)
     }
 
-    fn compute_recency(&self, _pre: &PreGenCheckResult) -> f32 {
-        0.1
+    fn compute_recency(&self, pre: &PreGenCheckResult) -> f32 {
+        // Recency risk: low context sufficiency suggests stale knowledge,
+        // high ambiguity suggests the topic lacks recent clear references
+        let ambiguity_risk = pre.ambiguity_score * 0.3;
+        let context_risk = (1.0 - pre.context_sufficiency) * 0.7;
+        (ambiguity_risk + context_risk).min(1.0)
     }
 }

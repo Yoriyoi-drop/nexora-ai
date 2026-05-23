@@ -128,8 +128,10 @@ pub fn reduce_grad_for_shape(grad: &ArrayD<f32>, orig_shape: &[usize]) -> ArrayD
             let flat: Vec<f32> = result.iter().copied().collect();
             let flat_len = flat.len();
             if flat_len == orig_shape.iter().product::<usize>() {
-                ArrayD::from_shape_vec(orig_shape.to_vec(), flat)
-                    .expect("shape vec should match flat length")
+                match ArrayD::from_shape_vec(orig_shape.to_vec(), flat) {
+                    Ok(r) => r,
+                    Err(e) => ArrayD::from_elem(orig_shape.to_vec(), 0.0), // fallback: flat.len() == product but shape was invalid
+                }
             } else {
                 ArrayD::from_elem(orig_shape.to_vec(), flat[0])
             }

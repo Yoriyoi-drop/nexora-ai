@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::limit::ConcurrencyLimitLayer;
-use tower::timeout::TimeoutLayer;
+use tower_http::timeout::TimeoutLayer;
 use tracing::info;
 
 use crate::NexoraAI;

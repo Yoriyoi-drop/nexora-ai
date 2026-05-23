@@ -284,10 +284,14 @@ impl Sampler {
     }
 
     fn sample_from_probs(&mut self, probs: &[f32]) -> Result<usize> {
-        // Normalize probs to ensure they sum to 1.0 (handles floating point drift)
         let sum: f32 = probs.iter().sum();
         if sum <= 0.0 || !sum.is_finite() {
-            return Ok(probs.len() - 1);
+            return Ok(probs.len().saturating_sub(1));
+        }
+
+        let mut normalized = probs.to_vec();
+        for p in &mut normalized {
+            *p /= sum;
         }
 
         let r: f32 = match &mut self.rng {
@@ -295,14 +299,14 @@ impl Sampler {
             None => rand::thread_rng().gen(),
         };
         let mut cum = 0.0;
-        let epsilon = 1e-7;
-        for (i, &p) in probs.iter().enumerate() {
-            cum += p / sum;
-            if r <= cum + epsilon {
+        let epsilon = 1e-6;
+        for (i, &p) in normalized.iter().enumerate() {
+            cum += p;
+            if cum >= r - epsilon {
                 return Ok(i);
             }
         }
-        Ok(probs.len().saturating_sub(1))
+        Ok(normalized.len().saturating_sub(1))
     }
 
     fn argmax(&self, logits: &[f32]) -> usize {

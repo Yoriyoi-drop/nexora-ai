@@ -18,6 +18,7 @@
 use crate::HolographicWave;
 use crate::{DLResult, DeepLearningError};
 use ndarray::ArrayD;
+use nexora_autograd::Tensor;
 
 /// Retrieval candidate with dual metrics
 #[derive(Debug, Clone)]
@@ -464,6 +465,7 @@ impl DualEntropicResonanceRetrieval {
 
         // Record retrieval event
         let event = RetrievalEvent {
+            // safe: system time is always after UNIX_EPOCH on real hardware
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system time after epoch")
@@ -592,6 +594,14 @@ impl DualEntropicResonanceRetrieval {
     /// Enable/disable adaptive weights
     pub fn set_adaptive_weights(&mut self, adaptive: bool) {
         self.adaptive_weights = adaptive;
+    }
+
+    pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
+        vec![] // TODO: add trainable parameters (gate_alpha, gate_beta, gate_delta, etc.)
+    }
+
+    pub fn set_parameters_from_tensors(&mut self, _tensors: &[Tensor]) {
+        // No trainable ndarray weights yet
     }
 
     /// Reset retrieval state

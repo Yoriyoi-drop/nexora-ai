@@ -328,6 +328,6 @@ pub mod model_tests {
             !params.is_empty(),
             "EchoNet should have trainable parameters"
         );
-        assert_eq!(params.len(), 9, "Expected 9 trainable parameter tensors");
+        assert_eq!(params.len(), 14, "Expected 14 trainable parameter tensors after registering blocks 2-8 weights");
     }
 }

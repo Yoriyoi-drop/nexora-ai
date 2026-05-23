@@ -129,8 +129,19 @@ impl CaffeineSpectraIntegration {
                 tokens: None,
                 language: "en".to_string(),
             }),
-            image: inputs.image.as_ref().cloned(),
-            audio: inputs.audio.as_ref().cloned(),
+            image: inputs.image.as_ref().map(|path| ImageInput {
+                data: std::fs::read(path).unwrap_or_default(),
+                format: ImageFormat::PNG,
+                width: 0,
+                height: 0,
+                channels: 3,
+            }),
+            audio: inputs.audio.as_ref().map(|path| AudioInput {
+                data: std::fs::read(path).map(|b| b.into_iter().map(|v| v as f32).collect()).unwrap_or_default(),
+                sample_rate: 44100,
+                duration: 0.0,
+                channels: 1,
+            }),
             video: None,
             context: None,
         }

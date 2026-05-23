@@ -1,19 +1,20 @@
-//! BLAS Backend Abstraction for STAR-X Performance Optimization
+//! Pure-Rust linear algebra for STAR-X. All "BLAS" backends (MKL, OpenBLAS,
+//! Accelerate) delegate to [`gemm_ndarray_fallback`] — a pure-Rust ndarray-based
+//! matmul. There is NO actual C BLAS library linked.
 //!
-//! Linear algebra operations with multiple backend declarations:
-//! - Intel MKL (declared, but implemented as ndarray fallback — no actual MKL linkage)
-//! - OpenBLAS (declared, but implemented as ndarray fallback — no actual OpenBLAS linkage)
-//! - Accelerate (declared, but implemented as ndarray fallback — no actual Accelerate linkage)
-//! - Custom SIMD implementation (true SIMD via AVX2)
+//! Detection uses `libloading::Library::new()` which loads the real `.so`/`.dylib`
+//! at runtime (not `Path::exists`). If a real BLAS is on `LD_LIBRARY_PATH` the
+//! detection will succeed, but execution still routes through ndarray — the enum
+//! tag is cosmetic.
 //!
-//! NOTE: The MKL/OpenBLAS/Accelerate backends all delegate to `ndarray::dot`
-//! internally because no actual C BLAS library is linked. These are ndarray-based
-//! fallbacks, not true BLAS-accelerated paths. To enable real BLAS, add
-//! `cblas-sys`, `accelerate`, or `intel-mkl-src` as a dependency and replace the
-//! body of their gemm methods with actual FFI calls.
+//| To add real BLAS acceleration:
+//! 1. Add `cblas-sys` / `accelerate` / `intel-mkl-src` as a dependency
+//! 2. Replace the body of the relevant `gemm_{mkl,openblas,accelerate}` with FFI
+//!    calls to `cblas_sgemm` etc.
+//! 3. Remove this notice.
 
 use crate::fused_ops::ActivationType;
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
 use std::arch::x86_64::*;
 
@@ -36,6 +37,7 @@ pub struct BlasOperations {
 impl Clone for BlasOperations {
     fn clone(&self) -> Self {
         // Create new instance with same backend
+        // safe: backend was already successfully initialized in the original instance
         Self::with_backend(self.backend).expect("Failed to clone BLAS operations")
     }
 }
@@ -161,6 +163,11 @@ impl BlasOperations {
     /// Check if library exists in system using libloading.
     /// Tries to open the library; if it loads, the library is present.
     fn check_library_exists(lib_name: &str) -> bool {
+        // SAFETY: libloading::Library::new is unsafe because loading a library
+        // with unknown symbols can cause UB on some platforms if used incorrectly.
+        // Here we only check if the library CAN be loaded; we never call any
+        // symbols from it. The library handle is immediately dropped, so there
+        // is no risk of dangling function pointers or symbol conflicts.
         unsafe { libloading::Library::new(lib_name).is_ok() }
     }
 
@@ -302,9 +309,11 @@ impl BlasOperations {
         Ok(())
     }
 
-    // Backend-specific implementations
-    // NOTE: These are all ndarray-based fallbacks. No actual BLAS library is linked.
-    // To add real BLAS acceleration, replace the body with FFI calls to cblas_sgemm etc.
+    // ── "BLAS backend" implementations ──────────────────────────────────────────
+    // WARNING: Every method below is a pure-Rust ndarray fallback, NOT a real BLAS
+    // call. The MKL/OpenBLAS/Accelerate enum tags are cosmetic — detection may load
+    // the real library via libloading but execution still goes through ndarray.
+    // To wire up real BLAS, replace the body with `cblas_sgemm` FFI calls.
 
     /// GEMM via ndarray::dot (ndarray fallback — not actual MKL/OpenBLAS/Accelerate).
     fn gemm_ndarray_fallback(
@@ -416,9 +425,9 @@ impl BlasOperations {
         let (m, k) = a.dim();
         let (_, n) = b.dim();
 
-        let a_slice = a.as_slice().expect("tensor should be contiguous");
-        let b_slice = b.as_slice().expect("tensor should be contiguous");
-        let c_slice = c.as_slice_mut().expect("tensor should be contiguous");
+        let a_slice = require_contiguous(a.as_slice())?;
+        let b_slice = require_contiguous(b.as_slice())?;
+        let c_slice = require_contiguous_mut(c.as_slice_mut())?;
 
         // AVX2 implementation
         for i in 0..m {
@@ -428,6 +437,10 @@ impl BlasOperations {
                 // Vectorized inner product
                 let mut l = 0;
                 while l + 8 <= k {
+                    // SAFETY: i < m, l + 8 <= k → i*k + l + 7 < m*k, l*n + j + 7 < k*n
+                    // Both guaranteed by loop bounds and shape validation
+                    debug_assert!(i * k + l + 7 < a_slice.len());
+                    debug_assert!(l * n + j + 7 < b_slice.len());
                     let a_vec = _mm256_loadu_ps(a_slice.as_ptr().add(i * k + l));
                     let b_vec = _mm256_loadu_ps(b_slice.as_ptr().add(l * n + j));
                     let product = _mm256_mul_ps(a_vec, b_vec);
@@ -440,6 +453,7 @@ impl BlasOperations {
                     sum += a[[i, l]] * b[[l, j]];
                 }
 
+                debug_assert!(i * n + j < c_slice.len());
                 c_slice[i * n + j] = alpha * sum + beta * c_slice[i * n + j];
             }
         }
@@ -682,8 +696,8 @@ impl BlasOperations {
         mut y: ArrayViewMut<f32, ndarray::Ix1>,
     ) -> DLResult<()> {
         let (m, n) = a.dim();
-        let x_slice = x.as_slice().expect("tensor should be contiguous");
-        let y_slice = y.as_slice_mut().expect("tensor should be contiguous");
+        let x_slice = require_contiguous(x.as_slice())?;
+        let y_slice = require_contiguous_mut(y.as_slice_mut())?;
 
         for i in 0..m {
             let mut sum = 0.0f32;
@@ -691,6 +705,10 @@ impl BlasOperations {
 
             // Vectorized dot product
             while j + 8 <= n {
+                // SAFETY: i < m, j + 8 <= n → i*n + j + 7 < m*n, j + 7 < n
+                // Both guaranteed by loop bounds and shape validation
+                debug_assert!(i * n + j + 7 < a.len());
+                debug_assert!(j + 7 < x_slice.len());
                 let a_vec = _mm256_loadu_ps(a.as_ptr().add(i * n + j));
                 let x_vec = _mm256_loadu_ps(x_slice.as_ptr().add(j));
                 let product = _mm256_mul_ps(a_vec, x_vec);
@@ -770,7 +788,7 @@ impl BlasOperations {
     #[target_feature(enable = "avx2")]
     unsafe fn relu_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
         let (m, n) = output.dim();
-        let slice = output.as_slice_mut().expect("tensor should be contiguous");
+        let slice = require_contiguous_mut(output.as_slice_mut())?;
 
         for i in 0..(m * n) {
             slice[i] = slice[i].max(0.0);
@@ -851,6 +869,7 @@ static GLOBAL_BLAS: std::sync::OnceLock<BlasOperations> = std::sync::OnceLock::n
 
 /// Get global BLAS operations instance
 pub fn get_blas_operations() -> &'static BlasOperations {
+    // safe: auto_detect always succeeds (falls back to CustomSIMD)
     GLOBAL_BLAS
         .get_or_init(|| BlasOperations::auto_detect().expect("Failed to initialize BLAS backend"))
 }

@@ -77,24 +77,55 @@ impl MemoryEpisode {
         }
     }
 
-    /// Calculate similarity dengan episode lain berdasarkan content
+    /// Calculate similarity with another episode using character n-gram cosine similarity.
+    ///
+    /// Uses character bigrams and trigrams with cosine similarity — better than
+    /// word-level Jaccard for short texts and partial matches.
+    /// For semantic similarity, use embedding-based comparison instead.
     pub fn calculate_similarity(&self, other: &MemoryEpisode) -> f32 {
-        // Simple text similarity (in real implementation, use embeddings)
-        let self_words: std::collections::HashSet<&str> = self.content.split_whitespace().collect();
-        let other_words: std::collections::HashSet<&str> =
-            other.content.split_whitespace().collect();
+        fn ngrams(s: &str, n: usize) -> Vec<String> {
+            let chars: Vec<char> = s.chars().collect();
+            if chars.len() < n {
+                return vec![s.to_string()];
+            }
+            chars.windows(n).map(|w| w.iter().collect()).collect()
+        }
 
-        if self_words.is_empty() || other_words.is_empty() {
+        fn count_ngrams(s: &str) -> std::collections::HashMap<String, f32> {
+            let mut counts = std::collections::HashMap::new();
+            for ng in ngrams(s, 2) {
+                *counts.entry(ng).or_insert(0.0) += 1.0;
+            }
+            for ng in ngrams(s, 3) {
+                *counts.entry(ng).or_insert(0.0) += 1.0;
+            }
+            counts
+        }
+
+        let self_vec = count_ngrams(&self.content.to_lowercase());
+        let other_vec = count_ngrams(&other.content.to_lowercase());
+
+        if self_vec.is_empty() || other_vec.is_empty() {
             return 0.0;
         }
 
-        let intersection = self_words.intersection(&other_words).count();
-        let union = self_words.union(&other_words).count();
+        let mut dot_product = 0.0;
+        let mut self_magnitude = 0.0;
+        let mut other_magnitude = 0.0;
 
-        if union == 0 {
+        for (key, val) in &self_vec {
+            dot_product += val * other_vec.get(key).unwrap_or(&0.0);
+            self_magnitude += val * val;
+        }
+        for val in other_vec.values() {
+            other_magnitude += val * val;
+        }
+
+        let magnitude = self_magnitude.sqrt() * other_magnitude.sqrt();
+        if magnitude == 0.0 {
             0.0
         } else {
-            intersection as f32 / union as f32
+            dot_product / magnitude
         }
     }
 }

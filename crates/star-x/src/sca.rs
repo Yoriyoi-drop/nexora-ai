@@ -11,7 +11,7 @@ use crate::core::{core_utils, SparseAttention};
 use crate::fused_ops::{ElementWiseOp, FusedAttentionSoftmax, FusedElementWise};
 use crate::kv_cache::{KVCache, StreamingKVCache};
 use crate::traits::Forward;
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
@@ -128,7 +128,7 @@ impl SparseCausalAttention {
 
     /// Split input menjadi multi-head
     fn split_heads(&self, input: &ArrayD<f32>) -> DLResult<Vec<ArrayD<f32>>> {
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         if input_flat.len() != self.hidden_dim {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![self.hidden_dim],
@@ -152,7 +152,7 @@ impl SparseCausalAttention {
         let mut combined = Vec::with_capacity(self.hidden_dim);
 
         for head in heads {
-            let head_flat = head.as_slice().expect("tensor should be contiguous");
+            let head_flat = require_contiguous(head.as_slice())?;
             combined.extend_from_slice(head_flat);
         }
 
@@ -166,7 +166,7 @@ impl SparseCausalAttention {
             return Ok(result);
         }
 
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -217,11 +217,11 @@ impl SparseCausalAttention {
         temporal_positions: &[usize],
         temporal_encoding: &ArrayD<f32>,
     ) -> DLResult<Vec<f32>> {
-        let query_flat = query.as_slice().expect("tensor should be contiguous");
+        let query_flat = require_contiguous(query.as_slice())?;
         let mut scores = Vec::with_capacity(keys.len());
 
         for (i, key) in keys.iter().enumerate() {
-            let key_flat = key.as_slice().expect("tensor should be contiguous");
+            let key_flat = require_contiguous(key.as_slice())?;
 
             // Dot product
             let mut dot_product = 0.0;
@@ -240,8 +240,7 @@ impl SparseCausalAttention {
 
             // Add harmonic temporal encoding contribution
             let temp_enc_flat = temporal_encoding
-                .as_slice()
-                .expect("tensor should be contiguous");
+                .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
             let harmonic_contribution = if i < temp_enc_flat.len() {
                 temp_enc_flat[i] * 0.1
             } else {
@@ -312,11 +311,11 @@ impl SparseCausalAttention {
         values: &[ArrayD<f32>],
     ) -> DLResult<ArrayD<f32>> {
         let mut output = Array1::zeros(self.head_dim);
-        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
+        let output_flat = require_contiguous_mut(output.as_slice_mut())?;
 
         for (&weight, &idx) in weights.iter().zip(selected_indices.iter()) {
             if idx < values.len() {
-                let value_flat = values[idx].as_slice().expect("tensor should be contiguous");
+                let value_flat = require_contiguous(values[idx].as_slice())?;
                 for (i, &val) in value_flat.iter().enumerate().take(self.head_dim) {
                     output_flat[i] += weight * val;
                 }
@@ -363,7 +362,7 @@ impl SparseAttention for SparseCausalAttention {
         let mut total_connections = 0;
 
         // Process each head
-        for (_h, ((q_head, k_head), v_head)) in query_heads
+        for (h, ((q_head, k_head), v_head)) in query_heads
             .iter()
             .zip(key_heads.iter())
             .zip(value_heads.iter())
@@ -418,7 +417,7 @@ impl SparseAttention for SparseCausalAttention {
 
         // Create sparse mask
         let mut mask = ArrayD::zeros(vec![self.num_heads, self.max_sparse_connections]);
-        let mask_flat = mask.as_slice_mut().expect("tensor should be contiguous");
+        let mask_flat = require_contiguous_mut(mask.as_slice_mut())?;
         for (h, connections) in head_outputs.iter().enumerate() {
             let start = h * self.max_sparse_connections;
             let end = (start + connections.len()).min(mask_flat.len());
@@ -521,13 +520,10 @@ impl SparseCausalAttention {
         let attention_output = if let Some(cache) = &mut self.kv_cache {
             // Add to cache
             cache.append(
-                key.as_slice()
-                    .expect("tensor should be contiguous")
+                require_contiguous(key.as_slice())?
                     .to_vec()
                     .into(),
-                value
-                    .as_slice()
-                    .expect("tensor should be contiguous")
+                require_contiguous(value.as_slice())?
                     .to_vec()
                     .into(),
             )?;
@@ -535,9 +531,7 @@ impl SparseCausalAttention {
             // Compute attention with cache
             cache
                 .compute_attention(
-                    &query
-                        .as_slice()
-                        .expect("tensor should be contiguous")
+                    &require_contiguous(query.as_slice())?
                         .to_vec()
                         .into(),
                 )?
@@ -545,13 +539,10 @@ impl SparseCausalAttention {
         } else if let Some(streaming_cache) = &mut self.streaming_cache {
             // Add to streaming cache
             streaming_cache.append(
-                key.as_slice()
-                    .expect("tensor should be contiguous")
+                require_contiguous(key.as_slice())?
                     .to_vec()
                     .into(),
-                value
-                    .as_slice()
-                    .expect("tensor should be contiguous")
+                require_contiguous(value.as_slice())?
                     .to_vec()
                     .into(),
             )?;
@@ -559,9 +550,7 @@ impl SparseCausalAttention {
             // Compute attention with streaming cache
             streaming_cache
                 .compute_attention(
-                    &query
-                        .as_slice()
-                        .expect("tensor should be contiguous")
+                    &require_contiguous(query.as_slice())?
                         .to_vec()
                         .into(),
                 )?

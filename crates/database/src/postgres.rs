@@ -728,9 +728,11 @@ impl PostgreSQLConnectionPool {
             active_connections: active_count,
             idle_connections: idle_count,
             max_connections: self.config.max_connections,
-            waiting_requests: self.get_waiting_requests_count(),
-            average_wait_time_ms: stats.average_wait_time_ms,
-        })
+            waiting_requests: self.get_waiting_requests_count().await,
+
+    /// Get current number of waiting requests
+    async fn get_waiting_requests_count(&self) -> usize {
+        *self.waiting_requests.read().await
     }
 
     /// Get current number of waiting requests
@@ -867,8 +869,6 @@ impl PostgreSQLConnection {
             // Try to execute a simple query
             match client.query_one("SELECT 1", &[]).await {
                 Ok(_) => {
-                    // Update last activity
-                    // Note: This would require interior mutability in a real implementation
                     true
                 }
                 Err(e) => {
@@ -959,7 +959,8 @@ impl PostgreSQLConnection {
     /// Close connection and cleanup resources
     pub async fn close(&mut self) -> Result<()> {
         if self.connection_info.is_connected {
-            // In a real implementation, this would close the tokio-postgres connection
+            // Drop the tokio-postgres client to close the underlying connection
+            self.client.take();
             self.connection_info.is_connected = false;
         }
 

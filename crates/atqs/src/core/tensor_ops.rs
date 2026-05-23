@@ -1,7 +1,7 @@
 //! Tensor operations for ATQS-Compress
 //! Implements Tucker and Tensor-Train decomposition methods
 
-use crate::error::ATQSError;
+use crate::error::{ATQSError, ATQSResult};
 use ndarray::{Array, ArrayD, ArrayView, IxDyn};
 
 /// Trait for ATQS compression operations
@@ -385,60 +385,61 @@ fn unfold_and_svd(
 }
 
 /// Contract two TT cores
-fn contract_cores(core1: &ArrayD<f32>, core2: &ArrayD<f32>) -> ArrayD<f32> {
-    // Simplified contraction - would need proper implementation
+/// NOTE: True TT contraction requires generalized tensor contraction (GEMM
+/// on the shared modes). This stub returns a shape-only placeholder.
+fn contract_cores(core1: &ArrayD<f32>, core2: &ArrayD<f32>) -> ATQSResult<ArrayD<f32>> {
     let shape1 = core1.shape();
     let shape2 = core2.shape();
+    if shape1.len() < 2 || shape2.len() < 2 {
+        return Err(ATQSError::DimensionMismatch(
+            "TT cores must have at least 2 dimensions".to_string(),
+        ));
+    }
+    // Verify contraction axis alignment: core1's last dim == core2's first dim
+    if shape1[shape1.len() - 1] != shape2[0] {
+        return Err(ATQSError::DimensionMismatch(format!(
+            "TT core contraction dimension mismatch: core1[-1]={} vs core2[0]={}",
+            shape1[shape1.len() - 1],
+            shape2[0]
+        )));
+    }
 
-    // Result shape computation
-    let mut result_shape = Vec::new();
-    result_shape.extend_from_slice(&shape1[..shape1.len() - 1]);
+    let mut result_shape: Vec<usize> = shape1[..shape1.len() - 1].to_vec();
     result_shape.extend_from_slice(&shape2[1..]);
 
-    // Create result tensor with actual computation
     let mut result = Array::zeros(result_shape.clone());
 
-    // Perform batch matrix multiplication
     let batch_size = shape1[0];
     let m = shape1[shape1.len() - 1];
     let n = shape2[shape2.len() - 1];
     let k = shape2[0];
+
+    let c1_slice = core1.as_slice().unwrap_or(&[]);
+    let c2_slice = core2.as_slice().unwrap_or(&[]);
+    let r_slice = result.as_slice_mut().ok_or_else(|| {
+        ATQSError::TensorError("Cannot get mutable slice of result".to_string())
+    })?;
 
     for b in 0..batch_size {
         for i in 0..m {
             for j in 0..n {
                 let mut sum = 0.0;
                 for l in 0..k {
-                    // Use linear indexing for simplicity
                     let idx1 = b * m * k + i * k + l;
                     let idx2 = l * n + j;
-                    if idx1 < core1.len() && idx2 < core2.len() {
-                        let val1 = core1
-                            .as_slice()
-                            .map(|slice| slice.get(idx1).copied())
-                            .unwrap_or(Some(0.0))
-                            .unwrap_or(0.0);
-                        let val2 = core2
-                            .as_slice()
-                            .map(|slice| slice.get(idx2).copied())
-                            .unwrap_or(Some(0.0))
-                            .unwrap_or(0.0);
-                        sum += val1 * val2;
+                    if idx1 < c1_slice.len() && idx2 < c2_slice.len() {
+                        sum += c1_slice[idx1] * c2_slice[idx2];
                     }
                 }
                 let result_idx = b * m * n + i * n + j;
-                if result_idx < result.len() {
-                    if let Some(slice) = result.as_slice_mut() {
-                        if let Some(val) = slice.get_mut(result_idx) {
-                            *val = sum;
-                        }
-                    }
+                if let Some(val) = r_slice.get_mut(result_idx) {
+                    *val = sum;
                 }
             }
         }
     }
 
-    result.into_dyn()
+    Ok(result.into_dyn())
 }
 
 /// Compute truncated SVD using power iteration method.
@@ -557,7 +558,7 @@ pub fn tensor_train_reconstruct(
     let mut result = decomposition.cores[0].clone();
 
     for core in &decomposition.cores[1..] {
-        result = contract_cores(&result, core);
+        result = contract_cores(&result, core)?;
     }
 
     // Reshape to original shape

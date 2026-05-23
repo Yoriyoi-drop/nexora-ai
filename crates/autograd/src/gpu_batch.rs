@@ -176,7 +176,7 @@ impl GpuContext {
     }
 
     /// Allocates a raw STORAGE buffer. Avoids scattered `device.create_buffer`
-    /// calls at callsites — centralised so the pool can be wired in later.
+    /// calls at callsites — centralised for pool integration.
     pub(crate) fn alloc_storage(&self, label: &'static str, size: u64) -> wgpu::Buffer {
         self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),

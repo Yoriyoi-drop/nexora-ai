@@ -62,6 +62,7 @@ pub struct TokenizerCore {
     merges: Vec<MergeRule>,
     special_tokens: SpecialTokens,
     next_id: u32,
+    frequencies: HashMap<u32, u64>,
 }
 
 impl TokenizerCore {
@@ -90,6 +91,7 @@ impl TokenizerCore {
             merges: Vec::new(),
             special_tokens,
             next_id,
+            frequencies: HashMap::new(),
         }
     }
 
@@ -98,11 +100,11 @@ impl TokenizerCore {
         Self::new(TokenizerConfig::default())
     }
 
-    /// Add a token to vocabulary
-    pub fn add_token(&mut self, token: &str, _frequency: u64) -> Result<u32> {
+    /// Add a token to vocabulary with frequency tracking
+    pub fn add_token(&mut self, token: &str, frequency: u64) -> Result<u32> {
         if let Some(&existing_id) = self.vocab.get(token) {
-            // Update frequency if token already exists
-            // Note: In a real implementation, you'd track frequencies separately
+            let entry = self.frequencies.entry(existing_id).or_insert(0);
+            *entry = entry.saturating_add(frequency);
             return Ok(existing_id);
         }
 
@@ -111,6 +113,7 @@ impl TokenizerCore {
 
         self.vocab.insert(token.to_string(), id);
         self.reverse_vocab.insert(id, token.to_string());
+        self.frequencies.insert(id, frequency);
 
         Ok(id)
     }
@@ -287,7 +290,7 @@ impl TokenizerCore {
 
     /// Get vocabulary statistics
     pub fn get_vocab_stats(&self) -> VocabStats {
-        let total_frequency: u64 = self.vocab.values().len() as u64; // Simplified
+        let total_frequency: u64 = self.frequencies.values().sum();
 
         VocabStats {
             vocab_size: self.vocab.len(),
@@ -308,6 +311,7 @@ impl TokenizerCore {
             vocab: self.vocab.clone(),
             merges: self.merges.clone(),
             next_id: self.next_id,
+            frequencies: self.frequencies.clone(),
         };
 
         serde_json::to_string_pretty(&tokenizer_data)
@@ -323,6 +327,7 @@ impl TokenizerCore {
         tokenizer.vocab = tokenizer_data.vocab;
         tokenizer.merges = tokenizer_data.merges;
         tokenizer.next_id = tokenizer_data.next_id;
+        tokenizer.frequencies = tokenizer_data.frequencies;
 
         // Rebuild reverse vocab
         tokenizer.reverse_vocab.clear();
@@ -423,6 +428,8 @@ struct TokenizerData {
     vocab: HashMap<String, u32>,
     merges: Vec<MergeRule>,
     next_id: u32,
+    #[serde(default)]
+    frequencies: HashMap<u32, u64>,
 }
 
 impl Default for TokenizerCore {

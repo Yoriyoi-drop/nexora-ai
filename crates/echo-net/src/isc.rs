@@ -623,6 +623,7 @@ impl InverseSpectralCollapse {
 
     /// Get recent collapse events
     pub fn get_output_weights(&self) -> Tensor {
+        // safe: iterated from same array, length always matches
         let data = ArrayD::from_shape_vec(
             vec![
                 self.output_weights.shape()[0],
@@ -634,6 +635,7 @@ impl InverseSpectralCollapse {
         Tensor::new(data)
     }
     pub fn get_output_bias(&self) -> Tensor {
+        // safe: iterated from same array, length always matches
         let data = ArrayD::from_shape_vec(
             vec![self.output_bias.len()],
             self.output_bias.iter().copied().collect(),

@@ -1,5 +1,4 @@
 use crate::gpu::{GpuContext, GpuError, GpuTensor};
-use ndarray::ArrayD;
 
 // ─── GpuPageTable ──────────────────────────────────────────────────────────────
 

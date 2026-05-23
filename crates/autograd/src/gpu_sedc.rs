@@ -635,10 +635,11 @@ impl GpuContext {
 
         let a_gpu = self.copy_buffer_gpu(a)
             .map_err(SedcError::Gpu)?;
-        let v = GpuTensor::from_cpu(&ndarray::ArrayD::from_shape_vec(
+        let ident_arr = ndarray::ArrayD::from_shape_vec(
             vec![n, n],
             (0..n * n).map(|i| if i / n == i % n { 1.0 } else { 0.0 }).collect(),
-        ).unwrap()).map_err(|e| SedcError::Gpu(e))?;
+        ).map_err(|e| SedcError::Svd(e.to_string()))?;
+        let v = GpuTensor::from_cpu(&ident_arr).map_err(SedcError::Gpu)?;
 
         for sweep in 0..max_sweeps {
             let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -707,20 +708,18 @@ impl GpuContext {
         }
 
         let u_data_clone = u_data.clone();
-        let u_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![r, r], u_data).unwrap()
-        ).map_err(SedcError::Gpu)?;
+        let u_arr = ndarray::ArrayD::from_shape_vec(vec![r, r], u_data)
+            .map_err(|e| SedcError::Svd(e.to_string()))?;
+        let u_gpu = GpuTensor::from_cpu(&u_arr).map_err(SedcError::Gpu)?;
 
-        // V = B^T · U · Σ^{-1} on GPU
-        // First: U_Σ = U · Σ^{-1}
         let u_sigma_data: Vec<f32> = (0..r * r).map(|i| {
             let row = i / r;
             let col = i % r;
             u_data_clone[row * r + col] * s_inv[col]
         }).collect();
-        let u_sigma_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![r, r], u_sigma_data).unwrap()
-        ).map_err(SedcError::Gpu)?;
+        let u_sigma_arr = ndarray::ArrayD::from_shape_vec(vec![r, r], u_sigma_data)
+            .map_err(|e| SedcError::Svd(e.to_string()))?;
+        let u_sigma_gpu = GpuTensor::from_cpu(&u_sigma_arr).map_err(SedcError::Gpu)?;
 
         // V = B^T · (U · Σ^{-1})  ∈ ℝ^{n×r}
         let v_gpu = self.matmul(&bt, &u_sigma_gpu).map_err(SedcError::Gpu)?;
@@ -895,11 +894,10 @@ impl GpuContext {
             let norm_sq = d as f32;
             let s = dot / norm_sq;
 
-            // Upload orthogonalized q to GPU
             let q_ortho_f32: Vec<f32> = q_i8.iter().map(|x| *x as f32).collect();
-            let q_ortho_gpu = GpuTensor::from_cpu(
-                &ndarray::ArrayD::from_shape_vec(vec![d], q_ortho_f32).unwrap()
-            )?;
+            let q_ortho_arr = ndarray::ArrayD::from_shape_vec(vec![d], q_ortho_f32)
+                .map_err(|e| GpuError::ShapeMismatch(format!("arq shape error: {e}")))?;
+            let q_ortho_gpu = GpuTensor::from_cpu(&q_ortho_arr)?;
 
             // r = r - s * q (GPU axpy)
             {
@@ -985,32 +983,27 @@ impl GpuContext {
             &v.to_cpu().slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
         ).map_err(SedcError::Gpu)?;
 
-        // R = W_{l+1} · V · Σ^{-1}  (m_next × k)
         let s_inv_data: Vec<f32> = s.iter().take(k_actual).map(|x| if *x > 1e-10 { 1.0 / x } else { 0.0 }).collect();
-        let s_inv_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![k_actual, 1], s_inv_data.clone()).unwrap()
-        ).map_err(SedcError::Gpu)?;
+        let s_inv_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, 1], s_inv_data.clone())
+            .map_err(|e| SedcError::Svd(e.to_string()))?;
+        let s_inv_gpu = GpuTensor::from_cpu(&s_inv_arr).map_err(SedcError::Gpu)?;
 
         let v_s_inv = self.matmul(&v_trunc, &s_inv_gpu).map_err(SedcError::Gpu)?;
         let r = self.matmul(w_next, &v_s_inv).map_err(SedcError::Gpu)?;
 
-        // C = I (identity) since W approximates W already
-        let c = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![k_actual, k_actual],
-                (0..k_actual * k_actual).map(|i| if i / k_actual == i % k_actual { 1.0 } else { 0.0 }).collect()
-            ).unwrap()
-        ).map_err(SedcError::Gpu)?;
+        let c_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, k_actual],
+            (0..k_actual * k_actual).map(|i| if i / k_actual == i % k_actual { 1.0 } else { 0.0 }).collect()
+        ).map_err(|e| SedcError::Svd(e.to_string()))?;
+        let c = GpuTensor::from_cpu(&c_arr).map_err(SedcError::Gpu)?;
 
-        // Reconstruct: W_approx = U · Σ · V^T
-        let s_diag = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![k_actual, k_actual],
-                (0..k_actual * k_actual).map(|i| {
-                    let col = i % k_actual;
-                    let row = i / k_actual;
-                    if row == col { s[row] } else { 0.0 }
-                }).collect()
-            ).unwrap()
-        ).map_err(SedcError::Gpu)?;
+        let s_diag_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, k_actual],
+            (0..k_actual * k_actual).map(|i| {
+                let col = i % k_actual;
+                let row = i / k_actual;
+                if row == col { s[row] } else { 0.0 }
+            }).collect()
+        ).map_err(|e| SedcError::Svd(e.to_string()))?;
+        let s_diag = GpuTensor::from_cpu(&s_diag_arr).map_err(SedcError::Gpu)?;
         let us = self.matmul(&u_trunc, &s_diag).map_err(SedcError::Gpu)?;
         let v_trunc_t = self.transpose(&v_trunc).map_err(SedcError::Gpu)?;
         let w_approx = self.matmul(&us, &v_trunc_t).map_err(SedcError::Gpu)?;
@@ -1500,12 +1493,18 @@ impl SedcCompressor {
                 continue;
             }
 
-            // Apply REC: Ŵ_{l+1} = W_{l+1} + λ · E_l · V_l · V_l^T
             let w_next_gpu = GpuTensor::from_cpu(&w_orig.clone().into_dyn())
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
-            let error_gpu = GpuTensor::from_cpu(&prev_error.unwrap().clone().into_dyn())
+            // prev_error/prev_v are Some here — guarded by prev_error.is_none() check above
+            let Some(ref prev_err) = prev_error else {
+                return Err(SedcError::Svd("prev_error is None in REC layer (logic error)".into()));
+            };
+            let Some(ref prev_v_val) = prev_v else {
+                return Err(SedcError::Svd("prev_v is None in REC layer (logic error)".into()));
+            };
+            let error_gpu = GpuTensor::from_cpu(&prev_err.clone().into_dyn())
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
-            let v_gpu = GpuTensor::from_cpu(&prev_v.unwrap().clone().into_dyn())
+            let v_gpu = GpuTensor::from_cpu(&prev_v_val.clone().into_dyn())
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
 
             let w_comp = ctx.rec_compensate_gpu(

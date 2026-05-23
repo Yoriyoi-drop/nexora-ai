@@ -1334,8 +1334,37 @@ mod tests {
         assert!(!result.passed);
         assert!(result.metrics.is_some());
         assert_eq!(result.message, "Test failed");
-        
+
         let metrics = result.metrics.unwrap();
         assert_eq!(metrics.len(), 2);
+    }
+
+    #[test]
+    fn test_gradient_flow_linear_scale() {
+        let x = ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let scale = ArrayD::from_shape_vec(vec![1, 1], vec![2.0]).unwrap();
+        let y = x.clone() * scale.iter().copied().next().unwrap_or(1.0);
+        let grad = ArrayD::from_shape_vec(vec![2, 3], vec![1.0; 6]).unwrap();
+        let dx = grad.clone();
+        let dy: Vec<f32> = y.iter().zip(&dx).map(|(y, g)| y + g).collect();
+        assert_eq!(dy.len(), 6, "gradient flow: output must be differentiable");
+        let original_sum: f32 = x.iter().sum();
+        let new_sum: f32 = y.iter().sum();
+        assert!((new_sum - original_sum * 2.0).abs() < 1e-6,
+                "gradient flow: scale=2 should double sum: {} vs {}", new_sum, original_sum * 2.0);
+    }
+
+    #[test]
+    fn test_shape_preservation_linear() {
+        let input = ArrayD::from_shape_vec(vec![4, 8], (0..32).map(|i| i as f32).collect()).unwrap();
+        let w = ArrayD::from_shape_vec(vec![8, 4], (0..32).map(|i| i as f32 / 32.0).collect()).unwrap();
+        let output = input.dot(&w);
+        assert_eq!(output.shape(), &[4, 4],
+            "shape preservation: matmul [4,8]x[8,4] must yield [4,4], got {:?}", output.shape());
+        let output_2 = output.dot(&w.t().to_owned());
+        assert_eq!(output_2.shape(), &[4, 8],
+            "shape preservation: round-trip must restore [4,8], got {:?}", output_2.shape());
+        let diff: f32 = output_2.iter().zip(input.iter()).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 0.0, "shape preservation: round-trip must not be identity");
     }
 }

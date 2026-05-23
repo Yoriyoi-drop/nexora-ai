@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -17,42 +17,51 @@ use nexora_blaa::{
     ChatMessage, EmbeddingRequest, MessageRole,
 };
 
+/// Default max concurrent BLAA API calls.
+const BLAA_MAX_CONCURRENT: usize = 4;
+
 /// BLAA integration untuk inference engine
 #[derive(Debug, Clone)]
 pub struct BlaaInferenceEngine {
-    client: Arc<Mutex<BlaaClient>>,
+    config: BlaaConfig,
     default_model: String,
     max_tokens: u32,
+    concurrency: Arc<Semaphore>,
 }
 
 impl BlaaInferenceEngine {
     /// Create new BLAA inference engine
     pub async fn new(config: BlaaConfig) -> InferenceResult<Self> {
-        let client = BlaaClient::new(config)?;
-        let default_model = client.config().default_model.clone();
-
+        let default_model = config.default_model.clone();
         Ok(Self {
-            client: Arc::new(Mutex::new(client)),
+            config,
             default_model,
             max_tokens: 4096,
+            concurrency: Arc::new(Semaphore::new(BLAA_MAX_CONCURRENT)),
         })
     }
 
     /// Create from environment variables
     pub async fn from_env() -> InferenceResult<Self> {
-        let client = BlaaClient::from_env().await?;
-        let default_model = client.config().default_model.clone();
-
+        let config = BlaaConfig::from_env()?;
+        let default_model = config.default_model.clone();
         Ok(Self {
-            client: Arc::new(Mutex::new(client)),
+            config,
             default_model,
             max_tokens: 4096,
+            concurrency: Arc::new(Semaphore::new(BLAA_MAX_CONCURRENT)),
         })
     }
 
-    /// Get BLAA client reference
-    pub fn client(&self) -> Arc<Mutex<BlaaClient>> {
-        self.client.clone()
+    async fn acquire_client(&self) -> InferenceResult<(tokio::sync::SemaphorePermit, BlaaClient)> {
+        let permit = self
+            .concurrency
+            .acquire()
+            .await
+            .map_err(|e| InferenceError::InternalError(format!("Semaphore closed: {}", e)))?;
+        let client = BlaaClient::new(self.config.clone())
+            .map_err(|e| InferenceError::InternalError(e.to_string()))?;
+        Ok((permit, client))
     }
 
     /// Set default model
@@ -262,17 +271,16 @@ impl InferenceEngine for BlaaInferenceEngine {
         let blaa_request = self.to_blaa_request(&request);
 
         let result = if request.streaming {
-            // Handle streaming request
-            let mut stream = self
-                .client
-                .lock()
-                .await
+            let (_permit, mut client) = self.acquire_client().await?;
+            let mut stream = client
                 .create_chat_completion_stream(blaa_request)
                 .await?;
+            // Drop permit and client; stream is independent.
+            drop((_permit, client));
+
             let mut full_response = String::new();
             let mut chunk_count = 0;
 
-            use futures::StreamExt;
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
                     Ok(chunk) => {
@@ -301,11 +309,8 @@ impl InferenceEngine for BlaaInferenceEngine {
 
             final_response
         } else {
-            // Handle non-streaming request
-            let blaa_response = self
-                .client
-                .lock()
-                .await
+            let (_permit, mut client) = self.acquire_client().await?;
+            let blaa_response = client
                 .create_chat_completion(blaa_request)
                 .await?;
             self.from_blaa_response(&request, blaa_response)
@@ -330,10 +335,8 @@ impl InferenceEngine for BlaaInferenceEngine {
         Pin<Box<dyn futures::Stream<Item = InferenceResult<InferenceResponse>> + Send>>,
     > {
         let blaa_request = self.to_blaa_request(&request);
-        let stream = self
-            .client
-            .lock()
-            .await
+        let (_permit, mut client) = self.acquire_client().await?;
+        let stream = client
             .create_chat_completion_stream(blaa_request)
             .await?;
 
@@ -353,7 +356,8 @@ impl InferenceEngine for BlaaInferenceEngine {
     }
 
     async fn health_check(&self) -> InferenceResult<bool> {
-        match self.client.lock().await.list_models().await {
+        let (_permit, mut client) = self.acquire_client().await?;
+        match client.list_models().await {
             Ok(_) => Ok(true),
             Err(e) => {
                 warn!("BLAA health check failed: {}", e);
@@ -363,7 +367,8 @@ impl InferenceEngine for BlaaInferenceEngine {
     }
 
     async fn get_model_info(&self, model_id: &str) -> InferenceResult<HashMap<String, Value>> {
-        match self.client.lock().await.get_model(model_id).await {
+        let (_permit, mut client) = self.acquire_client().await?;
+        match client.get_model(model_id).await {
             Ok(model) => {
                 let mut info = HashMap::new();
                 info.insert("id".to_string(), json!(model.id));
@@ -378,7 +383,8 @@ impl InferenceEngine for BlaaInferenceEngine {
     }
 
     async fn list_models(&self) -> InferenceResult<Vec<String>> {
-        match self.client.lock().await.list_models().await {
+        let (_permit, mut client) = self.acquire_client().await?;
+        match client.list_models().await {
             Ok(models) => {
                 let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
                 Ok(model_ids)
@@ -440,31 +446,42 @@ impl BlaaInferenceEngine {
 /// BLAA embeddings integration
 #[derive(Debug, Clone)]
 pub struct BlaaEmbeddingsEngine {
-    client: Arc<Mutex<BlaaClient>>,
+    config: BlaaConfig,
     default_model: String,
+    concurrency: Arc<Semaphore>,
 }
 
 impl BlaaEmbeddingsEngine {
     /// Create new BLAA embeddings engine
     pub async fn new(config: BlaaConfig) -> InferenceResult<Self> {
-        let client = BlaaClient::new(config)?;
-        let default_model = client.config().default_model.clone();
-
+        let default_model = config.default_model.clone();
         Ok(Self {
-            client: Arc::new(Mutex::new(client)),
+            config,
             default_model,
+            concurrency: Arc::new(Semaphore::new(BLAA_MAX_CONCURRENT)),
         })
     }
 
     /// Create from environment variables
     pub async fn from_env() -> InferenceResult<Self> {
-        let client = BlaaClient::from_env().await?;
-        let default_model = client.config().default_model.clone();
-
+        let config = BlaaConfig::from_env()?;
+        let default_model = config.default_model.clone();
         Ok(Self {
-            client: Arc::new(Mutex::new(client)),
+            config,
             default_model,
+            concurrency: Arc::new(Semaphore::new(BLAA_MAX_CONCURRENT)),
         })
+    }
+
+    async fn acquire_client(&self) -> InferenceResult<(tokio::sync::SemaphorePermit, BlaaClient)> {
+        let permit = self
+            .concurrency
+            .acquire()
+            .await
+            .map_err(|e| InferenceError::InternalError(format!("Semaphore closed: {}", e)))?;
+        let client = BlaaClient::new(self.config.clone())
+            .map_err(|e| InferenceError::InternalError(e.to_string()))?;
+        Ok((permit, client))
     }
 
     /// Generate embeddings for text
@@ -476,7 +493,8 @@ impl BlaaEmbeddingsEngine {
             encoding_format: Some(nexora_blaa::EmbeddingFormat::Float),
         };
 
-        let response = self.client.lock().await.create_embeddings(request).await?;
+        let (_permit, mut client) = self.acquire_client().await?;
+        let response = client.create_embeddings(request).await?;
 
         let embeddings: Vec<Vec<f32>> = response
             .data

@@ -284,7 +284,9 @@ impl ResonanceCalculator {
 
     /// Calculate phase alignment
     fn phase_alignment(signal1: &Array1<f32>, signal2: &Array1<f32>) -> f32 {
+        // safe: 1D FFT always succeeds on valid Array1 input
         let fft1 = HolographicFFT::fft_1d(signal1).expect("FFT computation succeeded");
+        // safe: 1D FFT always succeeds on valid Array1 input
         let fft2 = HolographicFFT::fft_1d(signal2).expect("FFT computation succeeded");
 
         let phase1 = SpectralAnalyzer::phase_spectrum(&fft1);

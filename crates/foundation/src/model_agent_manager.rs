@@ -31,58 +31,31 @@ pub struct ModelAgentManager {
 impl ModelAgentManager {
     pub async fn new() -> Self {
         let omnis = OmnisAgents::new(&OmnisConfig::default());
-        match omnis
-            .initialize(&OmnisConfig::default())
-            .await
-        {
-            Ok(_) => info!("NXR-OMNIS agents activated (oracle_7, meta_reasoner, world_model_x, chain_executor, truth_arbiter, synth_prime) ✓"),
-            Err(e) => warn!("NXR-OMNIS agents initialization failed: {e}"),
-        }
+        info!("NXR-OMNIS agents constructed (oracle_7, meta_reasoner, world_model_x, chain_executor, truth_arbiter, synth_prime)");
 
-        let mut swift = SwiftAgents::new(&SwiftConfig::default());
-        match swift.initialize().await {
-            Ok(_) => info!("NXR-SWIFT agents activated ✓"),
-            Err(e) => warn!("NXR-SWIFT agents initialization failed: {e}"),
-        }
+        let swift = SwiftAgents::new(&SwiftConfig::default());
+        info!("NXR-SWIFT agents constructed");
 
         let genesis = GenesisAgents::new(&GenesisConfig::default());
-        match genesis.initialize(&GenesisConfig::default()).await {
-            Ok(_) => info!("NXR-GENESIS agents activated ✓"),
-            Err(e) => warn!("NXR-GENESIS agents initialization failed: {e}"),
-        }
+        info!("NXR-GENESIS agents constructed");
 
         let nexum = NexumAgents::new();
-        match nexum.initialize().await {
-            Ok(_) => info!("NXR-NEXUM agents activated ✓"),
-            Err(e) => warn!("NXR-NEXUM agents initialization failed: {e}"),
-        }
+        info!("NXR-NEXUM agents constructed");
 
         let axiom = AxiomAgents::new(&AxiomConfig::default());
-        match axiom.initialize(&AxiomConfig::default()).await {
-            Ok(_) => info!("NXR-AXIOM agents activated ✓"),
-            Err(e) => warn!("NXR-AXIOM agents initialization failed: {e}"),
-        }
+        info!("NXR-AXIOM agents constructed");
 
         let kronos = KronosAgents::new(&KronosConfig::default());
-        match kronos.initialize(&KronosConfig::default()).await {
-            Ok(_) => info!("NXR-KRONOS agents activated ✓"),
-            Err(e) => warn!("NXR-KRONOS agents initialization failed: {e}"),
-        }
+        info!("NXR-KRONOS agents constructed");
 
         let cipher = CipherAgents::new(&CipherConfig::default());
-        match cipher.initialize(&CipherConfig::default()).await {
-            Ok(_) => info!("NXR-CIPHER agents activated ✓"),
-            Err(e) => warn!("NXR-CIPHER agents initialization failed: {e}"),
-        }
+        info!("NXR-CIPHER agents constructed");
 
         let aether = AetherAgents::default();
-        match aether.initialize().await {
-            Ok(_) => info!("NXR-AETHER agents activated (empath_core, tone_mapper, context_weave, soul_mirror) ✓"),
-            Err(e) => warn!("NXR-AETHER agents initialization failed: {e}"),
-        }
+        info!("NXR-AETHER agents constructed");
 
-        info!("NXR-SPECTRA agents active (spectrum_analyzer, spectral_mapper, spectral_processor, frequency_analyzer, creative_muse, artistic_weaver, style_adapter, innovation_engine) ✓");
-        info!("NXR-VORTEX agents active ✓");
+        info!("NXR-SPECTRA agents active");
+        info!("NXR-VORTEX agents active");
 
         Self {
             omnis,

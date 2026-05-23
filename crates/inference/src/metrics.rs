@@ -266,7 +266,7 @@ impl MetricsCollector {
             alert_thresholds: Arc::new(RwLock::new(AlertThresholds::default())),
             active_alerts: Arc::new(RwLock::new(Vec::new())),
             last_alert_time: Arc::new(RwLock::new(HashMap::new())),
-            alert_cooldown: Duration::from_secs(300),
+            alert_cooldown: Duration::from_secs(60),
         }
     }
 
@@ -547,7 +547,7 @@ impl MetricsCollector {
 
         let mut new_alerts = Vec::with_capacity(5);
 
-        let should_alert = |alert_type: &str| -> bool {
+        let mut should_alert = |alert_type: &str| -> bool {
             let within_cooldown = last_alert_time.get(alert_type)
                 .map(|last| (now - *last).num_seconds() < self.alert_cooldown.as_secs() as i64)
                 .unwrap_or(false);

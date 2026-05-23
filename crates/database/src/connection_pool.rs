@@ -352,23 +352,14 @@ impl<T: Clone> GenericConnectionPool<T> {
             active_connections: active_count,
             idle_connections: idle_count,
             max_connections: self.config.max_connections,
-            waiting_requests: self.get_waiting_requests_count(),
+            waiting_requests: self.get_waiting_requests_count().await,
             average_wait_time_ms: stats.average_wait_time_ms,
         })
     }
 
     /// Get current number of waiting requests
-    fn get_waiting_requests_count(&self) -> usize {
-        // This is a synchronous method that reads the current value
-        // In a real implementation, you might want to make this async
-        // but for now we'll use a blocking read with a timeout
-
-        if let Ok(waiting) = self.waiting_requests.try_read() {
-            *waiting
-        } else {
-            // Fallback if lock is contended
-            0
-        }
+    async fn get_waiting_requests_count(&self) -> usize {
+        *self.waiting_requests.read().await
     }
 
     /// Cleanup expired connections

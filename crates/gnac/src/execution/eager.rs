@@ -1,20 +1,16 @@
 use crate::canvas::NeuralGraph;
 use crate::DLResult;
 
-/// Eager Execution — graph topology validation and shape propagation tool.
+/// Graph topology validator and shape propagator.
 ///
-/// NOTE: This executor validates topological order and propagates shapes through
-/// the graph, but does NOT perform actual tensor computation. It is a graph
-/// validation and shape-inference pass intended for visual editing feedback.
-///
-/// Actual tensor dispatch is performed by the CompiledExecutor in `compiled.rs`.
-/// If you need eager tensor computation, use the autograd crate's TensorOps
-/// directly, or route through the CompiledExecutor.
-pub struct EagerExecutor;
+/// Validates topological order and infers shapes through the graph. Does NOT
+/// perform tensor computation — use [`CompiledExecutor`](super::compiled::CompiledExecutor)
+/// for actual tensor dispatch.
+pub struct GraphValidator;
 
-impl EagerExecutor {
-    /// Eksekusi eager: jalankan operasi sekuensial
-    pub fn execute(&self, graph: &NeuralGraph) -> DLResult<()> {
+impl GraphValidator {
+    /// Validate graph topology (connectivity, input availability).
+    pub fn validate(&self, graph: &NeuralGraph) -> DLResult<()> {
         let order = graph.topological_order()?;
 
         for node_id in order {
@@ -60,6 +56,7 @@ impl EagerExecutor {
         }
 
         for node_id in order {
+            // safe: node_id comes from topological order of the graph
             let node = graph
                 .get_node(&node_id)
                 .expect("node exists during execution");

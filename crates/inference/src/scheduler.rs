@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::{watch, Notify, RwLock};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -46,10 +46,13 @@ pub struct RequestScheduler {
     batch_collector: Arc<RwLock<BatchCollector>>,
     shutdown: AtomicBool,
     notify: Arc<Notify>,
+    shutdown_tx: watch::Sender<bool>,
+    shutdown_rx: watch::Receiver<bool>,
 }
 
 impl RequestScheduler {
     pub fn new() -> Self {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Self {
             queue: RwLock::new(VecDeque::new()),
             requests: RwLock::new(HashMap::new()),
@@ -59,6 +62,8 @@ impl RequestScheduler {
             batch_collector: Arc::new(RwLock::new(BatchCollector::new(8, 50))),
             shutdown: AtomicBool::new(false),
             notify: Arc::new(Notify::new()),
+            shutdown_tx,
+            shutdown_rx,
         }
     }
 
@@ -86,6 +91,10 @@ impl RequestScheduler {
                 let s = this.read().await;
                 s.notify.clone()
             };
+            let mut shutdown_rx = {
+                let s = this.read().await;
+                s.shutdown_rx.clone()
+            };
             loop {
                 if this.read().await.shutdown.load(Ordering::Relaxed) {
                     break;
@@ -94,6 +103,7 @@ impl RequestScheduler {
                     debug!("background worker popped ready batch");
                 }
                 tokio::select! {
+                    _ = shutdown_rx.changed() => {},
                     _ = notify.notified() => {},
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                 }
@@ -204,6 +214,7 @@ impl RequestScheduler {
 
     pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
         self.shutdown.store(true, Ordering::Relaxed);
+        let _ = self.shutdown_tx.send(true);
         let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;
         queue.clear();

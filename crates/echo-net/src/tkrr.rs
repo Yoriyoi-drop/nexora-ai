@@ -384,8 +384,7 @@ impl TopKResonanceRouting {
         for candidate in candidates.drain(..) {
             if heap.len() < effective_k {
                 heap.push(candidate);
-            } else if candidate.resonance_score
-                > heap.peek().expect("heap is non-empty").resonance_score
+            } else if heap.peek().map_or(false, |top| candidate.resonance_score > top.resonance_score)
             {
                 heap.pop();
                 heap.push(candidate);

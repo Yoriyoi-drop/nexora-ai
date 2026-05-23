@@ -579,26 +579,32 @@ impl Adam {
         let mut tensors: Vec<(String, ArrayD<f32>)> = Vec::with_capacity(self.m.len() * 2 + 6);
         tensors.push((
             "opt.step".to_string(),
+            // safe: shape [1] with 1 element always matches
             ArrayD::from_shape_vec(vec![1], vec![self.step as f32]).unwrap(),
         ));
         tensors.push((
             "opt.lr".to_string(),
+            // safe: shape [1] with 1 element always matches
             ArrayD::from_shape_vec(vec![1], vec![self.lr]).unwrap(),
         ));
         tensors.push((
             "opt.beta1".to_string(),
+            // safe: shape [1] with 1 element always matches
             ArrayD::from_shape_vec(vec![1], vec![self.beta1]).unwrap(),
         ));
         tensors.push((
             "opt.beta2".to_string(),
+            // safe: shape [1] with 1 element always matches
             ArrayD::from_shape_vec(vec![1], vec![self.beta2]).unwrap(),
         ));
         tensors.push((
             "opt.eps".to_string(),
+            // safe: shape [1] with 1 element always matches
             ArrayD::from_shape_vec(vec![1], vec![self.eps]).unwrap(),
         ));
         tensors.push((
             "opt.weight_decay".to_string(),
+            // safe: shape [1] with 1 element always matches
             ArrayD::from_shape_vec(vec![1], vec![self.weight_decay]).unwrap(),
         ));
         for (i, arr) in self.m.iter().enumerate() {

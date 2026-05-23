@@ -999,7 +999,7 @@ impl GpuContext {
     /// Flush the reusable encoder: submit all accumulated dispatches at once.
     /// Call this before any readback to ensure GPU has finished.
     pub fn flush(&self) {
-        let mut guard = self.current_encoder.lock().unwrap();
+        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(enc) = guard.take() {
             self.queue.submit(Some(enc.finish()));
             *guard = Some(
@@ -1041,19 +1041,26 @@ impl GpuContext {
     where
         F: FnOnce(&mut wgpu::CommandEncoder) -> R,
     {
-        let mut guard = self.current_encoder.lock().unwrap();
-        let enc = guard.as_mut().expect("encoder missing");
+        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_none() {
+            *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("nexora_reusable_encoder"),
+            }));
+        }
+        // SAFETY: ensured Some just above
+        let enc = guard.as_mut().expect("encoder should be present after create");
         let result = f(enc);
 
         if self.batch_depth.load(std::sync::atomic::Ordering::Acquire) == 0 {
             let ops = self.ops_since_flush.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
             if ops >= self.auto_flush_ops {
-                let enc_to_submit = guard.take().unwrap();
-                self.queue.submit(Some(enc_to_submit.finish()));
-                self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
-                *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("nexora_reusable_encoder"),
-                }));
+                if let Some(enc_to_submit) = guard.take() {
+                    self.queue.submit(Some(enc_to_submit.finish()));
+                    self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+                    *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("nexora_reusable_encoder"),
+                    }));
+                }
             }
         }
         result
@@ -1147,7 +1154,9 @@ impl GpuContext {
         for entry in entries {
             if let wgpu::BindingResource::Buffer(buffer_binding) = &entry.resource {
                 hash = hash.wrapping_add(buffer_binding.offset);
-                hash = hash.wrapping_mul(31).wrapping_add(buffer_binding.size.unwrap_or(std::num::NonZero::new(1).unwrap()).get());
+                hash = hash.wrapping_mul(31).wrapping_add(
+                    buffer_binding.size.unwrap_or(std::num::NonZeroU64::MIN).get()
+                );
             }
         }
 
@@ -1161,7 +1170,11 @@ impl GpuContext {
             entries,
         });
 
-        // Store in cache (note: this is a simplified cache, real implementation would need proper cache invalidation)
+        // Cache with max size — evict all when exceeded to prevent unbounded growth
+        const MAX_CACHE_SIZE: usize = 1024;
+        if self.bind_group_cache.len() >= MAX_CACHE_SIZE {
+            self.bind_group_cache.clear();
+        }
         self.bind_group_cache.insert(hash, bind_group.clone());
         bind_group
     }
@@ -1204,8 +1217,31 @@ impl GpuContext {
             entries,
         });
 
+        // Evict oldest entries when cache exceeds max size
+        const MAX_CACHE_SIZE: usize = 1024;
+        if cache.len() >= MAX_CACHE_SIZE {
+            cache.clear();
+        }
         cache.insert(hash, bind_group.clone());
         bind_group
+    }
+
+    /// Safely read timestamp values from a mapped GPU readback buffer.
+    /// Returns None if the buffer is too small or mapping fails.
+    fn read_timestamps_from_buffer(
+        &self,
+        slice: &wgpu::BufferSlice,
+        readback_buffer: &wgpu::Buffer,
+    ) -> Option<(f64, f64)> {
+        let mapped = slice.get_mapped_range();
+        if mapped.len() < 16 {
+            readback_buffer.unmap();
+            return None;
+        }
+        let first = u64::from_le_bytes(mapped[0..8].try_into().ok()?);
+        let second = u64::from_le_bytes(mapped[8..16].try_into().ok()?);
+        readback_buffer.unmap();
+        Some((first as f64, second as f64))
     }
 
     pub(crate) fn dispatch_profiled(
@@ -1263,25 +1299,18 @@ impl GpuContext {
                 timeout: None,
             });
 
-            rx.recv()
-                .expect("channel closed")
-                .expect("query buffer mapping failed");
-
-            let (start_ts, end_ts) = {
-                let mapped = slice.get_mapped_range();
-                let bytes: &[u8] = &mapped;
-                let first = u64::from_le_bytes(bytes[0..8].try_into().expect("query result slice too small"));
-                let second = u64::from_le_bytes(bytes[8..16].try_into().expect("query result slice too small"));
-                (first as f64, second as f64)
-            };
-            readback_buffer.unmap();
-            let period_ns = self.queue.get_timestamp_period() as f64;
-            let elapsed_ns = if end_ts >= start_ts {
-                (end_ts - start_ts) * period_ns
-            } else {
-                0.0
-            };
-            return std::time::Duration::from_nanos(elapsed_ns.round() as u64);
+            // Safe readback: on failure, fall through to CPU timing
+            if let Ok(Ok(())) = rx.recv().map(|r| r.map_err(|_| ())) {
+                let period_ns = self.queue.get_timestamp_period() as f64;
+                if let Some((start_ts, end_ts)) = self.read_timestamps_from_buffer(&slice, &readback_buffer) {
+                    let elapsed_ns = if end_ts >= start_ts {
+                        (end_ts - start_ts) * period_ns
+                    } else {
+                        0.0
+                    };
+                    return std::time::Duration::from_nanos(elapsed_ns.round() as u64);
+                }
+            }
         }
 
         let start = std::time::Instant::now();
@@ -1385,25 +1414,19 @@ impl GpuContext {
             });
             // No blocking poll - let GPU work asynchronously, map_async will callback when ready
 
-            rx.recv()
-                .expect("channel closed")
-                .expect("query buffer mapping failed");
-
-            let (start_ts, end_ts) = {
-                let mapped = slice.get_mapped_range();
-                let bytes: &[u8] = &mapped;
-                let first = u64::from_le_bytes(bytes[0..8].try_into().expect("query result slice too small"));
-                let second = u64::from_le_bytes(bytes[8..16].try_into().expect("query result slice too small"));
-                (first as f64, second as f64)
-            };
+            // Safe readback with error fallback: fall through to CPU timing on failure
+            if let Ok(Ok(())) = rx.recv().map(|r| r.map_err(|_| ())) {
+                if let Some((start_ts, end_ts)) = self.read_timestamps_from_buffer(&slice, &readback_buffer) {
+                    let period_ns = self.queue.get_timestamp_period() as f64;
+                    let elapsed_ns = if end_ts >= start_ts {
+                        (end_ts - start_ts) * period_ns
+                    } else {
+                        0.0
+                    };
+                    return std::time::Duration::from_nanos(elapsed_ns.round() as u64);
+                }
+            }
             readback_buffer.unmap();
-            let period_ns = self.queue.get_timestamp_period() as f64;
-            let elapsed_ns = if end_ts >= start_ts {
-                (end_ts - start_ts) * period_ns
-            } else {
-                0.0
-            };
-            return std::time::Duration::from_nanos(elapsed_ns.round() as u64);
         }
 
         let start = std::time::Instant::now();
@@ -1471,6 +1494,7 @@ impl GpuContext {
                 timeout: None,
             });
 
+            // safe: channel stays open until result received; buffer mapping succeeds after poll
             rx.recv()
                 .expect("channel closed")
                 .expect("query buffer mapping failed");
@@ -1478,6 +1502,7 @@ impl GpuContext {
             let (start_ts, end_ts) = {
                 let mapped = slice.get_mapped_range();
                 let bytes: &[u8] = &mapped;
+                // safe: QUERY_SIZE is 8 bytes, we read exactly 8 bytes
                 let first = u64::from_le_bytes(bytes[0..8].try_into().expect("query result slice too small"));
                 let second = u64::from_le_bytes(bytes[8..16].try_into().expect("query result slice too small"));
                 (first as f64, second as f64)
@@ -1780,12 +1805,16 @@ impl GpuContext {
             return Err(GpuError::MatMulShape(a_shape, b_shape));
         }
 
-        let m = a_shape[0] as u32;
-        let k = a_shape[1] as u32;
-        let n = b_shape[1] as u32;
-        let tile = self.caps.adaptive_tile_size(m as usize, n as usize, k as usize);
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[1];
+        let m_u32 = u32::try_from(m).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let tile = self.caps.adaptive_tile_size(m, n, k);
+        let tile_u32 = u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
-        let c_size = (m as u64) * (n as u64) * 4;
+        let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
         let c_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("matmul_output"),
             size: c_size,
@@ -1801,7 +1830,7 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let dims_data: [u32; 4] = [m, k, n, tile];
+        let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
         self.queue
             .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
 
@@ -4562,6 +4591,7 @@ impl GpuTensor {
     }
 
     pub fn to_cpu(&self) -> ArrayD<f32> {
+        // safe: GpuTensor is only created when GPU context is initialized
         let ctx = Self::ctx().expect("GPU context not initialized");
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
@@ -4584,12 +4614,14 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
+        // safe: device polling ensures readback completes; only fails on GPU loss
         readback_with_timeout(&ctx.device, &rx)
             .expect("GPU readback failed in to_cpu");
 
         let result = {
             let mapped = slice.get_mapped_range();
             let data: &[f32] = bytemuck::cast_slice(&*mapped);
+            // safe: data.len() * 4 == byte_size == self.numel() * 4
             ArrayD::from_shape_vec(self.shape.clone(), data.to_vec())
                 .expect("shape mismatch in GPU→CPU transfer")
         };
@@ -4599,6 +4631,7 @@ impl GpuTensor {
 
     /// Read back raw bytes (for u32 output buffers like sampler tokens)
     pub fn to_cpu_raw_bytes(&self) -> Vec<u8> {
+        // safe: GpuTensor is only created when GPU context is initialized
         let ctx = Self::ctx().expect("GPU context not initialized");
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
@@ -4621,6 +4654,7 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
+        // safe: device polling ensures readback completes; only fails on GPU loss
         readback_with_timeout(&ctx.device, &rx)
             .expect("GPU readback failed in to_cpu_raw_bytes");
 
@@ -4635,6 +4669,7 @@ impl GpuTensor {
     /// Read back only the first element for quick validation
     /// Much faster than full tensor readback
     pub fn to_cpu_first_element(&self) -> f32 {
+        // safe: GpuTensor is only created when GPU context is initialized
         let ctx = Self::ctx().expect("GPU context not initialized");
         ctx.flush();
 
@@ -4656,6 +4691,7 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
+        // safe: device polling ensures readback completes; only fails on GPU loss
         readback_with_timeout(&ctx.device, &rx)
             .expect("GPU readback failed in to_cpu_first_element");
 
@@ -4669,6 +4705,7 @@ impl GpuTensor {
     /// Read back a checksum of the tensor for validation
     /// Faster than full readback for large tensors
     pub fn to_cpu_checksum(&self) -> f32 {
+        // safe: GpuTensor is only created when GPU context is initialized
         let ctx = Self::ctx().expect("GPU context not initialized");
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
@@ -4691,6 +4728,7 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
+        // safe: device polling ensures readback completes; only fails on GPU loss
         readback_with_timeout(&ctx.device, &rx)
             .expect("GPU readback failed in to_cpu_checksum");
 

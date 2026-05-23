@@ -868,27 +868,15 @@ impl ConsensusBuilderAgent {
         _disagreement: &DisagreementResult,
         reasoning: &ReasoningEvaluation,
     ) -> AgentResult<ConsensusResult> {
-        // Simplified Delphi method - iterate towards consensus
-        let mut iteration = 0;
-        let max_iterations = 3;
+        // Delphi consensus requires multiple feedback rounds, but only one
+        // iteration is implemented. Real Delphi needs at least 3 rounds
+        // with anonymous feedback between each.
+        drop(input);
+        drop(reasoning);
 
-        let mut current_outputs = input.agent_outputs.clone();
-
-        while iteration < max_iterations {
-            iteration += 1;
-
-            // In real implementation, this would involve feedback rounds
-            // For now, return a simplified result
-            break;
-        }
-
-        Ok(ConsensusResult {
-            consensus_text: "Delphi consensus result".to_string(),
-            agreement_level: 0.85,
-            dissenting_views: vec![],
-            rationale: "Consensus reached through iterative Delphi method".to_string(),
-            confidence: 0.9,
-        })
+        Err(nexora_shared::agent_types::AgentError::ProcessingFailed(
+            "Delphi consensus not implemented: requires multi-round feedback with anonymous voting".to_string(),
+        ))
     }
 
     /// Build hybrid consensus

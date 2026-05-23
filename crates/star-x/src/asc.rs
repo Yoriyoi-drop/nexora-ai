@@ -6,7 +6,7 @@
 //! - GPU utilization optimization
 //! - Recurrent bottleneck elimination
 
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
@@ -55,8 +55,8 @@ impl AssociativeOperator {
 
     /// Apply associative operation: A ⊗ B
     pub fn associative_operation(&self, a: &ArrayD<f32>, b: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let a_flat = a.as_slice().expect("tensor should be contiguous");
-        let b_flat = b.as_slice().expect("tensor should be contiguous");
+        let a_flat = require_contiguous(a.as_slice())?;
+        let b_flat = require_contiguous(b.as_slice())?;
 
         if a_flat.len() != self.hidden_size || b_flat.len() != self.hidden_size {
             return Err(DeepLearningError::ShapeMismatch {
@@ -71,16 +71,12 @@ impl AssociativeOperator {
 
         // Associative composition
         let mut composed = Array1::zeros(self.hidden_size);
-        let comp_flat = composed
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
+        let comp_flat = require_contiguous_mut(composed.as_slice_mut())?;
         let a_trans_flat = transformed_a
-            .as_slice()
-            .expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
         let b_trans_flat = transformed_b
-            .as_slice()
-            .expect("tensor should be contiguous");
-        let bias_flat = self.bias.as_slice().expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let bias_flat = require_contiguous(self.bias.as_slice())?;
 
         for i in 0..self.hidden_size {
             // Element-wise associative operation
@@ -93,7 +89,7 @@ impl AssociativeOperator {
 
     /// Matrix multiplication
     fn matmul(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -127,8 +123,8 @@ impl AssociativeOperator {
         let right_final = self.associative_operation(a, &right_result)?;
 
         // Compare results
-        let left_flat = left_final.as_slice().expect("tensor should be contiguous");
-        let right_flat = right_final.as_slice().expect("tensor should be contiguous");
+        let left_flat = require_contiguous(left_final.as_slice())?;
+        let right_flat = require_contiguous(right_final.as_slice())?;
 
         let mut difference = 0.0;
         for (l, r) in left_flat.iter().zip(right_flat.iter()) {
@@ -193,11 +189,9 @@ impl ParallelAssociativeScan {
 
         // Final composition (simplified - in practice would be element-wise)
         let mut final_state = Array1::zeros(self.hidden_size);
-        let final_flat = final_state
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
-        let state_flat = state_part.as_slice().expect("tensor should be contiguous");
-        let input_flat = input_part.as_slice().expect("tensor should be contiguous");
+        let final_flat = require_contiguous_mut(final_state.as_slice_mut())?;
+        let state_flat = require_contiguous(state_part.as_slice())?;
+        let input_flat = require_contiguous(input_part.as_slice())?;
 
         for i in 0..self.hidden_size {
             final_flat[i] = state_flat[i] + input_flat[i];
@@ -395,7 +389,9 @@ impl ParallelAssociativeScan {
             let chunk_result = self.sequential_scan(chunk, &running_state)?;
             running_state = chunk_result
                 .last()
-                .expect("chunk results should not be empty")
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "chunk has no elements".to_string(),
+                })?
                 .clone();
             chunk_results.push(chunk_result);
         }
@@ -474,7 +470,9 @@ impl ParallelAssociativeScan {
             let chunk_results = self.sequential_scan(chunk, &current_state)?;
             current_state = chunk_results
                 .last()
-                .expect("chunk results should not be empty")
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "chunk has no elements".to_string(),
+                })?
                 .clone();
             all_results.extend(chunk_results);
         }
@@ -502,8 +500,8 @@ impl ParallelAssociativeScan {
 
         let mut total_error = 0.0;
         for (seq, par) in sequential_results.iter().zip(parallel_results.iter()) {
-            let seq_flat = seq.as_slice().expect("tensor should be contiguous");
-            let par_flat = par.as_slice().expect("tensor should be contiguous");
+            let seq_flat = require_contiguous(seq.as_slice())?;
+            let par_flat = require_contiguous(par.as_slice())?;
 
             for (s, p) in seq_flat.iter().zip(par_flat.iter()) {
                 total_error += (s - p).abs();

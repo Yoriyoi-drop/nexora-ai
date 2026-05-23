@@ -595,9 +595,7 @@ impl PersistentResonanceMemory {
     pub fn set_write_threshold(&mut self, threshold: f32) {
         self.write_threshold = threshold;
     }
-}
 
-/// Memory statistics
     pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
         vec![
             self.novelty_weights.clone().into_dyn(),

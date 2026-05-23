@@ -472,7 +472,6 @@ impl InferenceRuntime {
                             let new_tokens = tokens.saturating_sub(prev_tokens);
                             drop(metrics);
 
-                            // Log aggregate activity every cycle
                             if new_requests > 0 || new_tokens > 0 {
                                 debug!(
                                     "Perf tracking: +{} requests, +{} tokens in interval",
@@ -481,6 +480,7 @@ impl InferenceRuntime {
                             }
                             prev_total_requests = total;
                             prev_tokens = tokens;
+                            // TODO: aggregate and reset performance counters each interval
                         }
                         RuntimeState::ShuttingDown | RuntimeState::Shutdown => break,
                         _ => continue,

@@ -349,7 +349,7 @@ impl SystemMonitor {
         let cpu_sample = {
             let mut system = self.system.lock().await;
             system.refresh_cpu();
-            system.global_cpu_usage() as f64
+            system.global_cpu_info().cpu_usage() as f64
         };
         let now = Instant::now();
         {

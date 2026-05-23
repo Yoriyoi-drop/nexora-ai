@@ -7,7 +7,7 @@
 //! - Long-term memory retention
 
 use crate::core::EpisodicMemory;
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, Array2, ArrayD};
 use std::collections::HashMap;
 
@@ -142,6 +142,7 @@ impl EpisodicMemoryRetention {
 
     /// Compute entropy/complexity of state
     fn compute_state_entropy(&self, state: &ArrayD<f32>) -> f32 {
+        // safe: state is freshly computed and contiguous
         let state_flat = state.as_slice().expect("tensor should be contiguous");
 
         // Normalize to probability distribution
@@ -213,7 +214,7 @@ impl EpisodicMemoryRetention {
         entry.relevance_score = priority;
 
         // Store in matrix
-        let state_flat = state.as_slice().expect("tensor should be contiguous");
+        let state_flat = require_contiguous(state.as_slice())?;
         if slot < self.max_size && state_flat.len() <= self.memory_matrix.shape()[1] {
             for (i, &val) in state_flat.iter().enumerate() {
                 self.memory_matrix[[slot, i]] = val;
@@ -253,8 +254,8 @@ impl EpisodicMemoryRetention {
 
     /// Compute cosine similarity
     fn compute_similarity(&self, query: &ArrayD<f32>, memory: &ArrayD<f32>) -> DLResult<f32> {
-        let query_flat = query.as_slice().expect("tensor should be contiguous");
-        let memory_flat = memory.as_slice().expect("tensor should be contiguous");
+        let query_flat = require_contiguous(query.as_slice())?;
+        let memory_flat = require_contiguous(memory.as_slice())?;
 
         if query_flat.len() != memory_flat.len() {
             return Ok(0.0);
@@ -314,14 +315,12 @@ impl EpisodicMemoryRetention {
 
         let first_content = &retrieved[0].2;
         let mut aggregated = Array1::zeros(first_content.len());
-        let agg_flat = aggregated
-            .as_slice_mut()
-            .expect("tensor should be contiguous");
+        let agg_flat = require_contiguous_mut(aggregated.as_slice_mut())?;
 
         let mut total_weight = 0.0;
 
         for (_, similarity, content) in retrieved {
-            let content_flat = content.as_slice().expect("tensor should be contiguous");
+            let content_flat = require_contiguous(content.as_slice())?;
             let weight = similarity; // Use similarity as weight
 
             for (i, &val) in content_flat.iter().enumerate().take(agg_flat.len()) {

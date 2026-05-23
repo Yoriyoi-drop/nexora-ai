@@ -130,6 +130,8 @@ impl EchoNetModel {
         };
         let isc = InverseSpectralCollapse::new(embedding_dim, isc_cfg)?;
 
+        use tracing::warn;
+
         // SSE params jadi Tensor (block 1)
         let sse_params = sse
             .get_parameters()
@@ -143,12 +145,29 @@ impl EchoNetModel {
 
         // APSS params (block 2) — hyperparameters only, no learnable weights
         let apss_params: Vec<Tensor> = Vec::new();
+        warn!("EchoNet: APSS block uses raw ndarray — no gradient flow. Trainable weights not yet implemented.");
 
-        // MBHW params (block 3) — no learnable weights currently
-        let mbhw_params: Vec<Tensor> = Vec::new();
+        // MBHW params (block 3) — frequency_filters registered as trainable
+        let mbhw_params = mbhw
+            .get_parameters()
+            .iter()
+            .map(|arr| {
+                let t = Tensor::new(arr.clone().into_dyn());
+                t.set_requires_grad(true);
+                t
+            })
+            .collect::<Vec<_>>();
 
-        // RHC params (block 4) — no learnable weights currently
-        let rhc_params: Vec<Tensor> = Vec::new();
+        // RHC params (block 4) — feature_extractors registered as trainable
+        let rhc_params = rhc
+            .get_parameters()
+            .iter()
+            .map(|arr| {
+                let t = Tensor::new(arr.clone().into_dyn());
+                t.set_requires_grad(true);
+                t
+            })
+            .collect::<Vec<_>>();
 
         // PRM params (block 5) — novelty_weights + resonance_kernel wrapped as Tensor
         let prm_params = prm
@@ -175,7 +194,16 @@ impl EchoNetModel {
         .collect();
 
         // DERR params (block 7) — no learnable weights currently
-        let derr_params: Vec<Tensor> = Vec::new();
+        let derr_params = derr
+            .get_parameters()
+            .iter()
+            .map(|arr| {
+                let t = Tensor::new(arr.clone().into_dyn());
+                t.set_requires_grad(true);
+                t
+            })
+            .collect::<Vec<_>>();
+        warn!("EchoNet: DERR block uses raw ndarray — no gradient flow. Trainable weights not yet implemented.");
 
         // TKRR params (block 8) — relevance_weights wrapped as Tensor
         let tkrr_params = tkrr
@@ -227,9 +255,11 @@ impl EchoNetModel {
 
         // APSS (block 2) — no param sync needed
 
-        // MBHW (block 3) — no param sync needed
+        // MBHW (block 3)
+        self.mbhw.set_parameters_from_tensors(&self.mbhw_params);
 
-        // RHC (block 4) — no param sync needed
+        // RHC (block 4)
+        self.rhc.set_parameters_from_tensors(&self.rhc_params);
 
         // PRM (block 5) — if params are registered, sync them
         self.prm.set_parameters_from_tensors(&self.prm_params);

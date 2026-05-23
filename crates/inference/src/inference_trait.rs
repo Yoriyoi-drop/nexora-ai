@@ -99,7 +99,8 @@ impl ModelForward for nexora_transformer::CausalLM {
                     // Inject a non-zero sentinel in the last position so callers
                     // can detect the failure if they check for it.
                     if zeros.len() > 0 {
-                        zeros[zeros.len() - 1] = -f32::INFINITY;
+                        let last = zeros.len() - 1;
+                        zeros[last] = -f32::INFINITY;
                     }
                     zeros
                 }
@@ -132,7 +133,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                 }
                 Err(e) => {
                     GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
-                    tracing::error!("GPU batched forward failed ({}), falling back to CPU per-sequence", e);
+                    tracing::warn!("GPU forward failed: {}, falling back to CPU", e);
                 }
             }
             for (i, entries) in vec_caches.into_iter().enumerate() {

@@ -19,7 +19,8 @@
 
 use crate::utils::{Complex, HolographicFFT, MemoryCompressor};
 use crate::{DLResult, DeepLearningError};
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, ArrayD};
+use nexora_autograd::Tensor;
 
 /// Compression level configuration
 #[derive(Debug, Clone)]
@@ -565,6 +566,25 @@ impl RecursiveHolographicCompression {
     /// Set compression budget
     pub fn set_compression_budget(&mut self, budget: f32) {
         self.compression_budget = budget;
+    }
+
+    pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
+        let mut params = Vec::new();
+        for extractor in &self.feature_extractors {
+            params.push(extractor.clone().into_dyn());
+        }
+        params
+    }
+
+    pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {
+        for (i, t) in tensors.iter().enumerate() {
+            if i < self.feature_extractors.len() {
+                let d = t.data();
+                if let Ok(arr) = d.clone().into_shape(self.feature_extractors[i].dim()) {
+                    self.feature_extractors[i] = arr;
+                }
+            }
+        }
     }
 }
 

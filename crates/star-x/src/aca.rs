@@ -7,7 +7,7 @@
 //! - Scaling yang lebih efisien
 
 use crate::core::AdaptiveCompute;
-use crate::{DLResult, DeepLearningError};
+use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 use std::collections::HashMap;
@@ -152,10 +152,9 @@ impl AdaptiveComputeAllocation {
         input: &ArrayD<f32>,
         hidden_state: &ArrayD<f32>,
     ) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         let hidden_flat = hidden_state
-            .as_slice()
-            .expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
 
         let mut concatenated = Vec::with_capacity(input_flat.len() + hidden_flat.len());
         concatenated.extend_from_slice(input_flat);
@@ -171,7 +170,7 @@ impl AdaptiveComputeAllocation {
             return Ok(result);
         }
 
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
         if input_flat.len() != weights.shape()[0] {
             return Err(DeepLearningError::ShapeMismatch {
                 expected: vec![weights.shape()[0]],
@@ -216,6 +215,7 @@ impl AdaptiveComputeAllocation {
 
     /// Add bias
     fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
+        // safe: output is freshly computed and contiguous
         let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
@@ -232,8 +232,7 @@ impl AdaptiveComputeAllocation {
         // Apply sigmoid
         let complexity_prob = self.sigmoid_array(complexity_output);
         let complexity_flat = complexity_prob
-            .as_slice()
-            .expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
 
         Ok(complexity_flat[0])
     }
@@ -254,8 +253,7 @@ impl AdaptiveComputeAllocation {
         // Apply softmax
         let routing_probs = self.softmax_array(&routing_output)?;
         let routing_flat = routing_probs
-            .as_slice()
-            .expect("tensor should be contiguous");
+            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
 
         // Importance = weighted sum of compute levels
         let importance = routing_flat[0] * 0.0 + routing_flat[1] * 0.5 + routing_flat[2] * 1.0;
@@ -264,7 +262,7 @@ impl AdaptiveComputeAllocation {
 
     /// Softmax untuk routing probabilities
     fn softmax_array(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
+        let input_flat = require_contiguous(input.as_slice())?;
 
         // Find max for numerical stability
         let max_val = input_flat.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
