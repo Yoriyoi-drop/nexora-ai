@@ -391,7 +391,10 @@ pub fn exp(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let result_cpu = gpu_result.to_cpu();
+                        let result_cpu = gpu_result.to_cpu().unwrap_or_else(|e| {
+                            tracing::error!("GPU readback for result_cpu failed: {e}");
+                            ArrayD::zeros(gpu_result.shape())
+                        });
                         let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
@@ -448,7 +451,10 @@ pub fn ln(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let input_cpu = gpu_input.to_cpu().unwrap_or_else(|e| {
+                            tracing::error!("GPU readback for input_cpu failed: {e}");
+                            ArrayD::zeros(gpu_input.shape())
+                        });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -537,7 +543,10 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let input_cpu = gpu_input.to_cpu().unwrap_or_else(|e| {
+                            tracing::error!("GPU readback for input_cpu failed: {e}");
+                            ArrayD::zeros(gpu_input.shape())
+                        });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -598,7 +607,10 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let result_cpu = gpu_result.to_cpu();
+                        let result_cpu = gpu_result.to_cpu().unwrap_or_else(|e| {
+                            tracing::error!("GPU readback for result_cpu failed: {e}");
+                            ArrayD::zeros(gpu_result.shape())
+                        });
                         let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,

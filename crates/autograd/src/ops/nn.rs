@@ -19,7 +19,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                 let id = next_tensor_id();
                                 return Tensor::from_gpu(gpu_result, id, false);
                             }
-                            let soft_cpu = gpu_result.to_cpu();
+                            let soft_cpu = gpu_result.to_cpu().unwrap_or_else(|e| {
+                                tracing::error!("GPU readback for soft_cpu failed: {e}");
+                                ArrayD::zeros(gpu_result.shape())
+                            });
                             let soft_shape = soft_cpu.shape().to_vec();
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
@@ -155,7 +158,10 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                     let id = crate::tensor::next_tensor_id();
                                     return Tensor::from_gpu(gpu_result, id, false);
                                 }
-                                let soft_cpu = soft.to_cpu();
+                                let soft_cpu = soft.to_cpu().unwrap_or_else(|e| {
+                                    tracing::error!("GPU readback for soft_cpu failed: {e}");
+                                    ArrayD::zeros(soft.shape())
+                                });
                                 let _shape = soft_cpu.shape().to_vec();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
@@ -502,8 +508,14 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                             let id = crate::tensor::next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let data_cpu = gpu_in.to_cpu();
-                        let tgt_cpu = gpu_t.to_cpu();
+                        let data_cpu = gpu_in.to_cpu().unwrap_or_else(|e| {
+                            tracing::error!("GPU readback for data_cpu failed: {e}");
+                            ArrayD::zeros(gpu_in.shape())
+                        });
+                        let tgt_cpu = gpu_t.to_cpu().unwrap_or_else(|e| {
+                            tracing::error!("GPU readback for tgt_cpu failed: {e}");
+                            ArrayD::zeros(gpu_t.shape())
+                        });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],

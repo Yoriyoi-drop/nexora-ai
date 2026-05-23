@@ -1312,11 +1312,14 @@ impl SedcCompressor {
         )?;
 
         // Download results
-        let r_arr = r_gpu.to_cpu().into_dimensionality::<ndarray::Ix2>()
+        let r_cpu = r_gpu.to_cpu()?;
+        let c_cpu = c_gpu.to_cpu()?;
+        let w_approx_cpu = w_approx_gpu.to_cpu()?;
+        let r_arr = r_cpu.into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
-        let c_arr = c_gpu.to_cpu().into_dimensionality::<ndarray::Ix2>()
+        let c_arr = c_cpu.into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
-        let w_approx_arr = w_approx_gpu.to_cpu().into_dimensionality::<ndarray::Ix2>()
+        let w_approx_arr = w_approx_cpu.into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
 
         // Compute error
@@ -1480,7 +1483,8 @@ impl SedcCompressor {
                 // No compression applied or no previous error → pass through
                 let w_gpu = GpuTensor::from_cpu(&w_orig.clone().into_dyn())
                     .map_err(|e| SedcError::Svd(e.to_string()))?;
-                let w_cpu = w_gpu.to_cpu().into_dimensionality::<ndarray::Ix2>()
+                let w_cpu_arr = w_gpu.to_cpu()?;
+                let w_cpu = w_cpu_arr.into_dimensionality::<ndarray::Ix2>()
                     .map_err(|e| SedcError::Svd(e.to_string()))?;
                 compensated.push(w_cpu);
 
@@ -1510,7 +1514,8 @@ impl SedcCompressor {
             let w_comp = ctx.rec_compensate_gpu(
                 &w_next_gpu, &error_gpu, &v_gpu, self.config.rec_lambda,
             )?;
-            let w_comp_cpu = w_comp.to_cpu().into_dimensionality::<ndarray::Ix2>()
+            let w_comp_arr = w_comp.to_cpu()?;
+            let w_comp_cpu = w_comp_arr.into_dimensionality::<ndarray::Ix2>()
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
             compensated.push(w_comp_cpu);
 

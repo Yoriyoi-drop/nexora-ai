@@ -192,7 +192,7 @@ pub fn clip_gradients_batched(
     // Step 3: Download N scalar norms
     let mut total_sq = 0.0f32;
     for norm_t in &norm_tensors {
-        let cpu = norm_t.to_cpu();
+        let cpu = norm_t.to_cpu()?;
         let sum_sq = cpu.iter().copied().next().unwrap_or(0.0);
         total_sq += sum_sq;
     }
