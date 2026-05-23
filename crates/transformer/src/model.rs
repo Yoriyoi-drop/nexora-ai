@@ -1,14 +1,25 @@
+use std::sync::Mutex;
 use std::time::Duration;
 
 use ndarray::{Array1, Array2};
 use rand::Rng;
-use tracing::warn;
+use tracing::{info, warn};
 
 use super::block::TransformerBlock;
 use super::config::TransformerConfig;
 use super::gqa::{KVCacheEntry, KVCacheProvider, CpuKVCache, PagedCacheReader};
 use super::rope::RoPE;
 use crate::{TransformerError, TransformerResult};
+
+/// Hook for injecting processing between transformer layers.
+pub trait LayerInjector: std::fmt::Debug + Send {
+    fn after_layer(
+        &mut self,
+        layer_idx: usize,
+        h: &mut Array2<f32>,
+        pos: usize,
+    ) -> TransformerResult<()>;
+}
 
 fn softmax(logits: &Array1<f32>) -> Array1<f32> {
     let max_val = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -129,6 +140,9 @@ pub struct CausalLM {
     pub rope: RoPE,
     pub precomputed_cos: Array1<f32>,
     pub precomputed_sin: Array1<f32>,
+    /// Optional injectors that run after specified layers.
+    /// Key = layer index, value = the injector.
+    pub injectors: Vec<(usize, Mutex<Box<dyn LayerInjector>>)>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: parking_lot::Mutex<Option<GpuWeights>>,
     #[cfg(feature = "gpu")]
@@ -147,6 +161,7 @@ impl Clone for CausalLM {
             rope: self.rope.clone(),
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
+            injectors: Vec::new(),
         }
     }
 }
@@ -163,6 +178,7 @@ impl Clone for CausalLM {
             rope: self.rope.clone(),
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
+            injectors: Vec::new(),
             gpu_weights: parking_lot::Mutex::new(None),
             gpu_cache: parking_lot::Mutex::new(None),
         }
@@ -217,6 +233,7 @@ impl CausalLM {
             rope,
             precomputed_cos,
             precomputed_sin,
+            injectors: Vec::new(),
             #[cfg(feature = "gpu")]
             gpu_weights: parking_lot::Mutex::new(None),
             #[cfg(feature = "gpu")]
@@ -282,6 +299,16 @@ impl CausalLM {
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward(&h, kv_cache, layer_idx, &cos_slice, &sin_slice);
+
+            // Run any registered injectors after this layer
+            for (target_layer, injector) in &self.injectors {
+                if *target_layer == layer_idx {
+                    let mut guard = injector.lock().map_err(|e| {
+                        TransformerError::Implementation(format!("Injector lock: {}", e))
+                    })?;
+                    guard.after_layer(layer_idx, &mut h, pos)?;
+                }
+            }
         }
 
         h = self.norm.forward(&h);
@@ -360,6 +387,127 @@ impl CausalLM {
         count
     }
 
+    /// Collect all 2D weight matrices for SEDC compression.
+    /// Returns (weights, names, fusion_pairs).
+    pub fn collect_weights_for_sedc(&self) -> (Vec<Array2<f32>>, Vec<String>, Vec<(usize, usize)>) {
+        let mut weights: Vec<Array2<f32>> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+
+        weights.push(self.token_embedding.clone());
+        names.push("token_embedding".to_string());
+
+        weights.push(self.lm_head.clone());
+        names.push("lm_head".to_string());
+
+        for (i, block) in self.blocks.iter().enumerate() {
+            let prefix = format!("blocks.{}", i);
+            weights.push(block.attention.wq.clone());
+            names.push(format!("{}.attention.wq", prefix));
+            weights.push(block.attention.wk.clone());
+            names.push(format!("{}.attention.wk", prefix));
+            weights.push(block.attention.wv.clone());
+            names.push(format!("{}.attention.wv", prefix));
+            weights.push(block.attention.wo.clone());
+            names.push(format!("{}.attention.wo", prefix));
+            weights.push(block.ffn.w1.clone());
+            names.push(format!("{}.ffn.w1", prefix));
+            weights.push(block.ffn.w2.clone());
+            names.push(format!("{}.ffn.w2", prefix));
+            weights.push(block.ffn.w3.clone());
+            names.push(format!("{}.ffn.w3", prefix));
+        }
+
+        // Fuse consecutive FFN layers in each block: w2 (intermediate→hidden) with next block's wq (hidden→head)
+        let num_fuse = self.blocks.len().saturating_sub(1);
+        let mut fuse_pairs = Vec::with_capacity(num_fuse);
+        // Indices into weights vec: ffn.w2 at offset 2 + i*7, attention.wq at offset 2 + (i+1)*7
+        let per_block = 7;
+        let base = 2; // token_embedding + lm_head
+        for i in 0..num_fuse {
+            let w2_idx = base + i * per_block + 6; // ffn.w2 is 7th matrix in block (0-indexed: wq=0, wk=1, wv=2, wo=3, w1=4, w2=5, w3=6)
+            let wq_idx = base + (i + 1) * per_block + 0;
+            if w2_idx < weights.len() && wq_idx < weights.len() {
+                fuse_pairs.push((w2_idx, wq_idx));
+            }
+        }
+
+        (weights, names, fuse_pairs)
+    }
+
+    /// Run SEDC compression on all model weights with default config.
+    /// Returns compression report as JSON if GPU is available.
+    pub fn compress_sedc_default(&self) -> TransformerResult<Option<serde_json::Value>> {
+        #[cfg(feature = "gpu")]
+        {
+            let config = nexora_autograd::gpu_sedc::SedcConfig::default();
+            self.compress_sedc_json(&config)
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            info!("SEDC requires GPU feature — disabled");
+            Ok(None)
+        }
+    }
+
+    /// Run SEDC compression on all model weights with custom config.
+    /// Returns compression report as JSON if GPU is available.
+    #[cfg(feature = "gpu")]
+    pub fn compress_sedc_json(
+        &self,
+        config: &nexora_autograd::gpu_sedc::SedcConfig,
+    ) -> TransformerResult<Option<serde_json::Value>> {
+        use nexora_autograd::gpu_sedc::SedcCompressor;
+
+        let (weights, names, fuse_pairs) = self.collect_weights_for_sedc();
+
+        if nexora_autograd::gpu::GpuContext::global().is_err() {
+            info!("No GPU context available — SEDC compression skipped");
+            return Ok(None);
+        }
+
+        let compressor = SedcCompressor::new(config.clone());
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        let fused = compressor
+            .compress_model(&weights, &name_refs, &fuse_pairs)
+            .map_err(|e| TransformerError::Implementation(format!("SEDC compress: {}", e)))?;
+
+        let report = fused.report;
+        info!(
+            "SEDC compression complete: {}→{} params ({:.2}% ratio), {:.4} error",
+            report.total_original,
+            report.total_compressed,
+            report.total_ratio * 100.0,
+            report.mean_relative_error,
+        );
+
+        let layers_json: Vec<serde_json::Value> = report
+            .layers
+            .iter()
+            .map(|l| {
+                serde_json::json!({
+                    "layer": l.layer,
+                    "name": l.name,
+                    "original_params": l.original_params,
+                    "compressed_params": l.compressed_params,
+                    "compression_ratio": l.compression_ratio,
+                    "rank": l.rank,
+                    "spectral_entropy": l.spectral_entropy,
+                    "relative_error": l.relative_error,
+                    "sparsity": l.sparsity,
+                })
+            })
+            .collect();
+
+        Ok(Some(serde_json::json!({
+            "total_original": report.total_original,
+            "total_compressed": report.total_compressed,
+            "total_ratio": report.total_ratio,
+            "mean_relative_error": report.mean_relative_error,
+            "mean_sparsity": report.mean_sparsity,
+            "layers": layers_json,
+        })))
+    }
+
     pub fn from_checkpoint(
         config: TransformerConfig,
         path: &str,
@@ -409,6 +557,7 @@ impl CausalLM {
             let name = prefix.clone() + "ffn.w3";
             block.ffn.w3 = to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned();
         }
+        model.injectors = Vec::new();
         Ok(model)
     }
 

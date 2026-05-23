@@ -94,7 +94,10 @@ impl NexoraAI {
 
         let registry = global_registry();
 
-        let active_model_id = NxrModelId::Omnis;
+        let active_model_id = config
+            .models
+            .active_model
+            .unwrap_or(NxrModelId::Omnis);
         info!(
             "Active model: {} ({})",
             active_model_id,
@@ -178,14 +181,18 @@ impl NexoraAI {
         })));
 
         Ok(Self {
-            registry,
+            registry: registry.clone(),
             active_model_id,
             config,
             start_time: Utc::now(),
             system_info_cache,
             request_count: request_count.clone(),
             system_monitor,
-            request_processor: RequestProcessor::new(request_count.clone()),
+            request_processor: RequestProcessor::new(
+                request_count.clone(),
+                registry.clone(),
+                active_model_id,
+            ),
             agent_manager,
             train_metrics,
         })

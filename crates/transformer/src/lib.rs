@@ -13,7 +13,7 @@ pub use config::TransformerConfig;
 pub use gqa::{KVCacheEntry, KVCacheProvider, CpuKVCache, PagedCacheReader};
 #[cfg(feature = "gpu")]
 pub use gqa::{GpuKVCache, GpuKVCacheEntry};
-pub use model::CausalLM;
+pub use model::{CausalLM, LayerInjector};
 pub use mtp::{MTPConfig, MTPHeads, MTPInference};
 pub use rms_norm::RMSNorm;
 pub use rope::RoPE;

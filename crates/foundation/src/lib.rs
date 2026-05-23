@@ -33,6 +33,7 @@ pub mod training;
 
 // Include NXR Model Series
 pub mod causal_lm_model;
+pub mod echo_net_injector;
 pub mod clustering_orchestrator;
 #[cfg(feature = "gpu")]
 pub mod gpu_cluster_ops;

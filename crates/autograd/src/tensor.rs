@@ -225,8 +225,11 @@ impl Tensor {
                         })));
                         t
                     }
-                    Err(_) => {
-                        // Fallback to CPU if GPU transfer fails
+                    Err(e) => {
+                        tracing::warn!(
+                            "GPU transfer failed ({}), falling back to CPU — model performance may degrade",
+                            e
+                        );
                         let t = Tensor::new(cpu_data);
                         t.set_requires_grad(requires_grad);
                         t

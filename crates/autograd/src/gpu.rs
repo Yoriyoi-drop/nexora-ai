@@ -287,7 +287,6 @@ impl GpuContext {
                     wgpu::BufferBindingType::Storage { read_only } => {
                         read_only.hash(&mut hasher);
                     }
-                    _ => {}
                 }
                 has_dynamic_offset.hash(&mut hasher);
                 if let Some(size) = min_binding_size {
@@ -1862,8 +1861,8 @@ impl GpuContext {
             ],
         });
 
-        let wgx = (m + tile - 1) / tile;
-        let wgy = (n + tile - 1) / tile;
+        let wgx = (m_u32 + tile_u32 - 1) / tile_u32;
+        let wgy = (n_u32 + tile_u32 - 1) / tile_u32;
         self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
 
         Ok(GpuTensor {

@@ -6,6 +6,7 @@ pub mod crypto;
 pub mod file_utils;
 pub mod math;
 pub mod performance;
+pub mod simd_ops;
 pub mod string;
 pub mod text_processing;
 pub mod time;

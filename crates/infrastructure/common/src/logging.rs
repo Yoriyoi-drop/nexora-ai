@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::Level;
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
@@ -11,6 +12,8 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter, Registry,
 };
+
+static LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Simple logging configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +81,11 @@ fn build_env_filter(config: &LoggingConfig, level: Level) -> Result<EnvFilter> {
 
 /// Initialize simple logging system
 pub fn init_logging(config: LoggingConfig) -> Result<()> {
+    if LOGGING_INITIALIZED.swap(true, Ordering::SeqCst) {
+        tracing::warn!("Logging already initialized — ignoring duplicate call");
+        return Ok(());
+    }
+
     let level = parse_log_level(&config.level)?;
 
     // Build environment filter

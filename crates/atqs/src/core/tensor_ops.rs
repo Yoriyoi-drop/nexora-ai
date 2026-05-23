@@ -78,7 +78,7 @@ pub enum TensorDecomposition {
 }
 
 /// Tucker decomposition: A tensor ≈ G ×₁U₁ ×₂U₂ ... ×ₙUₙ
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TuckerDecomposition {
     /// Core tensor G
     pub core: ArrayD<f32>,
@@ -89,7 +89,7 @@ pub struct TuckerDecomposition {
 }
 
 /// Tensor-Train (TT) decomposition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TensorTrainDecomposition {
     /// TT cores G₁, G₂, ..., Gₙ
     pub cores: Vec<ArrayD<f32>>,

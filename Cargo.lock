@@ -3610,6 +3610,7 @@ dependencies = [
  "nexora-common",
  "nexora-core",
  "nexora-deeplearning",
+ "nexora-echo-net",
  "nexora-erp",
  "nexora-hallucination",
  "nexora-has-moe-ffn",

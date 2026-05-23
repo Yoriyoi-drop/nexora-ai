@@ -730,17 +730,12 @@ impl SQLiteConnectionPool {
             idle_connections: idle_count,
             max_connections: self.config.max_connections,
             waiting_requests: self.get_waiting_requests_count().await,
-
-    async fn get_waiting_requests_count(&self) -> usize {
-        *self.waiting_requests.read().await
+            average_wait_time_ms: stats.average_wait_time_ms,
+        })
     }
 
-    fn get_waiting_requests_count(&self) -> usize {
-        if let Ok(waiting) = self.waiting_requests.try_read() {
-            *waiting
-        } else {
-            0
-        }
+    pub async fn get_waiting_requests_count(&self) -> usize {
+        *self.waiting_requests.read().await
     }
 }
 

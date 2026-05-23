@@ -292,6 +292,54 @@ impl SimdVectorOps {
             .sum::<f32>()
             .sqrt()
     }
+
+    /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
+    #[must_use]
+    pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
+        if is_avx2_supported() {
+            unsafe { Self::dot_product_avx2(a, b) }
+        } else {
+            Self::dot_product_fallback(a, b)
+        }
+    }
+
+    /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
+    pub fn add(a: &[f32], b: &[f32], result: &mut [f32]) {
+        if is_avx2_supported() {
+            unsafe { Self::add_avx2(a, b, result) }
+        } else {
+            Self::add_fallback(a, b, result);
+        }
+    }
+
+    /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
+    pub fn mul(a: &[f32], b: &[f32], result: &mut [f32]) {
+        if is_avx2_supported() {
+            unsafe { Self::mul_avx2(a, b, result) }
+        } else {
+            Self::mul_fallback(a, b, result);
+        }
+    }
+
+    /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
+    #[must_use]
+    pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+        if is_avx2_supported() {
+            unsafe { Self::cosine_similarity_avx2(a, b) }
+        } else {
+            Self::cosine_similarity_fallback(a, b)
+        }
+    }
+
+    /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
+    #[must_use]
+    pub fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
+        if is_avx2_supported() {
+            unsafe { Self::euclidean_distance_avx2(a, b) }
+        } else {
+            Self::euclidean_distance_fallback(a, b)
+        }
+    }
 }
 
 /// SIMD-optimized text operations

@@ -39,6 +39,7 @@ nexora-common = { path = "../infrastructure/common" }
 nexora-deeplearning = { path = "../deeplearning" }
 nexora-tokenizer = { path = "../tokenizer" }
 nexora-hallucination = { path = "../hallucination", optional = true }
+nexora-echo-net = { path = "../echo-net" }
 
 # Framework-specific dependencies
 async-trait.workspace = true
@@ -70,7 +71,7 @@ lru = "0.12"
 [features]
 default = ["hallucination", "gpu"]
 hallucination = ["nexora-hallucination"]
-gpu = ["nexora-deeplearning/gpu"]
+gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true

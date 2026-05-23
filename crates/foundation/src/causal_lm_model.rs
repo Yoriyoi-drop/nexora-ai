@@ -13,6 +13,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
 
+use crate::echo_net_injector::EchoNetInjector;
 use crate::shared::base_model::ValidationResult;
 use crate::shared::{
     CapabilityVector, FinishReason, GenerationMetadata, InputData, ModelMeta, ModelStatistics,
@@ -21,6 +22,7 @@ use crate::shared::{
 };
 
 /// Byte + BPE tokenizer: bytes 0-255 as base (BOS=1, EOS=2), plus optional learned merge rules for IDs ≥ 256.
+#[derive(Clone)]
 pub struct MiniTokenizer {
     vocab_size: usize,
     bpe_token_to_id: HashMap<String, u32>,
@@ -139,6 +141,30 @@ impl MiniTokenizer {
     }
 }
 
+/// Configuration for EchoNet injection into the transformer pipeline.
+#[derive(Debug, Clone)]
+pub struct EchoNetInjectionConfig {
+    /// Which layer index to inject after (e.g. 2 = after layer 2).
+    pub inject_after_layer: usize,
+    /// APSS phase separation strength.
+    pub phase_separation_strength: f32,
+    /// Number of recent tokens to keep in the sliding window for APSS.
+    pub max_window: usize,
+    /// Amplitude modulation factor: h' = h * (1 + alpha * tanh(phase_delta)).
+    pub alpha: f32,
+}
+
+impl Default for EchoNetInjectionConfig {
+    fn default() -> Self {
+        Self {
+            inject_after_layer: 2,
+            phase_separation_strength: 0.1,
+            max_window: 64,
+            alpha: 0.01,
+        }
+    }
+}
+
 pub struct CausalLmModel {
     meta: ModelMeta,
     capabilities: CapabilityVector,
@@ -149,6 +175,9 @@ pub struct CausalLmModel {
     initialized: Arc<RwLock<bool>>,
     statistics: Arc<RwLock<ModelStatistics>>,
     use_gpu: AtomicBool,
+    echo_net_config: Option<EchoNetInjectionConfig>,
+    sedc_enabled: bool,
+    sedc_report: Arc<RwLock<Option<String>>>,
 }
 
 impl CausalLmModel {
@@ -181,12 +210,64 @@ impl CausalLmModel {
             initialized: Arc::new(RwLock::new(false)),
             statistics: Arc::new(RwLock::new(ModelStatistics::default())),
             use_gpu: AtomicBool::new(true),
+            echo_net_config: None,
+            sedc_enabled: false,
+            sedc_report: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub fn with_echo_net(mut self, config: EchoNetInjectionConfig) -> Self {
+        self.echo_net_config = Some(config);
+        self
+    }
+
+    pub fn with_sedc(mut self) -> Self {
+        self.sedc_enabled = true;
+        self
     }
 
     pub async fn load_model(&self) -> NxrModelResult<()> {
         let tc = self.transformer_config.read().await.clone();
-        let model = CausalLM::new(tc.clone());
+        let mut model = CausalLM::new(tc.clone());
+
+        // Attach EchoNet injector if configured
+        if let Some(echo_cfg) = &self.echo_net_config {
+            let injector = EchoNetInjector::new(
+                tc.hidden_size,
+                echo_cfg.phase_separation_strength,
+                echo_cfg.max_window,
+                echo_cfg.alpha,
+            )
+            .map_err(|e| NxrModelError::Internal(format!("EchoNet injector: {}", e)))?;
+
+            model.injectors.push((
+                echo_cfg.inject_after_layer,
+                std::sync::Mutex::new(Box::new(injector)),
+            ));
+
+            info!(
+                "EchoNet APSS injector attached after layer {}",
+                echo_cfg.inject_after_layer
+            );
+        }
+
+        // Run SEDC compression if enabled
+        if self.sedc_enabled {
+            match model.compress_sedc_default() {
+                Ok(Some(report)) => {
+                    let report_str = serde_json::to_string_pretty(&report).unwrap_or_default();
+                    *self.sedc_report.write().await = Some(report_str);
+                    info!("SEDC compression stored in model ✓");
+                }
+                Ok(None) => {
+                    info!("SEDC compression skipped");
+                }
+                Err(e) => {
+                    warn!("SEDC compression failed: {}", e);
+                }
+            }
+        }
+
         *self.model.write().await = Some(model);
         *self.initialized.write().await = true;
         info!("CausalLM model loaded: {} params", tc.parameter_count());
@@ -248,12 +329,14 @@ impl CausalLmModel {
         temperature: f32,
         use_gpu: bool,
     ) -> NxrModelResult<String> {
-        let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-        let input_ids = tok_ref.encode(prompt);
-        drop(tokenizer);
+        let tok = {
+            let tokenizer = self.tokenizer.read().await;
+            tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?
+                .clone()
+        };
+        let input_ids = tok.encode(prompt);
 
         let model_arc = self.model.clone();
         let (output_ids, _) = tokio::task::spawn_blocking(move || {
@@ -273,10 +356,10 @@ impl CausalLmModel {
         .map_err(|e| NxrModelError::Internal(e.to_string()))??;
 
         let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer
+        let tok = tokenizer
             .as_ref()
             .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-        let text = tok_ref.decode(&output_ids);
+        let text = tok.decode(&output_ids);
         Ok(text)
     }
 
@@ -290,38 +373,41 @@ impl CausalLmModel {
         let batch_size = cfg.batch_size;
         let max_steps = cfg.max_steps;
 
-        let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+        let (train_tokens, val_tokens) = {
+            let tokenizer = self.tokenizer.read().await;
+            let tok = tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
 
-        let train_tokens: Vec<Vec<u32>> = data
-            .iter()
-            .filter_map(|t| {
-                let ids = tok_ref.encode(t);
-                if ids.len() >= 2 {
-                    Some(ids)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let val_tokens: Vec<Vec<u32>> = match val_data {
-            Some(vd) => vd
+            let train_tokens: Vec<Vec<u32>> = data
                 .iter()
                 .filter_map(|t| {
-                    let ids = tok_ref.encode(t);
+                    let ids = tok.encode(t);
                     if ids.len() >= 2 {
                         Some(ids)
                     } else {
                         None
                     }
                 })
-                .collect(),
-            None => Vec::new(),
+                .collect();
+
+            let val_tokens: Vec<Vec<u32>> = match val_data {
+                Some(vd) => vd
+                    .iter()
+                    .filter_map(|t| {
+                        let ids = tok.encode(t);
+                        if ids.len() >= 2 {
+                            Some(ids)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
+
+            (train_tokens, val_tokens)
         };
-        drop(tokenizer);
 
         let total_tokens: usize = train_tokens.iter().map(|t| t.len()).sum();
         info!(
@@ -528,15 +614,18 @@ impl NxrModel for CausalLmModel {
     }
 
     async fn infer(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
-        let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+        let tok = {
+            let tokenizer = self.tokenizer.read().await;
+            tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?
+                .clone()
+        };
 
         let text = match &input.data {
             InputData::Text(t) => t.clone(),
             InputData::Tokens(t) => {
-                let decoded = tok_ref.decode(t);
+                let decoded = tok.decode(t);
                 let elapsed = std::time::Instant::now();
                 let total = t.len() as u64;
                 let dur = elapsed.elapsed().as_millis() as u64;
@@ -549,7 +638,7 @@ impl NxrModel for CausalLmModel {
                         t.iter()
                             .enumerate()
                             .map(|(i, &tid)| {
-                                let t = tok_ref.decode(&[tid]);
+                                let t = tok.decode(&[tid]);
                                 TokenOutput {
                                     token_id: tid,
                                     text: t,
@@ -599,8 +688,7 @@ impl NxrModel for CausalLmModel {
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let input_ids = tok_ref.encode(&text);
-        drop(tokenizer);
+        let input_ids = tok.encode(&text);
         let start = std::time::Instant::now();
 
         let model_arc = self.model.clone();
@@ -622,7 +710,7 @@ impl NxrModel for CausalLmModel {
         .map_err(|e| NxrModelError::Internal(e.to_string()))??;
 
         let elapsed = start.elapsed().as_millis() as u64;
-        let generated_text = tok_ref.decode(&output_ids);
+        let generated_text = tok.decode(&output_ids);
 
         let mut stats = self.statistics.write().await;
         stats.total_requests += 1;
@@ -663,15 +751,16 @@ impl NxrModel for CausalLmModel {
         input: &NxrInput,
         callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
     ) -> NxrModelResult<()> {
-        let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-
         let text = match &input.data {
             InputData::Text(t) => t.clone(),
             InputData::Tokens(t) => {
-                let decoded = tok_ref.decode(t);
+                let decoded = {
+                    let tokenizer = self.tokenizer.read().await;
+                    let tok = tokenizer
+                        .as_ref()
+                        .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+                    tok.decode(t)
+                };
                 callback(NxrStreamChunk {
                     id: uuid::Uuid::new_v4(),
                     input_id: input.id,
@@ -704,8 +793,13 @@ impl NxrModel for CausalLmModel {
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let input_ids = tok_ref.encode(&text);
-        drop(tokenizer);
+        let (input_ids, _tok) = {
+            let tokenizer = self.tokenizer.read().await;
+            let tok = tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+            (tok.encode(&text), ())
+        };
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
 
         let model_arc = self.model.clone();
@@ -725,7 +819,7 @@ impl NxrModel for CausalLmModel {
         .map_err(|e| NxrModelError::Internal(e.to_string()))??;
 
         let tokenizer = self.tokenizer.read().await;
-        let tok_ref = tokenizer
+        let tok = tokenizer
             .as_ref()
             .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
         for _ in 0..max_tokens {
@@ -739,7 +833,7 @@ impl NxrModel for CausalLmModel {
                 .unwrap_or_else(|_| Array1::zeros(vs));
             drop(model);
             let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
-            let token_text = tok_ref.decode(&[next_id]);
+            let token_text = tok.decode(&[next_id]);
             callback(NxrStreamChunk {
                 id: uuid::Uuid::new_v4(),
                 input_id: input.id,

@@ -2,6 +2,11 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
+use nexora_foundation::shared::{
+    base_model::{InputData, NxrInput},
+    model_identity::NxrModelId,
+    model_registry::NxrModelRegistry,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -15,11 +20,21 @@ use super::types::{
 #[derive(Debug, Clone)]
 pub struct RequestProcessor {
     request_count: Arc<AtomicU64>,
+    registry: Arc<NxrModelRegistry>,
+    active_model_id: NxrModelId,
 }
 
 impl RequestProcessor {
-    pub fn new(request_count: Arc<AtomicU64>) -> Self {
-        Self { request_count }
+    pub fn new(
+        request_count: Arc<AtomicU64>,
+        registry: Arc<NxrModelRegistry>,
+        active_model_id: NxrModelId,
+    ) -> Self {
+        Self {
+            request_count,
+            registry,
+            active_model_id,
+        }
     }
 
     /// Process a request with input type detection and routing
@@ -121,24 +136,43 @@ impl RequestProcessor {
     }
 
     async fn model_generate(&self, input: &str) -> NexoraResult<String> {
-        warn!(
-            "RequestProcessor::model_generate — no real model inference path configured. \
-             Input (first 80 chars): {}",
-            &input[..input.len().min(80)]
-        );
-        Ok(format!(
-            "// TODO: route to real model inference\n// Input: {}",
-            input
-        ))
+        let model = self
+            .registry
+            .get_model(&self.active_model_id)
+            .await
+            .map_err(|e| {
+                NexoraError::model(format!(
+                    "Model {} not available: {}",
+                    self.active_model_id, e
+                ))
+            })?;
+
+        let nxr_input = NxrInput {
+            id: uuid::Uuid::new_v4(),
+            timestamp: Utc::now(),
+            data: InputData::Text(input.to_string()),
+            parameters: [
+                ("max_tokens".to_string(), serde_json::json!(256)),
+                ("temperature".to_string(), serde_json::json!(0.7)),
+            ]
+            .into(),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let output = model.infer(&nxr_input).await.map_err(|e| {
+            NexoraError::model(format!("Inference failed for '{}': {}", self.active_model_id, e))
+        })?;
+
+        match output.data {
+            nexora_foundation::shared::base_model::OutputData::Text(text) => Ok(text),
+            _ => Ok(format!("{:?}", output.data)),
+        }
     }
 
-    /// Process query input
+    /// Process query input via model inference
     async fn process_query(&self, query: &str) -> NexoraResult<String> {
         info!("Processing query: {}", query);
-
-        // Simple query processing - would delegate to inference engine
-        let response = format!("Query processed: {}", query);
-        Ok(response)
+        self.model_generate(query).await
     }
 
     /// Process code input
@@ -550,12 +584,18 @@ impl RequestProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexora_foundation::shared::model_registry::NxrModelRegistry;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn make_processor() -> RequestProcessor {
+        let request_count = Arc::new(AtomicU64::new(0));
+        let registry = Arc::new(NxrModelRegistry::new());
+        RequestProcessor::new(request_count, registry, NxrModelId::Omnis)
+    }
 
     #[tokio::test]
     async fn test_process_request_validation() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         // Test empty input
         let result = processor.process_request("").await;
@@ -565,16 +605,11 @@ mod tests {
         let long_input = "a".repeat(10001);
         let result = processor.process_request(&long_input).await;
         assert!(result.is_err());
-
-        // Test valid input
-        let result = processor.process_request("Hello world").await;
-        assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_detect_input_type() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         // Test JSON data
         let input_type = processor.detect_input_type("{\"key\": \"value\"}");
@@ -598,33 +633,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_command() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+    async fn test_process_command_without_model() {
+        let processor = make_processor();
 
+        // Registry is empty — should return model-not-found error, not placeholder
         let result = processor.process_command("/status").await;
-        assert!(result.is_ok());
-
-        let result = processor.process_command("/help").await;
-        assert!(result.is_ok());
-
-        let result = processor.process_command("/unknown").await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not available") || err.contains("NXR-OMNIS"));
     }
 
     #[tokio::test]
-    async fn test_process_query() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+    async fn test_process_query_without_model() {
+        let processor = make_processor();
 
+        // Registry is empty — should return model-not-found error, not placeholder
         let result = processor.process_query("What is Rust?").await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not available") || err.contains("NXR-OMNIS"));
     }
 
     #[tokio::test]
     async fn test_process_code() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = "fn main() {\n    println!(\"Hello, world!\");\n}";
         let result = processor.process_code(code).await;
@@ -636,8 +668,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_data() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         // Test valid JSON
         let json = "{\"name\": \"test\", \"value\": 123}";
@@ -656,8 +687,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_text() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let text = "Hello world! How are you today?";
         let result = processor.process_text(text).await;
@@ -670,8 +700,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_analyze_code() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = r#"
 pub struct Test {
@@ -702,8 +731,7 @@ impl Test {
 
     #[test]
     fn test_extract_functions() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = r#"
 fn main() {}
@@ -714,7 +742,6 @@ private function helper() {}
         let functions = processor.extract_functions(code);
         assert_eq!(functions.len(), 3);
 
-        // Check function names
         let function_names: Vec<String> = functions.iter().map(|f| f.name.clone()).collect();
         assert!(function_names.contains(&"main".to_string()));
         assert!(function_names.contains(&"test".to_string()));
@@ -723,8 +750,7 @@ private function helper() {}
 
     #[test]
     fn test_extract_classes() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = r#"
 pub struct TestStruct {
@@ -739,7 +765,6 @@ class TestClass {
         let classes = processor.extract_classes(code);
         assert_eq!(classes.len(), 2);
 
-        // Check class names
         let class_names: Vec<String> = classes.iter().map(|c| c.name.clone()).collect();
         assert!(class_names.contains(&"TestStruct".to_string()));
         assert!(class_names.contains(&"TestClass".to_string()));
@@ -747,8 +772,7 @@ class TestClass {
 
     #[test]
     fn test_extract_imports() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = r#"
 use std::collections::HashMap;
@@ -759,7 +783,6 @@ import React from 'react';
         let imports = processor.extract_imports(code);
         assert_eq!(imports.len(), 3);
 
-        // Check import types
         let import_types: Vec<String> = imports.iter().map(|i| i.import_type.clone()).collect();
         assert!(import_types.contains(&"use".to_string()));
         assert!(import_types.contains(&"import".to_string()));
@@ -768,8 +791,7 @@ import React from 'react';
 
     #[test]
     fn test_calculate_complexity() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = r#"
 fn test() {
@@ -796,34 +818,27 @@ fn test() {
 
     #[test]
     fn test_detect_language() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
-        // Test Rust
         let rust_code = "fn main() -> Result<(), Box<dyn Error>> { Ok(()) }";
         assert_eq!(processor.detect_language(rust_code), "Rust");
 
-        // Test Python
         let python_code = "def main():\n    print('Hello, world!')";
         assert_eq!(processor.detect_language(python_code), "Python");
 
-        // Test JavaScript
         let js_code = "function main() { console.log('Hello, world!'); }";
         assert_eq!(processor.detect_language(js_code), "JavaScript");
 
-        // Test Java
         let java_code = "public class Main { public static void main(String[] args) {} }";
         assert_eq!(processor.detect_language(java_code), "Java");
 
-        // Test unknown
         let unknown_code = "some random text";
         assert_eq!(processor.detect_language(unknown_code), "Unknown");
     }
 
     #[test]
     fn test_identify_issues() {
-        let request_count = Arc::new(AtomicU64::new(0));
-        let processor = RequestProcessor::new(request_count);
+        let processor = make_processor();
 
         let code = r#"
 fn test() {
@@ -839,12 +854,10 @@ fn test() {
         let issues = processor.identify_issues(code);
         assert!(issues.len() > 0);
 
-        // Check for different issue types
         let issue_types: Vec<IssueSeverity> = issues.iter().map(|i| i.severity.clone()).collect();
         assert!(issue_types.contains(&IssueSeverity::Warning));
         assert!(issue_types.contains(&IssueSeverity::Error));
 
-        // Check for specific issue messages
         let issue_messages: Vec<String> = issues.iter().map(|i| i.message.clone()).collect();
         assert!(issue_messages
             .iter()
