@@ -261,13 +261,13 @@ impl KVCache {
         let shard_index = self.get_shard_index(key);
         let mut shard = self.shards[shard_index].write().await;
 
-        let result = if let Some(entry) = shard.entries.get(key) {
-            // Check if expired
-            if entry.is_expired() {
-                let entry_size = entry.size_bytes;
-                let key_owned = key.to_string(); // Clone key for removal
-                let _ = entry; // Drop the borrow before modifying shard
-                shard.entries.remove(&key_owned);
+        // Check if entry exists and is expired — no reference held after this check
+        let is_expired = shard.entries.get(key).map_or(false, |e| e.is_expired());
+
+        if is_expired {
+            let key_owned = key.to_string();
+            if let Some(removed) = shard.entries.remove(&key_owned) {
+                let entry_size = removed.size_bytes;
                 shard.lru_order.retain(|k| k != &key_owned);
                 shard.current_size_bytes -= entry_size;
 
@@ -278,28 +278,37 @@ impl KVCache {
                     stats.expired_cleaned += 1;
                     self.update_hit_rate(&mut stats);
                 }
-
-                return Ok(None);
             }
 
-            // Cache hit - update access info and LRU order
-            // Update entry in-place to avoid clone
-            entry.update_access();
+            return Ok(None);
+        }
 
-            // Update LRU order - move key to front (more efficient)
-            shard.lru_order.retain(|k| k != key);
-            shard.lru_order.insert(0, key.to_string());
+        // Cache hit or miss path
+        let result = if let Some(mut entry) = shard.entries.remove(key) {
+                // Update access info
+                entry.update_access();
 
-            // Update statistics
-            shard.stats.hits += 1;
-            {
-                let mut stats = self.stats.write().await;
-                stats.hits += 1;
-                self.update_hit_rate(&mut stats);
-            }
+                // Update LRU order — move key to front
+                let key_str = entry.key.clone();
+                shard.lru_order.retain(|k| k != &key_str);
+                shard.lru_order.insert(0, key_str);
 
-            // Return the entry by cloning only at the end (unavoidable for return)
-            Some(entry.clone())
+                // Update shard stats
+                shard.stats.hits += 1;
+
+                // Update global stats
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.hits += 1;
+                    self.update_hit_rate(&mut stats);
+                }
+
+                // Re-insert updated entry
+                let cloned = entry.clone();
+                let key_for_insert = cloned.key.clone();
+                shard.entries.insert(key_for_insert, entry);
+
+                Some(cloned)
         } else {
             // Cache miss
             shard.stats.misses += 1;
@@ -381,6 +390,7 @@ impl KVCache {
 
         // Insert with move semantics to avoid unnecessary clone
         let key_for_lru = key.clone();
+        let key_for_log = key.clone();
         shard.entries.insert(key, new_entry);
         shard.lru_order.push(key_for_lru);
         shard.current_size_bytes += size_bytes;
@@ -394,7 +404,7 @@ impl KVCache {
             stats.last_updated = Utc::now();
         }
 
-        debug!("Cache entry stored successfully: {}", key);
+        debug!("Cache entry stored successfully: {}", key_for_log);
         Ok(())
     }
 

@@ -401,48 +401,45 @@ impl AdaptivePhaseSeparationStabilizer {
 
     pub fn set_parameters_from_tensors(&mut self, tensors: &[nexora_autograd::Tensor]) {
         // Set trainable parameters from tensor gradients
+        // Uses tensor.data() which returns ArrayD<f32> (always succeeds)
         if tensors.len() >= 7 {
             // Phase adjustment parameters
-            if let Ok(strength_val) = tensors[0].to_vec::<f32>() {
-                if !strength_val.is_empty() {
-                    self.phase_separation_strength = strength_val[0];
-                }
+            let strength_val = tensors[0].data().into_raw_vec();
+            if !strength_val.is_empty() {
+                self.phase_separation_strength = strength_val[0];
             }
-            if let Ok(threshold_val) = tensors[1].to_vec::<f32>() {
-                if !threshold_val.is_empty() {
-                    self.similarity_threshold = threshold_val[0];
-                }
+
+            let threshold_val = tensors[1].data().into_raw_vec();
+            if !threshold_val.is_empty() {
+                self.similarity_threshold = threshold_val[0];
             }
-            if let Ok(adjustment_val) = tensors[2].to_vec::<f32>() {
-                if !adjustment_val.is_empty() {
-                    self.max_phase_adjustment = adjustment_val[0];
-                }
+
+            let adjustment_val = tensors[2].data().into_raw_vec();
+            if !adjustment_val.is_empty() {
+                self.max_phase_adjustment = adjustment_val[0];
             }
 
             // Phase stabilization parameters
-            if let Ok(momentum_val) = tensors[3].to_vec::<f32>() {
-                if !momentum_val.is_empty() {
-                    self.momentum_factor = momentum_val[0];
-                }
+            let momentum_val = tensors[3].data().into_raw_vec();
+            if !momentum_val.is_empty() {
+                self.momentum_factor = momentum_val[0];
             }
 
             // Conflict detection parameters
-            if let Ok(conflict_thresh_val) = tensors[4].to_vec::<f32>() {
-                if !conflict_thresh_val.is_empty() {
-                    self.conflict_threshold = conflict_thresh_val[0];
-                }
+            let conflict_thresh_val = tensors[4].data().into_raw_vec();
+            if !conflict_thresh_val.is_empty() {
+                self.conflict_threshold = conflict_thresh_val[0];
             }
-            if let Ok(conflict_penalty_val) = tensors[5].to_vec::<f32>() {
-                if !conflict_penalty_val.is_empty() {
-                    self.conflict_penalty = conflict_penalty_val[0];
-                }
+
+            let conflict_penalty_val = tensors[5].data().into_raw_vec();
+            if !conflict_penalty_val.is_empty() {
+                self.conflict_penalty = conflict_penalty_val[0];
             }
 
             // Phase normalization parameters
-            if let Ok(norm_strength_val) = tensors[6].to_vec::<f32>() {
-                if !norm_strength_val.is_empty() {
-                    self.normalization_strength = norm_strength_val[0];
-                }
+            let norm_strength_val = tensors[6].data().into_raw_vec();
+            if !norm_strength_val.is_empty() {
+                self.normalization_strength = norm_strength_val[0];
             }
         }
     }

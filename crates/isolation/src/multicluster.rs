@@ -367,8 +367,8 @@ impl MultiClusterSystem {
         };
 
         for (name, region) in &mut self.regions {
-            // Simulate health check - in production, this would ping actual endpoints
-            let is_healthy = self.check_region_health(region).await;
+            // Use the standalone health check function (no &self borrow needed)
+            let is_healthy = Self::check_region_health(region);
 
             match is_healthy {
                 HealthStatus::Healthy => {
@@ -389,8 +389,8 @@ impl MultiClusterSystem {
         Ok(report)
     }
 
-    /// Check health of a single region
-    async fn check_region_health(&self, region: &RegionalCluster) -> HealthStatus {
+    /// Check health of a single region (standalone function, no &self dependency)
+    fn check_region_health(region: &RegionalCluster) -> HealthStatus {
         // In production, this would check:
         // - API endpoints
         // - Database connectivity

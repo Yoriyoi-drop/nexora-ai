@@ -15,6 +15,7 @@
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use tracing::warn;
 use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
 use std::arch::x86_64::*;
 
