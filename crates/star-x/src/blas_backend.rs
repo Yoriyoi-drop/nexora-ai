@@ -36,11 +36,17 @@ pub struct BlasOperations {
 
 impl Clone for BlasOperations {
     fn clone(&self) -> Self {
+        // Clone always succeeds since with_backend only errors on detection failure,
+        // and the original instance already has a valid backend. If it does fail,
+        // fall back to CustomSIMD which is infallible.
         Self::with_backend(self.backend).unwrap_or_else(|e| {
-            panic!(
-                "Failed to clone BLAS operations with backend {:?}: {}",
+            warn!(
+                "Failed to clone BLAS operations with backend {:?}: {}. Falling back to CustomSIMD.",
                 self.backend, e
-            )
+            );
+            // CustomSIMD is always available (no external deps)
+            Self::with_backend(BlasBackend::CustomSIMD)
+                .expect("CustomSIMD backend should never fail")
         })
     }
 }
@@ -897,11 +903,17 @@ static GLOBAL_BLAS: std::sync::OnceLock<BlasOperations> = std::sync::OnceLock::n
 
 /// Get global BLAS operations instance
 pub fn get_blas_operations() -> &'static BlasOperations {
-    // safe: auto_detect always succeeds (falls back to CustomSIMD)
     GLOBAL_BLAS.get_or_init(|| {
-        BlasOperations::auto_detect().unwrap_or_else(|e| {
-            panic!("Failed to initialize BLAS backend: {} (falls back to CustomSIMD, should not fail)", e)
-        })
+        match BlasOperations::auto_detect() {
+            Ok(ops) => ops,
+            Err(e) => {
+                // auto_detect always falls back to CustomSIMD, so this should never fail.
+                // But if it does, we still initialize CustomSIMD directly.
+                warn!("BLAS auto-detect failed ({}), using CustomSIMD fallback", e);
+                BlasOperations::with_backend(BlasBackend::CustomSIMD)
+                    .expect("CustomSIMD backend is infallible")
+            }
+        }
     })
 }
 

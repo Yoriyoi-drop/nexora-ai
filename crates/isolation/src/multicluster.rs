@@ -699,11 +699,12 @@ mod tests {
             max: 10,
             target_pct: 70.0,
         };
-        if let ScalingPolicy::AutoCpu { min, max, .. } = auto {
-            assert_eq!(min, 2);
-            assert_eq!(max, 10);
-        } else {
-            unreachable!("Expected AutoCpu variant from constructor")
+        match auto {
+            ScalingPolicy::AutoCpu { min, max, .. } => {
+                assert_eq!(min, 2);
+                assert_eq!(max, 10);
+            }
+            other => panic!("Expected AutoCpu variant, got {:?}", other),
         }
     }
 }

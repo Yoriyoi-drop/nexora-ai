@@ -42,31 +42,107 @@ impl FIDMetric {
         Ok(fid)
     }
 
-    /// STUB: uses sin/cos features from index (placeholder, not real Inception features).
-    /// Replace with an actual Inception-v3 feature extractor.
+    /// STUB: uses pixel-level statistics as placeholder features.
+    /// This is NOT real Inception-v3 feature extraction — FID scores from this
+    /// function will NOT match paper-canonical values.
+    ///
+    /// To implement properly:
+    /// 1. Add a pre-trained Inception-v3 model (e.g. via tch-rs or burn)
+    /// 2. Load weights from pytorch pretrained
+    /// 3. Remove the pooling/classification layers
+    /// 4. Extract 2048-dim features from the penultimate layer
+    ///
+    /// Current implementation uses per-channel mean + standard deviation
+    /// plus spatial intensity histogram as pseudo-features. This provides
+    /// a rough distribution comparison but is NOT production-quality FID.
     fn extract_inception_features(&self, images: &[Tensor]) -> HLDVAResult<Vec<Vec<f32>>> {
         let mut all_features = Vec::new();
 
         for image in images {
             let image_data = image.data();
-            let features = self.simplified_inception_features(image_data)?;
+            let features = self.pseudo_feature_extraction(image_data)?;
             all_features.push(features);
+        }
+
+        if all_features.is_empty() {
+            return Err(HLDVAError::Evaluation(
+                "No features could be extracted from images (FID requires non-empty input)".to_string(),
+            ));
         }
 
         Ok(all_features)
     }
 
-    /// Simplified Inception feature extraction
-    fn simplified_inception_features(&self, image_data: &[f32]) -> HLDVAResult<Vec<f32>> {
-        let feature_dim = 2048; // Standard Inception feature dimension
-        let mut features = Vec::with_capacity(feature_dim);
-
-        // Very simplified feature extraction - in reality this would use a neural network
-        for i in 0..feature_dim {
-            let idx = (i * image_data.len() / feature_dim) % image_data.len();
-            let feature = image_data[idx] * ((i as f32 + 1.0).sin() + 1.0) / 2.0;
-            features.push(feature);
+    /// Pseudo feature extraction using image statistics as a better placeholder.
+    /// Uses: per-channel mean, std, skewness, and intensity histogram bins.
+    /// Total dimension: 4 (moments) * 3 (RGB) + 16 (histogram) = 28 features.
+    /// This is NOT Inception-v3 — replaces the old sin/cos noise features.
+    fn pseudo_feature_extraction(&self, image_data: &[f32]) -> HLDVAResult<Vec<f32>> {
+        let n = image_data.len();
+        if n == 0 {
+            return Err(HLDVAError::Evaluation("Empty image data".to_string()));
         }
+
+        // Assume 3-channel (RGB) image, compute per-channel statistics
+        let channels = 3usize;
+        let pixels_per_channel = n / channels;
+
+        let mut features = Vec::with_capacity(28);
+
+        for c in 0..channels {
+            let start = c * pixels_per_channel;
+            let end = if c == channels - 1 { n } else { (c + 1) * pixels_per_channel };
+            let channel_data = &image_data[start..end];
+            let len = channel_data.len() as f32;
+
+            if len == 0.0 {
+                features.push(0.0); // mean
+                features.push(0.0); // std
+                features.push(0.0); // skew
+                features.push(0.0); // kurtosis
+                continue;
+            }
+
+            // Mean
+            let mean: f32 = channel_data.iter().sum::<f32>() / len;
+            features.push(mean);
+
+            // Variance and std
+            let variance: f32 = channel_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / len;
+            let std = variance.sqrt();
+            features.push(std);
+
+            // Skewness (third moment)
+            let skewness = if variance > 0.0 {
+                channel_data.iter().map(|&x| (x - mean).powi(3)).sum::<f32>() / (len * variance * std)
+            } else {
+                0.0
+            };
+            features.push(skewness);
+
+            // Kurtosis (fourth moment)
+            let kurtosis = if variance > 0.0 {
+                channel_data.iter().map(|&x| (x - mean).powi(4)).sum::<f32>() / (len * variance * variance) - 3.0
+            } else {
+                0.0
+            };
+            features.push(kurtosis);
+        }
+
+        // Intensity histogram (16 bins across all channels)
+        let histogram_bins = 16;
+        let mut histogram = vec![0.0; histogram_bins];
+        for &pixel in image_data.iter().take(256) {
+            let bin = ((pixel * histogram_bins as f32) as usize).min(histogram_bins - 1);
+            histogram[bin] += 1.0;
+        }
+        let hist_total: f32 = histogram.iter().sum();
+        if hist_total > 0.0 {
+            for h in histogram.iter_mut() {
+                *h /= hist_total;
+            }
+        }
+        features.extend(histogram);
 
         Ok(features)
     }

@@ -223,10 +223,12 @@ impl ActionHandler for ClickHandler {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "xdotool tidak ditemukan, simulasi klik di ({:.2}, {:.2})",
+                    "xdotool tidak ditemukan, tidak dapat klik di ({:.2}, {:.2})",
                     x, y
                 );
-                Ok(ExecutionResult::Success)
+                Err(crate::caffeine::error::CaffeineError::action_head(
+                    "Click action requires xdotool which is not installed on this system"
+                ))
             }
             Err(e) => {
                 error!("Gagal menjalankan xdotool: {}", e);
@@ -294,14 +296,12 @@ impl ActionHandler for TypeHandler {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "xdotool tidak ditemukan, simulasi ketik teks ({} karakter)",
+                    "xdotool tidak ditemukan, tidak dapat mengetik teks ({} karakter)",
                     text.len()
                 );
-                sleep(Duration::from_millis(
-                    self.typing_delay_ms * text.len() as u64,
+                Err(crate::caffeine::error::CaffeineError::action_head(
+                    "Type action requires xdotool which is not installed on this system"
                 ))
-                .await;
-                Ok(ExecutionResult::Success)
             }
             Err(e) => {
                 error!("Gagal menjalankan xdotool: {}", e);
@@ -375,10 +375,12 @@ impl ActionHandler for ScrollHandler {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "xdotool tidak ditemukan, simulasi scroll {} sejauh {:.2} unit",
+                    "xdotool tidak ditemukan, tidak dapat scroll {} sejauh {:.2} unit",
                     direction, scroll_distance
                 );
-                Ok(ExecutionResult::Success)
+                Err(crate::caffeine::error::CaffeineError::action_head(
+                    "Scroll action requires xdotool which is not installed on this system"
+                ))
             }
             Err(e) => {
                 error!("Gagal menjalankan xdotool: {}", e);
@@ -476,10 +478,12 @@ impl ActionHandler for DragHandler {
                     }
                     Err(e2) if e2.kind() == std::io::ErrorKind::NotFound => {
                         warn!(
-                            "xdotool tidak ditemukan, simulasi drag dari ({:.2}, {:.2}) ke ({:.2}, {:.2})",
+                            "xdotool tidak ditemukan, tidak dapat drag dari ({:.2}, {:.2}) ke ({:.2}, {:.2})",
                             start_x, start_y, end_x, end_y
                         );
-                        Ok(ExecutionResult::Success)
+                        Err(crate::caffeine::error::CaffeineError::action_head(
+                            "Drag action requires xdotool which is not installed on this system"
+                        ))
                     }
                     Err(e2) => {
                         error!("Gagal menjalankan xdotool: {}", e2);
@@ -496,11 +500,12 @@ impl ActionHandler for DragHandler {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "xdotool tidak ditemukan, simulasi drag dari ({:.2}, {:.2}) ke ({:.2}, {:.2})",
+                    "xdotool tidak ditemukan, tidak dapat drag dari ({:.2}, {:.2}) ke ({:.2}, {:.2})",
                     start_x, start_y, end_x, end_y
                 );
-                sleep(Duration::from_millis(self.drag_duration_ms)).await;
-                Ok(ExecutionResult::Success)
+                Err(crate::caffeine::error::CaffeineError::action_head(
+                    "Drag action requires xdotool which is not installed on this system"
+                ))
             }
             Err(e) => {
                 error!("Gagal menjalankan xdotool: {}", e);
@@ -621,9 +626,8 @@ impl ActionHandler for NavigateHandler {
 }
 
 /// Handler untuk tindakan ekstraksi
-///
-/// Saat ini menggunakan logika ekstraksi simulasi. Membutuhkan backend ekstraksi
-/// nyata untuk produksi.
+///    /// Membutuhkan backend ekstraksi nyata untuk produksi.
+    /// Saat ini mengembalikan error karena belum ada integrasi browser.
 pub struct ExtractHandler {
     extraction_timeout_ms: u64,
 }
@@ -652,23 +656,17 @@ impl ActionHandler for ExtractHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("semantic");
 
-        warn!(
-            "Ekstraksi '{}' menggunakan metode '{}' — ini adalah simulasi, butuh backend ekstraksi nyata",
+        error!(
+            "Ekstraksi '{}' menggunakan metode '{}' — backend ekstraksi belum diimplementasikan",
             target, method
         );
 
-        sleep(Duration::from_millis(500)).await;
-
-        let extracted_content = match target {
-            "text" => "Sample extracted text content",
-            "image" => "Sample extracted image description",
-            "data" => "Sample extracted data",
-            _ => "Sample extracted content",
-        };
-
-        info!("Ekstraksi selesai: {}", extracted_content);
-
-        Ok(ExecutionResult::Success)
+        Err(crate::caffeine::error::CaffeineError::action_head(
+            &format!(
+                "Extract action requires a real browser automation backend. Target: {}, Method: {}",
+                target, method
+            )
+        ))
     }
 
     fn get_handler_name(&self) -> &str {
@@ -677,9 +675,8 @@ impl ActionHandler for ExtractHandler {
 }
 
 /// Handler untuk tindakan analisis
-///
-/// Saat ini menggunakan logika analisis simulasi. Membutuhkan backend analisis
-/// nyata untuk produksi.
+///    /// Membutuhkan backend analisis nyata untuk produksi.
+    /// Saat ini mengembalikan error karena belum ada integrasi analisis.
 pub struct AnalyzeHandler {
     analysis_timeout_ms: u64,
 }
@@ -708,23 +705,17 @@ impl ActionHandler for AnalyzeHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        warn!(
-            "Analisis '{}' — ini adalah simulasi, butuh backend analisis nyata",
+        error!(
+            "Analisis '{}' — backend analisis belum diimplementasikan",
             analysis_type
         );
 
-        sleep(Duration::from_millis(800)).await;
-
-        let analysis_result = match analysis_type {
-            "classification" => "Classification: Positive",
-            "sentiment" => "Sentiment: Neutral",
-            "semantic" => "Semantic analysis completed",
-            _ => "General analysis completed",
-        };
-
-        info!("Hasil analisis: {}", analysis_result);
-
-        Ok(ExecutionResult::Success)
+        Err(crate::caffeine::error::CaffeineError::action_head(
+            &format!(
+                "Analyze action requires a real analysis backend. Analysis type: {}",
+                analysis_type
+            )
+        ))
     }
 
     fn get_handler_name(&self) -> &str {

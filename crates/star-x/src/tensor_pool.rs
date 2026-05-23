@@ -271,11 +271,13 @@ pub struct PoolStats {
 }
 
 /// Global tensor pool instance
-// safe: TensorPool::new only fails on impossible allocation (OOM)
+// TensorPool::new only fails on impossible allocation (OOM) or invalid config.
+// Uses expect() since this must succeed for the system to function — failure here
+// indicates fatal OOM or programming error, which should crash early.
 static GLOBAL_TENSOR_POOL: std::sync::LazyLock<TensorPool> = std::sync::LazyLock::new(|| {
-    TensorPool::new().unwrap_or_else(|e| {
-        panic!("Failed to create global tensor pool: {} (only fails on OOM)", e)
-    })
+    TensorPool::new().expect(
+        "Failed to create global tensor pool (OOM or invalid size category config)"
+    )
 });
 
 /// Get global tensor pool
