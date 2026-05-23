@@ -388,7 +388,13 @@ fn field_to_string(field: &parquet::record::Field) -> Option<String> {
     use parquet::record::Field;
     match field {
         Field::Str(s) => Some(s.clone()),
-        Field::Bytes(b) => String::from_utf8(b.data().to_vec()).ok(),
+        Field::Bytes(b) => match String::from_utf8(b.data().to_vec()) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!("Invalid UTF-8 in parquet bytes field: {}", e);
+                None
+            }
+        },
         Field::Long(v) => Some(v.to_string()),
         Field::Int(v) => Some(v.to_string()),
         Field::Double(v) => Some(v.to_string()),

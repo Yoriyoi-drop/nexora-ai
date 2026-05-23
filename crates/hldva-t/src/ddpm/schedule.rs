@@ -52,7 +52,7 @@ impl NoiseSchedule {
                 sqrt_alpha_bars.push(alphas[0].sqrt());
                 sqrt_one_minus_alpha_bars.push((1.0 - alphas[0]).sqrt());
             } else {
-                let alpha_bar = alpha_bars[t - 1] * alphas[t];
+                let alpha_bar = alpha_bars.get(t - 1).copied().unwrap_or(1.0) * alphas[t];
                 alpha_bars.push(alpha_bar);
                 sqrt_alpha_bars.push(alpha_bar.sqrt());
                 sqrt_one_minus_alpha_bars.push((1.0 - alpha_bar).sqrt());
@@ -186,5 +186,83 @@ impl Default for NoiseScheduleConfig {
             beta_end: 0.02,
             schedule_type: ScheduleType::Linear,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_noise_schedule_new() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        assert_eq!(sched.num_steps(), 1000);
+    }
+
+    #[test]
+    fn test_noise_schedule_beta() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        let beta = sched.get_beta(0);
+        assert!(beta > 0.0);
+    }
+
+    #[test]
+    fn test_noise_schedule_alpha() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        let alpha = sched.get_alpha(0);
+        assert!(alpha > 0.0 && alpha < 1.0);
+    }
+
+    #[test]
+    fn test_noise_schedule_alpha_bar() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        let abar = sched.get_alpha_bar(0);
+        assert!(abar > 0.0 && abar <= 1.0);
+    }
+
+    #[test]
+    fn test_noise_schedule_add_noise() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        let original = Tensor::new(vec![1.0; 100], vec![10, 10, 1]);
+        let noise = Tensor::new(vec![0.5; 100], vec![10, 10, 1]);
+        let result = sched.add_noise(&original, &noise, 50).unwrap();
+        assert_eq!(result.shape(), original.shape());
+    }
+
+    #[test]
+    fn test_noise_schedule_remove_noise() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        let noisy = Tensor::new(vec![1.0; 100], vec![10, 10, 1]);
+        let pred = Tensor::new(vec![0.5; 100], vec![10, 10, 1]);
+        let result = sched.remove_noise(&noisy, &pred, 50).unwrap();
+        assert_eq!(result.shape(), noisy.shape());
+    }
+
+    #[test]
+    fn test_noise_schedule_timesteps() {
+        let cfg = NoiseScheduleConfig::default();
+        let sched = NoiseSchedule::new(cfg).unwrap();
+        let timesteps = sched.get_timesteps(10);
+        assert_eq!(timesteps.len(), 10);
+    }
+
+    #[test]
+    fn test_schedule_type_variants() {
+        assert!(matches!(ScheduleType::Linear, ScheduleType::Linear));
+        assert!(matches!(ScheduleType::Cosine, ScheduleType::Cosine));
+        assert!(matches!(ScheduleType::Quadratic, ScheduleType::Quadratic));
+    }
+
+    #[test]
+    fn test_noise_schedule_config_default() {
+        let cfg = NoiseScheduleConfig::default();
+        assert_eq!(cfg.num_steps, 1000);
+        assert_eq!(cfg.beta_start, 0.0001);
     }
 }

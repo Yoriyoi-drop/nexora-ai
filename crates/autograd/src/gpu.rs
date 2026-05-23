@@ -190,7 +190,7 @@ impl GpuContext {
     ) -> crate::gpu_memory::PooledBuffer {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
             .alloc(size, usage)
     }
 
@@ -198,7 +198,7 @@ impl GpuContext {
     pub fn dealloc_buffer(&mut self, buf: crate::gpu_memory::PooledBuffer) {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
             .dealloc(buf);
     }
 
@@ -206,7 +206,7 @@ impl GpuContext {
     pub fn memory_stats(&self) -> crate::gpu_memory::PoolStats {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
             .stats()
             .clone()
     }
@@ -215,7 +215,7 @@ impl GpuContext {
     pub fn clear_memory_pool(&mut self) {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
             .clear();
     }
 
@@ -479,13 +479,23 @@ impl GpuContext {
         let disk_cache = crate::persistent_cache::PipelineDiskCache::new();
         let cached_data = disk_cache.load(cache_key);
         let wgpu_cache = if let Some(ref data) = cached_data {
-            // Safety: data is from a previous PipelineCache::get_data() call
+            // SAFETY: `device.create_pipeline_cache` is unsafe because the provided
+            // `data` blob must have been produced by a previous `PipelineCache::get_data()`
+            // call on a compatible device (same GPU/driver/API version). Here `data`
+            // was loaded from disk via `PipelineDiskCache::load()`, which previously
+            // stored it via `PipelineCache::get_data()`, so the data is guaranteed to
+            // be a valid serialized cache blob for this device. Passing invalid data
+            // would at worst cause the driver to ignore the cache (silent fallback),
+            // not undefined behavior per the WebGPU spec.
             Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
                 label: Some("nexora_persistent_cache"),
                 data: Some(data),
                 fallback: false,
             }) })
         } else {
+            // SAFETY: Creating a pipeline cache with `data: None` is always safe;
+            // the driver initializes an empty cache. The `unsafe` qualifier exists
+            // because the same function also accepts untrusted data in the other branch.
             Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
                 label: Some("nexora_persistent_cache"),
                 data: None,
@@ -998,7 +1008,7 @@ impl GpuContext {
     /// Flush the reusable encoder: submit all accumulated dispatches at once.
     /// Call this before any readback to ensure GPU has finished.
     pub fn flush(&self) {
-        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
         if let Some(enc) = guard.take() {
             self.queue.submit(Some(enc.finish()));
             *guard = Some(
@@ -1040,7 +1050,7 @@ impl GpuContext {
     where
         F: FnOnce(&mut wgpu::CommandEncoder) -> R,
     {
-        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
         if guard.is_none() {
             *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("nexora_reusable_encoder"),
@@ -1205,7 +1215,7 @@ impl GpuContext {
             hash = hash.wrapping_mul(31).wrapping_add(h.finish());
         }
 
-        let mut cache = self.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.bind_group_cache_mutex.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
         if let Some(cached) = cache.get(&hash) {
             return cached.clone();
         }

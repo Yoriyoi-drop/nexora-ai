@@ -20,3 +20,20 @@ pub struct DistillationConfig {
     pub student_width: usize,
     pub target_hardware: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_distillation_config_debug() {
+        let cfg = DistillationConfig {
+            temperature: 2.0,
+            alpha: 0.5,
+            student_depth: 4,
+            student_width: 2,
+            target_hardware: "mobile".to_string(),
+        };
+        assert!(!format!("{:?}", cfg).is_empty());
+    }
+}

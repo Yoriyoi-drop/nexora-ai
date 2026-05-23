@@ -457,7 +457,7 @@ impl MemoryAgent {
             return Ok(0);
         }
 
-        let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(max_age_hours as i64);
+        let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(i64::try_from(max_age_hours).unwrap_or(i64::MAX));
         let mut cleaned_count = 0;
 
         // Query all memories
@@ -479,7 +479,7 @@ impl MemoryAgent {
             .await?;
 
         for memory in results {
-            if memory.timestamp < cutoff_time.timestamp() as u64 {
+            if memory.timestamp < cutoff_time.timestamp().max(0) as u64 {
                 self.memory_store
                     .write()
                     .await
@@ -869,7 +869,7 @@ impl Agent for MemoryAgent {
             }
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let processing_time = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         // Update stats
         self.stats.messages_processed += 1;

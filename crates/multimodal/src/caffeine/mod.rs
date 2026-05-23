@@ -140,11 +140,9 @@ impl Caffeine {
         // Stage 4: Apply ATQS compression if enabled
         let compressed_tokens = if self.atqs_compression.is_some() {
             let tensor = self.tokens_to_tensor_for_atqs(&tokens)?;
-            let compressed = self
-                .atqs_compression
-                .as_mut()
-                .unwrap()
-                .compress_tensor_data(&tensor)?;
+            let compressor = self.atqs_compression.as_mut()
+                .expect("atqs_compression checked Some above");
+            let compressed = compressor.compress_tensor_data(&tensor)?;
             self.tensor_to_tokens(&compressed, &tokens)?
         } else {
             tokens
@@ -167,7 +165,7 @@ impl Caffeine {
                         .map(
                             |(i, expert_id)| nexora_has_moe_ffn::types::RoutingDecision {
                                 expert_id,
-                                confidence: 1.0 / (i + 1) as f32, // Simple confidence calculation
+                                confidence: 1.0 / (i as f32 + 1.0), // Simple confidence calculation
                             },
                         )
                         .collect();
@@ -230,10 +228,10 @@ impl Caffeine {
             for i in 0..rows {
                 let orig = &original[i];
                 result.push(crate::caffeine::types::UnifiedToken {
-                    token_id: (tensor[[i, 0]] * 8192.0) as usize,
+                    token_id: (tensor[[i, 0]].max(0.0).round() as usize),
                     modality: orig.modality,
                     embedding: orig.embedding.clone(),
-                    position: (tensor[[i, 2]] * 2048.0) as usize,
+                    position: (tensor[[i, 2]].max(0.0).round() as usize),
                     timestamp: Some(tensor[[i, 3]]),
                     spatial_coords: if tensor[[i, 4]] > 0.0 || tensor[[i, 5]] > 0.0 {
                         Some((

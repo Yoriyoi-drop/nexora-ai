@@ -206,3 +206,97 @@ impl Default for NoiseGenerator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_noise_generator_new() {
+        let mut gen = NoiseGenerator::new();
+        let noise = gen.gaussian_noise(&[4, 4]);
+        assert_eq!(noise.shape(), &[4, 4]);
+    }
+
+    #[test]
+    fn test_noise_generator_uniform() {
+        let mut gen = NoiseGenerator::new();
+        let noise = gen.uniform_noise(&[3], -1.0, 1.0);
+        assert_eq!(noise.shape(), &[3]);
+        for &v in noise.data() {
+            assert!(v >= -1.0 && v <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_noise_generator_structured() {
+        let mut gen = NoiseGenerator::new();
+        let c = gen.structured_noise(&[4, 4], NoisePattern::Checkerboard);
+        assert_eq!(c.shape(), &[4, 4]);
+        let s = gen.structured_noise(&[4, 4], NoisePattern::Stripes);
+        assert_eq!(s.shape(), &[4, 4]);
+        let r = gen.structured_noise(&[4, 4], NoisePattern::Radial);
+        assert_eq!(r.shape(), &[4, 4]);
+    }
+
+    #[test]
+    fn test_noise_generator_scale() {
+        let mut gen = NoiseGenerator::new();
+        let noise = gen.gaussian_noise(&[4]);
+        let scaled = gen.scale_noise(&noise, 2.0);
+        assert_eq!(scaled.shape(), noise.shape());
+    }
+
+    #[test]
+    fn test_noise_generator_add_noise() {
+        let gen = NoiseGenerator::new();
+        let a = Tensor::new(vec![1.0, 2.0], vec![2]);
+        let b = Tensor::new(vec![3.0, 4.0], vec![2]);
+        let result = gen.add_noise(&a, &b).unwrap();
+        assert_eq!(result.data(), &vec![4.0, 6.0]);
+    }
+
+    #[test]
+    fn test_noise_generator_add_noise_mismatch() {
+        let gen = NoiseGenerator::new();
+        let a = Tensor::new(vec![1.0, 2.0], vec![2]);
+        let b = Tensor::new(vec![3.0], vec![1]);
+        assert!(gen.add_noise(&a, &b).is_err());
+    }
+
+    #[test]
+    fn test_noise_utils_compute_snr() {
+        let signal = Tensor::new(vec![1.0, 2.0], vec![2]);
+        let noise = Tensor::new(vec![0.1, 0.2], vec![2]);
+        let snr = NoiseUtils::compute_snr(&signal, &noise).unwrap();
+        assert!(snr > 0.0);
+    }
+
+    #[test]
+    fn test_noise_utils_apply_schedule() {
+        let noise = Tensor::new(vec![1.0, 2.0], vec![2]);
+        let result = NoiseUtils::apply_noise_schedule(&noise, 0.5);
+        assert_eq!(result.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_noise_utils_colored_noise() {
+        let result = NoiseUtils::colored_noise(&[4], 1.0);
+        assert_eq!(result.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_noise_pattern_variants() {
+        assert!(matches!(NoisePattern::Checkerboard, NoisePattern::Checkerboard));
+        assert!(matches!(NoisePattern::Stripes, NoisePattern::Stripes));
+        assert!(matches!(NoisePattern::Radial, NoisePattern::Radial));
+    }
+
+    #[test]
+    fn test_noise_generator_default() {
+        let gen = NoiseGenerator::default();
+        let mut g = gen;
+        let noise = g.gaussian_noise(&[2, 2]);
+        assert_eq!(noise.shape(), &[2, 2]);
+    }
+}

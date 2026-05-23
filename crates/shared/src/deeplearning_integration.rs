@@ -225,7 +225,7 @@ impl DeepLearningEngine {
 
         let starx_pipeline = match config.architecture {
             DLArchitecture::StarX | DLArchitecture::Hybrid => {
-                let sc = config.star_x_config.as_ref().unwrap();
+                let sc = config.star_x_config.as_ref().expect("star_x_config required for StarX/Hybrid architecture");
                 Some(StarXPipeline {
                     tgh: TemporalGatingHierarchy::new(
                         sc.input_size,

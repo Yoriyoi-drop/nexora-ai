@@ -64,3 +64,82 @@ impl PortDescriptor {
         self.direction != other.direction && self.tensor.is_compatible_with(&other.tensor)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DType;
+
+    fn input_port() -> PortDescriptor {
+        PortDescriptor::new(
+            "in",
+            PortDirection::Input,
+            TensorDesc::new(vec![1, 64], DType::F32),
+        )
+    }
+
+    fn output_port() -> PortDescriptor {
+        PortDescriptor::new(
+            "out",
+            PortDirection::Output,
+            TensorDesc::new(vec![1, 64], DType::F32),
+        )
+    }
+
+    #[test]
+    fn test_port_descriptor_new() {
+        let p = input_port();
+        assert_eq!(p.name, "in");
+        assert_eq!(p.direction, PortDirection::Input);
+        assert_eq!(p.visual_type, PortVisualType::Matrix2D);
+    }
+
+    #[test]
+    fn test_port_descriptor_scalar() {
+        let p = PortDescriptor::new("s", PortDirection::Input, TensorDesc::new(vec![], DType::F32));
+        assert_eq!(p.visual_type, PortVisualType::Scalar);
+    }
+
+    #[test]
+    fn test_port_descriptor_1d() {
+        let p = PortDescriptor::new("v", PortDirection::Input, TensorDesc::new(vec![10], DType::F32));
+        assert_eq!(p.visual_type, PortVisualType::Vector1D);
+    }
+
+    #[test]
+    fn test_port_descriptor_3d() {
+        let p = PortDescriptor::new("t", PortDirection::Input, TensorDesc::new(vec![1, 64, 64], DType::F32));
+        assert_eq!(p.visual_type, PortVisualType::Tensor3D);
+    }
+
+    #[test]
+    fn test_port_descriptor_sequence() {
+        let p = PortDescriptor::new("seq", PortDirection::Input, TensorDesc::new(vec![4, 3, 224, 224], DType::F32));
+        assert_eq!(p.visual_type, PortVisualType::SequenceTensor);
+    }
+
+    #[test]
+    fn test_port_compatible() {
+        let inp = input_port();
+        let out = output_port();
+        assert!(inp.is_compatible_with(&out));
+    }
+
+    #[test]
+    fn test_port_incompatible_same_direction() {
+        let a = input_port();
+        let b = input_port();
+        assert!(!a.is_compatible_with(&b));
+    }
+
+    #[test]
+    fn test_port_incompatible_shape() {
+        let inp = PortDescriptor::new("in", PortDirection::Input, TensorDesc::new(vec![1, 64], DType::F32));
+        let out = PortDescriptor::new(
+            "out",
+            PortDirection::Output,
+            TensorDesc::new(vec![1, 128], DType::F32),
+        );
+        assert!(!inp.is_compatible_with(&out));
+    }
+}

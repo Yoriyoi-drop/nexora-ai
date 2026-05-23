@@ -71,3 +71,45 @@ impl ResourceConstraints {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_edge_tpu_constraints() {
+        let c = ResourceConstraints::edge_tpu();
+        assert_eq!(c.target_hardware, HardwareTarget::EdgeTPU);
+        assert_eq!(c.max_vram_mb, 1024.0);
+    }
+
+    #[test]
+    fn test_mobile_constraints() {
+        let c = ResourceConstraints::mobile();
+        assert_eq!(c.target_hardware, HardwareTarget::Mobile);
+    }
+
+    #[test]
+    fn test_cloud_gpu_constraints() {
+        let c = ResourceConstraints::cloud_gpu();
+        assert_eq!(c.target_hardware, HardwareTarget::CloudGPU);
+    }
+
+    #[test]
+    fn test_validate_ok() {
+        let c = ResourceConstraints::cloud_gpu();
+        assert!(c.validate(1000.0, 50.0).is_ok());
+    }
+
+    #[test]
+    fn test_validate_vram_exceeded() {
+        let c = ResourceConstraints::edge_tpu();
+        assert!(c.validate(2000.0, 5.0).is_err());
+    }
+
+    #[test]
+    fn test_validate_latency_exceeded() {
+        let c = ResourceConstraints::edge_tpu();
+        assert!(c.validate(500.0, 100.0).is_err());
+    }
+}

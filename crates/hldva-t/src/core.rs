@@ -149,7 +149,7 @@ impl HLDVAPipeline {
 
             // Optional: Log progress
             if step_idx % 10 == 0 {
-                println!("Denoising step {}/{}", step_idx + 1, num_steps);
+                tracing::info!("Denoising step {}/{}", step_idx + 1, num_steps);
             }
         }
 
@@ -295,11 +295,11 @@ impl Trainable for HLDVAPipeline {
     fn train(&mut self, _config: Self::TrainingConfig) -> HLDVAResult<()> {
         // Implementasi training dengan 4 tahap curriculum learning
         // Ini akan diimplementasi di training module
-        println!("Starting HLDVA-T training with 4-stage curriculum learning");
-        println!("Stage 0: Pre-training VAE and CLIP");
-        println!("Stage 1: Base DiT training");
-        println!("Stage 2: Cascaded upsampler training");
-        println!("Stage 3: End-to-end fine-tuning");
+        tracing::info!("Starting HLDVA-T training with 4-stage curriculum learning");
+        tracing::info!("Stage 0: Pre-training VAE and CLIP");
+        tracing::info!("Stage 1: Base DiT training");
+        tracing::info!("Stage 2: Cascaded upsampler training");
+        tracing::info!("Stage 3: End-to-end fine-tuning");
 
         Ok(())
     }
@@ -342,7 +342,7 @@ impl Trainable for HLDVAPipeline {
     }
 
     fn save_checkpoint<P: AsRef<std::path::Path>>(&self, path: P) -> HLDVAResult<()> {
-        // Save model weights and configuration
+        // STUB: saves config JSON only, not model weights. Integrate with real serialization.
         let checkpoint_path = path.as_ref().join("hldva_checkpoint.json");
         let checkpoint_data = serde_json::json!({
             "config": self.config,
@@ -355,7 +355,7 @@ impl Trainable for HLDVAPipeline {
     }
 
     fn load_checkpoint<P: AsRef<std::path::Path>>(&mut self, path: P) -> HLDVAResult<()> {
-        // Load model weights and configuration
+        // STUB: loads config JSON only, not model weights. Integrate with real serialization.
         let checkpoint_path = path.as_ref().join("hldva_checkpoint.json");
         let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
         let checkpoint: serde_json::Value = serde_json::from_str(&checkpoint_data)?;
@@ -384,5 +384,74 @@ impl Inference for HLDVAPipeline {
         }
 
         Ok(outputs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hldva_pipeline_new() {
+        let cfg = HLDVAConfig::default();
+        let pipeline = HLDVAPipeline::new(cfg).unwrap();
+        assert_eq!(pipeline.device(), "cuda");
+        assert_eq!(pipeline.dtype(), "float32");
+    }
+
+    #[test]
+    fn test_hldva_pipeline_config() {
+        let cfg = HLDVAConfig::default();
+        let pipeline = HLDVAPipeline::new(cfg.clone()).unwrap();
+        assert_eq!(pipeline.config().training.batch_size, cfg.training.batch_size);
+    }
+
+    #[test]
+    fn test_hldva_pipeline_generate() {
+        let cfg = HLDVAConfig::default();
+        let pipeline = HLDVAPipeline::new(cfg).unwrap();
+        let input = HLDVAInput::default();
+        let output = pipeline.generate(input).unwrap();
+        assert!(output.execution_time_ms > 0);
+    }
+
+    #[test]
+    fn test_hldva_pipeline_evaluate() {
+        let cfg = HLDVAConfig::default();
+        let pipeline = HLDVAPipeline::new(cfg).unwrap();
+        let metrics = pipeline.evaluate().unwrap();
+        assert!(metrics.clip_score.is_none());
+    }
+
+    #[test]
+    fn test_inference_trait() {
+        let cfg = HLDVAConfig::default();
+        let pipeline = HLDVAPipeline::new(cfg).unwrap();
+        let input = HLDVAInput::default();
+        let output = pipeline.infer(input).unwrap();
+        assert_eq!(output.execution_time_ms, output.execution_time_ms);
+    }
+
+    #[test]
+    fn test_batch_infer() {
+        let cfg = HLDVAConfig::default();
+        let pipeline = HLDVAPipeline::new(cfg).unwrap();
+        let inputs = vec![HLDVAInput::default(), HLDVAInput::default()];
+        let outputs = pipeline.batch_infer(inputs).unwrap();
+        assert_eq!(outputs.len(), 2);
+    }
+
+    #[test]
+    fn test_hldva_output_construct() {
+        let image = Tensor::new(vec![0.5; 100], vec![10, 10, 1]);
+        let ls = LatentSpace::new(image.clone(), Resolution::new(10, 10), 1);
+        let output = HLDVAOutput {
+            image,
+            final_latent: ls,
+            intermediate_latents: vec![],
+            metrics: GenerationMetrics::default(),
+            execution_time_ms: 42,
+        };
+        assert_eq!(output.execution_time_ms, 42);
     }
 }

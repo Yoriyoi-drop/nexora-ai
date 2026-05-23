@@ -491,8 +491,7 @@ impl DecomposeEngine {
     /// Split a large module into smaller ones
     async fn split_large_module(&self, module: Module) -> SACAResult<Vec<Module>> {
         let mut split_modules = Vec::new();
-        let num_splits =
-            (module.estimated_lines as f32 / self.config.max_module_size as f32).ceil() as u32;
+        let num_splits = ((module.estimated_lines as f32 / self.config.max_module_size as f32).ceil() as u32).max(1);
 
         for i in 0..num_splits {
             split_modules.push(Module {

@@ -117,7 +117,7 @@ mod mysql_impl {
                             .unwrap_or_default(),
                         )
                         .and_utc()
-                        .timestamp() as u64,
+                        .timestamp().max(0) as u64,
                     ),
             ),
         }
@@ -234,7 +234,15 @@ mod mysql_impl {
         )?;
             let database_size_mb = size_result
                 .first()
-                .and_then(|(size,)| size.parse::<f64>().ok())
+                .and_then(|(size,)| {
+                    match size.parse::<f64>() {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse database size '{}': {}", size, e);
+                            None
+                        }
+                    }
+                })
                 .unwrap_or(0.0);
 
             Ok(DatabaseInfo {
@@ -709,7 +717,14 @@ impl DatabaseFactory {
                     mysql_config.database
                 );
 
-                let pool = mysql::Pool::new(&connection_string)?;
+                let pool = mysql::Pool::new(&connection_string).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to create MySQL pool for user '{}' at {}:{}",
+                        mysql_config.username,
+                        mysql_config.host,
+                        mysql_config.port,
+                    )
+                })?;
                 Ok(Arc::new(MySQLDatabase::new(pool, mysql_config)))
             }
             #[cfg(not(feature = "mysql"))]

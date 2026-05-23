@@ -30,10 +30,14 @@ pub struct StreamingEngine {
 
 impl StreamingEngine {
     pub fn new() -> Self {
+        Self::with_config(100, Duration::from_secs(300))
+    }
+
+    pub fn with_config(max_concurrent_streams: usize, stream_timeout: Duration) -> Self {
         Self {
             active_streams: Arc::new(RwLock::new(HashMap::new())),
-            max_concurrent_streams: 100,
-            stream_timeout: Duration::from_secs(300),
+            max_concurrent_streams,
+            stream_timeout,
         }
     }
 

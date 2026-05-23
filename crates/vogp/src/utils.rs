@@ -17,7 +17,7 @@ fn generate_noise_array(shape: Vec<usize>, std: f32, rng: &mut ThreadRng) -> nda
     let noise: Vec<f32> = (0..len)
         .map(|_| rng.sample::<f32, _>(StandardNormal) * std)
         .collect();
-    ndarray::ArrayD::from_shape_vec(shape, noise).unwrap()
+    ndarray::ArrayD::from_shape_vec(shape, noise).expect("failed to create noise array from shape")
 }
 
 /// Data augmentation utilities untuk consistency learning

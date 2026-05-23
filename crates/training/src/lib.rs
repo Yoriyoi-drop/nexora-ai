@@ -189,21 +189,24 @@ impl Trainer {
                 Ok(ctx) => {
                     // Move all parameter weights to GPU
                     for p in &params {
-                        let gpu_t = GpuTensor::from_cpu(&p.data()).unwrap();
+                        let gpu_t = GpuTensor::from_cpu(&p.data()).expect("failed to move parameter to GPU");
                         p.set_storage(nexora_autograd::Storage::Gpu(gpu_t));
                         p.set_device(Device::Gpu(0));
                     }
                     // Create GpuAdam optimizer
                     let owned_gpu_params: Vec<GpuTensor> = params
                         .iter()
-                        .map(|p| match p.storage() {
-                            nexora_autograd::Storage::Gpu(g) => g,
-                            _ => panic!("Non-GPU tensor in GPU training optimizer setup"),
+                        .filter_map(|p| match p.storage() {
+                            nexora_autograd::Storage::Gpu(g) => Some(g),
+                            _ => {
+                                tracing::warn!("Non-GPU tensor in GPU training optimizer setup — skipping");
+                                None
+                            }
                         })
                         .collect();
                     let gpu_params: Vec<&GpuTensor> = owned_gpu_params.iter().collect();
                     let mut gpu_opt =
-                        GpuAdam::new(ctx, &gpu_params, self.config.learning_rate).unwrap();
+                        GpuAdam::new(ctx, &gpu_params, self.config.learning_rate).expect("failed to create GpuAdam optimizer");
                     gpu_opt.weight_decay = self.config.weight_decay;
                     gpu_opt.max_grad_norm = self.config.max_grad_norm;
                     self.trainable = Some(trainable);
@@ -215,8 +218,8 @@ impl Trainer {
 
                     // Pre-allocate GPU buffers for zero-copy data upload
                     let batch_shape = vec![self.config.seq_length];
-                    let in_buf = GpuTensor::zeros(&batch_shape).unwrap();
-                    let tgt_buf = GpuTensor::zeros(&batch_shape).unwrap();
+                    let in_buf = GpuTensor::zeros(&batch_shape).expect("failed to create GPU input buffer");
+                    let tgt_buf = GpuTensor::zeros(&batch_shape).expect("failed to create GPU target buffer");
                     self.gpu_input_buf = Some(in_buf);
                     self.gpu_target_buf = Some(tgt_buf);
                     self.gpu_staging = Some(GpuStagingPool::new(ctx, (self.config.seq_length * 4) as u64));
@@ -270,10 +273,10 @@ impl Trainer {
         // ─── GPU training path ──────────────────────────────────────────────
         #[cfg(feature = "gpu")]
         if self.gpu_optimizer.is_some() {
-            let gpu_opt = self.gpu_optimizer.as_mut().unwrap();
-            let gpu_in = self.gpu_input_buf.as_ref().unwrap();
-            let gpu_tgt = self.gpu_target_buf.as_ref().unwrap();
-            let gpu_pool = self.gpu_staging.as_mut().unwrap();
+            let gpu_opt = self.gpu_optimizer.as_mut().expect("gpu_optimizer must be initialized");
+            let gpu_in = self.gpu_input_buf.as_ref().expect("gpu_input_buf must be initialized");
+            let gpu_tgt = self.gpu_target_buf.as_ref().expect("gpu_target_buf must be initialized");
+            let gpu_pool = self.gpu_staging.as_mut().expect("gpu_staging must be initialized");
             return train_batch_gpu(
                 &mut self.model,
                 trainable,
@@ -483,8 +486,8 @@ impl Trainer {
 
         #[cfg(feature = "gpu")]
         if self.gpu_optimizer.is_some() && GpuContext::global().is_ok() {
-            let gpu_in = self.gpu_input_buf.as_ref().unwrap();
-            let gpu_tgt = self.gpu_target_buf.as_ref().unwrap();
+            let gpu_in = self.gpu_input_buf.as_ref().expect("gpu_input_buf not initialized for GPU evaluation");
+            let gpu_tgt = self.gpu_target_buf.as_ref().expect("gpu_target_buf not initialized for GPU evaluation");
             return evaluate_loss_gpu(trainable, sequences, seq_length, gpu_in, gpu_tgt);
         }
 
@@ -674,9 +677,12 @@ fn train_batch_gpu(
     let owned_params: Vec<GpuTensor> = trainable
         .parameters()
         .iter()
-        .map(|p| match p.storage() {
-            nexora_autograd::Storage::Gpu(g) => g,
-            _ => panic!("Non-GPU tensor in GPU backward train"),
+        .filter_map(|p| match p.storage() {
+            nexora_autograd::Storage::Gpu(g) => Some(g),
+            _ => {
+                tracing::warn!("Non-GPU tensor in GPU backward train — skipping");
+                None
+            }
         })
         .collect();
     let params: Vec<&GpuTensor> = owned_params.iter().collect();
@@ -697,9 +703,12 @@ fn train_batch_gpu(
         let owned_params: Vec<GpuTensor> = trainable
             .parameters()
             .iter()
-            .map(|p| match p.storage() {
-                nexora_autograd::Storage::Gpu(g) => g,
-                _ => panic!("Non-GPU tensor in GPU gradient accumulation"),
+            .filter_map(|p| match p.storage() {
+                nexora_autograd::Storage::Gpu(g) => Some(g),
+                _ => {
+                    tracing::warn!("Non-GPU tensor in GPU gradient accumulation — skipping");
+                    None
+                }
             })
             .collect();
         let params: Vec<&GpuTensor> = owned_params.iter().collect();
@@ -711,7 +720,7 @@ fn train_batch_gpu(
                     Some(Storage::Gpu(g)) => g,
                     _ => {
                         let arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
-                        GpuTensor::from_cpu(&arr).unwrap()
+                        GpuTensor::from_cpu(&arr).expect("failed to upload fallback gradient to GPU")
                     }
                 }
             })

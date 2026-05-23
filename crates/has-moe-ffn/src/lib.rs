@@ -146,3 +146,100 @@ impl Default for HasMoeFFN {
         Self::new(HasMoeFFNConfig::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn small_moe() -> HasMoeFFN {
+        HasMoeFFN::new(HasMoeFFNConfig {
+            num_experts: 4,
+            top_k: 2,
+            hidden_size: 4,
+            intermediate_size: 8,
+            use_dropout: false,
+            dropout_rate: 0.0,
+        })
+    }
+
+    #[test]
+    fn test_new_creates_correct_number_of_experts() {
+        let moe = small_moe();
+        assert_eq!(moe.experts.len(), 4);
+        assert_eq!(moe.config.num_experts, 4);
+    }
+
+    #[test]
+    fn test_forward_output_shape() {
+        let moe = small_moe();
+        let input = ndarray::Array2::from_shape_fn((3, 4), |(_, _)| rand::random::<f32>());
+        let output = moe.forward(&input);
+        assert_eq!(output.dim(), (3, 4));
+    }
+
+    #[test]
+    fn test_forward_preserves_batch_dim() {
+        let moe = small_moe();
+        let input = ndarray::Array2::from_shape_fn((5, 4), |(_, _)| 0.5);
+        let output = moe.forward(&input);
+        assert_eq!(output.dim(), (5, 4));
+    }
+
+    #[test]
+    fn test_forward_deterministic() {
+        let moe = small_moe();
+        let input = ndarray::Array2::from_shape_fn((2, 4), |(i, j)| (i * 4 + j) as f32 / 8.0);
+        let out1 = moe.forward(&input);
+        let out2 = moe.forward(&input);
+        assert_eq!(out1, out2);
+    }
+
+    #[test]
+    fn test_forward_zero_input() {
+        let moe = small_moe();
+        let input = ndarray::Array2::zeros((2, 4));
+        let output = moe.forward(&input);
+        assert_eq!(output.dim(), (2, 4));
+    }
+
+    #[test]
+    fn test_get_top_experts_returns_correct_count() {
+        let moe = small_moe();
+        let weights = ndarray::Array2::from_shape_vec(
+            (1, 4),
+            vec![0.1, 0.4, 0.3, 0.2],
+        )
+        .unwrap();
+        let top = moe.get_top_experts(&weights, 0);
+        assert_eq!(top.len(), 2);
+        assert!(top.contains(&1));
+    }
+
+    #[test]
+    fn test_config_returns_config() {
+        let moe = small_moe();
+        let cfg = moe.config();
+        assert_eq!(cfg.hidden_size, 4);
+        assert_eq!(cfg.top_k, 2);
+    }
+
+    #[test]
+    fn test_default_uses_8_experts() {
+        let moe = HasMoeFFN::default();
+        let cfg = moe.config();
+        assert_eq!(cfg.num_experts, 8);
+        assert_eq!(cfg.hidden_size, 768);
+    }
+
+    #[test]
+    fn test_forward_batch_consistency() {
+        let moe = small_moe();
+        let input = ndarray::Array2::from_shape_fn((3, 4), |(_, j)| j as f32 / 4.0);
+        let output = moe.forward(&input);
+        for i in 0..3 {
+            for j in 0..4 {
+                assert!(output[[i, j]].is_finite());
+            }
+        }
+    }
+}

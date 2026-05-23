@@ -536,3 +536,137 @@ impl NoiseLevelConditioning {
         embedding
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestNoisePredictor;
+    impl NoisePredictor for TestNoisePredictor {
+        fn predict_noise(&self, noisy_latent: &Tensor, _timestep: Timestep) -> HLDVAResult<Tensor> {
+            Ok(Tensor::new(vec![0.0; noisy_latent.data().len()], noisy_latent.shape().to_vec()))
+        }
+    }
+
+    #[test]
+    fn test_ddpm_new() {
+        let cfg = DDPMConfig::default();
+        let ddpm = DDPM::new(&cfg).unwrap();
+        assert_eq!(ddpm.config().num_timesteps, 1000);
+    }
+
+    #[test]
+    fn test_ddpm_get_timesteps() {
+        let cfg = DDPMConfig::default();
+        let ddpm = DDPM::new(&cfg).unwrap();
+        let ts = ddpm.get_timesteps(10);
+        assert_eq!(ts.len(), 10);
+    }
+
+    #[test]
+    fn test_ddpm_add_noise() {
+        let cfg = DDPMConfig::default();
+        let ddpm = DDPM::new(&cfg).unwrap();
+        let original = Tensor::new(vec![1.0; 16], vec![4, 4]);
+        let noise = Tensor::new(vec![0.5; 16], vec![4, 4]);
+        let result = ddpm.add_noise(&original, &noise, Timestep(100)).unwrap();
+        assert_eq!(result.shape(), original.shape());
+    }
+
+    #[test]
+    fn test_ddpm_step() {
+        let cfg = DDPMConfig::default();
+        let ddpm = DDPM::new(&cfg).unwrap();
+        let noisy = Tensor::new(vec![0.5; 16], vec![4, 4]);
+        let pred = Tensor::new(vec![0.1; 16], vec![4, 4]);
+        let result = ddpm.step(noisy, pred, Timestep(100)).unwrap();
+        assert_eq!(result.shape(), &[4, 4]);
+    }
+
+    #[test]
+    fn test_ddpm_sample() {
+        let cfg = DDPMConfig::default();
+        let ddpm = DDPM::new(&cfg).unwrap();
+        let result = ddpm.sample(&TestNoisePredictor, &[2, 2], 5);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().shape(), &[2, 2]);
+    }
+
+    #[test]
+    fn test_noise_schedule_new() {
+        let cfg = DDPMConfig::default();
+        let sched = NoiseSchedule::new(&cfg).unwrap();
+        let (abar, _) = sched.get_alpha_bar(Timestep(0));
+        assert!((abar - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_noise_schedule_beta() {
+        let cfg = DDPMConfig::default();
+        let sched = NoiseSchedule::new(&cfg).unwrap();
+        let beta = sched.get_beta(Timestep(500));
+        assert!(beta > 0.0);
+    }
+
+    #[test]
+    fn test_ddpm_sampler_new() {
+        let cfg = DDPMConfig::default();
+        let sampler = DDPM_Sampler::new(&cfg).unwrap();
+        let ts = sampler.get_timesteps(10);
+        assert_eq!(ts.len(), 10);
+    }
+
+    #[test]
+    fn test_ddpm_loss_new() {
+        let cfg = DDPMConfig::default();
+        let loss = DDPMLoss::new(&cfg).unwrap();
+        let noise = loss.sample_noise(&[4, 4]).unwrap();
+        assert_eq!(noise.shape(), &[4, 4]);
+    }
+
+    #[test]
+    fn test_ddpm_loss_calculate() {
+        let cfg = DDPMConfig::default();
+        let loss = DDPMLoss::new(&cfg).unwrap();
+        let loss_val = loss.calculate_loss(&TestNoisePredictor, &Tensor::new(vec![0.5; 16], vec![4, 4]), Timestep(50)).unwrap();
+        assert!(loss_val > 0.0);
+    }
+
+    #[test]
+    fn test_classifier_free_guidance() {
+        let cfg = ClassifierFreeGuidance::new(7.5);
+        assert!((cfg.guidance_scale() - 7.5).abs() < 1e-6);
+        let cond = Tensor::new(vec![1.0, 2.0], vec![2]);
+        let uncond = Tensor::new(vec![0.0, 0.0], vec![2]);
+        let guided = cfg.apply(&cond, &uncond).unwrap();
+        assert_eq!(guided.data(), &vec![7.5, 15.0]);
+    }
+
+    #[test]
+    fn test_classifier_free_guidance_set_scale() {
+        let mut cfg = ClassifierFreeGuidance::new(1.0);
+        cfg.set_guidance_scale(7.0);
+        assert!((cfg.guidance_scale() - 7.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_noise_level_conditioning() {
+        let nlc = NoiseLevelConditioning::new(100, 0.0, 1.0);
+        let level = nlc.get_noise_level(Timestep(500), 1000);
+        assert!((level - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_noise_level_quantize() {
+        let nlc = NoiseLevelConditioning::new(10, 0.0, 1.0);
+        let idx = nlc.quantize_level(0.55);
+        assert!(idx < 10);
+    }
+
+    #[test]
+    fn test_noise_level_embedding() {
+        let nlc = NoiseLevelConditioning::new(10, 0.0, 1.0);
+        let emb = nlc.get_level_embedding(0.5, 16);
+        assert_eq!(emb.len(), 16);
+    }
+}

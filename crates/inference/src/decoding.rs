@@ -129,12 +129,12 @@ impl DecodingStrategy for GreedyDecoding {
             .ok_or_else(|| InferenceError::DecodingError("Empty logits".to_string()))?;
 
         // Check if token is forbidden
-        if context.forbidden_tokens.contains(&(max_index as u32)) {
+        if context.forbidden_tokens.contains(&(u32::try_from(max_index).unwrap_or(u32::MAX))) {
             // Find next best token
             let (next_index, &next_logit) = adjusted_logits
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| !context.forbidden_tokens.contains(&(*i as u32)))
+                .filter(|(i, _)| !context.forbidden_tokens.contains(&(u32::try_from(*i).unwrap_or(u32::MAX))))
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .ok_or_else(|| {
                     InferenceError::DecodingError("No valid tokens available".to_string())
@@ -144,7 +144,7 @@ impl DecodingStrategy for GreedyDecoding {
             let selection_prob = log_prob.exp();
 
             return Ok(TokenSelection {
-                token_id: next_index as u32,
+                token_id: u32::try_from(next_index).unwrap_or(u32::MAX),
                 token_text: alloc_token_text(next_index),
                 log_prob,
                 selection_prob,
@@ -156,7 +156,7 @@ impl DecodingStrategy for GreedyDecoding {
         let selection_prob = log_prob.exp();
 
         Ok(TokenSelection {
-            token_id: max_index as u32,
+            token_id: u32::try_from(max_index).unwrap_or(u32::MAX),
             token_text: alloc_token_text(max_index),
             log_prob,
             selection_prob,
@@ -263,7 +263,7 @@ impl DecodingStrategy for TemperatureSampling {
                 let log_prob = adjusted_logits[token_id].ln();
                 let selection_prob = (log_prob).exp();
                 return Ok(TokenSelection {
-                    token_id: token_id as u32,
+                    token_id: u32::try_from(token_id).unwrap_or(u32::MAX),
                     token_text: alloc_token_text(token_id),
                     log_prob,
                     selection_prob,
@@ -278,7 +278,7 @@ impl DecodingStrategy for TemperatureSampling {
             .map(|&logit| logit / config.temperature)
             .collect();
         let probs: Vec<f32> = self.compute_softmax(&scaled_logits)?;
-        let filtered_probs = if config.top_k > 0 && config.top_k < probs.len() as u32 {
+        let filtered_probs = if config.top_k > 0 && (config.top_k as usize) < probs.len() {
             self.apply_top_k(&probs, config.top_k)?
         } else {
             probs
@@ -294,7 +294,7 @@ impl DecodingStrategy for TemperatureSampling {
         let selection_prob = final_probs[token_id];
 
         Ok(TokenSelection {
-            token_id: token_id as u32,
+            token_id: u32::try_from(token_id).unwrap_or(u32::MAX),
             token_text: alloc_token_text(token_id),
             log_prob,
             selection_prob,
@@ -368,7 +368,7 @@ impl TemperatureSampling {
             .map(|&logit| logit / config.temperature)
             .collect();
         let probs = self.compute_softmax(&scaled_logits)?;
-        let filtered_probs = if config.top_k > 0 && config.top_k < probs.len() as u32 {
+        let filtered_probs = if config.top_k > 0 && (config.top_k as usize) < probs.len() {
             self.apply_top_k(&probs, config.top_k)?
         } else {
             probs
@@ -661,7 +661,7 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
     if let Some(lock) = GLOBAL_TOKENIZER.get() {
         let guard = lock.read();
         if let Some(ref tokenizer) = *guard {
-            let decoded = tokenizer.decode(&[token_id as u32]);
+            let decoded = tokenizer.decode(&[u32::try_from(token_id).unwrap_or(u32::MAX)]);
             if !decoded.is_empty() {
                 return decoded;
             }
@@ -681,8 +681,7 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
             digits[i] = (n % 10) as u8 + b'0';
             n /= 10;
         }
-        // safe: digits are ASCII b'0'-b'9', always valid UTF-8
-        buf.push_str(core::str::from_utf8(&digits[i..]).unwrap());
+        buf.push_str(core::str::from_utf8(&digits[i..]).expect("digits are ASCII b'0'-b'9', always valid UTF-8"));
     }
     buf.push(']');
     buf

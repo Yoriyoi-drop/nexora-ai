@@ -195,3 +195,91 @@ fn create_default_outputs(node_type: &NodeType) -> Vec<PortDescriptor> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graph_node_new_linear() {
+        let node = GraphNode::new(NodeType::Linear, "fc1", 0.0, 0.0);
+        assert_eq!(node.name, "fc1");
+        assert_eq!(node.node_type, NodeType::Linear);
+        assert_eq!(node.inputs.len(), 2);
+        assert_eq!(node.outputs.len(), 1);
+        assert_eq!(node.params.enabled, true);
+    }
+
+    #[test]
+    fn test_graph_node_new_conv2d() {
+        let node = GraphNode::new(NodeType::Conv2D, "conv1", 10.0, 20.0);
+        assert_eq!(node.inputs.len(), 2);
+        assert_eq!(node.outputs.len(), 1);
+        assert!(node.params.hyperparameters.is_empty());
+    }
+
+    #[test]
+    fn test_graph_node_new_attention() {
+        let node = GraphNode::new(NodeType::SelfAttention, "attn", 0.0, 0.0);
+        assert_eq!(node.inputs.len(), 3);
+        assert_eq!(node.outputs.len(), 2);
+    }
+
+    #[test]
+    fn test_graph_node_new_input() {
+        let node = GraphNode::new(NodeType::Input, "in", 0.0, 0.0);
+        assert_eq!(node.inputs.len(), 0);
+    }
+
+    #[test]
+    fn test_graph_node_new_output() {
+        let node = GraphNode::new(NodeType::Output, "out", 0.0, 0.0);
+        assert_eq!(node.outputs.len(), 0);
+    }
+
+    #[test]
+    fn test_graph_node_set_health() {
+        let mut node = GraphNode::new(NodeType::Linear, "fc", 0.0, 0.0);
+        node.set_health(HealthStatus::Critical { reason: "test".into() });
+        assert!(matches!(node.health, HealthStatus::Critical { .. }));
+    }
+
+    #[test]
+    fn test_graph_node_toggle_enabled() {
+        let mut node = GraphNode::new(NodeType::ReLU, "relu", 0.0, 0.0);
+        assert!(node.params.enabled);
+        node.toggle_enabled();
+        assert!(!node.params.enabled);
+        node.toggle_enabled();
+        assert!(node.params.enabled);
+    }
+
+    #[test]
+    fn test_graph_node_id_unique() {
+        let a = GraphNode::new(NodeType::Linear, "a", 0.0, 0.0);
+        let b = GraphNode::new(NodeType::Linear, "b", 0.0, 0.0);
+        assert_ne!(a.id, b.id);
+    }
+
+    #[test]
+    fn test_node_params_new() {
+        let p = NodeParams::new();
+        assert!(p.enabled);
+        assert!(p.precision_override.is_none());
+    }
+
+    #[test]
+    fn test_node_params_with_hparam() {
+        let p = NodeParams::new().with_hparam("lr", 0.001);
+        assert_eq!(p.hyperparameters.get("lr"), Some(&0.001));
+    }
+
+    #[test]
+    fn test_node_params_with_param() {
+        let p = NodeParams::new().with_param("activation", "relu");
+        assert_eq!(
+            p.string_params.get("activation"),
+            Some(&"relu".to_string())
+        );
+    }
+}

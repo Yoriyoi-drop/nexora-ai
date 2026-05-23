@@ -78,3 +78,37 @@ impl GraphPruner {
         score
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_prune_empty() {
+        let mut g = NeuralGraph::new("empty");
+        let config = SwarmConfig::default();
+        GraphPruner::prune(&mut g, &config);
+        assert_eq!(g.node_count(), 0);
+    }
+
+    #[test]
+    fn test_prune_removes_disconnected() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Linear, "orphan", 0.0, 0.0)); // disconnected, not input/output
+        g.add_node(GraphNode::new(NodeType::Output, "out", 0.0, 0.0));
+        assert_eq!(g.node_count(), 3);
+        GraphPruner::prune(&mut g, &SwarmConfig::default());
+        assert_eq!(g.node_count(), 2);
+    }
+
+    #[test]
+    fn test_redundancy_score_zero_edges() {
+        let g = NeuralGraph::new("empty");
+        let id = uuid::Uuid::new_v4();
+        let score = GraphPruner::redundancy_score(&g, &id);
+        assert_eq!(score, 1.0);
+    }
+}

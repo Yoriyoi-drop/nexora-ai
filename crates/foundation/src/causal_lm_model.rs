@@ -40,8 +40,16 @@ impl MiniTokenizer {
         }
     }
 
-    /// Byte-level encode (backward compatible): [BOS=1, byte0, byte1, ..., EOS=2]
     pub fn encode(&self, text: &str) -> Vec<u32> {
+        if !self.merges.is_empty() {
+            return self.bpe_tokenize(text);
+        }
+        if self.vocab_size > 256 {
+            tracing::warn!(
+                "MiniTokenizer: vocab_size={} but BPE not trained — falling back to byte-level encoding (only 0-255 usable)",
+                self.vocab_size
+            );
+        }
         let mut ids = vec![1u32];
         for &b in text.as_bytes() {
             let id = b as u32;
@@ -242,6 +250,7 @@ impl CausalLmModel {
 
             model.injectors.push((
                 echo_cfg.inject_after_layer,
+                // Lock held only inside sync `forward()` — minimal scope, no .await while locked.
                 std::sync::Mutex::new(Box::new(injector)),
             ));
 
@@ -810,7 +819,9 @@ impl NxrModel for CausalLmModel {
             })?;
             let mut c = m.reset_cache();
             for &tid in &input_ids {
-                let _ = m.forward(&[tid], &mut c);
+                if let Err(e) = m.forward(&[tid], &mut c) {
+                    tracing::warn!("Prefill token {} failed: {}", tid, e);
+                }
             }
             let lid = *input_ids.last().unwrap_or(&0);
             Ok::<_, NxrModelError>((c, lid))
@@ -828,9 +839,13 @@ impl NxrModel for CausalLmModel {
                 .as_ref()
                 .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
             let vs = m.config.vocab_size;
-            let logits = m
-                .forward(&[last_id], &mut cache)
-                .unwrap_or_else(|_| Array1::zeros(vs));
+            let logits = match m.forward(&[last_id], &mut cache) {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::warn!("Generation step forward failed: {}", e);
+                    Array1::zeros(vs)
+                }
+            };
             drop(model);
             let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
             let token_text = tok.decode(&[next_id]);
@@ -901,37 +916,67 @@ impl NxrModel for CausalLmModel {
     }
 
     async fn resource_usage(&self) -> NxrModelResult<ResourceUsage> {
-        let memory_gb = std::fs::read_to_string("/proc/self/status")
-            .ok()
-            .and_then(|status| {
-                status
-                    .lines()
-                    .find(|l| l.starts_with("VmRSS:"))
-                    .and_then(|l| l.split_whitespace().nth(1))
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .map(|kb| (kb / 1_048_576.0) as f32)
-            })
-            .unwrap_or(0.0);
+        let memory_gb = match std::fs::read_to_string("/proc/self/status") {
+            Ok(status) => {
+                if let Some(line) = status.lines().find(|l| l.starts_with("VmRSS:")) {
+                    if let Some(v) = line.split_whitespace().nth(1) {
+                        match v.parse::<f64>() {
+                            Ok(kb) => (kb / 1_048_576.0) as f32,
+                            Err(e) => {
+                                tracing::warn!("Failed to parse VmRSS value '{}': {}", v, e);
+                                0.0
+                            }
+                        }
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read /proc/self/status: {}", e);
+                0.0
+            }
+        };
 
-        let cpu_percent = std::fs::read_to_string("/proc/self/stat")
-            .ok()
-            .and_then(|stat| {
+        let cpu_percent = match std::fs::read_to_string("/proc/self/stat") {
+            Ok(stat) => {
                 let parts: Vec<&str> = stat.split_whitespace().collect();
                 if parts.len() >= 15 {
                     let utime: f64 = parts[13].parse().unwrap_or(0.0);
                     let stime: f64 = parts[14].parse().unwrap_or(0.0);
                     let total_ticks = utime + stime;
-                    let uptime = std::fs::read_to_string("/proc/uptime")
-                        .ok()
-                        .and_then(|u| u.split_whitespace().next()?.parse::<f64>().ok())
-                        .unwrap_or(1.0);
+                    let uptime = match std::fs::read_to_string("/proc/uptime") {
+                        Ok(u) => match u.split_whitespace().next() {
+                            Some(val) => match val.parse::<f64>() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::warn!("Failed to parse uptime '{}': {}", val, e);
+                                    1.0
+                                }
+                            },
+                            None => {
+                                tracing::warn!("Empty /proc/uptime");
+                                1.0
+                            }
+                        },
+                        Err(e) => {
+                            tracing::warn!("Failed to read /proc/uptime: {}", e);
+                            1.0
+                        }
+                    };
                     let hertz = 100.0;
-                    Some(((total_ticks / hertz / uptime) * 100.0) as f32)
+                    ((total_ticks / hertz / uptime) * 100.0) as f32
                 } else {
-                    None
+                    0.0
                 }
-            })
-            .unwrap_or(0.0);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read /proc/self/stat: {}", e);
+                0.0
+            }
+        };
 
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
         // Iterate over multiple GPU status files (multi-GPU support).
@@ -940,15 +985,29 @@ impl NxrModel for CausalLmModel {
             let total: f32 = (0..8)
                 .filter_map(|i| {
                     let path = format!("/proc/driver/nvidia/gpus/{i}/status");
-                    std::fs::read_to_string(&path).ok().and_then(|s| {
-                        s.lines()
-                            .find(|l| l.contains("GPU Utilization"))
-                            .and_then(|l| {
-                                l.split_whitespace()
-                                    .find(|w| w.ends_with('%'))
-                                    .and_then(|w| w.trim_end_matches('%').parse::<f32>().ok())
-                            })
-                    })
+                    match std::fs::read_to_string(&path) {
+                        Ok(s) => {
+                            s.lines()
+                                .find(|l| l.contains("GPU Utilization"))
+                                .and_then(|l| {
+                                    l.split_whitespace()
+                                        .find(|w| w.ends_with('%'))
+                                        .and_then(|w| {
+                                            match w.trim_end_matches('%').parse::<f32>() {
+                                                Ok(val) => Some(val),
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to parse GPU utilization '{}': {}", w.trim_end_matches('%'), e);
+                                                    None
+                                                }
+                                            }
+                                        })
+                                })
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to read GPU status {}: {}", path, e);
+                            None
+                        }
+                    }
                 })
                 .sum();
             let count = (0..8)
@@ -1003,8 +1062,8 @@ mod tests {
         let decoded = tok.decode(&ids);
         assert_eq!(
             text.as_bytes(),
-            &decoded.as_bytes()[1..decoded.len() - 1],
-            "Roundtrip should preserve text (minus BOS/EOS)"
+            decoded.as_bytes(),
+            "Roundtrip should preserve text (decode already strips BOS/EOS)"
         );
     }
 

@@ -421,3 +421,279 @@ impl SparseActivationObjective {
         gradient
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compression::{ResonanceRepresentation, NeuronStatus};
+
+    fn cfg() -> ERPConfig {
+        ERPConfig::default()
+    }
+
+    fn layer(layer_idx: usize, nrows: usize, ncols: usize) -> CompressedLayer {
+        CompressedLayer {
+            layer_idx,
+            original_weights: Array2::zeros((nrows, ncols)),
+            compressed_weights: Array2::zeros((nrows, ncols)),
+            resonance_representations: vec![],
+            neuron_status: vec![NeuronStatus::Original; nrows],
+            compression_ratio: 0.0,
+        }
+    }
+
+    fn rep() -> ResonanceRepresentation {
+        ResonanceRepresentation {
+            group_neurons: vec![0, 1],
+            superposed_weights: Array2::zeros((1, 4)),
+            importance_coeffs: Array1::from_vec(vec![0.6, 0.4]),
+            residual: crate::compression::ResidualRepresentation::FullResidual(
+                Array2::zeros((2, 4)),
+            ),
+        }
+    }
+
+    // ── ContextReconstructor ──
+
+    #[test]
+    fn test_new_conservative() {
+        let r = ContextReconstructor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..cfg()
+        });
+        assert!(matches!(r.reconstruction_method, ReconstructionMethod::FullDecompression));
+    }
+
+    #[test]
+    fn test_new_balanced() {
+        let r = ContextReconstructor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Balanced,
+            ..cfg()
+        });
+        assert!(matches!(r.reconstruction_method, ReconstructionMethod::SparseGated { target_sparsity: 0.3 }));
+    }
+
+    #[test]
+    fn test_new_aggressive() {
+        let r = ContextReconstructor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Aggressive,
+            ..cfg()
+        });
+        assert!(matches!(r.reconstruction_method, ReconstructionMethod::AdaptiveReconstruction { budget: 64 }));
+    }
+
+    #[test]
+    fn test_compute_gates_no_resonance() {
+        let r = ContextReconstructor::new(cfg());
+        let layers = vec![layer(0, 3, 4)];
+        let input = Array1::from_vec(vec![1.0; 4]);
+        let gates = r.compute_gates(&layers, &input).unwrap();
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0].gates.len(), 3);
+        // All original neurons have gate 1.0
+        assert!(gates[0].gates.iter().all(|&g| (g - 1.0).abs() < 1e-5));
+    }
+
+    #[test]
+    fn test_compute_gates_with_resonance() {
+        let r = ContextReconstructor::new(cfg());
+        let mut l = layer(0, 3, 4);
+        l.resonance_representations = vec![rep()];
+        l.neuron_status = vec![
+            NeuronStatus::Compressed,
+            NeuronStatus::Compressed,
+            NeuronStatus::Original,
+        ];
+        let layers = vec![l];
+        let input = Array1::from_vec(vec![1.0; 4]);
+        let gates = r.compute_gates(&layers, &input).unwrap();
+        assert_eq!(gates.len(), 1);
+        // Neuron idx 2 is original, should have gate 1.0
+        assert!((gates[0].gates[2] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_reconstruct_with_gates() {
+        let r = ContextReconstructor::new(cfg());
+        let mut l = layer(0, 2, 2);
+        l.compressed_weights = Array2::from_shape_vec((2, 2), vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let input = Array1::from_vec(vec![2.0, 3.0]);
+        let gate = GatePattern {
+            layer_idx: 0,
+            gates: Array1::from_vec(vec![1.0, 1.0]),
+            active_neurons: vec![0, 1],
+            sparsity_ratio: 0.0,
+        };
+        let result = r.reconstruct_with_gates(&[l], &input, &[gate]).unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_full_decompression() {
+        let r = ContextReconstructor::new(cfg());
+        let l = layer(0, 2, 3);
+        let input = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+        let result = r.full_decompression(&l, &input).unwrap();
+        assert_eq!(result.len(), 2);
+        // All zeros because compressed_weights is zeros
+        assert!(result.iter().all(|&x| (x - 0.0).abs() < 1e-5));
+    }
+
+    #[test]
+    fn test_sparse_gated_reconstruction() {
+        let r = ContextReconstructor::new(cfg());
+        let l = layer(0, 3, 2);
+        let input = Array1::from_vec(vec![1.0, 2.0]);
+        let gates = GatePattern {
+            layer_idx: 0,
+            gates: Array1::from_vec(vec![0.5, 0.0, 0.8]),
+            active_neurons: vec![0, 2],
+            sparsity_ratio: 1.0 / 3.0,
+        };
+        let result = r.sparse_gated_reconstruction(&l, &input, &gates, 0.5).unwrap();
+        assert_eq!(result.len(), 3);
+        // Neuron 1 should be 0 (gate = 0.0)
+        assert_eq!(result[1], 0.0);
+    }
+
+    #[test]
+    fn test_compute_context_embedding() {
+        let r = ContextReconstructor::new(cfg());
+        let input = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+        let embedding = r.compute_context_embedding(&input, 0);
+        assert_eq!(embedding.len(), 64);
+        assert_eq!(embedding[0], 0.0); // layer_idx
+    }
+
+    #[test]
+    fn test_apply_sparsity_constraint() {
+        let r = ContextReconstructor::new(cfg());
+        let imp = Array1::from_vec(vec![0.5, 0.5]);
+        // gate_score=1.0, avg_importance=0.5
+        // combined = 1.0 * (1 + 0.5) = 1.5 > 0.5 => true
+        assert!(r.apply_sparsity_constraint(1.0, &imp));
+        // gate_score=0.0, avg_importance=0.5
+        // combined = 0.0 * 1.5 = 0.0 <= 0.5 => false
+        assert!(!r.apply_sparsity_constraint(0.0, &imp));
+    }
+
+    #[test]
+    fn test_compute_sparsity_ratio() {
+        let r = ContextReconstructor::new(cfg());
+        let gates = Array1::from_vec(vec![1.0, 0.0, 0.5, 0.0]);
+        let ratio = r.compute_sparsity_ratio(&gates);
+        assert!((ratio - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_sparsity_ratio_empty() {
+        let r = ContextReconstructor::new(cfg());
+        let gates = Array1::<f32>::from_vec(vec![]);
+        assert_eq!(r.compute_sparsity_ratio(&gates), 1.0);
+    }
+
+    #[test]
+    fn test_adaptive_reconstruction() {
+        let r = ContextReconstructor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Aggressive,
+            ..cfg()
+        });
+        let l = layer(0, 3, 2);
+        let input = Array1::from_vec(vec![1.0, 2.0]);
+        let gates = GatePattern {
+            layer_idx: 0,
+            gates: Array1::from_vec(vec![0.5, 0.5, 0.5]),
+            active_neurons: vec![0, 1, 2],
+            sparsity_ratio: 0.0,
+        };
+        let result = r.adaptive_reconstruction(&l, &input, &gates, 2).unwrap();
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_compute_output_sparsity() {
+        let r = ContextReconstructor::new(cfg());
+        let out = Array1::from_vec(vec![0.0, 1.5, 0.0, 0.3]);
+        assert!((r.compute_output_sparsity(&out) - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_sparsity_threshold() {
+        let r = ContextReconstructor::new(cfg());
+        let out = Array1::from_vec(vec![0.1, 0.5, 0.0, 1.0, 0.2]);
+        let threshold = r.compute_sparsity_threshold(&out, 0.6);
+        assert!(threshold > 0.0);
+    }
+
+    #[test]
+    fn test_compute_neuron_importance_default() {
+        let r = ContextReconstructor::new(cfg());
+        let l = layer(0, 3, 2);
+        let importance = r.compute_neuron_importance(0, &l);
+        assert_eq!(importance, 1.0);
+    }
+
+    // ── GateNetwork ──
+
+    #[test]
+    fn test_gate_network_compute_gate_score() {
+        let gn = GateNetwork::new(cfg());
+        let ctx = Array1::from_vec(vec![0.5; 64]);
+        let rep = rep();
+        let score = gn.compute_gate_score(&ctx, &rep);
+        assert!(score > 0.0 && score < 2.0);
+    }
+
+    #[test]
+    fn test_gate_network_update_weights() {
+        let mut gn = GateNetwork::new(cfg());
+        let grad = Array2::from_shape_fn((64, 1), |_| 0.01);
+        let old_weights = gn.gate_weights.clone();
+        gn.update_weights(&grad, 0.1);
+        let diff = (&old_weights - &gn.gate_weights).mapv(|x| x.abs()).sum();
+        assert!(diff > 0.0);
+    }
+
+    #[test]
+    fn test_gate_network_get_weights_and_bias() {
+        let gn = GateNetwork::new(cfg());
+        assert_eq!(gn.get_weights().shape(), &[64, 1]);
+        assert_eq!(gn.get_bias().len(), 1);
+    }
+
+    // ── SparseActivationObjective ──
+
+    #[test]
+    fn test_objective_compute_loss_all_zeros() {
+        let obj = SparseActivationObjective::new(0.1, 0.5);
+        let gates = Array1::zeros(10);
+        let loss = obj.compute_loss(&gates);
+        // sparsity = 1.0, target = 0.5 => sparsity_loss = (1.0 - 0.5)^2 = 0.25
+        // l1_loss = 0.1 * 0 = 0
+        assert!((loss - 0.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_objective_compute_loss_all_active() {
+        let obj = SparseActivationObjective::new(0.1, 0.5);
+        let gates = Array1::from_vec(vec![1.0; 10]);
+        let loss = obj.compute_loss(&gates);
+        // sparsity = 0.0, target = 0.5 => sparsity_loss = (0.0 - 0.5)^2 = 0.25
+        // l1_loss = 0.1 * 10 = 1.0
+        assert!((loss - 1.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_objective_compute_gradient() {
+        let obj = SparseActivationObjective::new(0.1, 0.5);
+        let gates = Array1::from_vec(vec![1.0, -2.0, 0.0]);
+        let grad = obj.compute_gradient(&gates);
+        assert_eq!(grad.len(), 3);
+        // g[0] > 0 => lambda_l1 * 1 = 0.1
+        assert!((grad[0] - 0.1).abs() < 1e-5);
+        // g[1] < 0 => lambda_l1 * -1 = -0.1
+        assert!((grad[1] + 0.1).abs() < 1e-5);
+        // g[2] == 0 => grad[2] = 0.0
+        assert_eq!(grad[2], 0.0);
+    }
+}

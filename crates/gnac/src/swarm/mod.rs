@@ -42,3 +42,21 @@ impl Default for SwarmConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_swarm_config_default() {
+        let cfg = SwarmConfig::default();
+        assert_eq!(cfg.max_iterations, 100);
+        assert_eq!(cfg.population_size, 50);
+    }
+
+    #[test]
+    fn test_swarm_config_debug() {
+        let cfg = SwarmConfig::default();
+        assert!(!format!("{:?}", cfg).is_empty());
+    }
+}

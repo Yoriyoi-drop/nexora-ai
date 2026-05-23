@@ -36,9 +36,12 @@ pub struct BlasOperations {
 
 impl Clone for BlasOperations {
     fn clone(&self) -> Self {
-        // Create new instance with same backend
-        // safe: backend was already successfully initialized in the original instance
-        Self::with_backend(self.backend).expect("Failed to clone BLAS operations")
+        Self::with_backend(self.backend).unwrap_or_else(|e| {
+            panic!(
+                "Failed to clone BLAS operations with backend {:?}: {}",
+                self.backend, e
+            )
+        })
     }
 }
 
@@ -279,6 +282,9 @@ impl BlasOperations {
         match activation {
             ActivationType::ReLU => {
                 if self.available_features.supports_avx2 {
+                    // SAFETY: `relu_avx2` requires AVX2 support, which we checked
+                    // via `supports_avx2`. The function operates on the memory range
+                    // of `output` and is safe because the caller owns the buffer.
                     unsafe {
                         self.relu_avx2(output.view_mut())?;
                     }
@@ -294,6 +300,9 @@ impl BlasOperations {
             }
             ActivationType::Tanh => {
                 if self.available_features.supports_avx2 {
+                    // SAFETY: `tanh_avx2` requires AVX2 support, which we checked
+                    // via `supports_avx2`. Memory safety is guaranteed because the
+                    // caller owns the output buffer.
                     unsafe {
                         self.tanh_avx2(output.view_mut())?;
                     }
@@ -405,6 +414,9 @@ impl BlasOperations {
         }
 
         if self.available_features.supports_avx2 {
+            // SAFETY: `gemm_simd_avx2` is tagged with `#[target_feature]` and
+            // we only call it when `supports_avx2` is true. The caller guarantees
+            // that `a`, `b`, `c` are valid views with matching inner dimensions.
             unsafe { self.gemm_simd_avx2(alpha, a, b, beta, c) }
         } else {
             self.gemm_simd_scalar(alpha, a, b, beta, c)
@@ -412,6 +424,10 @@ impl BlasOperations {
     }
 
     // SIMD implementations
+    // SAFETY: Caller must ensure AVX2 and FMA are supported at runtime before
+    // calling this function. The function uses inline SIMD intrinsics that
+    // operate on the memory ranges of the provided array views, which are
+    // guaranteed valid by the ndarray borrow checker.
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
     unsafe fn gemm_simd_avx2(
@@ -679,6 +695,10 @@ impl BlasOperations {
         y: ArrayViewMut<f32, ndarray::Ix1>,
     ) -> DLResult<()> {
         if self.available_features.supports_avx2 {
+            // SAFETY: `gemv_simd_avx2` requires AVX2 + FMA CPU support, which is
+            // verified via `self.available_features.supports_avx2`. The function
+            // also requires contiguous ndarray views, enforced by
+            // `require_contiguous` inside the function.
             unsafe { self.gemv_simd_avx2(alpha, a, x, beta, y) }
         } else {
             self.gemv_mkl(alpha, a, x, beta, y) // Fallback to scalar
@@ -784,7 +804,9 @@ impl BlasOperations {
         Ok(())
     }
 
-    // Activation functions
+    // SAFETY: Caller must ensure AVX2 is supported before calling. This function
+    // uses `#[target_feature]` and operates element-wise on the contiguous slice
+    // of `output`. The indowng array view guarantees valid memory access within bounds.
     #[target_feature(enable = "avx2")]
     unsafe fn relu_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
         let (m, n) = output.dim();
@@ -816,6 +838,9 @@ impl BlasOperations {
         Ok(())
     }
 
+    // SAFETY: Caller must ensure AVX2 is supported before calling. The function
+    // iterates element-wise on the contiguous slice of `output`. The ndarray view
+    // guarantees memory access is within the bounds of the caller's allocated buffer.
     #[target_feature(enable = "avx2")]
     unsafe fn tanh_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
         output.map_inplace(|x| *x = x.tanh());
@@ -848,7 +873,10 @@ pub struct BlasBackendInfo {
     pub features: BlasFeatures,
 }
 
-// Helper function for AVX2 horizontal sum
+// SAFETY: Caller must ensure AVX2 is supported before calling. This function uses
+// x86_64 AVX2 intrinsics to horizontally sum a 256-bit SIMD vector. The operation
+// is a pure register computation — no memory access is performed — so the only
+// safety requirement is CPU feature support, which the caller must verify.
 #[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum_avx2(v: std::arch::x86_64::__m256) -> f32 {
     let v128_hi = std::arch::x86_64::_mm256_extractf128_ps(v, 1);
@@ -870,8 +898,11 @@ static GLOBAL_BLAS: std::sync::OnceLock<BlasOperations> = std::sync::OnceLock::n
 /// Get global BLAS operations instance
 pub fn get_blas_operations() -> &'static BlasOperations {
     // safe: auto_detect always succeeds (falls back to CustomSIMD)
-    GLOBAL_BLAS
-        .get_or_init(|| BlasOperations::auto_detect().expect("Failed to initialize BLAS backend"))
+    GLOBAL_BLAS.get_or_init(|| {
+        BlasOperations::auto_detect().unwrap_or_else(|e| {
+            panic!("Failed to initialize BLAS backend: {} (falls back to CustomSIMD, should not fail)", e)
+        })
+    })
 }
 
 /// Initialize BLAS with specific backend (for testing)

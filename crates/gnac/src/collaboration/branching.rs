@@ -75,3 +75,41 @@ impl BranchManager {
         Ok(diff)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_branch_manager_new() {
+        let bm = BranchManager::new();
+        assert!(bm.branches.is_empty());
+    }
+
+    #[test]
+    fn test_fork_and_merge() {
+        let mut bm = BranchManager::new();
+        let g1 = NeuralGraph::new("main");
+        let id1 = bm.fork("main", None, g1);
+        let g2 = NeuralGraph::new("feature");
+        let id2 = bm.fork("feature", Some(id1), g2);
+        assert_eq!(bm.branches.len(), 2);
+
+        let result = bm.merge(&id2, &id1);
+        assert!(result.is_ok());
+        assert_eq!(bm.branches[1].status, BranchStatus::Merged);
+    }
+
+    #[test]
+    fn test_merge_branch_not_found() {
+        let mut bm = BranchManager::new();
+        let result = bm.merge(&Uuid::new_v4(), &Uuid::new_v4());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_branch_status() {
+        assert_eq!(BranchStatus::Active as u8, 0);
+        assert_eq!(BranchStatus::Merged as u8, 1);
+    }
+}

@@ -79,3 +79,74 @@ impl GraphOptimizer {
         cleaned
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution::{GraphIR, IROperation, IRValue, ExecutionBackend};
+
+    fn simple_ir() -> GraphIR {
+        GraphIR::new("test", ExecutionBackend::CPU)
+    }
+
+    #[test]
+    fn test_optimizer_new() {
+        let opt = GraphOptimizer::new();
+        assert!(opt.enable_fusion);
+        assert!(opt.enable_dead_elimination);
+    }
+
+    #[test]
+    fn test_optimize_noop() {
+        let opt = GraphOptimizer::new();
+        let ir = simple_ir();
+        let result = opt.optimize(&ir);
+        assert_eq!(result.operations.len(), 0);
+    }
+
+    #[test]
+    fn test_fuse_relu_matmul() {
+        let opt = GraphOptimizer::new();
+        let mut ir = simple_ir();
+        ir.operations.push(IROperation {
+            id: uuid::Uuid::new_v4(),
+            op_type: IROpType::Relu,
+            inputs: vec![],
+            outputs: vec![IRValue { name: "a".into(), shape: vec![1], is_tensor: true }],
+            attributes: std::collections::HashMap::new(),
+        });
+        ir.operations.push(IROperation {
+            id: uuid::Uuid::new_v4(),
+            op_type: IROpType::MatMul,
+            inputs: vec![IRValue { name: "a".into(), shape: vec![1], is_tensor: true }],
+            outputs: vec![],
+            attributes: std::collections::HashMap::new(),
+        });
+        let fused = opt.optimize(&ir);
+        assert_eq!(fused.operations.len(), 1);
+    }
+
+    #[test]
+    fn test_eliminate_dead_nodes() {
+        let opt = GraphOptimizer::new();
+        let mut ir = simple_ir();
+        ir.operations.push(IROperation {
+            id: uuid::Uuid::new_v4(),
+            op_type: IROpType::Input,
+            inputs: vec![],
+            outputs: vec![IRValue { name: "in".into(), shape: vec![1], is_tensor: true }],
+            attributes: std::collections::HashMap::new(),
+        });
+        // Dead node (output not used)
+        ir.operations.push(IROperation {
+            id: uuid::Uuid::new_v4(),
+            op_type: IROpType::MatMul,
+            inputs: vec![],
+            outputs: vec![IRValue { name: "dead".into(), shape: vec![1], is_tensor: true }],
+            attributes: std::collections::HashMap::new(),
+        });
+        let cleaned = opt.eliminate_dead_nodes(&ir);
+        assert_eq!(cleaned.operations.len(), 1);
+        assert_eq!(cleaned.operations[0].op_type, IROpType::Input);
+    }
+}

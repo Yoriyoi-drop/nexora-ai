@@ -101,7 +101,8 @@ where
     /// Run a single step, processing up to `max_batch_size` ready sequences
     /// in a batched forward pass.
     ///
-    /// NOTE: Currently processes sequences one-by-one via `forward_batched`.
+    /// ⚠️  CURRENT LIMITATION — NOT TRUE BATCHED INFERENCE:
+    /// Currently processes sequences one-by-one via `forward_batched`.
     /// True batched forward (all sequences in a single kernel launch) is not
     /// yet implemented.
     pub fn step(&mut self) -> StepResult {
@@ -135,7 +136,11 @@ where
                 caches.push(cache);
             }
             if let Some(s) = self.sequences.get(&sid) {
-                inputs.push(s.next_input_token().unwrap_or(0));
+                let next_token = s.next_input_token();
+                if next_token.is_none() {
+                    warn!("Sequence {} has no input token, using BOS(0)", sid);
+                }
+                inputs.push(next_token.unwrap_or(0));
                 prefill_flags.push(s.has_pending_prompt());
             }
         }
@@ -143,13 +148,11 @@ where
         // Batched forward pass
         let all_logits: Vec<Array1<f32>> = if inputs.len() > 1 {
             self.model.forward_batched(&inputs, &mut caches)
+        } else if let Some(cache) = caches.first_mut() {
+            vec![self.model.forward(&inputs, cache)]
         } else {
-            match caches.first_mut() {
-                Some(cache) => {
-                    vec![self.model.forward(&inputs, cache)]
-                }
-                None => Vec::new(),
-            }
+            warn!("No cache available for single-sequence forward pass — skipping");
+            Vec::new()
         };
 
         // Restore caches
@@ -173,7 +176,7 @@ where
                 }
             };
             let token_id = match sampler.sample(&logits_vec) {
-                Ok(idx) => idx as u32,
+                Ok(idx) => u32::try_from(idx).unwrap_or(u32::MAX),
                 Err(e) => {
                     warn!(
                         "Sampler failed for sequence {}, error: {:?}, falling back to argmax",
@@ -183,7 +186,7 @@ where
                         .iter()
                         .enumerate()
                         .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                        .map(|(i, _)| i as u32)
+                        .map(|(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
                         .unwrap_or(0)
                 }
             };

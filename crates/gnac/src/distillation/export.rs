@@ -54,3 +54,43 @@ impl ExportManager {
         Ok(warnings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_export_empty() {
+        let g = NeuralGraph::new("empty");
+        let result = ExportManager::export(&g, ExecutionBackend::CPU);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_target_edge_tpu_ok() {
+        let g = NeuralGraph::new("small");
+        let warnings = ExportManager::verify_target(&g, "edge_tpu").unwrap();
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_verify_target_mobile_ok() {
+        let g = NeuralGraph::new("small");
+        let warnings = ExportManager::verify_target(&g, "mobile").unwrap();
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_verify_target_browser_ok() {
+        let g = NeuralGraph::new("small");
+        let warnings = ExportManager::verify_target(&g, "browser").unwrap();
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_verify_target_unknown() {
+        let g = NeuralGraph::new("small");
+        let warnings = ExportManager::verify_target(&g, "unknown").unwrap();
+        assert!(warnings.is_empty());
+    }
+}

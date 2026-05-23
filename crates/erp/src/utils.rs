@@ -311,27 +311,27 @@ impl ValidationReport {
 
     pub fn print_summary(&self) {
         if !self.errors.is_empty() {
-            println!("Errors:");
+            tracing::info!("Errors:");
             for error in &self.errors {
-                println!("  - {}", error);
+                tracing::info!("  - {}", error);
             }
         }
 
         if !self.warnings.is_empty() {
-            println!("Warnings:");
+            tracing::info!("Warnings:");
             for warning in &self.warnings {
-                println!("  - {}", warning);
+                tracing::info!("  - {}", warning);
             }
         }
 
         if !self.info.is_empty() {
-            println!("Info:");
+            tracing::info!("Info:");
             for info_msg in &self.info {
-                println!("  - {}", info_msg);
+                tracing::info!("  - {}", info_msg);
             }
         }
 
-        println!(
+        tracing::info!(
             "Validation Status: {}",
             if self.is_valid { "PASSED" } else { "FAILED" }
         );
@@ -350,12 +350,12 @@ pub struct BenchmarkResults {
 
 impl BenchmarkResults {
     pub fn print_summary(&self) {
-        println!("=== ERP Benchmark Results ===");
-        println!("Average Inference Time: {:?}", self.avg_inference_time);
-        println!("Min Inference Time: {:?}", self.min_inference_time);
-        println!("Max Inference Time: {:?}", self.max_inference_time);
-        println!("Total Memory Usage: {} bytes", self.total_memory_usage);
-        println!("Compression Ratio: {:.1}%", self.compression_ratio * 100.0);
+        tracing::info!("=== ERP Benchmark Results ===");
+        tracing::info!("Average Inference Time: {:?}", self.avg_inference_time);
+        tracing::info!("Min Inference Time: {:?}", self.min_inference_time);
+        tracing::info!("Max Inference Time: {:?}", self.max_inference_time);
+        tracing::info!("Total Memory Usage: {} bytes", self.total_memory_usage);
+        tracing::info!("Compression Ratio: {:.1}%", self.compression_ratio * 100.0);
     }
 }
 
@@ -472,5 +472,311 @@ pub mod utils {
         let v = Array2::from_shape_fn((actual_rank, n), |_| rng.gen());
 
         u.dot(&v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg() -> ERPConfig {
+        ERPConfig::default()
+    }
+
+    fn layer(nrows: usize, ncols: usize) -> CompressedLayer {
+        CompressedLayer {
+            layer_idx: 0,
+            original_weights: Array2::zeros((nrows, ncols)),
+            compressed_weights: Array2::zeros((nrows, ncols)),
+            resonance_representations: vec![],
+            neuron_status: vec![],
+            compression_ratio: 0.0,
+        }
+    }
+
+    // ── ERPValidator ──
+
+    #[test]
+    fn test_validator_new() {
+        let v = ERPValidator::new(cfg());
+        let report = v.validate_compressed_model(&[], &[]).unwrap();
+        // Default is_valid = false (from Default impl); empty validation has no errors
+        assert!(!report.is_valid);
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_dimensions_mismatch() {
+        let v = ERPValidator::new(cfg());
+        let orig = vec![Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap()];
+        let comp = vec![layer(2, 2), layer(2, 2)];
+        let result = v.validate_compressed_model(&orig, &comp);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_dimensions_mismatch_shape() {
+        let v = ERPValidator::new(cfg());
+        let orig = vec![Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap()];
+        let comp = vec![layer(3, 2)];
+        let report = v.validate_compressed_model(&orig, &comp).unwrap();
+        assert!(!report.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_numerical_stability_ok() {
+        let v = ERPValidator::new(cfg());
+        let layers = vec![layer(2, 2)];
+        let mut report = ValidationReport::new();
+        let result = v.validate_numerical_stability(&layers, &mut report);
+        assert!(result.is_ok());
+        assert!(report.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_numerical_stability_nan() {
+        let v = ERPValidator::new(cfg());
+        let mut l = layer(2, 2);
+        l.compressed_weights[[0, 0]] = f32::NAN;
+        let mut report = ValidationReport::new();
+        let _ = v.validate_numerical_stability(&[l], &mut report);
+        assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_reconstruction_accuracy() {
+        let v = ERPValidator::new(cfg());
+        let orig = vec![Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap()];
+        let comp = vec![layer(2, 2)];
+        let mut report = ValidationReport::new();
+        let _ = v.validate_reconstruction_accuracy(&orig, &comp, &mut report);
+        // MSE = sum((1-0)^2)/4 = 1.0, which is > 0.1 -> warning
+        assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_memory_efficiency() {
+        let v = ERPValidator::new(cfg());
+        let orig = vec![Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap()];
+        let comp = vec![layer(2, 2)];
+        let mut report = ValidationReport::new();
+        let _ = v.validate_memory_efficiency(&orig, &comp, &mut report);
+        // compression_ratio = 0.0 < 0.2 → warning, not info
+        assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_compute_mse_different_shapes() {
+        let v = ERPValidator::new(cfg());
+        let a = Array2::zeros((2, 2));
+        let b = Array2::zeros((3, 3));
+        assert_eq!(v.compute_mse(&a, &b), f32::INFINITY);
+    }
+
+    #[test]
+    fn test_compute_mse_identical() {
+        let v = ERPValidator::new(cfg());
+        let a = Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap();
+        assert!((v.compute_mse(&a, &a) - 0.0).abs() < 1e-5);
+    }
+
+    // ── ERPMonitor ──
+
+    #[test]
+    fn test_monitor_new() {
+        let m = ERPMonitor::new();
+        assert!(m.get_metric_names().is_empty());
+    }
+
+    #[test]
+    fn test_record_and_get_stats() {
+        let mut m = ERPMonitor::new();
+        m.record_metric("latency", 1.0, "ms");
+        m.record_metric("latency", 2.0, "ms");
+        m.record_metric("latency", 3.0, "ms");
+        let stats = m.get_metric_stats("latency").unwrap();
+        assert_eq!(stats.count, 3);
+        assert!((stats.mean - 2.0).abs() < 1e-5);
+        assert!((stats.min - 1.0).abs() < 1e-5);
+        assert!((stats.max - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_get_metric_stats_missing() {
+        let m = ERPMonitor::new();
+        assert!(m.get_metric_stats("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut m = ERPMonitor::new();
+        m.record_metric("test", 1.0, "unit");
+        m.clear();
+        assert!(m.get_metric_names().is_empty());
+    }
+
+    #[test]
+    fn test_get_metric_names() {
+        let mut m = ERPMonitor::new();
+        m.record_metric("a", 1.0, "");
+        m.record_metric("b", 2.0, "");
+        let names = m.get_metric_names();
+        assert_eq!(names.len(), 2);
+    }
+
+    // ─── validation_report ──
+
+    #[test]
+    fn test_validation_report_new_is_valid_false() {
+        let r = ValidationReport::new();
+        // Default impl sets is_valid = false
+        assert!(!r.is_valid);
+    }
+
+    #[test]
+    fn test_validation_report_add_error() {
+        let mut r = ValidationReport::new();
+        r.add_error("test error");
+        assert!(!r.is_valid);
+        assert_eq!(r.errors.len(), 1);
+    }
+
+    #[test]
+    fn test_validation_report_add_warning() {
+        let mut r = ValidationReport::new();
+        r.add_warning("test warning");
+        assert_eq!(r.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_validation_report_add_info() {
+        let mut r = ValidationReport::new();
+        r.add_info("test info");
+        assert_eq!(r.info.len(), 1);
+    }
+
+    #[test]
+    fn test_benchmark_results_print() {
+        let b = BenchmarkResults {
+            avg_inference_time: std::time::Duration::from_micros(100),
+            min_inference_time: std::time::Duration::from_micros(50),
+            max_inference_time: std::time::Duration::from_micros(200),
+            total_memory_usage: 1024,
+            compression_ratio: 0.5,
+        };
+        b.print_summary(); // smoke test — shouldn't panic
+    }
+
+    // ── utils sub-module ──
+
+    #[test]
+    fn test_cosine_similarity_identical() {
+        let a = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+        assert!((super::utils::cosine_similarity(&a, &a) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_cosine_similarity_different_dims() {
+        let a = Array1::from_vec(vec![1.0, 2.0]);
+        let b = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+        assert_eq!(super::utils::cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_kl_divergence_identical() {
+        let a = Array1::from_vec(vec![0.5, 0.3, 0.2]);
+        assert!((super::utils::kl_divergence(&a, &a) - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_kl_divergence_different_dims() {
+        let a = Array1::from_vec(vec![0.5, 0.5]);
+        let b = Array1::from_vec(vec![1.0]);
+        assert_eq!(super::utils::kl_divergence(&a, &b), f32::INFINITY);
+    }
+
+    #[test]
+    fn test_normalize_to_sum_one() {
+        let mut a = Array1::from_vec(vec![2.0, 3.0, 5.0]);
+        super::utils::normalize_to_sum_one(&mut a);
+        assert!((a.sum() - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_normalize_to_sum_one_zero() {
+        let mut a = Array1::from_vec(vec![0.0, 0.0]);
+        super::utils::normalize_to_sum_one(&mut a);
+        assert!(a.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_softmax() {
+        let a = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+        let s = super::utils::softmax(&a);
+        assert!((s.sum() - 1.0).abs() < 1e-5);
+        assert!(s[2] > s[1]);
+    }
+
+    #[test]
+    fn test_softmax_uniform() {
+        let a = Array1::from_vec(vec![0.0, 0.0, 0.0]);
+        let s = super::utils::softmax(&a);
+        assert!((s.sum() - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_quantile_median() {
+        let a = Array1::from_vec(vec![1.0, 5.0, 3.0, 2.0, 4.0]);
+        let q = super::utils::quantile(&a, 0.5);
+        assert!((q - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_quantile_out_of_range() {
+        let a = Array1::from_vec(vec![1.0, 2.0]);
+        assert!(super::utils::quantile(&a, 1.5).is_nan());
+    }
+
+    #[test]
+    fn test_quantile_empty() {
+        let a = Array1::<f32>::from_vec(vec![]);
+        assert!(super::utils::quantile(&a, 0.5).is_nan());
+    }
+
+    #[test]
+    fn test_percentile_ranks() {
+        let a = Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0]);
+        let ranks = super::utils::percentile_ranks(&a);
+        assert_eq!(ranks.len(), 4);
+        assert!((ranks[3] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_generate_random_matrix() {
+        let m = super::utils::generate_random_matrix(3, 4);
+        assert_eq!(m.shape(), &[3, 4]);
+    }
+
+    #[test]
+    fn test_frobenius_norm() {
+        let m = Array2::from_shape_vec((2, 2), vec![3.0, 4.0, 0.0, 0.0]).unwrap();
+        let n = super::utils::frobenius_norm(&m);
+        assert!((n - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_low_rank_approximation() {
+        let m = Array2::from_shape_vec((5, 5), vec![1.0; 25]).unwrap();
+        let approx = super::utils::low_rank_approximation(&m, 2);
+        assert_eq!(approx.shape(), &[5, 5]);
+    }
+
+    // ── ERPBenchmark ──
+
+    #[test]
+    fn test_benchmark_new() {
+        let b = ERPBenchmark::new(cfg());
+        // just ensure no panic
+        let _ = b;
     }
 }

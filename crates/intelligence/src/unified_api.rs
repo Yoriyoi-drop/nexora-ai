@@ -4,6 +4,7 @@
 //! in the Nexora ecosystem through a single factory interface.
 
 use async_trait::async_trait;
+use tracing::warn;
 use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
 use nexora_foundation::multimodal::caffeine::{
     types::MultiModalInputs, types::TextInput, Caffeine, CaffeineConfig,
@@ -163,10 +164,14 @@ struct BasicSacaModel {
 
 impl BasicSacaModel {
     async fn new() -> Self {
-        let saca = SACAIntegration::new(SACAConfig::default()).await.ok();
-        BasicSacaModel {
-            saca: saca.map(Arc::new),
-        }
+        let saca = match SACAIntegration::new(SACAConfig::default()).await {
+            Ok(s) => Some(Arc::new(s)),
+            Err(e) => {
+                warn!("SACAIntegration initialization failed: {}", e);
+                None
+            }
+        };
+        BasicSacaModel { saca }
     }
 
     fn with_saca(saca: SACAIntegration) -> Self {
@@ -213,15 +218,33 @@ async fn init_saca_with_extensions(
     caffeine_config: Option<CaffeineConfig>,
     has_moe_config: Option<super::serving::unified_api::HasMoeFfnConfig>,
 ) -> Option<Arc<SACAIntegration>> {
-    let mut saca = SACAIntegration::new(SACAConfig::default()).await.ok()?;
+    let mut saca = match SACAIntegration::new(SACAConfig::default()).await {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("SACAIntegration initialization failed in extensions: {}", e);
+            return None;
+        }
+    };
 
     if let Some(cfg) = atqs_config {
-        let engine = CompressionEngine::new(cfg).ok()?;
+        let engine = match CompressionEngine::new(cfg) {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("CompressionEngine initialization failed: {}", e);
+                return None;
+            }
+        };
         saca = saca.with_atqs_compression(Arc::new(engine));
     }
 
     if let Some(cfg) = caffeine_config {
-        let caffeine = Caffeine::new(cfg).ok()?;
+        let caffeine = match Caffeine::new(cfg) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Caffeine initialization failed: {}", e);
+                return None;
+            }
+        };
         saca = saca.with_caffeine(Arc::new(tokio::sync::Mutex::new(caffeine)));
     }
 

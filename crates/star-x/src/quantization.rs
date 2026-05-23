@@ -107,7 +107,13 @@ pub struct CalibrationStats {
 
 impl QuantizationEngine {
     pub fn new(precision: QuantPrecision, method: QuantMethod) -> DLResult<Self> {
-        let blas_ops = BlasOperations::auto_detect().ok();
+        let blas_ops = match BlasOperations::auto_detect() {
+            Ok(val) => Some(val),
+            Err(e) => {
+                tracing::warn!("BLAS auto-detect failed: {}", e);
+                None
+            }
+        };
 
         Ok(Self {
             precision,
@@ -613,7 +619,7 @@ fn f32_to_f16(value: f32) -> u16 {
         ((sign as u16) << 15) | ((mantissa >> 13) as u16)
     } else {
         // Normalized number
-        let new_exponent = (exponent as i16 - 127 + 15) as u16;
+        let new_exponent = ((exponent as i16).saturating_add(-127 + 15).max(0) as u16).min(0x1F);
         if new_exponent <= 0 {
             (sign as u16) << 15
         } else if new_exponent >= 0x1F {
@@ -645,7 +651,7 @@ fn f16_to_f32(value: u16) -> f32 {
         }
     } else {
         // Normalized number
-        let new_exponent = (exponent as u32 - 15 + 127) as u32;
+        let new_exponent = (exponent as u32).saturating_sub(15).saturating_add(127);
         f32::from_bits(((sign as u32) << 31) | (new_exponent << 23) | ((mantissa as u32) << 13))
     }
 }

@@ -13,39 +13,58 @@ pub struct DomainClassifier {
     pub instruction_patterns: Vec<Regex>,
 }
 
+fn default_code_patterns() -> Vec<Regex> {
+    vec![
+        Regex::new(r"(?m)^(fn|def|function|class|impl|struct|enum|pub|use|import|from)\s").expect("valid domain regex: code keywords"),
+        Regex::new(r"\{[\s\S]*\}").expect("valid domain regex: code braces"),
+        Regex::new(r"(?m)^\s*#\s*(include|define|pragma)").expect("valid domain regex: preprocessor"),
+        Regex::new(r"->\s*[A-Za-z_][A-Za-z0-9_<>]*").expect("valid domain regex: return type"),
+        Regex::new(r"(?m)^(for|while|if|match|switch)\s*\(").expect("valid domain regex: control flow"),
+    ]
+}
+
+fn default_reasoning_patterns() -> Vec<Regex> {
+    vec![
+        Regex::new(r"(?i)\b(therefore|because|since|hence|thus|consequently)\b").expect("valid domain regex: reasoning connectives"),
+        Regex::new(r"(?i)\b(step\s+\d+|firstly|secondly|finally)\b").expect("valid domain regex: reasoning steps"),
+        Regex::new(r"(?i)\b(conclusion|analysis|reasoning|logically)\b").expect("valid domain regex: reasoning nouns"),
+        Regex::new(r"(?i)\b(if.*then|implies|iff|whenever)\b").expect("valid domain regex: logical operators"),
+    ]
+}
+
+fn default_knowledge_patterns() -> Vec<Regex> {
+    vec![
+        Regex::new(r"(?i)\b(wikipedia|according\s+to|reference|source)\b").expect("valid domain regex: citation"),
+        Regex::new(r"(?i)\b(century|decade|era|period|historical)\b").expect("valid domain regex: time periods"),
+        Regex::new(r"\b\d{4}\b").expect("valid domain regex: year"),
+    ]
+}
+
+fn default_math_patterns() -> Vec<Regex> {
+    vec![
+        Regex::new(r"\\[\(\[].*?\\[\)\]]").expect("valid domain regex: LaTeX"),
+        Regex::new(r"\b(\d+[\+\-\*\/]\d+|\d+=\d+)\b").expect("valid domain regex: arithmetic"),
+        Regex::new(r"\b(equation|theorem|lemma|proof|axiom)\b").expect("valid domain regex: math nouns"),
+        Regex::new(r"\b(sin|cos|tan|log|ln|sqrt|integral|derivative)\b").expect("valid domain regex: math functions"),
+    ]
+}
+
+fn default_instruction_patterns() -> Vec<Regex> {
+    vec![
+        Regex::new(r"(?i)\b(please|could\s+you|can\s+you|would\s+you)\s+(explain|help|tell|show|write|create)").expect("valid domain regex: polite requests"),
+        Regex::new(r"(?i)^(write|create|generate|make|build|design|implement)\s").expect("valid domain regex: imperative"),
+        Regex::new(r"(?i)^(what|how|why|when|where|who|which)\s").expect("valid domain regex: question words"),
+    ]
+}
+
 impl Default for DomainClassifier {
     fn default() -> Self {
         Self {
-            code_patterns: vec![
-                // safe because: compile-time known regex literal
-                Regex::new(r"(?m)^(fn|def|function|class|impl|struct|enum|pub|use|import|from)\s").unwrap(),
-                Regex::new(r"\{[\s\S]*\}").unwrap(),
-                Regex::new(r"(?m)^\s*#\s*(include|define|pragma)").unwrap(),
-                Regex::new(r"->\s*[A-Za-z_][A-Za-z0-9_<>]*").unwrap(),
-                Regex::new(r"(?m)^(for|while|if|match|switch)\s*\(").unwrap(),
-            ],
-            reasoning_patterns: vec![
-                Regex::new(r"(?i)\b(therefore|because|since|hence|thus|consequently)\b").unwrap(),
-                Regex::new(r"(?i)\b(step\s+\d+|firstly|secondly|finally)\b").unwrap(),
-                Regex::new(r"(?i)\b(conclusion|analysis|reasoning|logically)\b").unwrap(),
-                Regex::new(r"(?i)\b(if.*then|implies|iff|whenever)\b").unwrap(),
-            ],
-            knowledge_patterns: vec![
-                Regex::new(r"(?i)\b(wikipedia|according\s+to|reference|source)\b").unwrap(),
-                Regex::new(r"(?i)\b(century|decade|era|period|historical)\b").unwrap(),
-                Regex::new(r"\b\d{4}\b").unwrap(),
-            ],
-            math_patterns: vec![
-                Regex::new(r"\\[\(\[].*?\\[\)\]]").unwrap(),
-                Regex::new(r"\b(\d+[\+\-\*\/]\d+|\d+=\d+)\b").unwrap(),
-                Regex::new(r"\b(equation|theorem|lemma|proof|axiom)\b").unwrap(),
-                Regex::new(r"\b(sin|cos|tan|log|ln|sqrt|integral|derivative)\b").unwrap(),
-            ],
-            instruction_patterns: vec![
-                Regex::new(r"(?i)\b(please|could\s+you|can\s+you|would\s+you)\s+(explain|help|tell|show|write|create)").unwrap(),
-                Regex::new(r"(?i)^(write|create|generate|make|build|design|implement)\s").unwrap(),
-                Regex::new(r"(?i)^(what|how|why|when|where|who|which)\s").unwrap(),
-            ],
+            code_patterns: default_code_patterns(),
+            reasoning_patterns: default_reasoning_patterns(),
+            knowledge_patterns: default_knowledge_patterns(),
+            math_patterns: default_math_patterns(),
+            instruction_patterns: default_instruction_patterns(),
         }
     }
 }

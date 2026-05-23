@@ -247,15 +247,15 @@ pub struct ResonanceCalculator;
 
 impl ResonanceCalculator {
     /// Calculate resonance between two signals
-    pub fn resonance_coefficient(signal1: &Array1<f32>, signal2: &Array1<f32>) -> f32 {
+    pub fn resonance_coefficient(signal1: &Array1<f32>, signal2: &Array1<f32>) -> DLResult<f32> {
         if signal1.len() != signal2.len() {
-            return 0.0;
+            return Ok(0.0);
         }
 
         let correlation = Self::correlation_coefficient(signal1, signal2);
-        let phase_alignment = Self::phase_alignment(signal1, signal2);
+        let phase_alignment = Self::phase_alignment(signal1, signal2)?;
 
-        correlation * phase_alignment
+        Ok(correlation * phase_alignment)
     }
 
     /// Calculate correlation coefficient
@@ -283,11 +283,9 @@ impl ResonanceCalculator {
     }
 
     /// Calculate phase alignment
-    fn phase_alignment(signal1: &Array1<f32>, signal2: &Array1<f32>) -> f32 {
-        // safe: 1D FFT always succeeds on valid Array1 input
-        let fft1 = HolographicFFT::fft_1d(signal1).expect("FFT computation succeeded");
-        // safe: 1D FFT always succeeds on valid Array1 input
-        let fft2 = HolographicFFT::fft_1d(signal2).expect("FFT computation succeeded");
+    fn phase_alignment(signal1: &Array1<f32>, signal2: &Array1<f32>) -> DLResult<f32> {
+        let fft1 = HolographicFFT::fft_1d(signal1)?;
+        let fft2 = HolographicFFT::fft_1d(signal2)?;
 
         let phase1 = SpectralAnalyzer::phase_spectrum(&fft1);
         let phase2 = SpectralAnalyzer::phase_spectrum(&fft2);
@@ -297,7 +295,7 @@ impl ResonanceCalculator {
             alignment += (p1 - p2).cos();
         }
 
-        alignment / phase1.len() as f32
+        Ok(alignment / phase1.len() as f32)
     }
 
     /// Calculate interference pattern

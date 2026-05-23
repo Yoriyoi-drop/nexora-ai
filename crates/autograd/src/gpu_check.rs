@@ -293,14 +293,16 @@ impl GpuNanDetector {
         let has_nan = has_nan_or_inf_gpu(ctx, tensor, pipelines);
         if has_nan {
             self.nan_detected.store(true, Ordering::SeqCst);
-            eprintln!(
+            tracing::warn!(
                 "[GPU NaN DETECTED] in '{}' (size={}, shape={:?})",
                 label,
                 tensor.numel(),
                 tensor.shape()
             );
             if self.abort_on_nan {
-                panic!("GPU NaN detected in '{}' — aborting", label);
+                return Err(crate::gpu::GpuError::Unsupported(
+                    format!("GPU NaN detected in '{}' — aborting", label)
+                ));
             }
         }
         Ok(has_nan)

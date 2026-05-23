@@ -162,7 +162,7 @@ async fn register_causal_lm(
 }
 
 pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
-    let vocab_size = 512;
+    let vocab_size = 50257;
 
     // Register only actively used models (Omnis by default).
     // Set NEXORA_ALL_MODELS=1 or enable feature "all-models" to load all 10.

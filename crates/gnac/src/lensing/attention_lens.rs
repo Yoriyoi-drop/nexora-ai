@@ -62,3 +62,50 @@ impl NeuralLens for AttentionFlowLens {
         "Attention Flow Lens"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+    use crate::TensorDesc;
+    use crate::GraphEdge;
+    use crate::DType;
+    use uuid::Uuid;
+
+    fn graph_with_attention() -> NeuralGraph {
+        let mut g = NeuralGraph::new("test");
+        let attn = crate::canvas::GraphNode::new(crate::NodeType::SelfAttention, "attn", 0.0, 0.0);
+        g.add_node(attn);
+        g
+    }
+
+    #[test]
+    fn test_attention_lens_name() {
+        let lens = AttentionFlowLens;
+        assert_eq!(lens.name(), "Attention Flow Lens");
+    }
+
+    #[test]
+    fn test_attention_lens_type() {
+        let lens = AttentionFlowLens;
+        assert_eq!(lens.lens_type(), LensType::AttentionFlow);
+    }
+
+    #[test]
+    fn test_attention_lens_no_attention() {
+        let g = NeuralGraph::new("empty");
+        let obs = AttentionFlowLens.observe(&g);
+        assert_eq!(obs.severity, ObservationSeverity::Info);
+        assert!(obs.summary.contains("No attention"));
+    }
+
+    #[test]
+    fn test_attention_lens_with_attention() {
+        let mut g = NeuralGraph::new("g");
+        let attn = GraphNode::new(NodeType::SelfAttention, "attn", 0.0, 0.0);
+        g.add_node(attn);
+        let obs = AttentionFlowLens.observe(&g);
+        assert!(obs.summary.contains("Found"));
+    }
+}

@@ -63,3 +63,21 @@ impl NeuralLens for ActivationEntropyLens {
         "Activation Entropy Lens"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_entropy_lens_name() {
+        assert_eq!(ActivationEntropyLens.name(), "Activation Entropy Lens");
+    }
+
+    #[test]
+    fn test_entropy_lens_empty() {
+        let g = NeuralGraph::new("empty");
+        let obs = ActivationEntropyLens.observe(&g);
+        assert!(obs.summary.contains("normal range"));
+        assert_eq!(obs.severity, ObservationSeverity::Info);
+    }
+}

@@ -158,3 +158,185 @@ impl NeuralGraph {
         self.nodes.values().map(|n| n.metadata.params_count).sum()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn simple_graph() -> NeuralGraph {
+        let mut g = NeuralGraph::new("test");
+        let input = GraphNode::new(crate::NodeType::Input, "input", -100.0, 0.0);
+        let hidden = GraphNode::new(crate::NodeType::Linear, "hidden", 0.0, 0.0);
+        let output = GraphNode::new(crate::NodeType::Output, "output", 100.0, 0.0);
+
+        let input_id = g.add_node(input);
+        let hidden_id = g.add_node(hidden);
+        let output_id = g.add_node(output);
+
+        // connect
+        let tensor = crate::TensorDesc::new(vec![1, 64], crate::DType::F32);
+        let e1 = GraphEdge::new(
+            input_id,
+            Uuid::new_v4(),
+            hidden_id,
+            Uuid::new_v4(),
+            tensor.clone(),
+        );
+        let e2 = GraphEdge::new(
+            hidden_id,
+            Uuid::new_v4(),
+            output_id,
+            Uuid::new_v4(),
+            tensor,
+        );
+        let _ = g.add_edge(e1);
+        let _ = g.add_edge(e2);
+
+        g
+    }
+
+    #[test]
+    fn test_neural_graph_new() {
+        let g = NeuralGraph::new("test");
+        assert_eq!(g.name, "test");
+        assert!(g.nodes.is_empty());
+        assert!(g.edges.is_empty());
+        assert_eq!(g.version, 0);
+    }
+
+    #[test]
+    fn test_add_node() {
+        let mut g = NeuralGraph::new("g");
+        let node = GraphNode::new(crate::NodeType::Input, "in", 0.0, 0.0);
+        let id = g.add_node(node);
+        assert_eq!(g.node_count(), 1);
+        assert!(g.get_node(&id).is_some());
+        assert_eq!(g.version, 1);
+    }
+
+    #[test]
+    fn test_remove_node_also_removes_edges() {
+        let mut g = simple_graph();
+        let input_id = g.get_input_nodes()[0].id;
+        assert!(g.edge_count() > 0);
+        g.remove_node(&input_id);
+        assert_eq!(g.node_count(), 2);
+    }
+
+    #[test]
+    fn test_add_edge_missing_source() {
+        let mut g = NeuralGraph::new("g");
+        let target = GraphNode::new(crate::NodeType::Output, "out", 0.0, 0.0);
+        let target_id = g.add_node(target);
+        let tensor = crate::TensorDesc::new(vec![1], crate::DType::F32);
+        let e = GraphEdge::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            target_id,
+            Uuid::new_v4(),
+            tensor,
+        );
+        let result = g.add_edge(e);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_add_edge_success() {
+        let mut g = NeuralGraph::new("g");
+        let a = g.add_node(GraphNode::new(crate::NodeType::Input, "a", 0.0, 0.0));
+        let b = g.add_node(GraphNode::new(crate::NodeType::Linear, "b", 0.0, 0.0));
+        let tensor = crate::TensorDesc::new(vec![1, 64], crate::DType::F32);
+        let e = GraphEdge::new(a, Uuid::new_v4(), b, Uuid::new_v4(), tensor);
+        let id = g.add_edge(e).unwrap();
+        assert_eq!(g.edge_count(), 1);
+        assert!(g.edges.contains_key(&id));
+    }
+
+    #[test]
+    fn test_remove_edge() {
+        let mut g = simple_graph();
+        let edge_id = *g.edges.keys().next().unwrap();
+        g.remove_edge(&edge_id);
+        assert_eq!(g.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_get_node_mut() {
+        let mut g = simple_graph();
+        let id = *g.nodes.keys().next().unwrap();
+        let node = g.get_node_mut(&id).unwrap();
+        node.name = "renamed".to_string();
+        assert_eq!(g.get_node(&id).unwrap().name, "renamed");
+    }
+
+    #[test]
+    fn test_get_input_nodes() {
+        let g = simple_graph();
+        let inputs = g.get_input_nodes();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].node_type, crate::NodeType::Input);
+    }
+
+    #[test]
+    fn test_get_output_nodes() {
+        let g = simple_graph();
+        let outputs = g.get_output_nodes();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].node_type, crate::NodeType::Output);
+    }
+
+    #[test]
+    fn test_get_node_connections() {
+        let mut g = NeuralGraph::new("g");
+        let inp = GraphNode::new(crate::NodeType::Input, "in", 0.0, 0.0);
+        let mid = GraphNode::new(crate::NodeType::Linear, "mid", 0.0, 0.0);
+        let out = GraphNode::new(crate::NodeType::Output, "out", 0.0, 0.0);
+        let inp_id = g.add_node(inp);
+        let mid_id = g.add_node(mid);
+        let out_id = g.add_node(out);
+        let tensor = crate::TensorDesc::new(vec![1, 64], crate::DType::F32);
+        let _ = g.add_edge(GraphEdge::new(
+            inp_id, uuid::Uuid::new_v4(), mid_id, uuid::Uuid::new_v4(), tensor.clone(),
+        ));
+        let _ = g.add_edge(GraphEdge::new(
+            mid_id, uuid::Uuid::new_v4(), out_id, uuid::Uuid::new_v4(), tensor,
+        ));
+        let (incoming, outgoing) = g.get_node_connections(&mid_id);
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(outgoing.len(), 1);
+    }
+
+    #[test]
+    fn test_topological_order() {
+        let g = simple_graph();
+        let order = g.topological_order().unwrap();
+        assert_eq!(order.len(), 3);
+    }
+
+    #[test]
+    fn test_topological_order_cycle() {
+        let mut g = NeuralGraph::new("cycle");
+        let a = g.add_node(GraphNode::new(crate::NodeType::Input, "a", 0.0, 0.0));
+        let b = g.add_node(GraphNode::new(crate::NodeType::Linear, "b", 0.0, 0.0));
+        let tensor = crate::TensorDesc::new(vec![1], crate::DType::F32);
+        let e1 = GraphEdge::new(a, Uuid::new_v4(), b, Uuid::new_v4(), tensor.clone());
+        let e2 = GraphEdge::new(b, Uuid::new_v4(), a, Uuid::new_v4(), tensor);
+        let _ = g.add_edge(e1);
+        let _ = g.add_edge(e2);
+        assert!(g.topological_order().is_err());
+    }
+
+    #[test]
+    fn test_set_zoom_level() {
+        let mut g = NeuralGraph::new("g");
+        g.set_zoom_level(ZoomLevel::Module);
+        assert_eq!(g.zoom_level, ZoomLevel::Module);
+    }
+
+    #[test]
+    fn test_total_flops_and_params() {
+        let g = simple_graph();
+        assert_eq!(g.total_flops(), 0);
+        assert_eq!(g.total_params(), 0);
+    }
+}

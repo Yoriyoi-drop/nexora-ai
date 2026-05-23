@@ -48,12 +48,14 @@ impl HasMoeFfnConfig {
 
 impl HasMoeFfn {
     pub fn new(_: HasMoeFfnConfig) -> ApiResult<Self> {
+        tracing::warn!("HasMoeFfn is a stub — no-op implementation");
         Ok(Self)
     }
 }
 
 impl ExpertRouter {
     pub fn new(_: RouterConfig) -> ApiResult<Self> {
+        tracing::warn!("ExpertRouter is a stub — no-op implementation");
         Ok(Self)
     }
 }

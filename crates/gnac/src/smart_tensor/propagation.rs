@@ -187,3 +187,194 @@ impl ShapePropagator {
         suggestions
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    fn propagator() -> ShapePropagator {
+        ShapePropagator::new()
+    }
+
+    #[test]
+    fn test_propagate_linear() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Linear, "fc", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 768]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 3072]);
+    }
+
+    #[test]
+    fn test_propagate_linear_wrong_dim() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Linear, "fc", 0.0, 0.0);
+        let result = p.propagate(&node, &[vec![1, 2, 3]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propagate_conv2d() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Conv2D, "conv", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 3, 224, 224]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64, 224, 224]);
+    }
+
+    #[test]
+    fn test_propagate_conv2d_wrong_dim() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Conv2D, "conv", 0.0, 0.0);
+        let result = p.propagate(&node, &[vec![1, 2, 3]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propagate_attention() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::SelfAttention, "attn", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 128, 768]]).unwrap();
+        assert_eq!(shapes.len(), 2);
+    }
+
+    #[test]
+    fn test_propagate_attention_wrong_dim() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::SelfAttention, "attn", 0.0, 0.0);
+        let result = p.propagate(&node, &[vec![1, 2]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propagate_relu() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::ReLU, "relu", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+
+    #[test]
+    fn test_propagate_gelu() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::GELU, "gelu", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+
+    #[test]
+    fn test_propagate_layer_norm() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::LayerNorm, "ln", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+
+    #[test]
+    fn test_propagate_maxpool() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::MaxPool, "pool", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64, 112, 112]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64, 56, 56]);
+    }
+
+    #[test]
+    fn test_propagate_maxpool_wrong_dim() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::MaxPool, "pool", 0.0, 0.0);
+        let result = p.propagate(&node, &[vec![1, 2, 3]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propagate_concat() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Concat, "cat", 0.0, 0.0);
+        let shapes = p
+            .propagate(&node, &[vec![1, 64], vec![1, 128]])
+            .unwrap();
+        assert_eq!(shapes[0], vec![1, 192]);
+    }
+
+    #[test]
+    fn test_propagate_concat_too_few() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Concat, "cat", 0.0, 0.0);
+        let result = p.propagate(&node, &[vec![1, 64]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propagate_reshape() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Reshape, "reshape", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 3, 224, 224]]).unwrap();
+        assert_eq!(shapes[0], vec![1 * 3 * 224 * 224]);
+    }
+
+    #[test]
+    fn test_propagate_input() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Input, "in", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+
+    #[test]
+    fn test_propagate_dropout() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Dropout, "drop", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+
+    #[test]
+    fn test_propagate_sigmoid() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::Sigmoid, "sig", 0.0, 0.0);
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+
+    #[test]
+    fn test_validate_connection_identical() {
+        let p = propagator();
+        assert!(p.validate_connection(&[1, 64], &[1, 64]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_connection_broadcast() {
+        let p = propagator();
+        assert!(p.validate_connection(&[64], &[1, 64]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_connection_mismatch() {
+        let p = propagator();
+        assert!(p.validate_connection(&[1, 128], &[1, 64]).is_err());
+    }
+
+    #[test]
+    fn test_suggest_fix_different_dims() {
+        let p = propagator();
+        let fixes = p.suggest_fix(&[1, 64], &[1, 3, 224, 224]);
+        assert!(!fixes.is_empty());
+    }
+
+    #[test]
+    fn test_suggest_fix_same_elements() {
+        let p = propagator();
+        let fixes = p.suggest_fix(&[1, 12], &[3, 4]);
+        assert!(fixes.iter().any(|f| !f.is_empty()));
+    }
+
+    #[test]
+    fn test_propagate_cache_hit() {
+        let mut p = propagator();
+        let node = GraphNode::new(NodeType::ReLU, "relu", 0.0, 0.0);
+        let _ = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        // Second call hits cache
+        let shapes = p.propagate(&node, &[vec![1, 64]]).unwrap();
+        assert_eq!(shapes[0], vec![1, 64]);
+    }
+}

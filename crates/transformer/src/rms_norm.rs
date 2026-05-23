@@ -133,9 +133,9 @@ impl RMSNorm {
         let cached = guard.get_or_insert_with(|| {
             let weight_shape = vec![self.weight.len()];
             let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, self.weight.to_vec())
-                .unwrap();
+                .expect("shape mismatch for RMS norm weight");
             RmsNormGpuWeights {
-                weight: GpuTensor::from_cpu(&weight_arr).unwrap(),
+                weight: GpuTensor::from_cpu(&weight_arr).expect("failed to upload RMS norm weight to GPU"),
             }
         });
         ctx.rms_norm(x, &cached.weight, self.eps)

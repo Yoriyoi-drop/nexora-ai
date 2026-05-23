@@ -94,3 +94,33 @@ impl GraphValidator {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_validate_empty() {
+        let g = NeuralGraph::new("empty");
+        let validator = GraphValidator;
+        assert!(validator.validate(&g).is_ok());
+    }
+
+    #[test]
+    fn test_validate_with_edges() {
+        let mut g = NeuralGraph::new("g");
+        let inp = GraphNode::new(NodeType::Input, "in", 0.0, 0.0);
+        let out = GraphNode::new(NodeType::Output, "out", 0.0, 0.0);
+        let inp_id = g.add_node(inp);
+        let out_id = g.add_node(out);
+        let tensor = crate::TensorDesc::new(vec![1, 64], crate::DType::F32);
+        let _ = g.add_edge(crate::GraphEdge::new(
+            inp_id, uuid::Uuid::new_v4(), out_id, uuid::Uuid::new_v4(), tensor,
+        ));
+        assert!(GraphValidator.validate(&g).is_ok());
+    }
+
+
+}

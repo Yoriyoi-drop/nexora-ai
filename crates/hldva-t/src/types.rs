@@ -320,6 +320,103 @@ impl From<nexora_atqs::TensorError> for HLDVAError {
 /// Result type untuk HLDVA-T operations
 pub type HLDVAResult<T> = Result<T, HLDVAError>;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timestep() {
+        let t = Timestep(42);
+        assert_eq!(t.0, 42);
+    }
+
+    #[test]
+    fn test_resolution() {
+        let r = Resolution::new(1024, 768);
+        assert_eq!(r.width, 1024);
+        assert_eq!(r.height, 768);
+        assert_eq!(r.area(), 1024 * 768);
+    }
+
+    #[test]
+    fn test_latent_space() {
+        let data = Tensor::new(vec![0.5; 64], vec![8, 8, 1]);
+        let res = Resolution::new(64, 64);
+        let ls = LatentSpace::new(data, res, 4);
+        assert_eq!(ls.channels, 4);
+        assert_eq!(ls.shape(), (64, 64, 4));
+    }
+
+    #[test]
+    fn test_clip_embedding() {
+        let data = Tensor::new(vec![0.1; 768], vec![768]);
+        let emb = ClipEmbedding::new(data);
+        assert!(emb.image_features.is_none());
+        let img = Tensor::new(vec![0.2; 768], vec![768]);
+        let emb = emb.with_image_features(img);
+        assert!(emb.image_features.is_some());
+    }
+
+    #[test]
+    fn test_noise_prediction() {
+        let data = Tensor::new(vec![0.0; 100], vec![10, 10]);
+        let np = NoisePrediction::new(data, Timestep(5)).with_confidence(0.95);
+        assert_eq!(np.timestep.0, 5);
+        assert_eq!(np.confidence, Some(0.95));
+    }
+
+    #[test]
+    fn test_upsampling_result() {
+        let data = Tensor::new(vec![0.0; 64], vec![8, 8, 1]);
+        let ls = LatentSpace::new(data, Resolution::new(64, 64), 4);
+        let ur = UpsamplingResult::new(ls, 1);
+        assert_eq!(ur.stage, 1);
+    }
+
+    #[test]
+    fn test_hldva_input_default() {
+        let input = HLDVAInput::default();
+        assert_eq!(input.target_resolution.width, 1024);
+        assert_eq!(input.guidance_scale, 7.5);
+    }
+
+    #[test]
+    fn test_generation_metrics_default() {
+        let m = GenerationMetrics::default();
+        assert!(m.fid.is_none());
+    }
+
+    #[test]
+    fn test_training_batch() {
+        let images = Tensor::new(vec![0.0; 256], vec![4, 64]);
+        let prompts = vec!["cat".to_string(), "dog".to_string()];
+        let timesteps = vec![Timestep(10), Timestep(50)];
+        let noise = Tensor::new(vec![0.1; 256], vec![4, 64]);
+        let latents = Tensor::new(vec![0.2; 256], vec![4, 64]);
+        let batch = TrainingBatch::new(images, prompts, timesteps, noise, latents);
+        assert_eq!(batch.batch_size(), 2);
+    }
+
+    #[test]
+    fn test_training_state_default() {
+        let s = TrainingState::default();
+        assert_eq!(s.current_stage, 0);
+        assert_eq!(s.current_lr, 1e-4);
+    }
+
+    #[test]
+    fn test_hldva_error() {
+        let err = HLDVAError::Config("missing field".to_string());
+        assert_eq!(format!("{}", err), "Configuration error: missing field");
+    }
+
+    #[test]
+    fn test_hldva_result() {
+        let r: HLDVAResult<i32> = Ok(42);
+        assert_eq!(r.unwrap(), 42);
+    }
+}
+
 /// Trait untuk komponen HLDVA-T yang bisa di-train
 pub trait Trainable {
     type TrainingConfig;

@@ -319,12 +319,10 @@ impl HebbianMemory {
 
         self.entries.insert(memory_id, entry);
 
-        if self.config.verbose {
-            println!(
-                "Added memory {}: type={:?}, relevance={:.3}, emotional={:.3}",
-                memory_id, memory_type, initial_relevance, initial_emotional_salience
-            );
-        }
+        tracing::debug!(
+            "Added memory {}: type={:?}, relevance={:.3}, emotional={:.3}",
+            memory_id, memory_type, initial_relevance, initial_emotional_salience
+        );
 
         Ok(memory_id)
     }
@@ -335,12 +333,10 @@ impl HebbianMemory {
             entry.activate(activation_boost);
             entry.update_strength(self.config.decay_rate, self.current_time);
 
-            if self.config.verbose {
-                println!(
-                    "Activated memory {} with boost {:.3}",
-                    memory_id, activation_boost
-                );
-            }
+            tracing::debug!(
+                "Activated memory {} with boost {:.3}",
+                memory_id, activation_boost
+            );
         } else {
             return Err(anyhow::anyhow!("Memory {} not found", memory_id));
         }
@@ -398,12 +394,10 @@ impl HebbianMemory {
             }
         }
 
-        if self.config.verbose {
-            println!(
-                "Advanced time by {:.3} to {:.3}",
-                time_delta, self.current_time
-            );
-        }
+        tracing::debug!(
+            "Advanced time by {:.3} to {:.3}",
+            time_delta, self.current_time
+        );
     }
 
     /// Get current strength of a specific memory
@@ -511,8 +505,8 @@ impl HebbianMemory {
         self.entries.retain(|_, entry| entry.strength >= threshold);
         let pruned_count = initial_count - self.entries.len();
 
-        if self.config.verbose && pruned_count > 0 {
-            println!(
+        if pruned_count > 0 {
+            tracing::debug!(
                 "Pruned {} memories below threshold {:.3}",
                 pruned_count, threshold
             );
@@ -581,12 +575,10 @@ impl HebbianMemory {
             entry.strength = competition_strength;
         }
 
-        if self.config.verbose {
-            println!(
-                "Applied competition normalization with alpha {:.3}",
-                self.config.competition_alpha
-            );
-        }
+        tracing::debug!(
+            "Applied competition normalization with alpha {:.3}",
+            self.config.competition_alpha
+        );
     }
 
     /// Apply local k-nearest competition (more biologically realistic)
@@ -638,12 +630,10 @@ impl HebbianMemory {
             }
         }
 
-        if self.config.verbose {
-            println!(
-                "Applied local k-nearest competition with k={}",
-                self.config.competition_k
-            );
-        }
+        tracing::debug!(
+            "Applied local k-nearest competition with k={}",
+            self.config.competition_k
+        );
     }
 
     /// Apply interference between similar memories
@@ -677,12 +667,10 @@ impl HebbianMemory {
             }
         }
 
-        if self.config.verbose {
-            println!(
-                "Applied interference with beta {:.3}",
-                self.config.interference_beta
-            );
-        }
+        tracing::debug!(
+            "Applied interference with beta {:.3}",
+            self.config.interference_beta
+        );
     }
 
     /// Calculate similarity between two memory contents (simple Jaccard-like)
@@ -743,13 +731,11 @@ impl HebbianMemory {
             }
         }
 
-        if self.config.verbose {
-            println!(
-                "Consolidation cycle: {} memories consolidated, {} weakened",
-                strong_memories.len(),
-                self.entries.len() - strong_memories.len()
-            );
-        }
+        tracing::debug!(
+            "Consolidation cycle: {} memories consolidated, {} weakened",
+            strong_memories.len(),
+            self.entries.len() - strong_memories.len()
+        );
     }
 
     /// Calculate adaptive decay rate for a specific memory based on its properties
@@ -790,9 +776,7 @@ impl HebbianMemory {
             }
         }
 
-        if self.config.verbose {
-            println!("Applied adaptive decay to all memories");
-        }
+        tracing::debug!("Applied adaptive decay to all memories");
     }
 
     /// ==================== Validation & Testing ====================

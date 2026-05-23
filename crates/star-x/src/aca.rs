@@ -214,12 +214,12 @@ impl AdaptiveComputeAllocation {
     }
 
     /// Add bias
-    fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
-        // safe: output is freshly computed and contiguous
-        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
+    fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) -> DLResult<()> {
+        let output_flat = require_contiguous_mut(output.as_slice_mut())?;
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
         }
+        Ok(())
     }
 
     /// Compute input complexity
@@ -227,7 +227,7 @@ impl AdaptiveComputeAllocation {
         // Linear projection
         let complexity_linear = self.matmul(&self.complexity_weights, input)?;
         let mut complexity_output = complexity_linear;
-        self.add_bias(&mut complexity_output, &self.complexity_bias);
+        self.add_bias(&mut complexity_output, &self.complexity_bias)?;
 
         // Apply sigmoid
         let complexity_prob = self.sigmoid_array(complexity_output);
@@ -248,7 +248,7 @@ impl AdaptiveComputeAllocation {
         // Compute routing scores
         let routing_linear = self.matmul(&self.routing_weights, &concatenated)?;
         let mut routing_output = routing_linear;
-        self.add_bias(&mut routing_output, &self.routing_bias);
+        self.add_bias(&mut routing_output, &self.routing_bias)?;
 
         // Apply softmax
         let routing_probs = self.softmax_array(&routing_output)?;

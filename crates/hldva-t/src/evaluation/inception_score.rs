@@ -123,7 +123,7 @@ impl InceptionScoreMetric {
         let variance = scores.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / scores.len() as f32;
         let std_dev = variance.sqrt();
 
-        println!("Inception Score: {:.3} ± {:.3}", mean, std_dev);
+        tracing::info!("Inception Score: {:.3} ± {:.3}", mean, std_dev);
 
         Ok(mean)
     }

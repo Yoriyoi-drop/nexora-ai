@@ -116,3 +116,36 @@ impl ModelVerifier {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_verify_empty_graph() {
+        let g = NeuralGraph::new("empty");
+        let report = ModelVerifier::verify(&g);
+        assert!(!report.passed);
+    }
+
+    #[test]
+    fn test_verify_with_dropout_and_norm() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Linear, "fc", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Dropout, "drop", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::LayerNorm, "ln", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Softmax, "softmax", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Output, "out", 0.0, 0.0));
+        let report = ModelVerifier::verify(&g);
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn test_check_status() {
+        assert_eq!(CheckStatus::Passed as u8, 0);
+        assert_eq!(CheckStatus::Failed as u8, 1);
+    }
+}

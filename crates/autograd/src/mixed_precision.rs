@@ -194,41 +194,31 @@ pub fn array_f32_to_bf16_bytes(arr: &ArrayD<f32>) -> Vec<u8> {
 }
 
 /// Expand f16 bytes back to f32 ndarray
-///
-/// # Panics
-/// If the data length does not match the given shape's element count.
-pub fn f16_bytes_to_array(data: &[u8], shape: &[usize]) -> ArrayD<f32> {
+pub fn f16_bytes_to_array(data: &[u8], shape: &[usize]) -> Result<ArrayD<f32>, crate::DeepLearningError> {
     let flat = f16_bytes_to_f32(data);
     let expected: usize = shape.iter().product();
     if flat.len() != expected {
-        panic!(
-            "f16_bytes_to_array: data length {} does not match shape product {} (shape={:?})",
-            flat.len(),
-            expected,
-            shape
-        );
+        return Err(crate::DeepLearningError::ShapeMismatch {
+            expected: vec![expected],
+            actual: vec![flat.len()],
+        });
     }
     ArrayD::from_shape_vec(shape.to_vec(), flat)
-        .unwrap_or_else(|e| panic!("f16_bytes_to_array shape mismatch: {e}"))
+        .map_err(|e| crate::DeepLearningError::Computation { reason: e.to_string() })
 }
 
 /// Expand bf16 bytes back to f32 ndarray
-///
-/// # Panics
-/// If the data length does not match the given shape's element count.
-pub fn bf16_bytes_to_array(data: &[u8], shape: &[usize]) -> ArrayD<f32> {
+pub fn bf16_bytes_to_array(data: &[u8], shape: &[usize]) -> Result<ArrayD<f32>, crate::DeepLearningError> {
     let flat = bf16_bytes_to_f32(data);
     let expected: usize = shape.iter().product();
     if flat.len() != expected {
-        panic!(
-            "bf16_bytes_to_array: data length {} does not match shape product {} (shape={:?})",
-            flat.len(),
-            expected,
-            shape
-        );
+        return Err(crate::DeepLearningError::ShapeMismatch {
+            expected: vec![expected],
+            actual: vec![flat.len()],
+        });
     }
     ArrayD::from_shape_vec(shape.to_vec(), flat)
-        .unwrap_or_else(|e| panic!("bf16_bytes_to_array shape mismatch: {e}"))
+        .map_err(|e| crate::DeepLearningError::Computation { reason: e.to_string() })
 }
 
 // ─── Automatic Mixed Precision (AMP) Optimizer ───────────────────────────────
@@ -445,7 +435,7 @@ mod tests {
     fn test_array_conversion() {
         let arr = ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
         let f16_bytes = array_f32_to_f16_bytes(&arr);
-        let recovered = f16_bytes_to_array(&f16_bytes, &[2, 3]);
+        let recovered = f16_bytes_to_array(&f16_bytes, &[2, 3]).unwrap();
         assert_eq!(recovered.shape(), arr.shape());
     }
 

@@ -836,7 +836,7 @@ impl ContextAgent {
                 // Implement time window filtering
                 debug!("Filtering context within {} hour time window", hours);
 
-                let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(*hours as i64);
+                let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(i64::try_from(*hours).unwrap_or(i64::MAX));
 
                 if let Value::Object(obj) = &context {
                     let mut filtered = serde_json::Map::new();

@@ -86,3 +86,38 @@ impl GraphDiff {
         Self::between(&exp_a.graph_snapshot, &exp_b.graph_snapshot)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_diff_between_identical() {
+        let g = NeuralGraph::new("g");
+        let diff = GraphDiff::between(&g, &g);
+        assert!(diff.added_nodes.is_empty());
+        assert!(diff.removed_nodes.is_empty());
+        assert_eq!(diff.param_change, 0);
+    }
+
+    #[test]
+    fn test_diff_between_added() {
+        let before = NeuralGraph::new("g");
+        let mut after = NeuralGraph::new("g");
+        after.add_node(GraphNode::new(NodeType::Linear, "new", 0.0, 0.0));
+        let diff = GraphDiff::between(&before, &after);
+        assert_eq!(diff.added_nodes.len(), 1);
+        assert_eq!(diff.added_nodes[0], "new");
+    }
+
+    #[test]
+    fn test_diff_between_removed() {
+        let mut before = NeuralGraph::new("g");
+        before.add_node(GraphNode::new(NodeType::Linear, "gone", 0.0, 0.0));
+        let after = NeuralGraph::new("g");
+        let diff = GraphDiff::between(&before, &after);
+        assert_eq!(diff.removed_nodes.len(), 1);
+    }
+}

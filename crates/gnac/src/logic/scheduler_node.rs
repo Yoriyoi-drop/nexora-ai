@@ -74,3 +74,75 @@ impl AdaptiveSchedulerNode {
         self.current_lr
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scheduler_new() {
+        let s = AdaptiveSchedulerNode::new("sched", 0.01, SchedulerType::CosineAnnealing);
+        assert_eq!(s.base_lr, 0.01);
+        assert_eq!(s.current_lr, 0.01);
+    }
+
+    #[test]
+    fn test_cosine_annealing() {
+        let mut s = AdaptiveSchedulerNode::new("s", 1.0, SchedulerType::CosineAnnealing);
+        let lr = s.step(0, None);
+        assert!((lr - 1.0).abs() < 1e-5);
+        let lr2 = s.step(50, None);
+        assert!(lr2 < 1.0);
+    }
+
+    #[test]
+    fn test_exponential_decay() {
+        let mut s = AdaptiveSchedulerNode::new(
+            "s",
+            1.0,
+            SchedulerType::ExponentialDecay { gamma: 0.5 },
+        );
+        let lr = s.step(1, None);
+        assert!((lr - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_step_decay() {
+        let mut s = AdaptiveSchedulerNode::new(
+            "s",
+            1.0,
+            SchedulerType::StepDecay {
+                step_size: 2,
+                gamma: 0.1,
+            },
+        );
+        assert!((s.step(0, None) - 1.0).abs() < 1e-5);
+        assert!((s.step(2, None) - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_reduce_on_plateau() {
+        let mut s = AdaptiveSchedulerNode::new(
+            "s",
+            1.0,
+            SchedulerType::ReduceOnPlateau {
+                patience: 2,
+                factor: 0.5,
+            },
+        );
+        s.step(0, Some(1.0));
+        s.step(1, Some(0.9));
+        s.step(2, Some(0.95)); // not improving
+        let lr = s.step(3, Some(0.93)); // still not improving
+        assert!((lr - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_one_cycle() {
+        let mut s = AdaptiveSchedulerNode::new("s", 1.0, SchedulerType::OneCycle);
+        let lr = s.step(0, None);
+        assert!((lr - 0.0).abs() < 1e-5);
+        let lr2 = s.step(50, None);
+        assert!((lr2 - 1.0).abs() < 1e-5);
+    }
+}

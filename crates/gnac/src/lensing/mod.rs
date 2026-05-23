@@ -53,3 +53,28 @@ pub trait NeuralLens {
     fn observe(&self, graph: &NeuralGraph) -> LensObservation;
     fn name(&self) -> &str;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lens_type_debug() {
+        let types = [
+            LensType::GradientFailure,
+            LensType::AttentionFlow,
+            LensType::Latency,
+            LensType::Memory,
+            LensType::ActivationEntropy,
+        ];
+        for t in &types {
+            assert!(!format!("{:?}", t).is_empty());
+        }
+    }
+
+    #[test]
+    fn test_observation_severity_clone() {
+        let s = ObservationSeverity::Critical;
+        assert_eq!(s, ObservationSeverity::Critical);
+    }
+}

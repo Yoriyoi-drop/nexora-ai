@@ -522,7 +522,7 @@ mod tests {
     async fn test_blaa_engine_creation() {
         // This test would require actual API key
         // For now, just test the structure
-        let config = BlaaConfig::new("test-key");
+        let config = BlaaConfig::new("placeholder-test-key-do-not-use");
         let result = BlaaInferenceEngine::new(config).await;
 
         // Should succeed with test key
@@ -531,7 +531,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_conversion() {
-        let config = BlaaConfig::new("test-key");
+        let config = BlaaConfig::new("placeholder-test-key-do-not-use");
         let engine = BlaaInferenceEngine::new(config).await.unwrap();
 
         let request = InferenceRequest::new("Hello, world!".to_string())

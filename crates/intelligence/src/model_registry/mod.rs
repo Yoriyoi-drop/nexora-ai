@@ -73,6 +73,11 @@ impl ModelRegistry {
             models.insert(metadata.id.clone(), metadata.clone());
         }
 
+        // NOTE: models and framework_index are updated in separate critical sections.
+        // A concurrent reader may see the model in one index but not the other
+        // (inconsistent state). Consider wrapping both writes in a single critical
+        // section if atomic visibility is required.
+
         // Update framework index
         {
             let mut framework_index = self.framework_index.write().await;

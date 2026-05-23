@@ -512,15 +512,27 @@ impl TelemetryClient {
     }
 
     pub async fn fetch_snapshot(&self) -> Result<TelemetrySnapshot, String> {
-        let health = self.fetch_health().await.ok();
-        let inference = self.fetch_inference().await.ok();
-        let agents = self.fetch_agents().await.unwrap_or_default();
-        let (memory_nodes, memory_summary) = self.fetch_memory().await.unwrap_or_default();
-        let pipelines = self.fetch_pipelines().await.unwrap_or_default();
-        let hallucinations = self.fetch_hallucinations().await.ok();
-        let training = self.fetch_training().await.ok();
-        let models = self.fetch_models().await.unwrap_or_default();
-        let token_flows = self.fetch_token_flows().await.unwrap_or_default();
+        let health = match self.fetch_health().await {
+            Ok(h) => Some(h),
+            Err(e) => { log::warn!("fetch_snapshot: health failed: {}", e); None }
+        };
+        let inference = match self.fetch_inference().await {
+            Ok(i) => Some(i),
+            Err(e) => { log::warn!("fetch_snapshot: inference failed: {}", e); None }
+        };
+        let agents = self.fetch_agents().await.unwrap_or_else(|e| { log::warn!("fetch_snapshot: agents failed: {}", e); vec![] });
+        let (memory_nodes, memory_summary) = self.fetch_memory().await.unwrap_or_else(|e| { log::warn!("fetch_snapshot: memory failed: {}", e); (vec![], None) });
+        let pipelines = self.fetch_pipelines().await.unwrap_or_else(|e| { log::warn!("fetch_snapshot: pipelines failed: {}", e); vec![] });
+        let hallucinations = match self.fetch_hallucinations().await {
+            Ok(h) => h,
+            Err(e) => { log::warn!("fetch_snapshot: hallucinations failed: {}", e); None }
+        };
+        let training = match self.fetch_training().await {
+            Ok(t) => t,
+            Err(e) => { log::warn!("fetch_snapshot: training failed: {}", e); None }
+        };
+        let models = self.fetch_models().await.unwrap_or_else(|e| { log::warn!("fetch_snapshot: models failed: {}", e); vec![] });
+        let token_flows = self.fetch_token_flows().await.unwrap_or_else(|e| { log::warn!("fetch_snapshot: token_flows failed: {}", e); vec![] });
 
         Ok(TelemetrySnapshot {
             timestamp: std::time::SystemTime::now()
@@ -550,8 +562,14 @@ impl TelemetryClient {
 
     async fn fetch_opt<T: serde::de::DeserializeOwned>(&self, path: &str) -> Option<T> {
         let url = format!("{}{}", self.base_url, path);
-        self.client.get(&url).send().await.ok()?
-            .json::<T>().await.ok()
+        let response = match self.client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => { log::warn!("fetch_opt {} HTTP failed: {}", path, e); return None; }
+        };
+        match response.json::<T>().await {
+            Ok(data) => Some(data),
+            Err(e) => { log::warn!("fetch_opt {} JSON failed: {}", path, e); None }
+        }
     }
 }
 

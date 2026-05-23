@@ -532,3 +532,365 @@ impl Hasher for FnvHasher {
         self.hash = hash;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gate_pattern(layer_idx: usize) -> GatePattern {
+        GatePattern {
+            layer_idx,
+            gates: Array1::from_vec(vec![1.0; 4]),
+            active_neurons: vec![0, 1, 2, 3],
+            sparsity_ratio: 0.0,
+        }
+    }
+
+    fn input(v: &[f32]) -> Array1<f32> {
+        Array1::from_vec(v.to_vec())
+    }
+
+    // ── ContextHasher ──
+
+    #[test]
+    fn test_hash_input_consistent() {
+        let h = ContextHasher::new();
+        let a = input(&[1.0, 2.0, 3.0]);
+        let b = input(&[1.0, 2.0, 3.0]);
+        assert_eq!(h.hash_input(&a), h.hash_input(&b));
+    }
+
+    #[test]
+    fn test_hash_input_different() {
+        let h = ContextHasher::new();
+        let a = input(&[1.0, 2.0, 3.0]);
+        let b = input(&[4.0, 5.0, 6.0]);
+        assert_ne!(h.hash_input(&a), h.hash_input(&b));
+    }
+
+    #[test]
+    fn test_hash_sliding_window() {
+        let h = ContextHasher::new();
+        let a = input(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+        let hashes = h.hash_sliding_window(&a, 3);
+        assert_eq!(hashes.len(), 3);
+    }
+
+    #[test]
+    fn test_hash_sliding_window_smaller_than_window() {
+        let h = ContextHasher::new();
+        let a = input(&[1.0, 2.0]);
+        let hashes = h.hash_sliding_window(&a, 5);
+        assert_eq!(hashes.len(), 1); // saturating_sub(2,5) = 0, + 1 = 1
+    }
+
+    #[test]
+    fn test_combine_hashes() {
+        let h = ContextHasher::new();
+        let a = ContextHash(1);
+        let b = ContextHash(2);
+        let combined = h.combine_hashes(&[a, b]);
+        assert_ne!(combined, a);
+        assert_ne!(combined, b);
+    }
+
+    #[test]
+    fn test_combine_hashes_empty() {
+        let h = ContextHasher::new();
+        let combined = h.combine_hashes(&[]);
+        assert_eq!(combined, ContextHash(0));
+    }
+
+    #[test]
+    fn test_context_hash_as_u64() {
+        let ch = ContextHash(42);
+        assert_eq!(ch.as_u64(), 42);
+    }
+
+    // ── InferenceCache ──
+
+    #[test]
+    fn test_new_cache() {
+        let c = InferenceCache::new(10);
+        assert_eq!(c.cache_size, 10);
+        assert_eq!(c.get_stats().hits, 0);
+    }
+
+    #[test]
+    fn test_cache_miss_and_hit() {
+        let mut c = InferenceCache::new(10);
+        let h = c.hash_context(&input(&[1.0, 2.0]));
+        assert!(c.get(h).is_none());
+        assert_eq!(c.get_stats().misses, 1);
+
+        c.insert(h, vec![gate_pattern(0)]);
+        assert!(c.get(h).is_some());
+        assert_eq!(c.get_stats().hits, 1);
+    }
+
+    #[test]
+    fn test_hash_context_consistent() {
+        let c = InferenceCache::new(10);
+        let h1 = c.hash_context(&input(&[1.0, 2.0]));
+        let h2 = c.hash_context(&input(&[1.0, 2.0]));
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_hit_rate_empty() {
+        let c = InferenceCache::new(10);
+        assert_eq!(c.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_hit_rate_partial() {
+        let mut c = InferenceCache::new(10);
+        let h = c.hash_context(&input(&[1.0]));
+        let _ = c.get(h);
+        c.insert(h, vec![gate_pattern(0)]);
+        let _ = c.get(h);
+        let rate = c.hit_rate();
+        assert!((rate - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut c = InferenceCache::new(10);
+        let h = c.hash_context(&input(&[1.0]));
+        c.insert(h, vec![gate_pattern(0)]);
+        assert!(c.get(h).is_some());
+        c.clear();
+        assert!(c.get(h).is_none());
+        assert_eq!(c.get_stats().hits, 0);
+    }
+
+    #[test]
+    fn test_update_access_stats() {
+        let mut c = InferenceCache::new(10);
+        let h = c.hash_context(&input(&[1.0]));
+        c.insert(h, vec![gate_pattern(0)]);
+        c.update_access_stats();
+        // After update, access_count increased for all items
+        if let Some(pattern) = c.get(h) {
+            assert!(pattern.access_count >= 1);
+        }
+    }
+
+    #[test]
+    fn test_evict_lfu() {
+        let mut c = InferenceCache::new(10);
+        for i in 0..3 {
+            let h = c.hash_context(&input(&[i as f32]));
+            c.insert(h, vec![gate_pattern(i)]);
+        }
+        c.evict_lfu(1);
+        assert_eq!(c.cache.len(), 2);
+    }
+
+    #[test]
+    fn test_utilization() {
+        let mut c = InferenceCache::new(10);
+        assert_eq!(c.utilization(), 0.0);
+        let h = c.hash_context(&input(&[1.0]));
+        c.insert(h, vec![gate_pattern(0)]);
+        assert!((c.utilization() - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_precompute_patterns() {
+        let mut c = InferenceCache::new(10);
+        let cx = input(&[1.0, 2.0]);
+        let h = c.hash_context(&cx);
+        c.insert(h, vec![gate_pattern(0)]);
+        // Should complete without error
+        let cfg = crate::ERPConfig::default();
+        let r = crate::ContextReconstructor::new(cfg);
+        let layers = vec![crate::compression::CompressedLayer {
+            layer_idx: 0,
+            original_weights: ndarray::Array2::zeros((4, 2)),
+            compressed_weights: ndarray::Array2::zeros((4, 2)),
+            resonance_representations: vec![],
+            neuron_status: vec![crate::compression::NeuronStatus::Original; 4],
+            compression_ratio: 0.0,
+        }];
+        let result = c.precompute_patterns(&[cx], &r, &layers);
+        assert!(result.is_ok());
+    }
+
+    // ── CachedGatePattern ──
+
+    #[test]
+    fn test_is_valid() {
+        let p = CachedGatePattern {
+            gates: vec![],
+            timestamp: std::time::Instant::now(),
+            access_count: 0,
+        };
+        assert!(p.is_valid(std::time::Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn test_age() {
+        let p = CachedGatePattern {
+            gates: vec![],
+            timestamp: std::time::Instant::now(),
+            access_count: 0,
+        };
+        let age = p.age();
+        assert!(age.as_nanos() < 1_000_000_000);
+    }
+
+    #[test]
+    fn test_touch() {
+        let mut p = CachedGatePattern {
+            gates: vec![],
+            timestamp: std::time::Instant::now(),
+            access_count: 0,
+        };
+        p.touch();
+        assert_eq!(p.access_count, 1);
+    }
+
+    // ── HybridCache ──
+
+    #[test]
+    fn test_hybrid_cache_new() {
+        let h = HybridCache::new(5, 1.0, 1.0);
+        assert_eq!(h.max_size, 5);
+    }
+
+    #[test]
+    fn test_hybrid_cache_get_miss() {
+        let mut h = HybridCache::new(5, 1.0, 1.0);
+        assert!(h.get(ContextHash(42)).is_none());
+    }
+
+    #[test]
+    fn test_hybrid_cache_insert_and_get() {
+        let mut h = HybridCache::new(5, 1.0, 1.0);
+        let key = ContextHash(1);
+        let pattern = CachedGatePattern {
+            gates: vec![gate_pattern(0)],
+            timestamp: std::time::Instant::now(),
+            access_count: 0,
+        };
+        h.insert(key, pattern);
+        assert!(h.get(key).is_some());
+    }
+
+    #[test]
+    fn test_hybrid_cache_eviction() {
+        let mut h = HybridCache::new(2, 1.0, 1.0);
+        for i in 0..3 {
+            let key = ContextHash(i as u64);
+            let pattern = CachedGatePattern {
+                gates: vec![gate_pattern(i)],
+                timestamp: std::time::Instant::now(),
+                access_count: 0,
+            };
+            h.insert(key, pattern);
+        }
+        assert_eq!(h.lru_cache.len(), 2);
+    }
+
+    // ── PatternCache ──
+
+    #[test]
+    fn test_pattern_cache_new() {
+        let p = PatternCache::new(0.8);
+        assert_eq!(p.pattern_clusters.len(), 0);
+    }
+
+    #[test]
+    fn test_classify_pattern_dense() {
+        let p = PatternCache::new(0.8);
+        let gates = vec![GatePattern {
+            layer_idx: 0,
+            gates: Array1::from_vec(vec![1.0; 10]),
+            active_neurons: (0..10).collect(),
+            sparsity_ratio: 0.0,
+        }];
+        assert_eq!(p.classify_pattern(&gates), PatternType::Dense);
+    }
+
+    #[test]
+    fn test_classify_pattern_sparse() {
+        let p = PatternCache::new(0.8);
+        let gates = vec![GatePattern {
+            layer_idx: 0,
+            gates: Array1::zeros(10),
+            active_neurons: vec![0],
+            sparsity_ratio: 0.9,
+        }];
+        assert_eq!(p.classify_pattern(&gates), PatternType::Sparse);
+    }
+
+    #[test]
+    fn test_compute_cosine_similarity_identical() {
+        let p = PatternCache::new(0.8);
+        let a = input(&[1.0, 2.0, 3.0]);
+        let sim = p.compute_cosine_similarity(&a, &a);
+        assert!((sim - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_cosine_similarity_different_dims() {
+        let p = PatternCache::new(0.8);
+        let a = input(&[1.0, 2.0]);
+        let b = input(&[1.0, 2.0, 3.0]);
+        assert_eq!(p.compute_cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_compute_euclidean_distance_identical() {
+        let p = PatternCache::new(0.8);
+        let a = input(&[3.0, 4.0]);
+        assert!((p.compute_euclidean_distance(&a, &a) - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_euclidean_distance_different() {
+        let p = PatternCache::new(0.8);
+        let a = input(&[0.0, 0.0]);
+        let b = input(&[3.0, 4.0]);
+        assert!((p.compute_euclidean_distance(&a, &b) - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_euclidean_distance_different_dims() {
+        let p = PatternCache::new(0.8);
+        let a = input(&[1.0]);
+        let b = input(&[1.0, 2.0]);
+        assert_eq!(p.compute_euclidean_distance(&a, &b), f32::INFINITY);
+    }
+
+    #[test]
+    fn test_add_to_cluster() {
+        let mut p = PatternCache::new(0.8);
+        let cluster = PatternCluster {
+            cluster_id: 0,
+            pattern_type: PatternType::Dense,
+        };
+        p.add_to_cluster(cluster.clone(), ContextHash(1), gate_pattern(0));
+        assert_eq!(p.pattern_clusters.len(), 1);
+    }
+
+    // ── FnvHasher ──
+
+    #[test]
+    fn test_fnv_hasher() {
+        let mut h = FnvHasher::with_seed(42);
+        1i32.hash(&mut h);
+        let result = h.finish();
+        assert_ne!(result, 0);
+    }
+
+    #[test]
+    fn test_fnv_hasher_deterministic() {
+        let mut h1 = FnvHasher::with_seed(1);
+        let mut h2 = FnvHasher::with_seed(1);
+        7i32.hash(&mut h1);
+        7i32.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+    }
+}

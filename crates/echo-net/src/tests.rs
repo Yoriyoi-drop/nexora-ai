@@ -1069,22 +1069,20 @@ impl TestResults {
     }
     
     pub fn print_summary(&self) {
-        println!("\n=== {} Test Results ===", self.test_name);
-        println!("Total Tests: {}", self.results.len());
-        println!("Passed: {}", self.total_passed);
-        println!("Failed: {}", self.total_failed);
-        println!("Success Rate: {:.1}%", 
+        tracing::info!("\n=== {} Test Results ===", self.test_name);
+        tracing::info!("Total Tests: {}", self.results.len());
+        tracing::info!("Passed: {}", self.total_passed);
+        tracing::info!("Failed: {}", self.total_failed);
+        tracing::info!("Success Rate: {:.1}%", 
                 (self.total_passed as f32 / self.results.len() as f32) * 100.0);
-        println!();
         
         for (test_name, result) in &self.results {
             let status = if result.passed { "✓ PASS" } else { "✗ FAIL" };
-            println!("{}: {}", status, test_name);
+            tracing::info!("{}: {}", status, test_name);
             if !result.passed {
-                println!("  Error: {}", result.message);
+                tracing::info!("  Error: {}", result.message);
             }
         }
-        println!();
     }
     
     pub fn all_passed(&self) -> bool {

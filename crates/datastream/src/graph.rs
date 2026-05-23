@@ -136,6 +136,20 @@ impl ExecutionGraph {
                 }
             }
         }
+
+        if result.len() != self.nodes.len() {
+            let cycle_nodes: Vec<&String> = self
+                .nodes
+                .keys()
+                .filter(|id| !result.contains(*id))
+                .collect();
+            warn!(
+                "Cycle detected in execution graph — {} nodes are unreachable: {:?}",
+                cycle_nodes.len(),
+                cycle_nodes
+            );
+        }
+
         result
     }
 

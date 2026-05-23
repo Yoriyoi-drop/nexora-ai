@@ -153,6 +153,11 @@ impl FusedLinearActivation {
         Ok(result_1d.into_dyn())
     }
 
+    // SAFETY: Caller must ensure AVX2 and FMA are supported at runtime before
+    // calling this function. It uses `_mm256_loadu_ps` (aligned not required due
+    // to `loadu`) and `_mm256_mul_ps` intrinsics that operate on memory ranges
+    // guaranteed valid by the input array views. The `input`, `output`, `weights`,
+    // and `bias` slices are verified contiguous by `require_contiguous` before use.
     #[target_feature(enable = "fma")]
     #[target_feature(enable = "avx2")]
     unsafe fn fused_linear_activation_impl_avx2(
@@ -213,6 +218,9 @@ impl FusedLinearActivation {
     ) -> DLResult<()> {
         // Check if AVX2 is available
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: We verified AVX2 and FMA support via `is_x86_feature_detected!`.
+            // The function operates on contiguous memory slices already validated by
+            // `require_contiguous` calls inside the implementation.
             unsafe {
                 return self.fused_linear_activation_impl_avx2(input, output);
             }

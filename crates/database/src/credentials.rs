@@ -298,8 +298,8 @@ impl CredentialManager {
         }
 
         fs::write(&path, content)?;
-        println!("Example config created at: {}", path.as_ref().display());
-        println!("Please edit the file and set your actual credentials.");
+        tracing::info!("Example config created at: {}", path.as_ref().display());
+        tracing::info!("Please edit the file and set your actual credentials.");
 
         Ok(())
     }

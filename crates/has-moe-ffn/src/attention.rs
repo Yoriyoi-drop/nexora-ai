@@ -187,3 +187,128 @@ impl Attention {
         self.head_dim
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn small_attention() -> Attention {
+        Attention::new(8, 2, 0.0)
+    }
+
+    #[test]
+    fn test_new_attention_config() {
+        let a = Attention::new(12, 4, 0.1);
+        assert_eq!(a.config.hidden_size, 12);
+        assert_eq!(a.config.num_heads, 4);
+        assert_eq!(a.head_dim, 3);
+    }
+
+    #[test]
+    fn test_forward_output_dim() {
+        let a = small_attention();
+        let input = vec![0.5; 8];
+        let output = a.forward(&input, &input, &input);
+        assert_eq!(output.len(), 8);
+    }
+
+    #[test]
+    fn test_forward_different_qkv_dims() {
+        let a = Attention::new(6, 3, 0.0);
+        let q = vec![0.5; 6];
+        let k = vec![0.3; 6];
+        let v = vec![0.7; 6];
+        let output = a.forward(&q, &k, &v);
+        assert_eq!(output.len(), 6);
+    }
+
+    #[test]
+    fn test_forward_deterministic() {
+        let a = small_attention();
+        let input = vec![1.0, 0.5, 0.0, -0.5, 0.2, -0.2, 0.8, -0.8];
+        let out1 = a.forward(&input, &input, &input);
+        let out2 = a.forward(&input, &input, &input);
+        assert_eq!(out1, out2);
+    }
+
+    #[test]
+    fn test_linear_forward() {
+        let a = small_attention();
+        let weights = vec![vec![1.0, 0.5], vec![0.0, -1.0]];
+        let input = vec![2.0, 4.0];
+        let output = a.linear_forward(&weights, &input);
+        assert_eq!(output.len(), 2);
+        assert!((output[0] - 4.0).abs() < 1e-5);
+        assert!((output[1] - (-4.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_reshape_to_heads() {
+        let a = Attention::new(8, 4, 0.0);
+        let input = (0..8).map(|i| i as f32).collect::<Vec<_>>();
+        let heads = a.reshape_to_heads(&input);
+        assert_eq!(heads.len(), 4);
+        assert_eq!(heads[0].len(), 2);
+        assert_eq!(heads[0], vec![0.0, 1.0]);
+        assert_eq!(heads[1], vec![2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_concatenate_heads() {
+        let a = Attention::new(8, 4, 0.0);
+        let heads = vec![
+            vec![0.0, 1.0],
+            vec![2.0, 3.0],
+            vec![4.0, 5.0],
+            vec![6.0, 7.0],
+        ];
+        let result = a.concatenate_heads(&heads);
+        assert_eq!(result, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_heads must be positive")]
+    fn test_zero_heads_panics() {
+        let _ = Attention::new(8, 0, 0.0);
+    }
+
+    #[test]
+    fn test_softmax() {
+        let a = small_attention();
+        let result = a.softmax(&[1.0, 2.0, 3.0]);
+        assert_eq!(result.len(), 3);
+        let sum: f32 = result.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_config() {
+        let a = small_attention();
+        let cfg = a.config();
+        assert_eq!(cfg.hidden_size, 8);
+        assert_eq!(cfg.num_heads, 2);
+    }
+
+    #[test]
+    fn test_head_dim() {
+        let a = Attention::new(16, 4, 0.1);
+        assert_eq!(a.head_dim(), 4);
+    }
+
+    #[test]
+    fn test_compute_scaled_dot_product_attention() {
+        let a = Attention::new(4, 2, 0.0);
+        let q = vec![0.5, 0.5, 0.5, 0.5];
+        let k = vec![0.3, 0.3, 0.3, 0.3];
+        let v = vec![1.0, 1.0, 1.0, 1.0];
+        let output = a.compute_scaled_dot_product_attention(&q, &k, &v);
+        assert_eq!(output.len(), 4);
+    }
+
+    #[test]
+    fn test_q_proj_has_correct_shape() {
+        let a = small_attention();
+        assert_eq!(a.q_proj.len(), 8);
+        assert_eq!(a.q_proj[0].len(), 8);
+    }
+}

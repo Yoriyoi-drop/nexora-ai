@@ -123,7 +123,7 @@ impl EpisodicMemoryRetention {
         relevance: f32,
     ) -> DLResult<f32> {
         // H(x) - entropy/complexity of state
-        let state_entropy = self.compute_state_entropy(state);
+        let state_entropy = self.compute_state_entropy(state)?;
 
         // ||∇h|| - gradient magnitude
         let gradient_norm = self.compute_gradient_norm(gradient);
@@ -141,9 +141,8 @@ impl EpisodicMemoryRetention {
     }
 
     /// Compute entropy/complexity of state
-    fn compute_state_entropy(&self, state: &ArrayD<f32>) -> f32 {
-        // safe: state is freshly computed and contiguous
-        let state_flat = state.as_slice().expect("tensor should be contiguous");
+    fn compute_state_entropy(&self, state: &ArrayD<f32>) -> DLResult<f32> {
+        let state_flat = require_contiguous(state.as_slice())?;
 
         // Normalize to probability distribution
         let mut sum = 0.0;
@@ -152,7 +151,7 @@ impl EpisodicMemoryRetention {
         }
 
         if sum == 0.0 {
-            return 0.0;
+            return Ok(0.0);
         }
 
         let mut entropy = 0.0;
@@ -163,7 +162,7 @@ impl EpisodicMemoryRetention {
             }
         }
 
-        entropy
+        Ok(entropy)
     }
 
     /// Compute gradient norm

@@ -993,7 +993,7 @@ impl ClipModel {
 
     /// GELU activation
     fn gelu_activation(&self, x: f32) -> f32 {
-        0.5 * x * (1.0 + (-1.702 * x * x).sqrt().tanh())
+        0.5 * x * (1.0 + (1.702 * x * x).sqrt().tanh())
     }
 
     /// Global average pooling

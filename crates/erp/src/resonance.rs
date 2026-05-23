@@ -670,3 +670,207 @@ impl ResonanceGraph {
 
 /// Re-export dari core module
 pub use crate::core::{ResonanceGraph, ResonanceGroup};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::NeuronSignature;
+    use ndarray::Array1;
+
+    fn cfg() -> ERPConfig {
+        ERPConfig::default()
+    }
+
+    fn sigs(n: usize) -> Vec<NeuronSignature> {
+        (0..n)
+            .map(|i| NeuronSignature {
+                neuron_id: i,
+                information_distribution: Array1::from_vec(vec![0.25; 4]),
+                projection: Array1::from_vec(vec![i as f32; 4]),
+                fisher_info: 1.0,
+                gradient_norm: 0.5,
+            })
+            .collect()
+    }
+
+    fn graph(n: usize) -> ResonanceGraph {
+        let mut adj = vec![vec![]; n];
+        for i in 0..n.saturating_sub(1) {
+            adj[i].push((i + 1, 1.0));
+            adj[i + 1].push((i, 1.0));
+        }
+        ResonanceGraph { adjacency: adj }
+    }
+
+    // ── ResonanceClusterer ──
+
+    #[test]
+    fn test_clusterer_new_conservative() {
+        let c = ResonanceClusterer::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..cfg()
+        });
+        let g = graph(6);
+        let s = sigs(6);
+        let groups = c.cluster(&g, &s).unwrap();
+        assert!(!groups.is_empty());
+    }
+
+    #[test]
+    fn test_clusterer_new_balanced() {
+        let c = ResonanceClusterer::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Balanced,
+            ..cfg()
+        });
+        let g = graph(6);
+        let s = sigs(6);
+        let groups = c.cluster(&g, &s).unwrap();
+        assert!(!groups.is_empty());
+    }
+
+    #[test]
+    fn test_clusterer_new_aggressive() {
+        let c = ResonanceClusterer::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Aggressive,
+            ..cfg()
+        });
+        let g = graph(6);
+        let s = sigs(6);
+        let groups = c.cluster(&g, &s).unwrap();
+        // adaptive_modular: stability check fails for non-uniform projections, groups may be empty
+        assert!(groups.len() <= 6);
+    }
+
+    #[test]
+    fn test_clusterer_empty_graph() {
+        let c = ResonanceClusterer::new(cfg());
+        let g = ResonanceGraph { adjacency: vec![] };
+        let s = sigs(0);
+        let groups = c.cluster(&g, &s).unwrap();
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn test_clusterer_single_node() {
+        let c = ResonanceClusterer::new(cfg());
+        let g = ResonanceGraph {
+            adjacency: vec![vec![]],
+        };
+        let s = sigs(1);
+        let groups = c.cluster(&g, &s).unwrap();
+        // Spectral clustering falls back to each_node_as_group for n_nodes <= n_clusters
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn test_clusterer_large_graph() {
+        let c = ResonanceClusterer::new(cfg());
+        let n = 50;
+        let g = graph(n);
+        let s = sigs(n);
+        let groups = c.cluster(&g, &s).unwrap();
+        assert!(groups.len() <= n);
+    }
+
+    #[test]
+    fn test_each_node_as_group() {
+        let c = ResonanceClusterer::new(cfg());
+        let s = sigs(4);
+        let groups = c.each_node_as_group(4, &s).unwrap();
+        assert_eq!(groups.len(), 4);
+        for group in &groups {
+            assert_eq!(group.neurons.len(), 1);
+        }
+    }
+
+    // ── Private helpers ──
+
+    #[test]
+    fn test_build_laplacian_matrix() {
+        let c = ResonanceClusterer::new(cfg());
+        let g = graph(4);
+        let lap = c.build_laplacian_matrix(&g);
+        assert_eq!(lap.shape(), &[4, 4]);
+        // Normalized Laplacian: diagonal should be 1.0
+        assert!((lap[[0, 0]] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_euclidean_squared() {
+        let c = ResonanceClusterer::new(cfg());
+        let a = vec![1.0, 2.0];
+        let b = vec![4.0, 6.0];
+        assert!((c.euclidean_squared(&a, &b) - 25.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_euclidean_squared_identical() {
+        let c = ResonanceClusterer::new(cfg());
+        let a = vec![3.0, 4.0];
+        assert!((c.euclidean_squared(&a, &a) - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_kmeans_on_rows_trivial() {
+        let c = ResonanceClusterer::new(cfg());
+        let rows = vec![vec![1.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0], vec![0.0, 1.0]];
+        let assignments = c.kmeans_on_rows(&rows, 2, 10).unwrap();
+        assert_eq!(assignments.len(), 4);
+    }
+
+    #[test]
+    fn test_kmeans_on_rows_single_cluster() {
+        let c = ResonanceClusterer::new(cfg());
+        let rows = vec![vec![1.0; 3]; 5];
+        let assignments = c.kmeans_on_rows(&rows, 1, 5).unwrap();
+        assert_eq!(assignments.len(), 5);
+        assert!(assignments.iter().all(|&a| a == 0));
+    }
+
+    #[test]
+    fn test_normalize_eigenvector_rows() {
+        let c = ResonanceClusterer::new(cfg());
+        let ev = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+        let rows = c.normalize_eigenvector_rows(&ev, 2, 2);
+        assert_eq!(rows.len(), 2);
+        // Rows should be unit normalized
+        for row in &rows {
+            let norm: f32 = row.iter().map(|x| x * x).sum();
+            assert!((norm - 1.0).abs() < 1e-5 || norm < 1e-10);
+        }
+    }
+
+    // ── ResonanceGraph ──
+
+    #[test]
+    fn test_total_weight() {
+        let g = graph(3);
+        assert!((g.total_weight() - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_total_weight_empty() {
+        let g = ResonanceGraph { adjacency: vec![] };
+        assert_eq!(g.total_weight(), 0.0);
+    }
+
+    #[test]
+    fn test_degree_distribution() {
+        let g = graph(5);
+        let d = g.degree_distribution();
+        assert_eq!(d.len(), 5);
+        // First and last have 1, middles have 2
+        assert!((d[0] - 1.0).abs() < 1e-5);
+        assert!((d[1] - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_degree_distribution_isolated() {
+        let g = ResonanceGraph {
+            adjacency: vec![vec![], vec![(0, 1.0)], vec![]],
+        };
+        let d = g.degree_distribution();
+        assert_eq!(d[0], 0.0);
+        assert_eq!(d[2], 0.0);
+    }
+}

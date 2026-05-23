@@ -56,3 +56,21 @@ impl NeuralLens for MemoryLens {
         "Memory Lens"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_lens_name() {
+        assert_eq!(MemoryLens.name(), "Memory Lens");
+    }
+
+    #[test]
+    fn test_memory_lens_empty() {
+        let g = NeuralGraph::new("empty");
+        let obs = MemoryLens.observe(&g);
+        assert_eq!(obs.severity, ObservationSeverity::Info);
+        assert!(obs.summary.contains("No memory bottlenecks"));
+    }
+}

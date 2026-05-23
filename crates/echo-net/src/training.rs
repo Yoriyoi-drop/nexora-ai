@@ -15,6 +15,7 @@
 
 use crate::ComplexTensor;
 use crate::DLResult;
+use crate::DeepLearningError;
 use ndarray::ArrayD;
 
 /// Gradient statistics for monitoring
@@ -490,10 +491,9 @@ impl ResonanceEnergyClipping {
 
             // Record clipping event
             let event = ClippingEvent {
-                // safe: system time is always after UNIX_EPOCH on real hardware
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .expect("system time after epoch")
+                    .map_err(|e| DeepLearningError::Computation { reason: format!("system time error: {}", e) })?
                     .as_secs(),
                 original_energy,
                 clipped_energy,
@@ -522,10 +522,9 @@ impl ResonanceEnergyClipping {
 
         // Return clipping event
         Ok(ClippingEvent {
-            // safe: system time is always after UNIX_EPOCH on real hardware
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time after epoch")
+                .map_err(|e| DeepLearningError::Computation { reason: format!("system time error: {}", e) })?
                 .as_secs(),
             original_energy,
             clipped_energy,
@@ -797,10 +796,9 @@ impl TrainingStabilizer {
                 reason: "gradient statistics not available yet".to_string(),
             })?;
         let event = StabilizationEvent {
-            // safe: system time is always after UNIX_EPOCH on real hardware
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time after epoch")
+                .map_err(|e| DeepLearningError::Computation { reason: format!("system time error: {}", e) })?
                 .as_secs(),
             training_step: self.training_steps,
             gradient_norm: gradient_stats.gradient_norm,

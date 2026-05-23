@@ -370,7 +370,7 @@ impl _AetherCapabilities {
     pub fn update_capability(&mut self, domain: CapabilityDomain, performance_score: f32) {
         // This would update the capability based on actual performance
         // For now, just log the update
-        println!(
+        tracing::info!(
             "Updating capability {:?} with score: {}",
             domain, performance_score
         );

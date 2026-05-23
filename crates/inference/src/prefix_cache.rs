@@ -113,20 +113,26 @@ impl PrefixCache {
 
         for &token in tokens {
             let child_id = {
-                // safe: tree walk starts from root, every child ID comes from parent's children map
-                let current = nodes.get(&current_id).expect("invariant: node must exist");
+                let current = match nodes.get(&current_id) {
+                    Some(n) => n,
+                    None => {
+                        warn!("prefix_cache: node {} missing during insert — aborting", current_id);
+                        return;
+                    }
+                };
                 current.children.get(&(token as u64)).copied()
             };
 
             match child_id {
                 Some(cid) => {
                     current_id = cid;
-                    // safe: child was just looked up from parent's children map
-                    let child = nodes
-                        .get_mut(&current_id)
-                        .expect("invariant: child must exist");
-                    child.access_count += 1;
-                    child.last_access = Instant::now();
+                    if let Some(child) = nodes.get_mut(&current_id) {
+                        child.access_count += 1;
+                        child.last_access = Instant::now();
+                    } else {
+                        warn!("prefix_cache: child node {} missing after lookup", current_id);
+                        return;
+                    }
                 }
                 None => {
                     let new_id = Self::alloc_id();
@@ -136,12 +142,11 @@ impl PrefixCache {
                     if tokens.last().map_or(false, |t| token == *t) {
                         new_node.value = Some(value.clone());
                     }
-                    // safe: parent was verified in the same iteration's get() above
-                    {
-                        let parent = nodes
-                            .get_mut(&current_id)
-                            .expect("invariant: parent must exist");
+                    if let Some(parent) = nodes.get_mut(&current_id) {
                         parent.children.insert(token as u64, new_id);
+                    } else {
+                        warn!("prefix_cache: parent node {} missing during new child insert", current_id);
+                        return;
                     }
                     nodes.insert(new_id, new_node);
                     current_id = new_id;

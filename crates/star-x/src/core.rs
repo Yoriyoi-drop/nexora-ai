@@ -210,6 +210,7 @@ impl Default for StarXParameters {
 /// Utility functions untuk STAR-X
 pub mod core_utils {
     use super::*;
+    use crate::require_contiguous;
     use ndarray::Array1;
 
     /// Harmonic temporal encoding function
@@ -236,8 +237,8 @@ pub mod core_utils {
     /// Top-K sparse selection
     pub fn top_k_sparse(scores: &ArrayD<f32>, k: usize) -> ArrayD<f32> {
         let mut mask = ArrayD::zeros(scores.shape());
-        // safe: scores is a contiguous tensor from the caller
-        let flat_scores = scores.as_slice().expect("tensor should be contiguous");
+        let flat_scores = require_contiguous(scores.as_slice())
+            .expect("scores tensor is contiguous by construction");
 
         let mut indexed_scores: Vec<(usize, f32)> = flat_scores
             .iter()

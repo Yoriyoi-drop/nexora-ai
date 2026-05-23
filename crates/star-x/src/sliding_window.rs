@@ -65,7 +65,13 @@ impl SlidingWindowAttention {
         let output_weights = Self::xavier_init(hidden_dim, hidden_dim);
 
         // Initialize BLAS operations
-        let blas_ops = BlasOperations::auto_detect().ok();
+        let blas_ops = match BlasOperations::auto_detect() {
+            Ok(val) => Some(val),
+            Err(e) => {
+                tracing::warn!("BLAS auto-detect failed: {}", e);
+                None
+            }
+        };
 
         // Calculate level ratios for hierarchical attention
         let mut level_ratios = Vec::with_capacity(num_levels);
@@ -414,7 +420,7 @@ impl HierarchicalSlidingWindow {
         let mut fusion_weights = Vec::with_capacity(num_levels);
 
         for i in 0..num_levels {
-            let scale = 2_usize.pow(i as u32);
+            let scale = 2_usize.pow((i as u32).min(63));
             level_scales.push(scale);
 
             // Fusion weights decrease with level

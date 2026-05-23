@@ -19,3 +19,21 @@ pub struct DataAccessPolicy {
     pub encryption_required: bool,
     pub audit_enabled: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_access_policy() {
+        let p = DataAccessPolicy {
+            allowed_users: vec!["alice".to_string()],
+            allowed_roles: vec!["admin".to_string()],
+            dataset_id: "ds1".to_string(),
+            encryption_required: true,
+            audit_enabled: true,
+        };
+        assert_eq!(p.dataset_id, "ds1");
+        assert!(p.encryption_required);
+    }
+}

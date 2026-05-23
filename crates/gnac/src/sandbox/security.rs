@@ -27,3 +27,57 @@ impl SecurityManager {
         !graph.nodes.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_access_empty_policy() {
+        let p = DataAccessPolicy {
+            allowed_users: vec![],
+            allowed_roles: vec![],
+            dataset_id: "ds".to_string(),
+            encryption_required: false,
+            audit_enabled: false,
+        };
+        assert!(SecurityManager::verify_access(&p, "anyone", "anyrole"));
+    }
+
+    #[test]
+    fn test_verify_access_restricted() {
+        let p = DataAccessPolicy {
+            allowed_users: vec!["alice".to_string()],
+            allowed_roles: vec!["admin".to_string()],
+            dataset_id: "ds".to_string(),
+            encryption_required: false,
+            audit_enabled: false,
+        };
+        assert!(SecurityManager::verify_access(&p, "alice", "admin"));
+        assert!(!SecurityManager::verify_access(&p, "bob", "admin"));
+    }
+
+    #[test]
+    fn test_tensor_fingerprint() {
+        let fp = SecurityManager::tensor_fingerprint(b"hello");
+        assert_eq!(fp.len(), 64);
+    }
+
+    #[test]
+    fn test_verify_graph_integrity_empty() {
+        let g = NeuralGraph::new("empty");
+        assert!(!SecurityManager::verify_graph_integrity(&g));
+    }
+
+    #[test]
+    fn test_verify_graph_integrity_non_empty() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(crate::canvas::GraphNode::new(
+            crate::NodeType::Input,
+            "in",
+            0.0,
+            0.0,
+        ));
+        assert!(SecurityManager::verify_graph_integrity(&g));
+    }
+}

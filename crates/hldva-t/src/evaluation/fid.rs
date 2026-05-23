@@ -42,7 +42,8 @@ impl FIDMetric {
         Ok(fid)
     }
 
-    /// Extract features using simplified Inception network
+    /// STUB: uses sin/cos features from index (placeholder, not real Inception features).
+    /// Replace with an actual Inception-v3 feature extractor.
     fn extract_inception_features(&self, images: &[Tensor]) -> HLDVAResult<Vec<Vec<f32>>> {
         let mut all_features = Vec::new();
 

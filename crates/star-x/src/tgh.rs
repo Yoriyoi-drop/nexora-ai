@@ -134,16 +134,15 @@ impl TemporalGatingHierarchy {
     }
 
     /// Concatenate input dan hidden state
-    fn concatenate(&self, input: &ArrayD<f32>, hidden: &ArrayD<f32>) -> ArrayD<f32> {
-        // safe: both tensors are contiguous by construction
-        let input_flat = input.as_slice().expect("tensor should be contiguous");
-        let hidden_flat = hidden.as_slice().expect("tensor should be contiguous");
+    fn concatenate(&self, input: &ArrayD<f32>, hidden: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
+        let input_flat = require_contiguous(input.as_slice())?;
+        let hidden_flat = require_contiguous(hidden.as_slice())?;
 
         let mut concatenated = Vec::with_capacity(input_flat.len() + hidden_flat.len());
         concatenated.extend_from_slice(hidden_flat); // Hidden state first
         concatenated.extend_from_slice(input_flat); // Then input
 
-        Array1::from_vec(concatenated).into_dyn()
+        Ok(Array1::from_vec(concatenated).into_dyn())
     }
 
     /// Matrix multiplication
@@ -197,12 +196,12 @@ impl TemporalGatingHierarchy {
     }
 
     /// Add bias
-    fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
-        // safe: output is freshly computed and contiguous
-        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
+    fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) -> DLResult<()> {
+        let output_flat = require_contiguous_mut(output.as_slice_mut())?;
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
         }
+        Ok(())
     }
 
     /// Update fusion weights dengan softmax
@@ -217,13 +216,9 @@ impl TemporalGatingHierarchy {
     }
 
     /// Get current fusion weights
-    pub fn get_fusion_weights(&self) -> (f32, f32, f32) {
-        // safe: fusion_weights is a fixed-size Array1, always contiguous
-        let weights = self
-            .fusion_weights
-            .as_slice()
-            .expect("tensor should be contiguous");
-        (weights[0], weights[1], weights[2])
+    pub fn get_fusion_weights(&self) -> DLResult<(f32, f32, f32)> {
+        let weights = require_contiguous(self.fusion_weights.as_slice())?;
+        Ok((weights[0], weights[1], weights[2]))
     }
 }
 
@@ -236,10 +231,10 @@ impl HierarchicalGating for TemporalGatingHierarchy {
         episodic_memory: &ArrayD<f32>,
     ) -> DLResult<(ArrayD<f32>, ArrayD<f32>, ArrayD<f32>)> {
         // Micro Gate: local dependencies
-        let micro_input = self.concatenate(input, hidden_state);
+        let micro_input = self.concatenate(input, hidden_state)?;
         let micro_linear = self.matmul(&self.micro_weights, &micro_input)?;
         let mut micro_output = micro_linear;
-        self.add_bias(&mut micro_output, &self.micro_bias);
+        self.add_bias(&mut micro_output, &self.micro_bias)?;
 
         // Apply sigmoid gate dan tanh activation
         let micro_gate = self.sigmoid_array(micro_output.clone());
@@ -247,20 +242,20 @@ impl HierarchicalGating for TemporalGatingHierarchy {
         let micro_final = &micro_gate * &micro_activation;
 
         // Meso Gate: chunk-level dependencies
-        let meso_input = self.concatenate(input, chunk_context);
+        let meso_input = self.concatenate(input, chunk_context)?;
         let meso_linear = self.matmul(&self.meso_weights, &meso_input)?;
         let mut meso_output = meso_linear;
-        self.add_bias(&mut meso_output, &self.meso_bias);
+        self.add_bias(&mut meso_output, &self.meso_bias)?;
 
         let meso_gate = self.sigmoid_array(meso_output.clone());
         let meso_activation = self.tanh_array(meso_output);
         let meso_final = &meso_gate * &meso_activation;
 
         // Macro Gate: episodic memory dependencies
-        let macro_input = self.concatenate(input, episodic_memory);
+        let macro_input = self.concatenate(input, episodic_memory)?;
         let macro_linear = self.matmul(&self.macro_weights, &macro_input)?;
         let mut macro_output = macro_linear;
-        self.add_bias(&mut macro_output, &self.macro_bias);
+        self.add_bias(&mut macro_output, &self.macro_bias)?;
 
         let macro_gate = self.sigmoid_array(macro_output.clone());
         let macro_activation = self.tanh_array(macro_output);

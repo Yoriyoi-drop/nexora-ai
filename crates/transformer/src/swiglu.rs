@@ -146,16 +146,16 @@ impl SwiGLU {
         let cached = guard.get_or_insert_with(|| {
             let mk = |arr: &Array2<f32>| -> GpuTensor {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr.as_slice().unwrap().to_vec();
-                GpuTensor::from_cpu(&ndarray::ArrayD::from_shape_vec(shape, data).unwrap()).unwrap()
+                let data = arr.as_slice().expect("non-contiguous weight slice").to_vec();
+                GpuTensor::from_cpu(&ndarray::ArrayD::from_shape_vec(shape, data).expect("shape mismatch for weight")).expect("failed to upload weight to GPU")
             };
             let w1 = mk(&self.w1);
             let w2 = mk(&self.w2);
             let w3 = mk(&self.w3);
             SwigluGpuWeights {
-                w1_t: ctx.transpose(&w1).unwrap(),
-                w2_t: ctx.transpose(&w2).unwrap(),
-                w3_t: ctx.transpose(&w3).unwrap(),
+                w1_t: ctx.transpose(&w1).expect("failed to transpose w1"),
+                w2_t: ctx.transpose(&w2).expect("failed to transpose w2"),
+                w3_t: ctx.transpose(&w3).expect("failed to transpose w3"),
             }
         });
 

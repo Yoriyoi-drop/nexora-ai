@@ -414,19 +414,39 @@ impl Database for PostgreSQLDatabase {
 
         let client = self.client.read().await;
         let (version, database_size_mb) = if let Some(ref client) = *client {
-            let ver = client
-                .query_one("SELECT version()", &[])
-                .await
-                .ok()
-                .and_then(|row| row.try_get::<_, String>(0).ok())
-                .unwrap_or_else(|| "PostgreSQL (unknown version)".to_string());
+            let ver = {
+                let result = client.query_one("SELECT version()", &[]).await;
+                match result {
+                    Ok(row) => match row.try_get::<_, String>(0) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!("Failed to parse version query result: {}", e);
+                            "PostgreSQL (unknown version)".to_string()
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("Version query failed: {}", e);
+                        "PostgreSQL (unknown version)".to_string()
+                    }
+                }
+            };
 
-            let size_bytes = client
-                .query_one("SELECT pg_database_size(current_database())", &[])
-                .await
-                .ok()
-                .and_then(|row| row.try_get::<_, i64>(0).ok())
-                .unwrap_or(1073741824);
+            let size_bytes = {
+                let result = client.query_one("SELECT pg_database_size(current_database())", &[]).await;
+                match result {
+                    Ok(row) => match row.try_get::<_, i64>(0) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!("Failed to parse database size query result: {}", e);
+                            1073741824
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("Database size query failed: {}", e);
+                        1073741824
+                    }
+                }
+            };
 
             (ver, size_bytes as f64 / 1048576.0)
         } else {
@@ -702,7 +722,7 @@ impl PostgreSQLConnectionPool {
 
         for mut connection in connections.drain(..) {
             if let Err(e) = connection.close().await {
-                eprintln!("Error closing connection {}: {}", connection.id, e);
+                tracing::error!("Error closing connection {}: {}", connection.id, e);
             }
         }
 

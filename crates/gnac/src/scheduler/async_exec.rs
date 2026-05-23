@@ -19,3 +19,19 @@ impl AsyncExecutor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_execute_async_with_graph() {
+        let mut g = NeuralGraph::new("g");
+        let inp = crate::canvas::GraphNode::new(crate::NodeType::Input, "in", 0.0, 0.0);
+        let out = crate::canvas::GraphNode::new(crate::NodeType::Output, "out", 0.0, 0.0);
+        g.add_node(inp);
+        g.add_node(out);
+        let result = AsyncExecutor::execute_async(&g, 2);
+        assert!(result.is_ok());
+    }
+}

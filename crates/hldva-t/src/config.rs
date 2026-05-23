@@ -71,6 +71,87 @@ pub enum DiTModelSize {
     Large,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hldva_config_default() {
+        let cfg = HLDVAConfig::default();
+        assert_eq!(cfg.training.learning_rate, 1e-4);
+    }
+
+    #[test]
+    fn test_dit_config_default() {
+        let cfg = DiTConfig::default();
+        assert_eq!(cfg.num_blocks, 12);
+        assert_eq!(cfg.hidden_dim, 768);
+    }
+
+    #[test]
+    fn test_dit_model_size_variants() {
+        assert!(matches!(DiTModelSize::Small, DiTModelSize::Small));
+        assert!(matches!(DiTModelSize::Base, DiTModelSize::Base));
+        assert!(matches!(DiTModelSize::Large, DiTModelSize::Large));
+    }
+
+    #[test]
+    fn test_noise_schedule_type_variants() {
+        assert!(matches!(NoiseScheduleType::Linear, NoiseScheduleType::Linear));
+        assert!(matches!(NoiseScheduleType::Cosine, NoiseScheduleType::Cosine));
+        assert!(matches!(NoiseScheduleType::ScaledLinear, NoiseScheduleType::ScaledLinear));
+    }
+
+    #[test]
+    fn test_cascaded_config_default() {
+        let cfg = CascadedConfig::default();
+        assert_eq!(cfg.num_stages, 2);
+    }
+
+    #[test]
+    fn test_clip_config_default() {
+        let cfg = ClipConfig::default();
+        assert_eq!(cfg.max_length, 77);
+    }
+
+    #[test]
+    fn test_vae_config_default() {
+        let cfg = VAEConfig::default();
+        assert_eq!(cfg.latent_dim, 4);
+    }
+
+    #[test]
+    fn test_ddpm_config_default() {
+        let cfg = DDPMConfig::default();
+        assert_eq!(cfg.num_timesteps, 1000);
+    }
+
+    #[test]
+    fn test_training_config_default() {
+        let cfg = TrainingConfig::default();
+        assert_eq!(cfg.batch_size, 256);
+    }
+
+    #[test]
+    fn test_upsampler_config_fields() {
+        let uc = UpsamplerConfig {
+            input_res: 16,
+            output_res: 32,
+            num_blocks: 6,
+            hidden_dim: 384,
+        };
+        assert_eq!(uc.input_res, 16);
+    }
+
+    #[test]
+    fn test_config_serde_roundtrip() {
+        let cfg = HLDVAConfig::default();
+        let json = serde_json::to_string(&cfg).unwrap();
+        let deserialized: HLDVAConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.dit.num_blocks, cfg.dit.num_blocks);
+    }
+}
+
 impl Default for DiTConfig {
     fn default() -> Self {
         Self {

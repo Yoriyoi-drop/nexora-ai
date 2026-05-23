@@ -76,15 +76,20 @@ impl SparseCausalAttention {
         let output_weights = Self::xavier_init(hidden_dim, hidden_dim);
 
         // Initialize fused operations
-        let fused_attention = FusedAttentionSoftmax::new(
+        let fused_attention = match FusedAttentionSoftmax::new(
             query_weights.clone(),
             key_weights.clone(),
             value_weights.clone(),
             output_weights.clone(),
             head_dim,
             num_heads,
-        )
-        .ok();
+        ) {
+            Ok(val) => Some(val),
+            Err(e) => {
+                tracing::warn!("Failed to initialize fused attention: {}", e);
+                None
+            }
+        };
 
         let fused_element_wise = Some(FusedElementWise::new(vec![
             ElementWiseOp::Gelu,
@@ -92,7 +97,13 @@ impl SparseCausalAttention {
         ]));
 
         // Initialize BLAS operations
-        let blas_ops = BlasOperations::auto_detect().ok();
+        let blas_ops = match BlasOperations::auto_detect() {
+            Ok(val) => Some(val),
+            Err(e) => {
+                tracing::warn!("BLAS auto-detect failed: {}", e);
+                None
+            }
+        };
 
         Ok(Self {
             query_weights,

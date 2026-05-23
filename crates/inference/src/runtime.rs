@@ -336,11 +336,17 @@ impl InferenceRuntime {
 
         // Update throughput
         let now = Utc::now();
-        if let Some(duration) = now
+        let duration = match now
             .signed_duration_since(metrics.last_updated)
             .to_std()
-            .ok()
         {
+            Ok(d) => Some(d),
+            Err(e) => {
+                warn!("Failed to compute duration since last metrics update: {}", e);
+                None
+            }
+        };
+        if let Some(duration) = duration {
             let duration_seconds = duration.as_secs_f64();
             if duration_seconds > 0.0 {
                 metrics.throughput_rps = request_count as f64 / duration_seconds;
@@ -738,26 +744,28 @@ impl InferenceRuntime {
 
         #[cfg(target_os = "linux")]
         {
-            // Linux-specific implementation using sched_setaffinity
-            use std::mem;
-
-            // SAFETY: `libc::cpu_set_t` is a C struct whose all-zero bit pattern
-            // is a valid initial state (empty CPU set). `mem::zeroed()` produces
-            // the all-zero bit pattern which is guaranteed valid for this type.
-            let mut cpu_set: libc::cpu_set_t = unsafe { mem::zeroed() };
+            // SAFETY: `cpu_set_t` is a C struct that can be safely zero-initialized.
+            // `MaybeUninit::zeroed().assume_init()` is valid because `cpu_set_t` is
+            // a plain-old-data type with no invalid bit patterns.
+            let mut cpu_set: libc::cpu_set_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
             for &cpu in affinity {
                 if cpu < 64 {
-                    // cpu_set_t typically supports up to 64 CPUs
+                    // SAFETY: `CPU_SET` is a libc macro that only touches the given
+                    // `cpu_set_t` and `cpu < 64` ensures we stay within bounds.
                     unsafe {
                         libc::CPU_SET(cpu, &mut cpu_set);
                     }
                 }
             }
 
+            // SAFETY: `sched_setaffinity` is the standard Linux syscall for setting
+            // CPU affinity. `cpu_set` is fully initialized via `CPU_SET` calls above.
+            // Passing 0 as pid targets the calling thread. The kernel validates the
+            // CPU mask size and returns -1 on error, which we handle below.
             let result = unsafe {
                 libc::sched_setaffinity(
                     0,
-                    mem::size_of::<libc::cpu_set_t>(),
+                    std::mem::size_of::<libc::cpu_set_t>(),
                     &cpu_set as *const libc::cpu_set_t,
                 )
             };

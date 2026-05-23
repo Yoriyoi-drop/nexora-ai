@@ -44,3 +44,46 @@ impl ConditionNode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_condition_greater_than() {
+        let c = ConditionNode::new("gt", ConditionType::GreaterThan, 10.0);
+        assert!(c.evaluate(11.0));
+        assert!(!c.evaluate(10.0));
+    }
+
+    #[test]
+    fn test_condition_less_than() {
+        let c = ConditionNode::new("lt", ConditionType::LessThan, 10.0);
+        assert!(c.evaluate(5.0));
+        assert!(!c.evaluate(10.0));
+    }
+
+    #[test]
+    fn test_condition_equal_to() {
+        let c = ConditionNode::new("eq", ConditionType::EqualTo, 10.0);
+        assert!(c.evaluate(10.0));
+        assert!(!c.evaluate(10.1));
+    }
+
+    #[test]
+    fn test_condition_range() {
+        let c = ConditionNode::new("range", ConditionType::Range { min: 0.0, max: 10.0 }, 0.0);
+        assert!(c.evaluate(5.0));
+        assert!(c.evaluate(0.0));
+        assert!(c.evaluate(10.0));
+        assert!(!c.evaluate(-1.0));
+        assert!(!c.evaluate(11.0));
+    }
+
+    #[test]
+    fn test_condition_loss_plateau() {
+        let c = ConditionNode::new("plateau", ConditionType::LossPlateau { patience: 5 }, 0.01);
+        assert!(c.evaluate(0.1));
+        assert!(!c.evaluate(0.001));
+    }
+}

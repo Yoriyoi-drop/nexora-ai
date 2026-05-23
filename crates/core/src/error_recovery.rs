@@ -462,7 +462,13 @@ impl ErrorRecoveryManager {
 
         // Use std::thread::spawn to avoid blocking in async context
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    warn!("Failed to create tokio runtime for strategy init: {}", e);
+                    return;
+                }
+            };
             rt.block_on(async move {
                 let mut strategies_guard = strategies.write().await;
 
@@ -535,19 +541,14 @@ impl ErrorRecoveryManager {
     }
 
     /// Get or create circuit breaker for service
-    pub async fn get_circuit_breaker(&self, service_name: &str) -> CircuitBreaker {
+    pub async fn get_circuit_breaker(&self, service_name: &str) -> CoreResult<CircuitBreaker> {
         let mut breakers = self.circuit_breakers.write().await;
 
-        if !breakers.contains_key(service_name) {
-            let breaker =
-                CircuitBreaker::new(service_name.to_string(), CircuitBreakerConfig::default());
-            breakers.insert(service_name.to_string(), breaker);
-        }
+        let entry = breakers.entry(service_name.to_string()).or_insert_with(|| {
+            CircuitBreaker::new(service_name.to_string(), CircuitBreakerConfig::default())
+        });
 
-        breakers
-            .get(service_name)
-            .expect("breaker was just inserted")
-            .clone()
+        Ok(entry.clone())
     }
 
     /// Handle error with recovery strategy
@@ -585,8 +586,11 @@ impl ErrorRecoveryManager {
 
         // Update circuit breaker if applicable
         if error_info.severity >= ErrorSeverity::High {
-            let breaker = self.get_circuit_breaker(&error_info.source).await;
-            breaker.record_failure();
+            if let Ok(breaker) = self.get_circuit_breaker(&error_info.source).await {
+                breaker.record_failure();
+            } else {
+                warn!("Failed to get circuit breaker for {}", error_info.source);
+            }
         }
     }
 
@@ -625,7 +629,7 @@ impl ErrorRecoveryManager {
         Fut: std::future::Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
-        let breaker = self.get_circuit_breaker(service_name).await;
+        let breaker = self.get_circuit_breaker(service_name).await?;
 
         breaker.execute_async(operation).await
     }

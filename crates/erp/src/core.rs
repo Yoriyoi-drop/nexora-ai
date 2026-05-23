@@ -343,3 +343,193 @@ fn symmetric_kl_divergence(p: &Array1<f32>, q: &Array1<f32>) -> f32 {
 
     kl_pq + kl_qp
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> crate::ERPConfig {
+        crate::ERPConfig::default()
+    }
+
+    #[test]
+    fn test_cosine_similarity_identical() {
+        let a = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+        let similarity = cosine_similarity(&a, &a);
+        assert!((similarity - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_cosine_similarity_orthogonal() {
+        let a = Array1::from_vec(vec![1.0, 0.0]);
+        let b = Array1::from_vec(vec![0.0, 1.0]);
+        let similarity = cosine_similarity(&a, &b);
+        assert!((similarity - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector() {
+        let a = Array1::from_vec(vec![0.0, 0.0]);
+        let b = Array1::from_vec(vec![1.0, 0.0]);
+        let similarity = cosine_similarity(&a, &b);
+        assert_eq!(similarity, 0.0);
+    }
+
+    #[test]
+    fn test_symmetric_kl_divergence_identical() {
+        let a = Array1::from_vec(vec![0.5, 0.3, 0.2]);
+        let kl = symmetric_kl_divergence(&a, &a);
+        assert!((kl - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_symmetric_kl_divergence_different() {
+        let a = Array1::from_vec(vec![0.8, 0.1, 0.1]);
+        let b = Array1::from_vec(vec![0.1, 0.8, 0.1]);
+        let kl = symmetric_kl_divergence(&a, &b);
+        assert!(kl > 0.0);
+    }
+
+    #[test]
+    fn test_resonance_mapper_new() {
+        let mapper = ResonanceMapper::new(config());
+        assert!(matches!(mapper.projection_method, ProjectionMethod::LowRankEmbedding { rank: 32 }));
+    }
+
+    #[test]
+    fn test_compute_information_distribution() {
+        let mapper = ResonanceMapper::new(config());
+        let weights = Array1::from_vec(vec![2.0, 1.0, -3.0, 0.0]);
+        let dist = mapper.compute_information_distribution(&weights);
+        assert!((dist.sum() - 1.0).abs() < 1e-5);
+        assert!(dist[2] > dist[1]);
+    }
+
+    #[test]
+    fn test_compute_information_distribution_zero_sum() {
+        let mapper = ResonanceMapper::new(config());
+        let weights = Array1::zeros(4);
+        let dist = mapper.compute_information_distribution(&weights);
+        assert_eq!(dist.sum(), 0.0);
+    }
+
+    #[test]
+    fn test_compute_fisher_information() {
+        let mapper = ResonanceMapper::new(config());
+        let weights = Array1::from_vec(vec![2.0, 3.0]);
+        let fi = mapper.compute_fisher_information(&weights);
+        assert!((fi - 13.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_projection_random() {
+        let mapper = ResonanceMapper::new(crate::ERPConfig {
+            compression_mode: crate::CompressionMode::Aggressive,
+            ..config()
+        });
+        let dist = Array1::from_vec(vec![0.5, 0.3, 0.2]);
+        let proj = mapper.compute_projection(&dist);
+        assert_eq!(proj.len(), 16);
+    }
+
+    #[test]
+    fn test_compute_projection_pca() {
+        let mapper = ResonanceMapper::new(crate::ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..config()
+        });
+        let dist = Array1::from_vec(vec![0.5, 0.3, 0.2]);
+        let proj = mapper.compute_projection(&dist);
+        assert_eq!(proj.len(), 3);
+    }
+
+    #[test]
+    fn test_extract_neuron_signatures() {
+        let mapper = ResonanceMapper::new(config());
+        let weights = vec![Array2::from_shape_vec((3, 4), vec![0.5; 12]).unwrap()];
+        let sigs = mapper.extract_neuron_signatures(&weights).unwrap();
+        assert_eq!(sigs.len(), 3);
+        assert_eq!(sigs[0].neuron_id, 0);
+        assert_eq!(sigs[2].neuron_id, 2);
+    }
+
+    #[test]
+    fn test_two_stage_filtering() {
+        let mapper = ResonanceMapper::new(config());
+        let sigs = vec![
+            NeuronSignature {
+                neuron_id: 0, information_distribution: Array1::from_vec(vec![0.5, 0.5]),
+                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 1.0, gradient_norm: 0.5,
+            },
+            NeuronSignature {
+                neuron_id: 1, information_distribution: Array1::from_vec(vec![0.5, 0.5]),
+                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 1.0, gradient_norm: 0.5,
+            },
+            NeuronSignature {
+                neuron_id: 2, information_distribution: Array1::from_vec(vec![1.0, 0.0]),
+                projection: Array1::from_vec(vec![0.0, 1.0]), fisher_info: 1.0, gradient_norm: 0.5,
+            },
+        ];
+        let pairs = mapper.two_stage_filtering(&sigs).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0, 0);
+        assert_eq!(pairs[0].1, 1);
+    }
+
+    #[test]
+    fn test_build_resonance_graph() {
+        let mapper = ResonanceMapper::new(config());
+        let pairs = vec![(0, 1, 0.5), (1, 2, 0.3)];
+        let graph = mapper.build_resonance_graph(3, &pairs);
+        assert_eq!(graph.adjacency.len(), 3);
+        assert_eq!(graph.adjacency[0].len(), 1);
+        assert_eq!(graph.adjacency[1].len(), 2);
+    }
+
+    #[test]
+    fn test_compute_group_variance_single() {
+        let mapper = ResonanceMapper::new(config());
+        let sigs = vec![NeuronSignature {
+            neuron_id: 0, information_distribution: Array1::zeros(4),
+            projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 0.0, gradient_norm: 0.0,
+        }];
+        let v = mapper.compute_group_variance(&[0], &sigs);
+        assert_eq!(v, 0.0);
+    }
+
+    #[test]
+    fn test_compute_group_variance_multiple() {
+        let mapper = ResonanceMapper::new(config());
+        let sigs = vec![
+            NeuronSignature {
+                neuron_id: 0, information_distribution: Array1::zeros(2),
+                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 0.0, gradient_norm: 0.0,
+            },
+            NeuronSignature {
+                neuron_id: 1, information_distribution: Array1::zeros(2),
+                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 0.0, gradient_norm: 0.0,
+            },
+        ];
+        let v = mapper.compute_group_variance(&[0, 1], &sigs);
+        assert!((v - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_check_stability_constraints_max_size() {
+        let mapper = ResonanceMapper::new(config());
+        let sigs = vec![NeuronSignature {
+            neuron_id: 0, information_distribution: Array1::zeros(2),
+            projection: Array1::zeros(2), fisher_info: 0.0, gradient_norm: 0.0,
+        }; 9];
+        let result = mapper.check_stability_constraints(&[0, 1, 2, 3, 4, 5, 6, 7], 8, &sigs);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_map_resonance_empty_weights() {
+        let mapper = ResonanceMapper::new(config());
+        let result = mapper.map_resonance(&[]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
+}

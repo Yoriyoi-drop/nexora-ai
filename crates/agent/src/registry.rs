@@ -353,7 +353,7 @@ impl AgentRegistry {
         // Unregister dead agents
         for agent_id in dead_agents.iter() {
             if let Err(e) = self.unregister_agent(*agent_id).await {
-                eprintln!("Failed to unregister dead agent {}: {}", agent_id, e);
+                tracing::error!("Failed to unregister dead agent {}: {}", agent_id, e);
             }
         }
 

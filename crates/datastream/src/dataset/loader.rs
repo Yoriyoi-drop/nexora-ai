@@ -513,7 +513,13 @@ fn is_arrow_file(path: &Path) -> bool {
 }
 
 fn estimate_samples(path: &Path) -> Option<u64> {
-    let meta = std::fs::metadata(path).ok()?;
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Failed to read metadata for {}: {}", path.display(), e);
+            return None;
+        }
+    };
     let size = meta.len();
     if size < 100 {
         return Some(0);

@@ -93,6 +93,9 @@ pub struct ClusteringOrchestrator {
     /// Precomputed pairwise distance matrix (N×N), filled lazily (RefCell for &self access)
     cached_distances: std::cell::RefCell<Option<Vec<Vec<f32>>>>,
     cached_data_len: std::cell::Cell<usize>,
+
+    /// Previous labels for cluster_stability computation
+    prev_labels: std::cell::RefCell<Option<Vec<usize>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +115,7 @@ impl ClusteringOrchestrator {
             use_gpu: true,
             cached_distances: std::cell::RefCell::new(None),
             cached_data_len: std::cell::Cell::new(0),
+            prev_labels: std::cell::RefCell::new(None),
         }
     }
 
@@ -234,6 +238,9 @@ impl ClusteringOrchestrator {
             }
             let total: f32 = dists.iter().sum();
             if total <= 0.0 {
+                while centroids.len() < k {
+                    centroids.push(centroids[0].clone());
+                }
                 break;
             }
             let r = rand::Rng::gen_range(&mut rng, 0.0..total);
@@ -300,12 +307,18 @@ impl ClusteringOrchestrator {
         let silhouette = self.silhouette_score(&request.data, &labels);
         let db = self.davies_bouldin_index(&request.data, &labels);
 
+        let intra_var = self.compute_intra_cluster_variance(&request.data, &centroids, &labels);
+        let inter_dist = self.compute_inter_cluster_distance(&centroids);
+        let stability = self.compute_cluster_stability(&labels);
+
+        *self.prev_labels.borrow_mut() = Some(labels.clone());
+
         let quality = ClusterQuality {
             silhouette_score: silhouette,
             davies_bouldin_index: db,
-            cluster_stability: 0.0,
-            intra_cluster_variance: 0.0,
-            inter_cluster_distance: 0.0,
+            cluster_stability: stability,
+            intra_cluster_variance: intra_var,
+            inter_cluster_distance: inter_dist,
         };
 
         ClusterResult {
@@ -314,6 +327,55 @@ impl ClusteringOrchestrator {
             quality_scores: quality,
             algorithm_used: algorithm.to_string(),
             data_type: "generic".to_string(),
+        }
+    }
+
+    /// Mean squared distance of each point from its cluster centroid
+    fn compute_intra_cluster_variance(
+        &self,
+        data: &[Vec<f32>],
+        centroids: &[Vec<f32>],
+        labels: &[usize],
+    ) -> f32 {
+        let n = data.len();
+        if n == 0 || centroids.is_empty() {
+            return 0.0;
+        }
+        let mut total = 0.0;
+        for (i, point) in data.iter().enumerate() {
+            if let Some(c) = centroids.get(labels[i]) {
+                total += self.euclidean(point, c);
+            }
+        }
+        total / n as f32
+    }
+
+    /// Mean pairwise distance between distinct cluster centroids
+    fn compute_inter_cluster_distance(&self, centroids: &[Vec<f32>]) -> f32 {
+        let k = centroids.len();
+        if k < 2 {
+            return 0.0;
+        }
+        let mut total = 0.0;
+        let mut count = 0;
+        for i in 0..k {
+            for j in (i + 1)..k {
+                total += self.euclidean(&centroids[i], &centroids[j]);
+                count += 1;
+            }
+        }
+        total / count as f32
+    }
+
+    /// Fraction of labels that remain stable compared to the previous clustering run
+    fn compute_cluster_stability(&self, labels: &[usize]) -> f32 {
+        let prev = self.prev_labels.borrow();
+        match prev.as_ref() {
+            Some(prev_labels) if prev_labels.len() == labels.len() && !labels.is_empty() => {
+                let same = prev_labels.iter().zip(labels.iter()).filter(|(a, b)| a == b).count();
+                same as f32 / labels.len() as f32
+            }
+            _ => 1.0,
         }
     }
 

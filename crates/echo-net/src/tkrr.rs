@@ -286,7 +286,7 @@ impl TopKResonanceRouting {
         let basic_resonance = ResonanceCalculator::resonance_coefficient(
             &self.to_1d_array(&query_tensor)?,
             &self.to_1d_array(resonance_data)?,
-        );
+        )?;
 
         // Calculate holographic alignment
         let holographic_alignment =

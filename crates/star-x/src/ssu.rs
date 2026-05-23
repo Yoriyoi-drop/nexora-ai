@@ -188,12 +188,12 @@ impl SelectiveStateUpdate {
     }
 
     /// Add bias
-    fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) {
-        // safe: output is freshly allocated or contiguous by construction
-        let output_flat = output.as_slice_mut().expect("tensor should be contiguous");
+    fn add_bias(&self, output: &mut ArrayD<f32>, bias: &Array1<f32>) -> DLResult<()> {
+        let output_flat = require_contiguous_mut(output.as_slice_mut())?;
         for (i, &b) in bias.iter().enumerate().take(output_flat.len()) {
             output_flat[i] += b;
         }
+        Ok(())
     }
 
     /// Compute element-wise importance
@@ -238,8 +238,8 @@ impl SelectiveStateUpdate {
         }
 
         // Update average relevance
-        // safe: relevance is freshly computed and contiguous
-        let relevance_flat = relevance.as_slice().expect("tensor should be contiguous");
+        let relevance_flat = require_contiguous(relevance.as_slice())
+            .expect("relevance tensor is contiguous by construction");
         let relevance_sum: f32 = relevance_flat.iter().sum();
         let relevance_avg = relevance_sum / relevance_flat.len() as f32;
 
@@ -323,7 +323,7 @@ impl SelectiveUpdate for SelectiveStateUpdate {
         // Compute relevance scores
         let relevance_linear = self.matmul(&self.relevance_weights, &fused)?;
         let mut relevance_output = relevance_linear;
-        self.add_bias(&mut relevance_output, &self.relevance_bias);
+        self.add_bias(&mut relevance_output, &self.relevance_bias)?;
 
         // Apply sigmoid to get relevance probabilities
         let relevance_probs = self.sigmoid_array(relevance_output);

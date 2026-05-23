@@ -21,22 +21,23 @@ struct CorrectnessPattern {
     score_penalty: f32,
 }
 
-/// Regex patterns
+/// Regex patterns — all patterns are static and verified at first use
 static DIV_ZERO_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"/\s*0+(\.0+)?\b").expect("valid regex"));
+    Lazy::new(|| Regex::new(r"/\s*0+(\.0+)?\b").expect("valid division-by-zero regex"));
 
 static INFINITE_LOOP_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"while\s*\(\s*(true|1)\s*\)").expect("valid regex"));
+    Lazy::new(|| Regex::new(r"while\s*\(\s*(true|1)\s*\)").expect("valid infinite-loop regex"));
 
 static C_UNINIT_VAR_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;").expect("valid regex")
+    Regex::new(r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;")
+        .expect("valid C uninitialized var regex")
 });
 
 static JS_LOOSE_EQUALITY_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?<![=!])==(?!=)").expect("valid regex"));
+    Lazy::new(|| Regex::new(r"(?<![=!])==(?!=)").expect("valid JS loose equality regex"));
 
 static PY_BARE_EXCEPT_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"except\s*:").expect("valid regex"));
+    Lazy::new(|| Regex::new(r"except\s*:").expect("valid Python bare-except regex"));
 
 /// Correctness verifier
 pub struct CorrectnessVerifier {

@@ -10,7 +10,9 @@ use crate::NexoraAI;
 static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
 
 pub fn init_metrics() -> Arc<MetricsCollector> {
-    let collector = Arc::new(MetricsCollector::new());
+    let collector = Arc::new(
+        MetricsCollector::new().expect("Failed to initialize metrics collector"),
+    );
     METRICS.set(collector.clone()).ok();
     collector
 }
@@ -67,12 +69,12 @@ pub async fn metrics_handler() -> axum::response::Response {
             axum::http::Response::builder()
                 .header("Content-Type", "text/plain; charset=utf-8")
                 .body(axum::body::Body::from(body))
-                .unwrap()
+                .expect("metrics response builder should not fail")
         }
         None => axum::http::Response::builder()
             .header("Content-Type", "text/plain; charset=utf-8")
             .body(axum::body::Body::from("# metrics disabled"))
-            .unwrap(),
+            .expect("metrics response builder should not fail"),
     }
 }
 

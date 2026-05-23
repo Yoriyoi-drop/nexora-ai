@@ -117,7 +117,15 @@ impl BatchProcessor {
             request
                 .request_id
                 .as_ref()
-                .and_then(|s| Uuid::parse_str(s).ok())
+                .and_then(|s| {
+                    match Uuid::parse_str(s) {
+                        Ok(uuid) => Some(uuid),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                            None
+                        }
+                    }
+                })
                 .unwrap_or_else(Uuid::new_v4),
             request.input_tokens,
             request.target_tokens,

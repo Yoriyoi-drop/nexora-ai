@@ -305,7 +305,7 @@ impl PerformanceMonitor {
         };
 
         // Estimate CPU cycles based on execution time (assuming 3GHz)
-        let cpu_cycles = (execution_time * 3_000_000.0) as u64;
+        let cpu_cycles = (execution_time.max(0.0) * 3_000_000.0) as u64;
         let cache_misses = (cpu_cycles / 1000) as u64; // Rough estimate
 
         PerformanceMetrics {

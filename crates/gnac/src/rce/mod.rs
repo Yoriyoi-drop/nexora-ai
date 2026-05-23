@@ -44,3 +44,27 @@ impl ResourceReport {
         energy_kwh * 0.12 + vram_cost // $0.12/kWh
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resource_report_new() {
+        let r = ResourceReport::new();
+        assert_eq!(r.total_flops, 0);
+        assert_eq!(r.parameter_count, 0);
+    }
+
+    #[test]
+    fn test_estimate_cloud_cost_zero() {
+        let cost = ResourceReport::estimate_cloud_cost(0, 0.0);
+        assert!(cost >= 0.0);
+    }
+
+    #[test]
+    fn test_estimate_cloud_cost_nonzero() {
+        let cost = ResourceReport::estimate_cloud_cost(1_000_000_000_000, 1000.0);
+        assert!(cost > 0.0);
+    }
+}

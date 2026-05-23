@@ -82,3 +82,15 @@ impl AnomalyDetector {
         anomalies
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan_empty() {
+        let g = NeuralGraph::new("empty");
+        let anomalies = AnomalyDetector::scan(&g);
+        assert!(anomalies.is_empty());
+    }
+}

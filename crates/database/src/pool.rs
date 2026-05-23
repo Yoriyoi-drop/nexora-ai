@@ -11,17 +11,20 @@ use tokio::sync::{Mutex, RwLock};
 
 mod serde_timestamp {
     use serde::{Deserializer, Serializer};
-    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-    pub fn serialize<S>(_instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let duration = SystemTime::now()
+        let now = Instant::now();
+        let since_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        serializer.serialize_u64(duration)
+            .unwrap_or_default();
+        let instant_as_system = since_epoch
+            .checked_sub(now.duration_since(*instant))
+            .unwrap_or(Duration::ZERO);
+        serializer.serialize_u64(instant_as_system.as_secs())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Instant, D::Error>
@@ -30,12 +33,13 @@ mod serde_timestamp {
     {
         use serde::de::Deserialize;
         let secs: u64 = Deserialize::deserialize(deserializer)?;
-        let system_time = UNIX_EPOCH + std::time::Duration::from_secs(secs);
-        // Convert SystemTime to Instant using elapsed duration
-        let elapsed = system_time
-            .duration_since(SystemTime::now())
+        let now = Instant::now();
+        let system_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .unwrap_or_default();
-        Ok(Instant::now() - elapsed)
+        let elapsed_since_epoch = Duration::from_secs(secs);
+        let age = system_now.saturating_sub(elapsed_since_epoch);
+        Ok(now - age)
     }
 }
 use std::collections::HashMap;

@@ -127,7 +127,7 @@ impl MTPHeads {
                     best = i;
                 }
             }
-            return best as u32;
+            return u32::try_from(best).unwrap_or(u32::MAX);
         }
         let scaled: Array1<f32> = logits.mapv(|v| v / t);
         let probs = Self::softmax(&scaled);
@@ -143,17 +143,17 @@ impl MTPHeads {
             let k = k.min(probs.len());
             let sum_k: f32 = indices[..k].iter().map(|&i| probs[i]).sum();
             if sum_k <= 0.0 {
-                return indices[0] as u32;
+                return u32::try_from(indices[0]).unwrap_or(u32::MAX);
             }
             let r: f32 = rand::random::<f32>() * sum_k;
             let mut cum = 0.0;
             for &i in &indices[..k] {
                 cum += probs[i];
                 if cum >= r {
-                    return i as u32;
+                    return u32::try_from(i).unwrap_or(u32::MAX);
                 }
             }
-            return indices[k - 1] as u32;
+            return u32::try_from(indices[k - 1]).unwrap_or(u32::MAX);
         }
 
         let r: f32 = rand::random();
@@ -161,10 +161,10 @@ impl MTPHeads {
         for i in 0..probs.len() {
             cum += probs[i];
             if cum >= r {
-                return i as u32;
+                return u32::try_from(i).unwrap_or(u32::MAX);
             }
         }
-        (probs.len() - 1) as u32
+        u32::try_from(probs.len() - 1).unwrap_or(u32::MAX)
     }
 }
 

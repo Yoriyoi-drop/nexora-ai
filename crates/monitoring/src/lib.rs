@@ -56,7 +56,9 @@ pub struct MonitoringSystem {
 impl MonitoringSystem {
     pub fn new(config: MonitoringConfig) -> Self {
         let metrics = if config.enable_metrics {
-            Some(Arc::new(MetricsCollector::new()))
+            Some(Arc::new(
+                MetricsCollector::new().expect("Failed to initialize metrics collector"),
+            ))
         } else {
             None
         };

@@ -210,7 +210,15 @@ impl StreamingEngine {
             request_id: request
                 .request_id
                 .as_ref()
-                .and_then(|s| Uuid::parse_str(s).ok())
+                .and_then(|s| {
+                    match Uuid::parse_str(s) {
+                        Ok(uuid) => Some(uuid),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                            None
+                        }
+                    }
+                })
                 .unwrap_or_else(Uuid::new_v4),
             token_tx,
             config: self.config.clone(),
@@ -243,7 +251,15 @@ impl StreamingEngine {
             request_id: request
                 .request_id
                 .as_ref()
-                .and_then(|s| Uuid::parse_str(s).ok())
+                .and_then(|s| {
+                    match Uuid::parse_str(s) {
+                        Ok(uuid) => Some(uuid),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                            None
+                        }
+                    }
+                })
                 .unwrap_or_else(Uuid::new_v4),
             token_rx,
             metadata: HashMap::new(),
@@ -361,7 +377,7 @@ impl StreamingEngine {
         let streams = self.active_streams.read().await;
 
         if let Some(stream_info) = streams.get(&stream_id) {
-            let duration = (Utc::now() - stream_info.created_at).num_milliseconds() as u64;
+            let duration = (Utc::now() - stream_info.created_at).num_milliseconds().max(0) as u64;
 
             Ok(Some(StreamStatus {
                 stream_id,
@@ -434,7 +450,7 @@ impl StreamingEngine {
         if stats.total_streams > 0 {
             let total_duration: u64 = streams
                 .values()
-                .map(|s| (Utc::now() - s.created_at).num_milliseconds() as u64)
+                .map(|s| (Utc::now() - s.created_at).num_milliseconds().max(0) as u64)
                 .sum();
             stats.avg_stream_duration_ms = total_duration as f64 / stats.total_streams as f64;
         }
@@ -538,8 +554,8 @@ impl StreamingEngine {
             let streams = self.active_streams.read().await;
             let mut expired = Vec::with_capacity(streams.len());
             for (stream_id, stream_info) in streams.iter() {
-                let age_seconds = (now - stream_info.created_at).num_seconds() as u64;
-                let idle_seconds = (now - stream_info.last_activity).num_seconds() as u64;
+                let age_seconds = (now - stream_info.created_at).num_seconds().max(0) as u64;
+                let idle_seconds = (now - stream_info.last_activity).num_seconds().max(0) as u64;
 
                 if age_seconds > self.config.stream_timeout_seconds
                     || (idle_seconds > 300 && stream_info.finished)

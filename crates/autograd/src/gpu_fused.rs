@@ -456,9 +456,12 @@ impl GpuContext {
         if shape.len() < 2 {
             return Err(GpuError::ShapeMismatch("softmax needs ≥2D tensor".into()));
         }
-        let rows = shape[..shape.len() - 1].iter().product::<usize>() as u32;
-        // safe: shape.len() >= 2 checked above
-        let cols = *shape.last().unwrap() as u32;
+        let rows = if shape.len() >= 2 {
+            shape[..shape.len() - 1].iter().product::<usize>() as u32
+        } else {
+            0
+        };
+        let cols = shape.last().copied().unwrap_or(0) as u32;
         let numel = inp.numel();
 
         let out = self.alloc_buffer(

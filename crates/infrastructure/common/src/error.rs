@@ -854,7 +854,9 @@ pub fn init_error_handler() {
 /// Handle error globally
 pub async fn handle_error(error: &NexoraError, component: &str) -> Result<RecoveryAction> {
     init_error_handler();
-    let handler = ERROR_HANDLER.get().expect("ERROR_HANDLER initialized");
+    let handler = ERROR_HANDLER
+        .get()
+        .expect("ERROR_HANDLER initialized (guaranteed by init_error_handler() call above)");
     let mut guard = handler.lock().await;
     guard.handle_error(error, component).await
 }

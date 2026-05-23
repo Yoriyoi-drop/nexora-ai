@@ -269,7 +269,9 @@ impl ValidationUtils {
             ));
         }
 
-        let tld = parts.last().expect("domain has at least two parts");
+        let tld = parts
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("Domain has no parts"))?;
         if tld.len() < 2 {
             return Err(anyhow::anyhow!("Top-level domain too short"));
         }
@@ -465,7 +467,10 @@ impl ValidationUtils {
         let mut double = false;
 
         for c in clean_number.chars().rev() {
-            let mut digit = c.to_digit(10).expect("valid digit character") as u32;
+            let mut digit = c
+                .to_digit(10)
+                .ok_or_else(|| anyhow::anyhow!("Invalid digit in credit card number"))?
+                as u32;
 
             if double {
                 digit *= 2;

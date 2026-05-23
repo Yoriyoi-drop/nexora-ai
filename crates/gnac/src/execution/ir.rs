@@ -115,3 +115,68 @@ impl GraphIR {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_ir_new() {
+        let ir = GraphIR::new("test", ExecutionBackend::CPU);
+        assert_eq!(ir.name, "test");
+        assert!(ir.operations.is_empty());
+        assert_eq!(ir.backend, ExecutionBackend::CPU);
+    }
+
+    #[test]
+    fn test_ir_from_graph() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::ReLU, "relu", 0.0, 0.0));
+        let ir = GraphIR::from_graph(&g, ExecutionBackend::CPU);
+        assert_eq!(ir.operations.len(), 2);
+    }
+
+    #[test]
+    fn test_ir_op_value() {
+        let v = IRValue {
+            name: "x".to_string(),
+            shape: vec![1, 64],
+            is_tensor: true,
+        };
+        assert!(v.is_tensor);
+        assert_eq!(v.shape, vec![1, 64]);
+    }
+
+    #[test]
+    fn test_map_node_type_all() {
+        let cases = [
+            (NodeType::Conv2D, IROpType::Conv2D),
+            (NodeType::Linear, IROpType::MatMul),
+            (NodeType::MatMul, IROpType::MatMul),
+            (NodeType::ReLU, IROpType::Relu),
+            (NodeType::GELU, IROpType::Gelu),
+            (NodeType::Softmax, IROpType::Softmax),
+            (NodeType::LayerNorm, IROpType::LayerNorm),
+            (NodeType::RMSNorm, IROpType::LayerNorm),
+            (NodeType::SelfAttention, IROpType::Attention),
+            (NodeType::Reshape, IROpType::Reshape),
+            (NodeType::Transpose, IROpType::Transpose),
+            (NodeType::Concat, IROpType::Concat),
+            (NodeType::Split, IROpType::Split),
+            (NodeType::Dropout, IROpType::Dropout),
+            (NodeType::Input, IROpType::Input),
+            (NodeType::Output, IROpType::Output),
+            (NodeType::Add, IROpType::Add),
+            (NodeType::Mul, IROpType::Mul),
+            (NodeType::Embedding, IROpType::Custom("generic")),
+        ];
+        for (nt, expected) in cases.iter() {
+            let node = GraphNode::new(nt.clone(), "x", 0.0, 0.0);
+            let result = GraphIR::map_node_type(&node);
+            assert_eq!(result, expected.clone(), "mismatch for {:?}", nt);
+        }
+    }
+}

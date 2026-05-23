@@ -305,7 +305,8 @@ impl RoutingAgent {
                         && matching_specialists.len() > 1
                     {
                         // Simple load balancing - select randomly
-                        let idx = (rand::random::<usize>() % matching_specialists.len()) as usize;
+                        let len = matching_specialists.len().max(1);
+                        let idx = (rand::random::<usize>() % len) as usize;
                         vec![matching_specialists[idx].clone()]
                     } else {
                         vec![matching_specialists[0].clone()]
@@ -333,7 +334,8 @@ impl RoutingAgent {
                     .collect();
 
                 if !available_specialists.is_empty() {
-                    let idx = (rand::random::<usize>() % available_specialists.len()) as usize;
+                    let len = available_specialists.len().max(1);
+                    let idx = (rand::random::<usize>() % len) as usize;
                     Ok(RoutingActionResult {
                         specialists: vec![available_specialists[idx].clone()],
                         confidence: 0.7,

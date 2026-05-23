@@ -234,15 +234,15 @@ async fn openai_chat_handler(
             .map(|a| a.len())
             .unwrap_or(0);
 
-        info!(
-            "Chat completion request for model '{}' with {} messages",
+        warn!(
+            "OpenAI chat endpoint invoked for model '{}' ({} messages) — using stub response; wire to real inference for production",
             model, messages
         );
 
         let created = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
         let response = serde_json::json!({
             "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),

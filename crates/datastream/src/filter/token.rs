@@ -45,7 +45,7 @@ impl TokenFilter {
         } else {
             let words = text.split_whitespace().count() as f64;
             let chars = text.len() as f64;
-            (words * 1.3 + chars * 0.04) as usize
+            ((words * 1.3 + chars * 0.04) as usize).max(1)
         }
     }
 

@@ -44,6 +44,8 @@ pub struct MemoryManager {
 impl MemoryManager {
     pub fn new() -> Self {
         Self {
+            // Lock ordering: layers → episodic → cache → compressor
+            // Acquire in this order to prevent deadlocks.
             layers: Arc::new(RwLock::new(MemoryLayers::new())),
             episodic: Arc::new(RwLock::new(EpisodicMemory::new(1000))),
             cache: Arc::new(RwLock::new(LRUCache::new(100))),
@@ -82,17 +84,21 @@ impl MemoryManager {
     pub async fn retrieve(&self, layer: MemoryLayer, key: &str) -> Result<Option<String>> {
         debug!("Retrieving from {:?}: {}", layer, key);
 
-        // Cek cache dulu untuk short memory
+        // Retrieve dari layer yang ditentukan dulu (lock order: layers → cache)
+        let value = {
+            let mut layers = self.layers.write().await;
+            layers.retrieve(layer, key).await?
+        };
+
+        // Cache hit untuk short memory — update cache if found
         if layer == MemoryLayer::Short {
-            let mut cache = self.cache.write().await;
-            if let Some(value) = cache.get(&key.to_string()) {
-                return Ok(Some(value.clone()));
+            if let Some(ref val) = value {
+                let mut cache = self.cache.write().await;
+                cache.put(key.to_string(), val.clone());
             }
         }
 
-        // Retrieve dari layer yang ditentukan
-        let mut layers = self.layers.write().await;
-        layers.retrieve(layer, key).await
+        Ok(value)
     }
 
     /// Search di semua memory layers

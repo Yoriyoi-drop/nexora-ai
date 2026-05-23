@@ -223,3 +223,133 @@ impl Expert {
         (self.config.hidden_size, self.config.intermediate_size)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn small_expert() -> Expert {
+        Expert::new(4, 8, false, 0.0)
+    }
+
+    #[test]
+    fn test_gelu_shape() {
+        let x = gelu(0.0);
+        assert!((x - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_gelu_positive() {
+        let x = gelu(1.0);
+        assert!(x > 0.8);
+    }
+
+    #[test]
+    fn test_gelu_negative() {
+        let x = gelu(-1.0);
+        assert!(x < 0.0);
+        assert!(x > -0.2);
+    }
+
+    #[test]
+    fn test_new_expert_config() {
+        let e = Expert::new(16, 32, true, 0.1);
+        let (h, i) = e.size_info();
+        assert_eq!(h, 16);
+        assert_eq!(i, 32);
+        assert_eq!(e.fc1_weights.len(), 32);
+        assert_eq!(e.fc1_weights[0].len(), 16);
+        assert_eq!(e.fc2_weights.len(), 16);
+        assert_eq!(e.fc2_weights[0].len(), 32);
+    }
+
+    #[test]
+    fn test_forward_output_dim() {
+        let e = small_expert();
+        let input = vec![0.5; 4];
+        let output = e.forward(&input);
+        assert_eq!(output.len(), 4);
+    }
+
+    #[test]
+    fn test_forward_deterministic_without_dropout() {
+        let e = small_expert();
+        let input = vec![1.0, 0.5, 0.0, -0.5];
+        let out1 = e.forward(&input);
+        let out2 = e.forward(&input);
+        assert_eq!(out1.len(), out2.len());
+        for (a, b) in out1.iter().zip(out2.iter()) {
+            assert!((a - b).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_fc1_forward_output_dim() {
+        let e = small_expert();
+        let input = vec![0.5; 4];
+        let hidden = e.fc1_forward(&input);
+        assert_eq!(hidden.len(), 8);
+    }
+
+    #[test]
+    fn test_fc2_forward_output_dim() {
+        let e = small_expert();
+        let input = vec![0.5; 8];
+        let output = e.fc2_forward(&input);
+        assert_eq!(output.len(), 4);
+    }
+
+    #[test]
+    fn test_apply_gelu() {
+        let e = small_expert();
+        let input = vec![-1.0, 0.0, 1.0, 2.0];
+        let activated = e.apply_gelu(&input);
+        assert_eq!(activated.len(), 4);
+        assert!(activated[1].abs() < 1e-5);
+        assert!(activated[0] < activated[2]);
+    }
+
+    #[test]
+    fn test_apply_dropout_with_zero_rate() {
+        let e = Expert::new(4, 8, true, 0.0);
+        let input = vec![1.0; 4];
+        let dropped = e.apply_dropout(&input);
+        assert_eq!(dropped.len(), 4);
+        for v in &dropped {
+            assert!((v - 1.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_apply_dropout_with_full_rate() {
+        let e = Expert::new(4, 8, true, 1.0);
+        let input = vec![1.0; 4];
+        let dropped = e.apply_dropout(&input);
+        for v in &dropped {
+            assert!((v - 0.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_forward_zero_input() {
+        let e = small_expert();
+        let input = vec![0.0; 4];
+        let output = e.forward(&input);
+        assert_eq!(output.len(), 4);
+    }
+
+    #[test]
+    fn test_config() {
+        let e = small_expert();
+        let config = e.config();
+        assert_eq!(config.hidden_size, 4);
+        assert_eq!(config.intermediate_size, 8);
+    }
+
+    #[test]
+    fn test_init_weights_dimensions() {
+        let w = Expert::init_weights(10, 5);
+        assert_eq!(w.len(), 5);
+        assert_eq!(w[0].len(), 10);
+    }
+}

@@ -3,16 +3,34 @@
 //! Implements style verification for code formatting and best practices.
 
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 
 use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
 
+static LONG_LINE_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r".{81,}").expect("valid long-line regex"));
+static TRAILING_WHITESPACE_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[ \t]+$").expect("valid trailing whitespace regex"));
+static TAB_CHARACTER_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\t").expect("valid tab character regex"));
+static MISSING_DOCUMENTATION_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]*//").expect("valid missing doc regex"));
+static CAMEL_CASE_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(let|const|var)\s+[a-z][a-zA-Z0-9]*[A-Z]").expect("valid camel case regex"));
+static MAGIC_NUMBER_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b(10|100|1000|24|60|3600)\b").expect("valid magic number regex"));
+static DEEP_NESTING_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\s{16,}").expect("valid deep nesting regex"));
+static LARGE_FUNCTION_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]{500,}").expect("valid large function regex"));
+
 /// Style pattern
 #[derive(Debug, Clone)]
 struct StylePattern {
     name: String,
-    pattern: Regex,
+    pattern: &'static Lazy<Regex>,
     severity: IssueSeverity,
     description: String,
     language: String,
@@ -29,59 +47,56 @@ impl StyleVerifier {
             style_patterns: vec![
                 StylePattern {
                     name: "Long Line".to_string(),
-                    pattern: Regex::new(r".{81,}").expect("valid regex"),
+                    pattern: &LONG_LINE_REGEX,
                     severity: IssueSeverity::Style,
                     description: "Line exceeds 80 characters".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Trailing Whitespace".to_string(),
-                    pattern: Regex::new(r"[ \t]+$").expect("valid regex"),
+                    pattern: &TRAILING_WHITESPACE_REGEX,
                     severity: IssueSeverity::Style,
                     description: "Trailing whitespace detected".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Tab Character".to_string(),
-                    pattern: Regex::new(r"\t").expect("valid regex"),
+                    pattern: &TAB_CHARACTER_REGEX,
                     severity: IssueSeverity::Style,
                     description: "Tab character detected - use spaces".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Missing Documentation".to_string(),
-                    pattern: Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]*//").expect("valid regex"),
+                    pattern: &MISSING_DOCUMENTATION_REGEX,
                     severity: IssueSeverity::Info,
                     description: "Function missing documentation".to_string(),
                     language: "rust".to_string(),
                 },
                 StylePattern {
                     name: "Camel Case Variable".to_string(),
-                    pattern: Regex::new(r"(let|const|var)\s+[a-z][a-zA-Z0-9]*[A-Z]")
-                        .expect("valid regex"),
+                    pattern: &CAMEL_CASE_REGEX,
                     severity: IssueSeverity::Style,
                     description: "Variable should use snake_case".to_string(),
                     language: "rust".to_string(),
                 },
                 StylePattern {
                     name: "Magic Number".to_string(),
-                    pattern: Regex::new(r"\b(10|100|1000|24|60|3600)\b")
-                        .expect("valid regex"),
+                    pattern: &MAGIC_NUMBER_REGEX,
                     severity: IssueSeverity::Info,
                     description: "Magic number detected - use named constant".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Deep Nesting".to_string(),
-                    pattern: Regex::new(r"^\s{16,}").expect("valid regex"),
+                    pattern: &DEEP_NESTING_REGEX,
                     severity: IssueSeverity::Warning,
                     description: "Deep nesting detected - consider refactoring".to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Large Function".to_string(),
-                    pattern: Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]{500,}")
-                        .expect("valid regex"),
+                    pattern: &LARGE_FUNCTION_REGEX,
                     severity: IssueSeverity::Warning,
                     description: "Large function detected - consider splitting".to_string(),
                     language: "all".to_string(),

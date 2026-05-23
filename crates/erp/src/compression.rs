@@ -473,3 +473,242 @@ struct GroupCompression {
     residual: ResidualRepresentation,
     reconstructed_weights: Array2<f32>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::NeuronSignature;
+
+    fn cfg() -> ERPConfig {
+        ERPConfig::default()
+    }
+
+    fn group(
+        neurons: Vec<usize>,
+        sigs: &[NeuronSignature],
+    ) -> ResonanceGroup {
+        let importance_scores: Vec<f32> = neurons
+            .iter()
+            .map(|&i| sigs[i].fisher_info + sigs[i].gradient_norm)
+            .collect();
+        ResonanceGroup {
+            neurons,
+            stability_variance: 0.0,
+            importance_scores,
+        }
+    }
+
+    fn sigs(n: usize) -> Vec<NeuronSignature> {
+        (0..n)
+            .map(|i| NeuronSignature {
+                neuron_id: i,
+                information_distribution: ndarray::Array1::from_vec(vec![0.25; 4]),
+                projection: ndarray::Array1::from_vec(vec![i as f32; 4]),
+                fisher_info: 1.0,
+                gradient_norm: 0.5,
+            })
+            .collect()
+    }
+
+    // ── SuperpositionCompressor ──
+
+    #[test]
+    fn test_new_conservative() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..cfg()
+        });
+        assert!(matches!(c.compression_method, CompressionMethod::WeightedSuperposition));
+    }
+
+    #[test]
+    fn test_new_balanced() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Balanced,
+            ..cfg()
+        });
+        assert!(matches!(c.compression_method, CompressionMethod::LowRankApproximation { rank: 16 }));
+    }
+
+    #[test]
+    fn test_new_aggressive() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Aggressive,
+            ..cfg()
+        });
+        assert!(matches!(c.compression_method, CompressionMethod::SparseResidual { sparsity: 0.1 }));
+    }
+
+    #[test]
+    fn test_compress_weights_empty_groups() {
+        let c = SuperpositionCompressor::new(cfg());
+        let weights = vec![Array2::from_shape_vec((3, 4), vec![0.5; 12]).unwrap()];
+        let groups = vec![];
+        let result = c.compress_weights(&weights, &groups).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].resonance_representations.len(), 0);
+    }
+
+    #[test]
+    fn test_compress_weights_with_group() {
+        let c = SuperpositionCompressor::new(cfg());
+        let weights = vec![Array2::from_shape_vec((3, 4), vec![0.5; 12]).unwrap()];
+        let s = sigs(3);
+        let groups = vec![group(vec![0, 1], &s)];
+        let result = c.compress_weights(&weights, &groups).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_compress_weights_conservative() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..cfg()
+        });
+        let weights = vec![Array2::from_shape_vec((4, 2), vec![1.0; 8]).unwrap()];
+        let s = sigs(4);
+        let groups = vec![group(vec![0, 1], &s)];
+        let result = c.compress_weights(&weights, &groups).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_compress_weights_aggressive() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Aggressive,
+            ..cfg()
+        });
+        let weights = vec![Array2::from_shape_vec((4, 2), vec![1.0; 8]).unwrap()];
+        let s = sigs(4);
+        let groups = vec![group(vec![0, 1], &s)];
+        let result = c.compress_weights(&weights, &groups).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_compress_weights_multiple_layers() {
+        let c = SuperpositionCompressor::new(cfg());
+        let weights = vec![
+            Array2::from_shape_vec((3, 4), vec![0.5; 12]).unwrap(),
+            Array2::from_shape_vec((3, 4), vec![0.5; 12]).unwrap(),
+        ];
+        let s = sigs(6);
+        let groups = vec![group(vec![0, 1], &s)];
+        let result = c.compress_weights(&weights, &groups).unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    // ── Private methods ──
+
+    #[test]
+    fn test_compute_adaptive_importance_coefficients() {
+        let c = SuperpositionCompressor::new(cfg());
+        let scores = vec![2.0, 1.0, 0.5];
+        let coeffs = c.compute_adaptive_importance_coefficients(&scores);
+        assert_eq!(coeffs.len(), 3);
+        assert!((coeffs.sum() - 1.0).abs() < 1e-5);
+        assert!(coeffs[0] > coeffs[1]);
+    }
+
+    #[test]
+    fn test_compute_adaptive_importance_coefficients_uniform() {
+        let c = SuperpositionCompressor::new(cfg());
+        let scores = vec![1.0, 1.0, 1.0];
+        let coeffs = c.compute_adaptive_importance_coefficients(&scores);
+        assert_eq!(coeffs.len(), 3);
+        assert!((coeffs.sum() - 1.0).abs() < 1e-5);
+        assert!((coeffs[0] - coeffs[1]).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_superposed_weights() {
+        let c = SuperpositionCompressor::new(cfg());
+        let w = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let coeffs = Array1::from_vec(vec![0.4, 0.6]);
+        let superposed = c.compute_superposed_weights(&w, &coeffs);
+        assert_eq!(superposed.shape(), &[1, 3]);
+    }
+
+    #[test]
+    fn test_apply_energy_stability() {
+        let c = SuperpositionCompressor::new(cfg());
+        let mut compressed = Array2::from_shape_vec((2, 2), vec![0.5; 4]).unwrap();
+        let original = Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap();
+        c.apply_energy_stability(&mut compressed, &original).unwrap();
+        let original_energy: f32 = original.iter().map(|x| x * x).sum();
+        let compressed_energy: f32 = compressed.iter().map(|x| x * x).sum();
+        assert!((original_energy - compressed_energy).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_compression_ratio_identical() {
+        let c = SuperpositionCompressor::new(cfg());
+        let a = Array2::from_shape_vec((4, 4), vec![1.0; 16]).unwrap();
+        let ratio = c.compute_compression_ratio(&a, &a);
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn test_compute_compression_ratio_zero_params() {
+        let c = SuperpositionCompressor::new(cfg());
+        let a = Array2::<f32>::zeros((0, 0));
+        let ratio = c.compute_compression_ratio(&a, &a);
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn test_is_neuron_in_layer() {
+        let c = SuperpositionCompressor::new(cfg());
+        let mut map = HashMap::new();
+        map.insert((0, 0), 0);
+        map.insert((0, 1), 1);
+        assert!(c.is_neuron_in_layer(0, 0, &map, 3));
+        assert!(!c.is_neuron_in_layer(2, 0, &map, 3));
+    }
+
+    #[test]
+    fn test_get_layer_neuron_index() {
+        let c = SuperpositionCompressor::new(cfg());
+        let mut map = HashMap::new();
+        map.insert((0, 0), 0);
+        map.insert((0, 1), 1);
+        assert_eq!(c.get_layer_neuron_index(0, 0, &map, 3), Some(0));
+        assert_eq!(c.get_layer_neuron_index(2, 0, &map, 3), None);
+    }
+
+    #[test]
+    fn test_compute_residual_weighted_superposition() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..cfg()
+        });
+        let w = Array2::from_shape_vec((2, 2), vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let sp = Array2::from_shape_vec((1, 2), vec![2.0, 3.0]).unwrap();
+        let coeffs = Array1::from_vec(vec![0.5, 0.5]);
+        let residual = c.compute_residual(&w, &sp, &coeffs);
+        assert!(matches!(residual, ResidualRepresentation::FullResidual(_)));
+    }
+
+    #[test]
+    fn test_compress_resonance_group_single_neuron() {
+        let c = SuperpositionCompressor::new(cfg());
+        let w = Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0]).unwrap();
+        let result = c.compress_resonance_group(&w, &[0], &[1.0]).unwrap();
+        assert_eq!(result.reconstructed_weights.shape(), &[1, 3]);
+    }
+
+    #[test]
+    fn test_reconstruct_group_weights() {
+        let c = SuperpositionCompressor::new(ERPConfig {
+            compression_mode: crate::CompressionMode::Conservative,
+            ..cfg()
+        });
+        let sp = Array2::from_shape_vec((1, 2), vec![1.0, 2.0]).unwrap();
+        let residual = ResidualRepresentation::FullResidual(
+            Array2::from_shape_vec((2, 2), vec![0.1, 0.2, 0.3, 0.4]).unwrap(),
+        );
+        let coeffs = Array1::from_vec(vec![0.5, 0.5]);
+        let reconstructed = c.reconstruct_group_weights(&sp, &residual, &coeffs);
+        assert_eq!(reconstructed.shape(), &[2, 2]);
+    }
+}

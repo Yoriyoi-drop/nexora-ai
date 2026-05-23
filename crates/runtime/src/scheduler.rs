@@ -128,7 +128,15 @@ impl RequestScheduler {
         let request_uuid = request
             .request_id
             .as_ref()
-            .and_then(|s| Uuid::parse_str(s).ok())
+            .and_then(|s| {
+                match Uuid::parse_str(s) {
+                    Ok(uuid) => Some(uuid),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                        None
+                    }
+                }
+            })
             .unwrap_or_else(Uuid::new_v4);
 
         let priority = self.calculate_priority(&request);
@@ -222,7 +230,7 @@ impl RequestScheduler {
             let mut active = self.active_requests.write().await;
             active
                 .remove(&request_id)
-                .map(|info| (Utc::now() - info.started_at).num_milliseconds() as u64)
+                .map(|info| (Utc::now() - info.started_at).num_milliseconds().max(0) as u64)
                 .unwrap_or_else(|| {
                     warn!("Request {} not found in active requests", request_id);
                     0
@@ -266,7 +274,15 @@ impl RequestScheduler {
                 req.request
                     .request_id
                     .as_ref()
-                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .and_then(|s| {
+                        match Uuid::parse_str(s) {
+                            Ok(uuid) => Some(uuid),
+                            Err(e) => {
+                                tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                                None
+                            }
+                        }
+                    })
                     .map(|uuid| uuid == request_id)
                     .unwrap_or(false)
             }) {
@@ -379,7 +395,15 @@ impl RequestScheduler {
                     .request
                     .request_id
                     .as_ref()
-                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .and_then(|s| {
+                        match Uuid::parse_str(s) {
+                            Ok(uuid) => Some(uuid),
+                            Err(e) => {
+                                tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                                None
+                            }
+                        }
+                    })
                     .unwrap_or_else(Uuid::new_v4),
             )
             .await?;

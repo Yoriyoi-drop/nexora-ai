@@ -391,7 +391,8 @@ struct TextTransformerLayer {
 
 impl TextTransformerLayer {
     fn new(hidden_dim: usize) -> HLDVAResult<Self> {
-        let self_attention = MultiHeadAttention::new(hidden_dim, hidden_dim / 64)?;
+        let num_heads = (hidden_dim / 64).max(1);
+        let self_attention = MultiHeadAttention::new(hidden_dim, num_heads)?;
         let feed_forward = FeedForward::new(hidden_dim)?;
 
         Ok(Self {
@@ -463,7 +464,8 @@ struct VisionTransformerLayer {
 
 impl VisionTransformerLayer {
     fn new(hidden_dim: usize) -> HLDVAResult<Self> {
-        let self_attention = MultiHeadAttention::new(hidden_dim, hidden_dim / 64)?;
+        let num_heads = (hidden_dim / 64).max(1);
+        let self_attention = MultiHeadAttention::new(hidden_dim, num_heads)?;
         let feed_forward = FeedForward::new(hidden_dim)?;
 
         Ok(Self {

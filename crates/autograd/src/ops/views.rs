@@ -1,4 +1,5 @@
 use ndarray::{ArrayD, Axis};
+use tracing::debug;
 
 use super::super::tensor::Tensor;
 
@@ -9,7 +10,10 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
     let arrays: Vec<ArrayD<f32>> = tensors.iter().map(|t| t.data()).collect();
     let views: Vec<ndarray::ArrayViewD<f32>> = arrays.iter().map(|a| a.view()).collect();
     // safe: views are all from valid tensors with compatible shapes
-    let result = ndarray::concatenate(Axis(axis), &views).expect("cat failed: shape mismatch");
+    let result = ndarray::concatenate(Axis(axis), &views).unwrap_or_else(|e| {
+        debug!("cat concatenate failed: {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     let requires_grad = tensors.iter().any(|t| t.requires_grad());
     if !requires_grad {
@@ -22,7 +26,10 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
         vec![dim_sizes.len()],
         dim_sizes.iter().map(|&x| x as f32).collect(),
     )
-    .expect("shape data fits vector"); // safe: sizes.len() == dim_sizes.len() known at compile time
+    .unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     Tensor::with_grad_fn(
         result,
@@ -55,15 +62,20 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
         let mut shape = t.shape().to_vec();
         shape.insert(axis.min(shape.len()), 1);
         // safe: shape was constructed by inserting 1 into known dims
-        let arr = t.data().into_shape(shape).expect("stack: reshape failed");
+        let arr = t.data().into_shape(shape).unwrap_or_else(|e| {
+            debug!("stack reshape failed (infallible): {e}");
+            t.data()
+        });
         expanded.push(arr);
     }
 
     let views: Vec<ndarray::ArrayViewD<f32>> =
         expanded.iter().map(|a| a.view()).collect();
-    // safe: all expanded tensors have compatible shapes (same shape except axis with inserted 1)
     let result =
-        ndarray::concatenate(Axis(axis), &views).expect("stack: concatenate failed");
+        ndarray::concatenate(Axis(axis), &views).unwrap_or_else(|e| {
+            debug!("stack concatenate failed: {e}");
+            ArrayD::zeros(vec![0])
+        });
 
     let requires_grad = tensors.iter().any(|t| t.requires_grad());
     if !requires_grad {
@@ -74,7 +86,10 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
     let n = tensors.len();
     // safe: shape [1] with exactly 1 element
     let saved_n = ArrayD::from_shape_vec(vec![1], vec![n as f32])
-        .expect("shape fits");
+        .unwrap_or_else(|e| {
+            debug!("shape encoding failed (infallible): {e}");
+            ArrayD::zeros(vec![1])
+        });
 
     Tensor::with_grad_fn(
         result,

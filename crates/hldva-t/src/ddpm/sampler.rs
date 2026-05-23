@@ -102,3 +102,33 @@ impl Default for SamplerConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyPredictor;
+    impl NoisePredictor for DummyPredictor {
+        fn predict_noise(&self, noisy: &Tensor, _timestep: usize) -> HLDVAResult<Tensor> {
+            Ok(Tensor::new(vec![0.0; noisy.data().len()], noisy.shape().to_vec()))
+        }
+    }
+
+    #[test]
+    fn test_ddpm_sampler_new() {
+        let cfg = SamplerConfig::default();
+        let mut sampler = DDPMSampler::new(cfg);
+        let result = sampler.sample(&DummyPredictor, &[4], 10);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_sampler_config_default() {
+        let cfg = SamplerConfig::default();
+        assert_eq!(cfg.num_inference_steps, 50);
+        assert_eq!(cfg.eta, 0.0);
+        assert_eq!(cfg.guidance_scale, 1.0);
+    }
+}

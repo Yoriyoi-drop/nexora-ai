@@ -516,7 +516,13 @@ impl MultiModelCoordinator {
             }
         }
 
-        let ordered: Vec<ModelResult> = (0..total).map(|i| results.remove(&i).unwrap()).collect();
+        let ordered: Vec<ModelResult> = (0..total)
+            .map(|i| {
+                results.remove(&i).ok_or_else(|| {
+                    CoreError::TaskExecution(format!("Missing result for model index {}", i))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ordered)
     }
 

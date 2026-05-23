@@ -1623,7 +1623,7 @@ mod tests {
             assert_eq!(cw.shape, (16, 12));
             assert!(cw.rank <= 16);
             assert!(cw.relative_error >= 0.0);
-            println!("  Rank: {}, Error: {:.4}, Sparsity: {:.2}",
+            tracing::debug!("  Rank: {}, Error: {:.4}, Sparsity: {:.2}",
                 cw.rank, cw.relative_error, cw.sparsity);
         }
     }
@@ -1669,7 +1669,7 @@ mod tests {
 
         let model = compressor.compress_model(&weights, names, &fuse_pairs);
         if let Ok(m) = model {
-            println!("  Total ratio: {:.2}×, Avg error: {:.4}, Sparsity: {:.2}",
+            tracing::debug!("  Total ratio: {:.2}×, Avg error: {:.4}, Sparsity: {:.2}",
                 m.report.total_ratio, m.report.mean_relative_error, m.report.mean_sparsity);
         }
     }

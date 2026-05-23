@@ -35,3 +35,16 @@ impl Default for SchedulerConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scheduler_config_default() {
+        let c = SchedulerConfig::default();
+        assert!(c.enable_checkpointing);
+        assert_eq!(c.checkpoint_frequency, 4);
+        assert_eq!(c.max_vram_mb, 4096.0);
+    }
+}

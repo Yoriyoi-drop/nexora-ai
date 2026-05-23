@@ -36,6 +36,7 @@ pub struct NxrCipherModel {
     base: nexora_shared::base_model::BaseNxrModel<CipherConfig, CipherMetrics, CipherState>,
     identity: CipherIdentity,
     architecture: CipherArchitecture,
+    #[allow(dead_code)]
     _agents: CipherAgents,
     capabilities: CipherCapabilities,
     components: FoundationComponents,

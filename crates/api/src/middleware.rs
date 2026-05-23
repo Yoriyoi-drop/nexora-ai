@@ -429,7 +429,7 @@ impl Middleware for RateLimitingMiddleware {
                     );
                     ctx.headers.insert(
                         "X-RateLimit-Remaining".to_string(),
-                        (self.default_limit.saturating_sub(count as u32)).to_string(),
+                        (self.default_limit.saturating_sub(u32::try_from(count).unwrap_or(u32::MAX))).to_string(),
                     );
                     ctx.headers.insert(
                         "X-RateLimit-Reset".to_string(),

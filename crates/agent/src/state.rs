@@ -470,7 +470,7 @@ impl AgentState {
         {
             let mut session_states = self.session_states.write().await;
             session_states.retain(|_session_id, state| {
-                let idle_hours = (now - state.last_activity).num_hours() as u64;
+                let idle_hours = (now - state.last_activity).num_hours().max(0) as u64;
                 let should_keep =
                     idle_hours <= max_idle_hours || state.status == SessionStatus::Active;
 

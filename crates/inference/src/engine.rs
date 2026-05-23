@@ -604,7 +604,9 @@ impl InferenceEngine {
                 Ok(()) => {}
                 Err(panic) => {
                     error!("Batch {} processing panicked: {:?}", bid, panic);
-                    let _ = engine.scheduler.write().await.complete_batch_id(bid).await;
+                    if let Err(e) = engine.scheduler.write().await.complete_batch_id(bid).await {
+                        warn!("Failed to complete batch {} after panic: {}", bid, e);
+                    }
                 }
             }
         });
@@ -715,7 +717,10 @@ impl InferenceEngine {
 
 fn token_id_to_text_fallback(token_id: u32) -> String {
     if token_id < 256 {
-        char::from_u32(token_id).unwrap_or('?').to_string()
+        char::from_u32(token_id).map_or_else(
+            || format!("[{}]", token_id),
+            |c| c.to_string(),
+        )
     } else {
         format!("[{}]", token_id)
     }
@@ -805,7 +810,9 @@ impl InferenceEngineHandle {
         );
 
         if self.is_shutdown().await {
-            let _ = self.scheduler.write().await.complete_batch(&batch).await;
+            if let Err(e) = self.scheduler.write().await.complete_batch(&batch).await {
+                warn!("Failed to complete batch {} during shutdown: {}", batch.batch_id, e);
+            }
             return;
         }
 
@@ -914,7 +921,9 @@ impl InferenceEngineHandle {
 
         // Wait for all parallel tasks to complete
         for handle in handles {
-            let _ = handle.await;
+            if let Err(e) = handle.await {
+                error!("Parallel task in batch {} panicked: {:?}", batch_id, e);
+            }
         }
 
         if let Err(e) = self.scheduler.write().await.complete_batch_id(batch_id).await {

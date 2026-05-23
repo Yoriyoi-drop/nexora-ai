@@ -936,7 +936,17 @@ impl PlanningStrategy for DependencyBasedStrategy {
                     if let Some(dep_ids) = new_deps.as_array() {
                         let deps: Vec<Uuid> = dep_ids
                             .iter()
-                            .filter_map(|d| d.as_str().and_then(|s| Uuid::parse_str(s).ok()))
+                            .filter_map(|d| {
+                                d.as_str().and_then(|s| {
+                                    match Uuid::parse_str(s) {
+                                        Ok(uuid) => Some(uuid),
+                                        Err(e) => {
+                                            tracing::warn!("Failed to parse UUID '{}': {}", s, e);
+                                            None
+                                        }
+                                    }
+                                })
+                            })
                             .collect();
 
                         if let Some(step) = plan.steps.iter_mut().find(|s| s.step_id == step_id) {

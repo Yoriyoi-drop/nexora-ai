@@ -51,7 +51,7 @@ fn sample_token_gpu(logits: &Array1<f32>, temperature: f32, top_k: usize, top_p:
         Ok(g) => g,
         Err(_) => return fallback(),
     };
-    match ctx.gpu_sample(&gpu, temperature, top_k as u32, top_p, seed) {
+    match ctx.gpu_sample(&gpu, temperature, u32::try_from(top_k).unwrap_or(u32::MAX), top_p, seed) {
         Ok(result) => {
             let raw = result.to_cpu_raw_bytes();
             u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]])
@@ -68,7 +68,7 @@ pub fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32
                 best = i;
             }
         }
-        return best as u32;
+        return u32::try_from(best).unwrap_or(u32::MAX);
     }
     let scaled: Array1<f32> = logits.mapv(|v| v / temperature);
     let probs = softmax(&scaled);
@@ -1248,7 +1248,7 @@ impl CausalLM {
                     let slice = staging.slice(..);
                     let (tx, rx) = std::sync::mpsc::channel();
                     slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
-                    ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+                    ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(10)) });
                     rx.recv()
                         .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("readback channel closed".into()))?
                         .map_err(|e| nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}")))?;

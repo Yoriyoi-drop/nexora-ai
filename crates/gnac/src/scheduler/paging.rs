@@ -71,3 +71,29 @@ impl TensorPager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pager_new() {
+        let p = TensorPager::new(100.0, 4);
+        assert_eq!(p.max_vram_pages, 100 * 1_000_000 / (4 * 1024));
+    }
+
+    #[test]
+    fn test_access_new_tensor() {
+        let mut p = TensorPager::new(1000.0, 4);
+        p.access(42);
+        assert!(p.page_table.get(&42).unwrap().is_loaded);
+    }
+
+    #[test]
+    fn test_access_existing_tensor() {
+        let mut p = TensorPager::new(1000.0, 4);
+        p.access(42);
+        p.access(42);
+        assert!(p.page_table.get(&42).unwrap().is_loaded);
+    }
+}

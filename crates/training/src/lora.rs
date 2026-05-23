@@ -192,8 +192,8 @@ impl LoRAModel {
             let target = parts[1];
             let a_data = layer.lora_a.data();
             let b_data = layer.lora_b.data();
-            let a_2d = a_data.into_dimensionality::<ndarray::Ix2>().unwrap();
-            let b_2d = b_data.into_dimensionality::<ndarray::Ix2>().unwrap();
+            let a_2d = a_data.into_dimensionality::<ndarray::Ix2>().expect("lora_a must be 2D");
+            let b_2d = b_data.into_dimensionality::<ndarray::Ix2>().expect("lora_b must be 2D");
             let delta = b_2d.dot(&a_2d).mapv(|v| v * layer.scaling);
             match target {
                 "wq" => {

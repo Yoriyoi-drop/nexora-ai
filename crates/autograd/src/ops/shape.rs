@@ -11,25 +11,34 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
     let data = input.data();
     let new_len: usize = new_shape.iter().product();
     if data.len() != new_len {
-        panic!(
+        tracing::error!(
             "Reshape: total elements must match. Have {}, need {:?}",
             data.len(),
             new_shape
         );
+        return Tensor::new(ArrayD::zeros(new_shape.to_vec()));
     }
-    let result = data
-        .clone()
-        .into_shape(new_shape.to_vec())
-        .unwrap_or_else(|e| panic!("Reshape failed: {e}"));
+    let result = match data.clone().into_shape(new_shape.to_vec()) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Reshape failed: {e}");
+            return Tensor::new(ArrayD::zeros(new_shape.to_vec()));
+        }
+    };
     if !input.requires_grad() {
         return Tensor::new(result);
     }
     let orig_shape = data.shape().to_vec();
-    let shape_saved = ArrayD::from_shape_vec(
+    let shape_saved = match ArrayD::from_shape_vec(
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
-    )
-    .unwrap_or_else(|e| panic!("shape data fits vector: {e}"));
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("shape data fits vector: {e}");
+            return Tensor::new(result);
+        }
+    };
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
@@ -63,7 +72,8 @@ pub fn transpose(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let gpu_clone = gpu_result.clone();                            return Tensor::from_gpu_with_grad_fn(
+                        let gpu_clone = gpu_result.clone();
+                            return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![input.clone()],
                                 vec![],
@@ -99,15 +109,16 @@ pub fn transpose(input: &Tensor) -> Tensor {
     }
     let data = input.data();
     if data.ndim() != 2 {
-        panic!("Transpose: input must be 2D, got {}D", data.ndim());
+        tracing::error!("Transpose: input must be 2D, got {}D", data.ndim());
+        return Tensor::new(ArrayD::zeros(vec![0]));
     }
-    let result = data
-        .view()
-        .into_dimensionality::<ndarray::Ix2>()
-        .unwrap_or_else(|e| panic!("Transpose: must be 2D: {e}"))
-        .t()
-        .to_owned()
-        .into_dyn();
+    let result = match data.view().into_dimensionality::<ndarray::Ix2>() {
+        Ok(v) => v.t().to_owned().into_dyn(),
+        Err(e) => {
+            tracing::error!("Transpose: must be 2D: {e}");
+            return Tensor::new(ArrayD::zeros(vec![0]));
+        }
+    };
     if !input.requires_grad() {
         return Tensor::new(result);
     }

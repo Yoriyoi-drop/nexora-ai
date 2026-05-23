@@ -193,7 +193,10 @@ macro_rules! define_foundation_model {
             }
 
             fn get_or_init_model(&self) -> std::sync::MutexGuard<Option<CausalLM>> {
-                let mut guard = self.model.lock().unwrap_or_else(|e| e.into_inner());
+                let mut guard = self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!(target: stringify!($name), "mutex was poisoned, recovering");
+                    e.into_inner()
+                });
                 if guard.is_none() {
                     *guard = Some(CausalLM::new(self.model_config.clone()));
                 }
@@ -315,8 +318,11 @@ macro_rules! define_foundation_model {
             }
 
             async fn state(&self) -> Result<Self::State, NxrModelError> {
+                let guard = self.model.lock().map_err(|e| {
+                    NxrModelError::Internal(format!("mutex poisoned: {}", e))
+                })?;
                 Ok(serde_json::json!({
-                    "status": if self.model.lock().unwrap_or_else(|e| e.into_inner()).is_some() { "ready" } else { "uninitialized" },
+                    "status": if guard.is_some() { "ready" } else { "uninitialized" },
                     "model": stringify!($id),
                     "inferences": self.inference_count.load(Ordering::Relaxed),
                 }))
@@ -328,6 +334,13 @@ macro_rules! define_foundation_model {
             }
 
             async fn reset(&self) -> Result<(), NxrModelError> {
+                let mut guard = self.model.lock().map_err(|e| {
+                    NxrModelError::Internal(format!("mutex poisoned: {}", e))
+                })?;
+                *guard = None;
+                self.inference_count.store(0, Ordering::Relaxed);
+                self.total_generated.store(0, Ordering::Relaxed);
+                self.total_time_ms.store(0, Ordering::Relaxed);
                 Ok(())
             }
 

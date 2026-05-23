@@ -18,7 +18,7 @@ impl MathUtils {
         if numbers.is_empty() {
             None
         } else {
-            numbers.sort_by(|a, b| a.partial_cmp(b).expect("non-NaN float values"));
+            numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let len = numbers.len();
             if len % 2 == 0 {
                 Some((numbers[len / 2 - 1] + numbers[len / 2]) / 2.0)
@@ -48,7 +48,7 @@ impl MathUtils {
             .iter()
             .map(|(_, freq)| *freq)
             .max()
-            .expect("frequency is non-empty");
+            .expect("frequency map is non-empty (input was already validated)");
         let modes: Vec<f64> = frequency
             .into_iter()
             .filter(|(_, freq)| *freq == max_freq)
@@ -85,7 +85,7 @@ impl MathUtils {
         if numbers.is_empty() || percentile < 0.0 || percentile > 100.0 {
             None
         } else {
-            numbers.sort_by(|a, b| a.partial_cmp(b).expect("non-NaN float values"));
+            numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let index = (percentile / 100.0 * (numbers.len() - 1) as f64) as usize;
             Some(numbers[index])
         }
@@ -338,7 +338,7 @@ impl MathUtils {
             None
         } else {
             let mut sorted = numbers.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).expect("non-NaN float values"));
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             let q1 = Self::percentile(&mut sorted, 25.0)?;
             let q3 = Self::percentile(&mut sorted, 75.0)?;

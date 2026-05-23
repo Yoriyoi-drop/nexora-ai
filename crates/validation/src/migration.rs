@@ -92,8 +92,24 @@ impl ConfigMigrator {
     
     /// Check if migration should be applied
     fn should_migrate(&self, current: &str, target: &str) -> Result<bool> {
-        let current_parts: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
-        let target_parts: Vec<u32> = target.split('.').filter_map(|s| s.parse().ok()).collect();
+        let current_parts: Vec<u32> = current.split('.').filter_map(|s| {
+            match s.parse() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!("Failed to parse version component '{}': {}", s, e);
+                    None
+                }
+            }
+        }).collect();
+        let target_parts: Vec<u32> = target.split('.').filter_map(|s| {
+            match s.parse() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!("Failed to parse version component '{}': {}", s, e);
+                    None
+                }
+            }
+        }).collect();
         
         if current_parts.len() != 3 || target_parts.len() != 3 {
             return Ok(false);

@@ -72,9 +72,9 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
         ));
     }
 
-    let header_len = u64::from_le_bytes([
+    let header_len = usize::try_from(u64::from_le_bytes([
         raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
-    ]) as usize;
+    ])).unwrap_or(usize::MAX);
 
     let header_end = 8 + header_len;
     if header_end > raw.len() {

@@ -399,6 +399,7 @@ impl Cli {
                 info!("Output written to: {:?}", path);
             }
             None => {
+                // Intentional CLI stdout output for user-facing command results
                 println!("{}", content);
             }
         }
@@ -1005,9 +1006,11 @@ impl Cli {
                 });
                 let output_str = serde_json::to_string_pretty(&json_output)
                     .map_err(|e| NexoraError::serialization(e))?;
+                // Intentional CLI stdout output for user-facing command results
                 println!("{}", output_str);
             }
             "text" => {
+                // Intentional CLI stdout output for user-facing command results
                 println!("{}", info_text);
             }
             _ => {
@@ -1028,6 +1031,7 @@ impl Cli {
             .await
             .map_err(|e| NexoraError::system(format!("Health check failed: {}", e)))?;
 
+        // Intentional CLI stdout output for user-facing command results
         println!(
             "System Health: {}",
             if health.healthy {
@@ -1064,6 +1068,7 @@ impl Cli {
                 if self.config.exists() {
                     let content = std::fs::read_to_string(&self.config)
                         .map_err(|e| NexoraError::Io { source: e })?;
+                    // Intentional CLI stdout output for user-facing command results
                     println!("{}", content);
                 } else {
                     info!("No configuration file found at {:?}", self.config);
@@ -1075,6 +1080,7 @@ impl Cli {
                         NexoraError::config(format!("Failed to load config for validation: {}", e))
                     })?;
                     config.validate()?;
+                    // Intentional CLI stdout output for user-facing command results
                     println!("Configuration is valid");
                 } else {
                     info!("No configuration file found at {:?}", self.config);
@@ -1179,6 +1185,7 @@ impl Cli {
                 let system_info = nexora.get_system_info().await.map_err(|e| {
                     NexoraError::system(format!("Failed to get system info: {}", e))
                 })?;
+                // Intentional CLI stdout output for user-facing command results
                 println!("Memory Statistics:");
                 println!(
                     "  Total: {} MB",
@@ -1211,12 +1218,14 @@ impl Cli {
                         "Memory clear requested. Current usage: {:.1}%",
                         sys_info.memory_usage
                     );
+                    // Intentional CLI stdout output for user-facing command results
                     println!(
                         "Memory cleared. Freed {} MB.",
                         sys_info.memory_stats.used_memory / (1024 * 1024)
                     );
                 } else {
                     info!("Memory layer '{}' clear requested.", layer);
+                    // Intentional CLI stdout output for user-facing command results
                     println!("Layer '{}' memory cleared.", layer);
                 }
             }
@@ -1251,6 +1260,7 @@ impl Cli {
                     format,
                     content.len()
                 );
+                // Intentional CLI stdout output for user-facing command results
                 println!("Memory imported: {} entries restored.", content.len());
             }
         }

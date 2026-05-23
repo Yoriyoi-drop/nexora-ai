@@ -3,16 +3,34 @@
 //! Implements security verification for code vulnerabilities and threats.
 
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 
 use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
 
+static SQL_INJECTION_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)execute\s*\(").expect("valid SQL injection regex"));
+static COMMAND_INJECTION_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"exec\s*\(").expect("valid command injection regex"));
+static HARDCODED_PASSWORD_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)password\s*=").expect("valid password assignment regex"));
+static BUFFER_OVERFLOW_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(strcpy|strcat|gets|sprintf)\s*\(").expect("valid unsafe string op regex"));
+static XSS_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(innerHTML|document\.write|eval\s*\()\s*\+").expect("valid XSS regex"));
+static PATH_TRAVERSAL_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(\.\.\/|\.\.\\|\/etc\/passwd|\/etc\/shadow)").expect("valid path traversal regex"));
+static INSECURE_RANDOM_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(rand|random|Math\.random)\s*\(").expect("valid insecure random regex"));
+static WEAK_CRYPTO_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(md5|sha1|des|rc4)\s*\(").expect("valid weak crypto regex"));
+
 /// Security vulnerability pattern
 #[derive(Debug, Clone)]
 struct VulnerabilityPattern {
     name: String,
-    pattern: Regex,
+    pattern: &'static Lazy<Regex>,
     severity: IssueSeverity,
     description: String,
     language: String,
@@ -29,60 +47,56 @@ impl SecurityVerifier {
             vulnerability_patterns: vec![
                 VulnerabilityPattern {
                     name: "SQL Injection".to_string(),
-                    pattern: Regex::new(r"(?i)execute\s*\(").expect("valid regex"),
+                    pattern: &SQL_INJECTION_REGEX,
                     severity: IssueSeverity::Error,
                     description: "Potential SQL injection vulnerability".to_string(),
                     language: "sql".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Command Injection".to_string(),
-                    pattern: Regex::new(r"exec\s*\(").expect("valid regex"),
+                    pattern: &COMMAND_INJECTION_REGEX,
                     severity: IssueSeverity::Error,
                     description: "Potential command injection vulnerability".to_string(),
                     language: "php".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Hardcoded Password".to_string(),
-                    pattern: Regex::new(r"(?i)password\s*=").expect("valid regex"),
+                    pattern: &HARDCODED_PASSWORD_REGEX,
                     severity: IssueSeverity::Error,
                     description: "Hardcoded password detected".to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Buffer Overflow".to_string(),
-                    pattern: Regex::new(r"(?i)(strcpy|strcat|gets|sprintf)\s*\(")
-                        .expect("valid regex"),
+                    pattern: &BUFFER_OVERFLOW_REGEX,
                     severity: IssueSeverity::Warning,
                     description: "Potentially unsafe string operations".to_string(),
                     language: "c".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "XSS".to_string(),
-                    pattern: Regex::new(r"(?i)(innerHTML|document\.write|eval\s*\()\s*\+")
-                        .expect("valid regex"),
+                    pattern: &XSS_REGEX,
                     severity: IssueSeverity::Error,
                     description: "Potential XSS vulnerability".to_string(),
                     language: "javascript".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Path Traversal".to_string(),
-                    pattern: Regex::new(r"(?i)(\.\.\/|\.\.\\|\/etc\/passwd|\/etc\/shadow)")
-                        .expect("valid regex"),
+                    pattern: &PATH_TRAVERSAL_REGEX,
                     severity: IssueSeverity::Error,
                     description: "Potential path traversal vulnerability".to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Insecure Random".to_string(),
-                    pattern: Regex::new(r"(?i)(rand|random|Math\.random)\s*\(")
-                        .expect("valid regex"),
+                    pattern: &INSECURE_RANDOM_REGEX,
                     severity: IssueSeverity::Warning,
                     description: "Potentially insecure random number generation".to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Weak Crypto".to_string(),
-                    pattern: Regex::new(r"(?i)(md5|sha1|des|rc4)\s*\(").expect("valid regex"),
+                    pattern: &WEAK_CRYPTO_REGEX,
                     severity: IssueSeverity::Warning,
                     description: "Weak cryptographic algorithm detected".to_string(),
                     language: "all".to_string(),

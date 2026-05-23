@@ -74,3 +74,21 @@ impl NeuralLens for GradientFailureLens {
         "Gradient Failure Lens"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gradient_lens_name() {
+        assert_eq!(GradientFailureLens.name(), "Gradient Failure Lens");
+    }
+
+    #[test]
+    fn test_gradient_lens_empty() {
+        let g = NeuralGraph::new("empty");
+        let obs = GradientFailureLens.observe(&g);
+        assert_eq!(obs.severity, ObservationSeverity::Info);
+        assert_eq!(obs.summary, "All gradients stable.");
+    }
+}

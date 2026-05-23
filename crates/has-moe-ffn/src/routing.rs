@@ -459,3 +459,237 @@ impl Router {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    fn small_router() -> Router {
+        Router::new(4, 4, 2)
+    }
+
+    #[test]
+    fn test_new_router_creates_correct_dimensions() {
+        let r = Router::new(8, 6, 3);
+        assert_eq!(r.router_weights.len(), 6);
+        assert_eq!(r.router_weights[0].len(), 8);
+        assert_eq!(r.expert_capacities.len(), 6);
+    }
+
+    #[test]
+    fn test_forward_returns_softmax_distribution() {
+        let r = small_router();
+        let input = Array2::ones((3, 4));
+        let weights = r.forward(&input);
+        assert_eq!(weights.dim(), (3, 4));
+        for i in 0..3 {
+            let sum: f32 = (0..4).map(|j| weights[[i, j]]).sum();
+            assert!((sum - 1.0).abs() < 1e-5, "softmax sum = {}", sum);
+        }
+    }
+
+    #[test]
+    fn test_forward_weights_are_positive() {
+        let r = small_router();
+        let input = Array2::ones((2, 4));
+        let weights = r.forward(&input);
+        for i in 0..2 {
+            for j in 0..4 {
+                assert!(weights[[i, j]] >= 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_forward_different_inputs_different_weights() {
+        let r = small_router();
+        let input_a = Array2::from_shape_vec((2, 4), vec![1.0; 8]).unwrap();
+        let input_b = Array2::from_shape_vec((2, 4), vec![0.1; 8]).unwrap();
+        let wa = r.forward(&input_a);
+        let wb = r.forward(&input_b);
+        let mut diff = 0.0;
+        for i in 0..2 {
+            for j in 0..4 {
+                diff += (wa[[i, j]] - wb[[i, j]]).abs();
+            }
+        }
+        assert!(diff > 0.0);
+    }
+
+    #[test]
+    fn test_route_single_returns_top_k() {
+        let r = small_router();
+        let input = Array2::from_shape_vec((1, 4), vec![0.5, 0.3, 0.8, 0.2]).unwrap();
+        let row = input.row(0);
+        let result = r.route_single(&row.to_owned());
+        assert!(result.is_ok());
+        let experts = result.unwrap();
+        assert_eq!(experts.len(), 2);
+        assert!(experts[0] < 4);
+        assert!(experts[1] < 4);
+        assert_ne!(experts[0], experts[1]);
+    }
+
+    #[test]
+    fn test_route_with_capped_routing() {
+        let config = RouterConfig {
+            hidden_size: 4,
+            num_experts: 4,
+            top_k: 2,
+            capacity_factor: 1.25,
+            use_capped_routing: true,
+            use_load_balancing_loss: true,
+            ..Default::default()
+        };
+        let mut r = Router::with_config(config);
+        let input = Array2::from_shape_vec((8, 4), (0..32).map(|v| v as f32 / 32.0).collect()).unwrap();
+        let result = r.route(&input);
+        assert!(result.is_ok());
+        let routes = result.unwrap();
+        assert_eq!(routes.len(), 8);
+        for route in &routes {
+            assert!(route.len() <= 2);
+        }
+    }
+
+    #[test]
+    fn test_route_without_capped_routing() {
+        let config = RouterConfig {
+            hidden_size: 4,
+            num_experts: 4,
+            top_k: 2,
+            use_capped_routing: false,
+            use_load_balancing_loss: false,
+            ..Default::default()
+        };
+        let mut r = Router::with_config(config);
+        let input = Array2::ones((4, 4));
+        let result = r.route(&input);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_compute_load_balancing_loss_no_routes() {
+        let r = small_router();
+        let loss = r.compute_load_balancing_loss(&[], 0);
+        assert_eq!(loss, 0.0);
+    }
+
+    #[test]
+    fn test_compute_load_balancing_loss_uniform() {
+        let config = RouterConfig {
+            hidden_size: 4,
+            num_experts: 4,
+            top_k: 2,
+            use_load_balancing_loss: true,
+            ..Default::default()
+        };
+        let r = Router::with_config(config);
+        let routing_weights = vec![
+            vec![(0, 0.25), (1, 0.25)],
+            vec![(2, 0.25), (3, 0.25)],
+        ];
+        let loss = r.compute_load_balancing_loss(&routing_weights, 2);
+        assert!(loss > 0.0);
+    }
+
+    #[test]
+    fn test_route_single_with_zloss() {
+        let r = small_router();
+        let input = Array2::from_shape_vec((1, 4), vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let row = input.row(0);
+        let result = r.route_single_with_zloss(&row.to_owned());
+        assert!(result.is_ok());
+        let (_experts, weights, z_loss) = result.unwrap();
+        assert_eq!(weights.len(), 4);
+        assert!(z_loss >= 0.0);
+        let sum: f32 = weights.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_get_routing_stats_empty() {
+        let r = small_router();
+        let stats = r.get_routing_stats();
+        assert_eq!(stats.total_routes, 0);
+        assert_eq!(stats.total_tokens, 0);
+        assert_eq!(stats.load_balance_score, 1.0);
+    }
+
+    #[test]
+    fn test_get_routing_stats_detailed_after_route() {
+        let config = RouterConfig {
+            hidden_size: 4,
+            num_experts: 4,
+            top_k: 2,
+            use_capped_routing: false,
+            use_load_balancing_loss: false,
+            ..Default::default()
+        };
+        let mut r = Router::with_config(config);
+        let input = Array2::ones((4, 4));
+        let _ = r.route(&input);
+        let stats = r.get_routing_stats_detailed(0.5, 0.1);
+        assert!(stats.total_routes > 0);
+        assert_eq!(stats.z_loss, 0.5);
+        assert_eq!(stats.load_balancing_loss, 0.1);
+    }
+
+    #[test]
+    fn test_auxiliary_loss_tracks_last_forward() {
+        let config = RouterConfig {
+            hidden_size: 4,
+            num_experts: 4,
+            top_k: 2,
+            use_capped_routing: false,
+            use_load_balancing_loss: true,
+            ..Default::default()
+        };
+        let mut r = Router::with_config(config);
+        let input = Array2::ones((4, 4));
+        let _ = r.route(&input);
+        let loss = r.auxiliary_loss();
+        assert!(loss >= 0.0);
+    }
+
+    #[test]
+    fn test_softmax_empty_input() {
+        let r = small_router();
+        let result = r.softmax(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_softmax_single_element() {
+        let r = small_router();
+        let result = r.softmax(&[5.0]);
+        assert!((result[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softmax_numerical_stability() {
+        let r = small_router();
+        let result = r.softmax(&[1000.0, 1000.0, 1000.0]);
+        for v in &result {
+            assert!((v - 1.0 / 3.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_compute_gating_weight_differs_by_expert() {
+        let r = small_router();
+        let input = vec![1.0, 0.0, 0.0, 0.0];
+        let w0 = r.compute_gating_weight(&input, 0);
+        let w1 = r.compute_gating_weight(&input, 1);
+        assert!((w0 - w1).abs() > 1e-10);
+    }
+
+    #[test]
+    fn test_routing_stats_new() {
+        let stats = RoutingStats::new(6);
+        assert_eq!(stats.expert_utilization.len(), 6);
+        assert_eq!(stats.load_balance_score, 1.0);
+        assert_eq!(stats.total_routes, 0);
+    }
+}

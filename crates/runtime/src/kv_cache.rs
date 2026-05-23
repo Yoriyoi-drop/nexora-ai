@@ -375,7 +375,7 @@ impl KVCache {
 
         // Set expiration if TTL is configured
         if let Some(ttl_seconds) = self.config.ttl_seconds {
-            new_entry.expires_at = Some(Utc::now() + chrono::Duration::seconds(ttl_seconds as i64));
+            new_entry.expires_at = Some(Utc::now() + chrono::Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(i64::MAX)));
         }
 
         shard.entries.insert(key.clone(), new_entry.clone());
@@ -576,7 +576,8 @@ impl KVCache {
                 // Remove random entry
                 let keys: Vec<String> = shard.entries.keys().cloned().collect();
                 if !keys.is_empty() {
-                    let index = (rand::random::<usize>() % keys.len()) as usize;
+                    let len = keys.len().max(1);
+                    let index = (rand::random::<usize>() % len) as usize;
                     Some(keys[index].clone())
                 } else {
                     None

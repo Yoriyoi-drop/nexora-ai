@@ -18,11 +18,13 @@ pub trait ModelForward: Send + Sync {
     /// Run the model forward for a single token, updating the KV cache.
     fn forward(&self, input_ids: &[u32], kv_cache: &mut dyn KVCacheProvider) -> Array1<f32>;
 
-    /// Run batched forward: process multiple tokens with per-sequence KV caches.
+    /// Run "batched" forward: process multiple tokens with per-sequence KV caches.
     ///
-    /// The default implementation falls back to per-sequence forward calls via
-    /// [`forward`](ModelForward::forward).  Downstream implementations should
-    /// override this with a true batched forward path for better throughput.
+    /// ⚠️  CURRENT LIMITATION — NOT TRUE BATCHED INFERENCE:
+    /// The default implementation processes each input **sequentially** in a
+    /// for-loop calling [`forward`] per element. Throughput scales as O(N),
+    /// NOT O(1). Downstream implementations backed by GPU/TPU should override
+    /// this with a real batched forward path for better throughput.
     fn forward_batched(
         &self,
         input_ids: &[u32],

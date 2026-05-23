@@ -31,14 +31,17 @@ pub struct PostGenerationVerifier {
 impl PostGenerationVerifier {
     pub fn new(config: PostGenConfig) -> Self {
         Self {
-            citation_pattern: Regex::new(r"(?i)\[(\d+|citation|sumber|source)\]").unwrap(),
-            number_pattern: Regex::new(r"\b\d{2,}(\.\d+)?%?\b").unwrap(),
+            citation_pattern: Regex::new(r"(?i)\[(\d+|citation|sumber|source)\]")
+                .expect("valid citation pattern regex"),
+            number_pattern: Regex::new(r"\b\d{2,}(\.\d+)?%?\b")
+                .expect("valid large number pattern regex"),
             contradiction_markers: vec![
                 Regex::new(
                     r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b",
                 )
-                .unwrap(),
-                Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b").unwrap(),
+                .expect("valid contradiction marker regex"),
+                Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b")
+                    .expect("valid contradiction keyword regex"),
             ],
             config,
         }
@@ -183,5 +186,144 @@ impl PostGenerationVerifier {
         }
 
         consistency
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn verifier() -> PostGenerationVerifier {
+        PostGenerationVerifier::new(PostGenConfig::default())
+    }
+
+    #[tokio::test]
+    async fn test_verify_empty_text() {
+        let v = verifier();
+        let result = v.verify("", None).await.unwrap();
+        assert_eq!(result.total_claims, 0);
+        assert_eq!(result.internal_consistency, 1.0);
+        assert_eq!(result.source_grounding, 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_verify_short_sentences_ignored() {
+        let v = verifier();
+        let result = v.verify("Hi. OK. Bye.", None).await.unwrap();
+        assert_eq!(result.total_claims, 0);
+    }
+
+    #[tokio::test]
+    async fn test_verify_with_claims() {
+        let v = verifier();
+        let text = "Paris is the capital of France. It has a population of 2,161,000 people.";
+        let result = v.verify(text, None).await.unwrap();
+        assert_eq!(result.total_claims, 2);
+    }
+
+    #[tokio::test]
+    async fn test_verify_with_sources_grounding() {
+        let v = verifier();
+        let text = "Rust is a systems programming language.";
+        let sources = Some(vec!["Rust programming language".into()]);
+        let result = v.verify(text, sources).await.unwrap();
+        assert!(result.verified_claims > 0);
+    }
+
+    #[tokio::test]
+    async fn test_verify_contradiction_detected() {
+        let v = verifier();
+        let text = "The answer is yes. Actually the answer is no.";
+        let result = v.verify(text, None).await.unwrap();
+        assert!(result.contradiction_count > 0);
+    }
+
+    #[tokio::test]
+    async fn test_verify_high_risk_numbers_without_citation() {
+        let v = verifier();
+        let text = "The population is 12,500,000 and the area covers 99,000 square kilometers.";
+        let result = v.verify(text, None).await.unwrap();
+        assert!(!result.high_risk_sentences.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_verify_high_risk_menurut_without_saya() {
+        let v = verifier();
+        let text = "Menurut penelitian, the GDP grew by 12,500,000 last year.";
+        let result = v.verify(text, None).await.unwrap();
+        assert!(!result.high_risk_sentences.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_verify_not_high_risk_with_citation() {
+        let v = verifier();
+        let text = "According to [1], the GDP grew by 4.5 percent.";
+        let result = v.verify(text, None).await.unwrap();
+        assert!(result.high_risk_sentences.is_empty());
+    }
+
+    #[test]
+    fn test_detect_contradictions_yes_no() {
+        let v = verifier();
+        let count = v.detect_contradictions("The answer is yes. Actually no.");
+        assert!(count > 0);
+    }
+
+    #[test]
+    fn test_detect_contradictions_true_false() {
+        let v = verifier();
+        let count = v.detect_contradictions("It is true. It is false.");
+        assert!(count > 0);
+    }
+
+    #[test]
+    fn test_detect_contradictions_marker_repeated() {
+        let v = verifier();
+        let count = v.detect_contradictions("However this. However that.");
+        assert!(count > 0);
+    }
+
+    #[test]
+    fn test_detect_contradictions_none() {
+        let v = verifier();
+        let count = v.detect_contradictions("Everything is consistent and clear.");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_check_source_grounding_no_sources() {
+        let v = verifier();
+        assert_eq!(v.check_source_grounding("text", &None), 0.0);
+    }
+
+    #[test]
+    fn test_check_source_grounding_with_sources() {
+        let v = verifier();
+        let src = Some(vec!["a".repeat(100)]);
+        let score = v.check_source_grounding("text", &src);
+        assert!(score > 0.0);
+        assert!(score <= 1.0);
+    }
+
+    #[test]
+    fn test_self_consistency_single_sample() {
+        let v = verifier();
+        let samples = vec!["This is a very long sample sentence that should be captured.".into()];
+        let result = v.check_self_consistency(&samples);
+        assert!(!result.is_empty());
+        for (_, score) in &result {
+            assert_eq!(*score, 1.0);
+        }
+    }
+
+    #[test]
+    fn test_self_consistency_multiple_samples() {
+        let v = verifier();
+        let samples = vec![
+            "Population of Tokyo is 37 million people according to data.".into(),
+            "Population of Tokyo is 37 million people according to research.".into(),
+        ];
+        let result = v.check_self_consistency(&samples);
+        assert!(!result.is_empty());
     }
 }

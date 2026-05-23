@@ -46,3 +46,31 @@ impl MemoryCheckpointer {
         self.checkpoint_nodes.len() * 1024 * 1024 // 1MB per checkpoint
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_checkpointer_new() {
+        let c = MemoryCheckpointer::new();
+        assert!(c.checkpoint_nodes.is_empty());
+        assert_eq!(c.estimated_savings(), 0);
+    }
+
+    #[test]
+    fn test_select_checkpoints() {
+        let g = NeuralGraph::new("empty");
+        let mut c = MemoryCheckpointer::new();
+        c.select_checkpoints(&g, 4);
+        assert!(c.checkpoint_nodes.is_empty());
+    }
+
+    #[test]
+    fn test_save_and_load() {
+        let mut c = MemoryCheckpointer::new();
+        let id = Uuid::new_v4();
+        c.save_activation(id, vec![1, 2, 3]);
+        assert_eq!(c.load_activation(&id), Some(&vec![1, 2, 3]));
+    }
+}

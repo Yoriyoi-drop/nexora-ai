@@ -165,7 +165,7 @@ impl Trie {
 
             current = current
                 .get_child_mut(token_id)
-                .unwrap_or_else(|| unreachable!("child was just inserted at token_id {token_id}"));
+                .expect("child was just inserted; this is a logic bug if missing");
         }
 
         // Set as leaf with result

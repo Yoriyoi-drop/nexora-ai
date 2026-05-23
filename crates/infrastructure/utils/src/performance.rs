@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug)]
 pub struct PerformanceMonitor {
@@ -183,11 +183,15 @@ impl PerformanceMonitor {
         }
 
         let mut metrics = self.metrics.write().await;
+        let timestamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs(),
+            Err(e) => {
+                warn!("System time before epoch: {}", e);
+                return;
+            }
+        };
         let snapshot = MemorySnapshot {
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time after epoch")
-                .as_secs(),
+            timestamp,
             memory_usage_mb: memory_mb,
             memory_usage_bytes: (memory_mb * 1024.0 * 1024.0) as u64,
         };
@@ -207,11 +211,15 @@ impl PerformanceMonitor {
         }
 
         let mut metrics = self.metrics.write().await;
+        let timestamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs(),
+            Err(e) => {
+                warn!("System time before epoch: {}", e);
+                return;
+            }
+        };
         let snapshot = CpuSnapshot {
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time after epoch")
-                .as_secs(),
+            timestamp,
             cpu_usage_percent: cpu_percent,
         };
 
@@ -321,7 +329,13 @@ impl PerformanceMonitor {
         // Sum all fields for accurate total (includes iowait, irq, softirq, steal)
         let total: u64 = parts[1..]
             .iter()
-            .filter_map(|s| s.parse::<u64>().ok())
+            .filter_map(|s| match s.parse::<u64>() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    warn!("Failed to parse CPU field '{}': {}", s, e);
+                    None
+                }
+            })
             .sum();
 
         Ok(CpuTimes {
@@ -358,8 +372,8 @@ impl PerformanceMonitor {
             if !times.is_empty() {
                 let total_time: Duration = times.iter().sum();
                 let avg_time = total_time / times.len() as u32;
-                let min_time = *times.iter().min().expect("times is non-empty");
-                let max_time = *times.iter().max().expect("times is non-empty");
+                let min_time = *times.iter().min().expect("times is non-empty (guarded by !is_empty check above)");
+                let max_time = *times.iter().max().expect("times is non-empty (guarded by !is_empty check above)");
                 let error_rate = if count > 0 {
                     error_count as f64 / count as f64
                 } else {
@@ -413,8 +427,8 @@ impl PerformanceMonitor {
 
         let total_time: Duration = times.iter().sum();
         let avg_time = total_time / times.len() as u32;
-        let min_time = *times.iter().min().expect("times is non-empty");
-        let max_time = *times.iter().max().expect("times is non-empty");
+        let min_time = *times.iter().min().expect("times is non-empty (early return if empty)");
+        let max_time = *times.iter().max().expect("times is non-empty (early return if empty)");
         let error_rate = if count > 0 {
             error_count as f64 / count as f64
         } else {
@@ -625,8 +639,8 @@ impl BenchmarkUtils {
 
         let total_time: Duration = durations.iter().sum();
         let average_time = total_time / iterations as u32;
-        let min_time = *durations.iter().min().expect("durations is non-empty");
-        let max_time = *durations.iter().max().expect("durations is non-empty");
+        let min_time = *durations.iter().min().expect("durations is non-empty (iterations > 0)");
+        let max_time = *durations.iter().max().expect("durations is non-empty (iterations > 0)");
 
         // Calculate standard deviation
         let mean = average_time.as_secs_f64();

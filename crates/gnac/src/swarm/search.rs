@@ -189,3 +189,52 @@ impl SwarmAgent {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search_space_default() {
+        let ss = SearchSpace::default();
+        assert_eq!(ss.max_depth, 20);
+        assert_eq!(ss.min_nodes, 3);
+        assert!(ss.allow_skip_connections);
+    }
+
+    #[test]
+    fn test_swarm_agent_new() {
+        let config = SwarmConfig::default();
+        let ss = SearchSpace::default();
+        let agent = SwarmAgent::new(config, ss);
+        assert!(agent.population.is_empty());
+    }
+
+    #[test]
+    fn test_initialize_population() {
+        let mut agent = SwarmAgent::new(SwarmConfig::default(), SearchSpace::default());
+        agent.initialize();
+        assert_eq!(agent.population.len(), 50);
+    }
+
+    #[test]
+    fn test_crossover_on_empty() {
+        let agent = SwarmAgent::new(SwarmConfig::default(), SearchSpace::default());
+        let mut rng = rand::thread_rng();
+        assert!(agent.crossover(&mut rng).is_none());
+    }
+
+    #[test]
+    fn test_mutate() {
+        let mut agent = SwarmAgent::new(SwarmConfig::default(), SearchSpace::default());
+        agent.initialize();
+        let mut rng = rand::thread_rng();
+        assert!(!agent.population.is_empty());
+        let node_count_before = agent.population[0].nodes.len();
+        let config = SwarmConfig::default();
+        let ss = SearchSpace::default();
+        let temp_agent = SwarmAgent::new(config, ss);
+        temp_agent.mutate(&mut agent.population[0], &mut rng);
+        assert_eq!(agent.population[0].nodes.len(), node_count_before);
+    }
+}

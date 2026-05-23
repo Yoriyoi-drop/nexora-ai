@@ -197,14 +197,14 @@ impl GlobalSystemIsolation {
         let mut registry = self.mode_registry.write();
         registry.insert(mode_id, mode_name.to_string());
         let mut cluster = self.cluster.write();
-        cluster.health.active_modes = registry.len() as u32;
+        cluster.health.active_modes = u32::try_from(registry.len()).unwrap_or(u32::MAX);
     }
 
     pub fn unregister_mode(&self, mode_id: Uuid) {
         let mut registry = self.mode_registry.write();
         registry.remove(&mode_id);
         let mut cluster = self.cluster.write();
-        cluster.health.active_modes = registry.len() as u32;
+        cluster.health.active_modes = u32::try_from(registry.len()).unwrap_or(u32::MAX);
     }
 
     pub fn heartbeat(&self) {

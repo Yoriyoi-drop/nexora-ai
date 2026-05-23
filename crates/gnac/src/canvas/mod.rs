@@ -42,3 +42,34 @@ pub enum ZoomLevel {
     Module,
     Tensor,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_canvas_position_new() {
+        let p = CanvasPosition::new(3.0, 4.0);
+        assert_eq!(p.x, 3.0);
+        assert_eq!(p.y, 4.0);
+    }
+
+    #[test]
+    fn test_canvas_position_distance() {
+        let a = CanvasPosition::new(0.0, 0.0);
+        let b = CanvasPosition::new(3.0, 4.0);
+        assert!((a.distance_to(&b) - 5.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_canvas_position_distance_zero() {
+        let a = CanvasPosition::new(1.0, 1.0);
+        assert!((a.distance_to(&a) - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zoom_level_clone() {
+        assert_eq!(ZoomLevel::System, ZoomLevel::System);
+        assert_ne!(ZoomLevel::Module, ZoomLevel::Tensor);
+    }
+}

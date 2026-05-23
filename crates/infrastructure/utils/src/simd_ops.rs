@@ -297,6 +297,10 @@ impl SimdVectorOps {
     #[must_use]
     pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
         if is_avx2_supported() {
+            // SAFETY: `dot_product_avx2` requires AVX2 CPU support. We checked
+            // `is_avx2_supported()` above, which uses `is_x86_feature_detected!("avx2")`.
+            // The function also requires slices of equal length, which we guarantee
+            // via its own internal `assert_eq!`.
             unsafe { Self::dot_product_avx2(a, b) }
         } else {
             Self::dot_product_fallback(a, b)
@@ -306,6 +310,9 @@ impl SimdVectorOps {
     /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
     pub fn add(a: &[f32], b: &[f32], result: &mut [f32]) {
         if is_avx2_supported() {
+            // SAFETY: `add_avx2` requires AVX2 CPU support. We verified via
+            // `is_avx2_supported()`. It also requires equal-length slices, which
+            // we guarantee via its own `assert_eq!`.
             unsafe { Self::add_avx2(a, b, result) }
         } else {
             Self::add_fallback(a, b, result);
@@ -315,6 +322,9 @@ impl SimdVectorOps {
     /// Safe auto-dispatch: uses AVX2 if available, otherwise falls back to scalar.
     pub fn mul(a: &[f32], b: &[f32], result: &mut [f32]) {
         if is_avx2_supported() {
+            // SAFETY: `mul_avx2` requires AVX2 CPU support, verified via
+            // `is_avx2_supported()`, and equal-length slices, verified via
+            // its own asserts.
             unsafe { Self::mul_avx2(a, b, result) }
         } else {
             Self::mul_fallback(a, b, result);
@@ -325,6 +335,10 @@ impl SimdVectorOps {
     #[must_use]
     pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         if is_avx2_supported() {
+            // SAFETY: `cosine_similarity_avx2` requires AVX2 CPU support, verified
+            // via `is_avx2_supported()`, and equal-length slices, verified via its
+            // own asserts. It delegates to `dot_product_avx2` which is also safe
+            // under the same preconditions.
             unsafe { Self::cosine_similarity_avx2(a, b) }
         } else {
             Self::cosine_similarity_fallback(a, b)
@@ -335,6 +349,9 @@ impl SimdVectorOps {
     #[must_use]
     pub fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
         if is_avx2_supported() {
+            // SAFETY: `euclidean_distance_avx2` requires AVX2 CPU support, verified
+            // via `is_avx2_supported()`, and equal-length slices, verified via its
+            // own asserts.
             unsafe { Self::euclidean_distance_avx2(a, b) }
         } else {
             Self::euclidean_distance_fallback(a, b)
@@ -365,6 +382,10 @@ impl SimdTextOps {
         let max_len = a_bytes.len().max(b_bytes.len());
         
         if is_x86_feature_detected!("avx2") && min_len >= 32 {
+            // SAFETY: `string_similarity_avx2` requires AVX2 CPU support, verified
+            // via `is_x86_feature_detected!("avx2")`. The `min_len >= 32` guard
+            // ensures at least one full 32-byte SIMD chunk can be processed.
+            // The function only accesses bytes within the slices' bounds.
             unsafe { Self::string_similarity_avx2(a_bytes, b_bytes, min_len, max_len) }
         } else {
             Self::string_similarity_fallback(a_bytes, b_bytes, min_len, max_len)
@@ -426,6 +447,10 @@ impl SimdTextOps {
         let text_bytes = text.as_bytes();
         
         if is_x86_feature_detected!("avx2") && text_bytes.len() >= 32 {
+            // SAFETY: `count_char_avx2` requires AVX2 CPU support, verified
+            // via `is_x86_feature_detected!("avx2")`. The `len >= 32` guard
+            // ensures at least one full SIMD chunk. The function only reads within
+            // the text slice.
             unsafe { Self::count_char_avx2(text_bytes, target_byte) }
         } else {
             Self::count_char_fallback(text_bytes, target_byte)
@@ -476,6 +501,9 @@ impl SimdTextOps {
         let text_bytes = text.as_bytes();
         
         if is_x86_feature_detected!("avx2") && text_bytes.len() >= 32 {
+            // SAFETY: `has_whitespace_avx2` requires AVX2 CPU support, verified
+            // via `is_x86_feature_detected!("avx2")`. The `len >= 32` guard ensures
+            // at least one full SIMD chunk. The function only reads within bounds.
             unsafe { Self::has_whitespace_avx2(text_bytes) }
         } else {
             Self::has_whitespace_fallback(text_bytes)
@@ -530,6 +558,9 @@ impl SimdMatrixOps {
         assert_eq!(result.len(), a_rows * b_cols, "Result matrix size mismatch");
         
         if is_x86_feature_detected!("avx2") {
+            // SAFETY: `mat_mul_avx2` requires AVX2 CPU support, verified above.
+            // All matrix dimensions are validated via `assert_eq!` at function entry,
+            // and the AVX2 function checks bounds with debug_asserts per access.
             unsafe { Self::mat_mul_avx2(a, a_rows, a_cols, b, b_rows, b_cols, result) }
         } else {
             Self::mat_mul_fallback(a, a_rows, a_cols, b, b_rows, b_cols, result);
@@ -608,6 +639,9 @@ impl SimdMatrixOps {
         assert_eq!(result.len(), cols * rows, "Result matrix size mismatch");
         
         if is_x86_feature_detected!("avx2") && rows >= 8 && cols >= 8 {
+            // SAFETY: `transpose_avx2` requires AVX2 CPU support, verified above.
+            // The `rows >= 8 && cols >= 8` guard ensures the block-based transpose
+            // loop can make progress. Slice lengths are validated via `assert_eq!`.
             unsafe { Self::transpose_avx2(a, rows, cols, result) }
         } else {
             Self::transpose_fallback(a, rows, cols, result);
@@ -665,6 +699,8 @@ impl SimdBenchmarks {
         let simd_time = if is_x86_feature_detected!("avx2") {
             let start = std::time::Instant::now();
             for _ in 0..1000 {
+                // SAFETY: AVX2 was verified via `is_x86_feature_detected!("avx2")`
+                // above, and the slices have equal length (constructed that way).
                 unsafe { SimdVectorOps::dot_product_avx2(&a, &b) };
             }
             start.elapsed().as_secs_f64()
@@ -709,29 +745,29 @@ impl SimdBenchmarks {
     
     /// Print benchmark results
     pub fn print_benchmarks() {
-        println!("=== SIMD Performance Benchmarks ===");
+        tracing::info!("=== SIMD Performance Benchmarks ===");
         
         // Vector operations benchmark
         let (fallback_time, simd_time) = Self::benchmark_dot_product(1000);
         let speedup = fallback_time / simd_time;
-        println!("Dot Product (1000 elements):");
-        println!("  Fallback: {:.6}s", fallback_time);
-        println!("  SIMD: {:.6}s", simd_time);
-        println!("  Speedup: {:.2}x", speedup);
+        tracing::info!("Dot Product (1000 elements):");
+        tracing::info!("  Fallback: {:.6}s", fallback_time);
+        tracing::info!("  SIMD: {:.6}s", simd_time);
+        tracing::info!("  Speedup: {:.2}x", speedup);
         
         // Text operations benchmark
         let (fallback_time, simd_time) = Self::benchmark_string_similarity(1000);
         let speedup = fallback_time / simd_time;
-        println!("\nString Similarity (1000 chars):");
-        println!("  Fallback: {:.6}s", fallback_time);
-        println!("  SIMD: {:.6}s", simd_time);
-        println!("  Speedup: {:.2}x", speedup);
+        tracing::info!("\nString Similarity (1000 chars):");
+        tracing::info!("  Fallback: {:.6}s", fallback_time);
+        tracing::info!("  SIMD: {:.6}s", simd_time);
+        tracing::info!("  Speedup: {:.2}x", speedup);
         
-        println!("\nCPU Features:");
-        println!("  AVX2: {}", is_x86_feature_detected!("avx2"));
-        println!("  AVX: {}", is_x86_feature_detected!("avx"));
-        println!("  SSE4.1: {}", is_x86_feature_detected!("sse4.1"));
-        println!("  SSE2: {}", is_x86_feature_detected!("sse2"));
+        tracing::info!("\nCPU Features:");
+        tracing::info!("  AVX2: {}", is_x86_feature_detected!("avx2"));
+        tracing::info!("  AVX: {}", is_x86_feature_detected!("avx"));
+        tracing::info!("  SSE4.1: {}", is_x86_feature_detected!("sse4.1"));
+        tracing::info!("  SSE2: {}", is_x86_feature_detected!("sse2"));
     }
 }
 

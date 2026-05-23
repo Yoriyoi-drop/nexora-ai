@@ -11,6 +11,7 @@ use crate::*;
 use ndarray::{Array1, ArrayD};
 use std::time::Instant;
 
+#[cfg(feature = "examples")]
 /// Basic ECHO-Net Ω usage example
 pub fn basic_usage_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== ECHO-Net Ω Basic Usage Example ===");
@@ -72,6 +73,7 @@ pub fn basic_usage_example() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "examples")]
 /// Streaming inference example
 pub fn streaming_inference_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== ECHO-Net Ω Streaming Inference Example ===");
@@ -126,6 +128,7 @@ pub fn streaming_inference_example() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "examples")]
 /// Training simulation example
 pub fn training_simulation_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== ECHO-Net Ω Training Simulation Example ===");
@@ -203,6 +206,7 @@ pub fn training_simulation_example() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "examples")]
 /// Performance benchmarking example
 pub fn performance_benchmark_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== ECHO-Net Ω Performance Benchmark Example ===");
@@ -271,6 +275,7 @@ pub fn performance_benchmark_example() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+#[cfg(feature = "examples")]
 /// Custom configuration example
 pub fn custom_configuration_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== ECHO-Net Ω Custom Configuration Example ===");
@@ -360,6 +365,7 @@ pub fn custom_configuration_example() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+#[cfg(feature = "examples")]
 /// Output statistics
 #[derive(Debug)]
 struct OutputStats {
@@ -370,6 +376,7 @@ struct OutputStats {
     entropy: f32,
 }
 
+#[cfg(feature = "examples")]
 fn analyze_output(output: &Array1<f32>) -> OutputStats {
     let mean = output.iter().sum::<f32>() / output.len() as f32;
     let variance = output.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / output.len() as f32;
@@ -394,6 +401,7 @@ fn analyze_output(output: &Array1<f32>) -> OutputStats {
     }
 }
 
+#[cfg(feature = "examples")]
 /// Run all examples
 pub fn run_all_examples() -> Result<(), Box<dyn std::error::Error>> {
     println!("ECHO-Net Ω Examples\n");

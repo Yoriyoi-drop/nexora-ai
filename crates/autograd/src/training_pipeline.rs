@@ -481,7 +481,7 @@ impl TrainingLoop {
                 .metrics
                 .avg_loss(self.config.log_interval)
                 .unwrap_or(loss);
-            println!(
+            tracing::info!(
                 "[Step {}] loss={:.4} (avg={:.4}) lr={:.2e} grad_norm={:.4} tok/s={:.0}",
                 self.step, loss, avg, lr, grad_norm, throughput
             );
@@ -491,7 +491,7 @@ impl TrainingLoop {
         if self.step % self.config.save_interval == 0 {
             if let Some(ref dir) = self.config.checkpoint_dir {
                 let path = dir.join(format!("checkpoint-{}.json", self.step));
-                println!("  Saving checkpoint to {:?}", path);
+                tracing::info!("  Saving checkpoint to {:?}", path);
                 // Note: actual save needs model params + optimizer reference
                 // which are passed separately
             }
@@ -511,19 +511,19 @@ impl TrainingLoop {
             Some(best) if val_loss < best => {
                 self.best_val_loss = Some(val_loss);
                 self.patience_counter = 0;
-                println!("  Validation loss improved to {:.4}", val_loss);
+                tracing::info!("  Validation loss improved to {:.4}", val_loss);
                 true
             }
             None => {
                 self.best_val_loss = Some(val_loss);
                 self.patience_counter = 0;
-                println!("  Initial validation loss: {:.4}", val_loss);
+                tracing::info!("  Initial validation loss: {:.4}", val_loss);
                 true
             }
             Some(_) => {
                 self.patience_counter += 1;
                 if self.patience_counter >= self.config.early_stop_patience {
-                    println!(
+                    tracing::info!(
                         "  Early stopping triggered (patience={})",
                         self.config.early_stop_patience
                     );
@@ -545,7 +545,7 @@ impl TrainingLoop {
             .metrics
             .avg_loss(self.config.log_interval)
             .unwrap_or(0.0);
-        println!(
+        tracing::info!(
             "=== Epoch {} complete | avg_loss={:.4} | best_val={:?} ===",
             self.epoch, avg, self.best_val_loss
         );
@@ -570,22 +570,22 @@ impl TrainingLoop {
 
     /// Summary report
     pub fn report(&self) {
-        println!("═══════════════════════════════════════");
-        println!("  Training complete");
-        println!("  Steps: {}", self.step);
-        println!("  Epochs: {}", self.epoch);
-        println!("  Total tokens: {}", self.total_tokens);
-        println!("  Duration: {:.1}s", self.elapsed_secs());
-        println!(
+        tracing::info!("═══════════════════════════════════════");
+        tracing::info!("  Training complete");
+        tracing::info!("  Steps: {}", self.step);
+        tracing::info!("  Epochs: {}", self.epoch);
+        tracing::info!("  Total tokens: {}", self.total_tokens);
+        tracing::info!("  Duration: {:.1}s", self.elapsed_secs());
+        tracing::info!(
             "  Avg throughput: {:.0} tok/s",
             self.metrics.avg_throughput().unwrap_or(0.0)
         );
-        println!("  Best loss: {:?}", self.best_val_loss);
-        println!(
+        tracing::info!("  Best loss: {:?}", self.best_val_loss);
+        tracing::info!(
             "  Final loss: {:?}",
             self.metrics.last_loss().unwrap_or(0.0)
         );
-        println!("═══════════════════════════════════════");
+        tracing::info!("═══════════════════════════════════════");
     }
 }
 

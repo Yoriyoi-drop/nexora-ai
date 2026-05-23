@@ -104,8 +104,14 @@ impl LayerInjector for EchoNetInjector {
         let mut frequency_data = vec![0.0_f32; seq_len * self.hidden_size];
 
         for tp in &self.buffer {
-            amplitude_data.extend_from_slice(tp.hidden.as_slice().unwrap());
-            phase_data.extend_from_slice(tp.phase.as_slice().unwrap());
+            amplitude_data.extend_from_slice(
+                tp.hidden.as_slice()
+                    .ok_or_else(|| TransformerError::Implementation("hidden state not contiguous".into()))?
+            );
+            phase_data.extend_from_slice(
+                tp.phase.as_slice()
+                    .ok_or_else(|| TransformerError::Implementation("phase vector not contiguous".into()))?
+            );
         }
 
         let amplitude =

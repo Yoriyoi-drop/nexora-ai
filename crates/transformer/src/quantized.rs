@@ -25,7 +25,7 @@ impl QuantizedTensor {
         let rows = self.original_shape[0];
         let cols = self.original_shape[1];
         let mask = (1 << self.bits) - 1;
-        let entries_per_byte = 8 / self.bits as usize;
+        let entries_per_byte = 8 / self.bits.max(1) as usize;
         let num_groups = self.scales.len();
 
         let mut result = Array2::zeros((rows, cols));

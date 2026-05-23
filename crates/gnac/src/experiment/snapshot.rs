@@ -34,3 +34,23 @@ impl ExperimentSnapshot {
         format!("{:x}", hasher.finish())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graph_hash() {
+        let g = NeuralGraph::new("test");
+        let h = ExperimentSnapshot::graph_hash(&g);
+        assert!(!h.is_empty());
+    }
+
+    #[test]
+    fn test_capture() {
+        let g = NeuralGraph::new("test");
+        let exp = ExperimentSnapshot::capture(&g, "snapshot1");
+        assert_eq!(exp.name, "snapshot1");
+        assert_eq!(exp.config.optimizer, "adam");
+    }
+}

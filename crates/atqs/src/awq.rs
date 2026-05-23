@@ -235,6 +235,22 @@ impl AWQEngine {
         result
     }
 
+    pub fn quantization_error(&self, weight: &Array2<f32>, saliency: &Array1<f32>) -> f32 {
+        let (scales, zero_points) = self.find_optimal_scales(weight, saliency);
+        let quantized = self.quantize(weight, &scales, &zero_points);
+        let dequantized = self.dequantize(&quantized);
+        weight
+            .iter()
+            .zip(dequantized.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            / (weight.len() as f32)
+    }
+
+    /// Legacy alias: quantizes then immediately dequantizes back to f32.
+    /// Prefer [`quantization_error`] for measuring loss, or keep the
+    /// [`AWQQuantizedTensor`] for actual compression.
+    #[deprecated(since = "0.2.0", note = "use quantization_error() or keep quantized tensor")]
     pub fn pseudo_quantize(&self, weight: &Array2<f32>, saliency: &Array1<f32>) -> Array2<f32> {
         let (scales, zero_points) = self.find_optimal_scales(weight, saliency);
         let quantized = self.quantize(weight, &scales, &zero_points);

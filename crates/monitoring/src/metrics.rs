@@ -12,13 +12,12 @@ pub struct MetricsCollector {
 }
 
 impl MetricsCollector {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, prometheus::Error> {
         let registry = Registry::new();
 
         let request_counter =
-            Counter::new("nexora_requests_total", "Total requests").expect("metric registered");
-        let request_failures = Counter::new("nexora_request_failures_total", "Failed requests")
-            .expect("metric registered");
+            Counter::new("nexora_requests_total", "Total requests")?;
+        let request_failures = Counter::new("nexora_request_failures_total", "Failed requests")?;
         let request_latency = Histogram::with_opts(
             HistogramOpts::new(
                 "nexora_request_latency_seconds",
@@ -27,40 +26,21 @@ impl MetricsCollector {
             .buckets(vec![
                 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ]),
-        )
-        .expect("metric registered");
-        let active_connections = Gauge::new("nexora_active_connections", "Active connections")
-            .expect("metric registered");
-        let memory_usage = Gauge::new("nexora_memory_usage_bytes", "Memory usage in bytes")
-            .expect("metric registered");
-        let cpu_usage =
-            Gauge::new("nexora_cpu_usage_ratio", "CPU usage (0-1)").expect("metric registered");
-        let queue_depth =
-            Gauge::new("nexora_queue_depth", "Current queue depth").expect("metric registered");
+        )?;
+        let active_connections = Gauge::new("nexora_active_connections", "Active connections")?;
+        let memory_usage = Gauge::new("nexora_memory_usage_bytes", "Memory usage in bytes")?;
+        let cpu_usage = Gauge::new("nexora_cpu_usage_ratio", "CPU usage (0-1)")?;
+        let queue_depth = Gauge::new("nexora_queue_depth", "Current queue depth")?;
 
-        registry
-            .register(Box::new(request_counter.clone()))
-            .expect("registered");
-        registry
-            .register(Box::new(request_failures.clone()))
-            .expect("registered");
-        registry
-            .register(Box::new(request_latency.clone()))
-            .expect("registered");
-        registry
-            .register(Box::new(active_connections.clone()))
-            .expect("registered");
-        registry
-            .register(Box::new(memory_usage.clone()))
-            .expect("registered");
-        registry
-            .register(Box::new(cpu_usage.clone()))
-            .expect("registered");
-        registry
-            .register(Box::new(queue_depth.clone()))
-            .expect("registered");
+        registry.register(Box::new(request_counter.clone()))?;
+        registry.register(Box::new(request_failures.clone()))?;
+        registry.register(Box::new(request_latency.clone()))?;
+        registry.register(Box::new(active_connections.clone()))?;
+        registry.register(Box::new(memory_usage.clone()))?;
+        registry.register(Box::new(cpu_usage.clone()))?;
+        registry.register(Box::new(queue_depth.clone()))?;
 
-        Self {
+        Ok(Self {
             registry,
             request_counter,
             request_failures,
@@ -69,7 +49,7 @@ impl MetricsCollector {
             memory_usage,
             cpu_usage,
             queue_depth,
-        }
+        })
     }
 
     pub fn record_request(&self, success: bool, latency_secs: f64) {
@@ -113,7 +93,7 @@ impl MetricsCollector {
 
 impl Default for MetricsCollector {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("MetricsCollector::default() failed to register prometheus metrics")
     }
 }
 

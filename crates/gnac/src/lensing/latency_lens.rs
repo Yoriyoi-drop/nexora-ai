@@ -52,3 +52,21 @@ impl NeuralLens for LatencyLens {
         "Latency Lens"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_latency_lens_name() {
+        assert_eq!(LatencyLens.name(), "Latency Lens");
+    }
+
+    #[test]
+    fn test_latency_lens_empty() {
+        let g = NeuralGraph::new("empty");
+        let obs = LatencyLens.observe(&g);
+        assert_eq!(obs.severity, ObservationSeverity::Info);
+        assert!(obs.summary.contains("bottlenecks") || obs.summary.contains("Total graph FLOPs"));
+    }
+}

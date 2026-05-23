@@ -38,3 +38,39 @@ impl RecurrentLoopNode {
         self.current_iteration = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_loop_node_new() {
+        let l = RecurrentLoopNode::new("loop", 100, 0.01);
+        assert_eq!(l.max_iterations, 100);
+        assert_eq!(l.current_iteration, 0);
+    }
+
+    #[test]
+    fn test_should_continue() {
+        let l = RecurrentLoopNode::new("loop", 3, 0.01);
+        assert!(l.should_continue(0.1));
+        assert!(!l.should_continue(0.001));
+    }
+
+    #[test]
+    fn test_should_continue_max_iterations() {
+        let mut l = RecurrentLoopNode::new("loop", 2, 0.01);
+        l.step();
+        l.step();
+        assert!(!l.should_continue(0.1));
+    }
+
+    #[test]
+    fn test_step_and_reset() {
+        let mut l = RecurrentLoopNode::new("loop", 5, 0.01);
+        l.step();
+        assert_eq!(l.current_iteration, 1);
+        l.reset();
+        assert_eq!(l.current_iteration, 0);
+    }
+}

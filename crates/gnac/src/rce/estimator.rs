@@ -53,3 +53,54 @@ impl ResourceEstimator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_estimate_empty() {
+        let g = NeuralGraph::new("empty");
+        let r = ResourceEstimator::estimate(&g);
+        assert_eq!(r.total_flops, 0);
+        assert_eq!(r.parameter_count, 0);
+    }
+
+    #[test]
+    fn test_estimate_with_nodes() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(GraphNode::new(NodeType::Linear, "fc", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::ReLU, "relu", 0.0, 0.0));
+        let r = ResourceEstimator::estimate(&g);
+        assert!(r.total_flops > 0);
+        assert!(r.total_vram_mb > 0.0);
+    }
+
+    #[test]
+    fn test_estimate_node_all_types() {
+        let types = [
+            NodeType::Conv2D,
+            NodeType::SelfAttention,
+            NodeType::MultiHeadAttention,
+            NodeType::Linear,
+            NodeType::LayerNorm,
+            NodeType::RMSNorm,
+            NodeType::ReLU,
+            NodeType::GELU,
+            NodeType::Dropout,
+            NodeType::Embedding,
+            NodeType::Input,
+            NodeType::Output,
+            NodeType::Concat,
+            NodeType::FlashAttention,
+        ];
+        for t in &types {
+            let (flops, params, act) = ResourceEstimator::estimate_node(t);
+            assert!(flops < 1_000_000_000_000);
+            assert!(params < 1_000_000_000);
+            assert!(act < 1_000_000_000);
+        }
+    }
+}

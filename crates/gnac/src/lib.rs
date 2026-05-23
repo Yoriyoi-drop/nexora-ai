@@ -197,3 +197,93 @@ impl Default for GnacConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tensor_desc_new() {
+        let desc = TensorDesc::new(vec![2, 3, 4], DType::F32);
+        assert_eq!(desc.shape, vec![2, 3, 4]);
+        assert_eq!(desc.numel, 24);
+        assert_eq!(desc.dtype, DType::F32);
+        assert_eq!(desc.strides, vec![12, 4, 1]);
+    }
+
+    #[test]
+    fn test_tensor_desc_ndim() {
+        let desc = TensorDesc::new(vec![2, 3], DType::F64);
+        assert_eq!(desc.ndim(), 2);
+    }
+
+    #[test]
+    fn test_tensor_desc_scalar_ndim() {
+        let desc = TensorDesc::new(vec![], DType::I32);
+        assert_eq!(desc.ndim(), 0);
+    }
+
+    #[test]
+    fn test_tensor_desc_compatible() {
+        let a = TensorDesc::new(vec![2, 3], DType::F32);
+        let b = TensorDesc::new(vec![2, 3], DType::F32);
+        assert!(a.is_compatible_with(&b));
+    }
+
+    #[test]
+    fn test_tensor_desc_incompatible_shape() {
+        let a = TensorDesc::new(vec![2, 3], DType::F32);
+        let b = TensorDesc::new(vec![3, 2], DType::F32);
+        assert!(!a.is_compatible_with(&b));
+    }
+
+    #[test]
+    fn test_tensor_desc_incompatible_dtype() {
+        let a = TensorDesc::new(vec![2, 3], DType::F32);
+        let b = TensorDesc::new(vec![2, 3], DType::I32);
+        assert!(!a.is_compatible_with(&b));
+    }
+
+    #[test]
+    fn test_gnac_config_default() {
+        let cfg = GnacConfig::default();
+        assert_eq!(cfg.max_nodes, 10_000);
+        assert!(cfg.enable_lensing);
+        assert!(!cfg.enable_collaboration);
+    }
+
+    #[test]
+    fn test_deep_learning_error_ndarray_conversion() {
+        let err = ndarray::ShapeError::from_kind(ndarray::ErrorKind::IncompatibleShape);
+        let dl_err: DeepLearningError = err.into();
+        assert!(matches!(dl_err, DeepLearningError::ShapeMismatch { .. }));
+    }
+
+    #[test]
+    fn test_dtype_debug_and_clone() {
+        let a = DType::F32;
+        let b = a.clone();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_node_type_variants() {
+        let variants = vec![
+            NodeType::Conv2D,
+            NodeType::SelfAttention,
+            NodeType::Linear,
+            NodeType::ReLU,
+            NodeType::Dropout,
+            NodeType::Input,
+            NodeType::Output,
+            NodeType::MambaBlock,
+        ];
+        assert_eq!(variants.len(), 8);
+    }
+
+    #[test]
+    fn test_health_status_debug() {
+        let h = HealthStatus::Healthy;
+        assert_eq!(format!("{:?}", h), "Healthy");
+    }
+}

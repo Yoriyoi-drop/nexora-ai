@@ -308,7 +308,13 @@ impl MetricsCollector {
 
     /// Get CPU usage as percentage, or `None` if unavailable
     async fn get_cpu_usage(&self) -> Option<f64> {
-        self.get_process_cpu_usage().await.ok()
+        match self.get_process_cpu_usage().await {
+            Ok(val) => Some(val),
+            Err(e) => {
+                tracing::warn!("Failed to get CPU usage: {}", e);
+                None
+            }
+        }
     }
 
     /// Get process CPU usage from /proc/self/stat on Linux
@@ -337,7 +343,15 @@ impl MetricsCollector {
             .split_whitespace()
             .skip(1) // Skip "cpu"
             .take(4) // user, nice, system, idle
-            .filter_map(|s| s.parse().ok())
+            .filter_map(|s| {
+                match s.parse::<u64>() {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse CPU stat value '{}': {}", s, e);
+                        None
+                    }
+                }
+            })
             .collect();
 
         if cpu_parts.len() < 4 {

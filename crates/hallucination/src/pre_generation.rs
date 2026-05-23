@@ -46,20 +46,23 @@ impl PreGenerationChecker {
             config,
             ambiguity_patterns: vec![
                 Regex::new(r"(?i)\b(mungkin|maybe|perhaps|possibly|could be|sepertinya)\b")
-                    .unwrap(),
-                Regex::new(r"(?i)\b(tidak jelas|unclear|ambiguous|tidak pasti)\b").unwrap(),
-                Regex::new(r"\?").unwrap(),
+                    .expect("valid ambiguity keyword regex"),
+                Regex::new(r"(?i)\b(tidak jelas|unclear|ambiguous|tidak pasti)\b")
+                    .expect("valid uncertain keyword regex"),
+                Regex::new(r"\?").expect("valid question mark regex"),
             ],
             specific_claim_patterns: vec![
-                Regex::new(r"\b\d{4}\b").unwrap(),
-                Regex::new(r"\b\d+\.\d+%?\b").unwrap(),
-                Regex::new(r#""[^"]{10,}""#).unwrap(),
-                Regex::new(r"(?i)\b(menurut|according to|research|study|penelitian)\b").unwrap(),
+                Regex::new(r"\b\d{4}\b").expect("valid year pattern regex"),
+                Regex::new(r"\b\d+\.\d+%?\b").expect("valid decimal pattern regex"),
+                Regex::new(r#""[^"]{10,}""#).expect("valid quote pattern regex"),
+                Regex::new(r"(?i)\b(menurut|according to|research|study|penelitian)\b")
+                    .expect("valid citation keyword regex"),
             ],
             recency_patterns: vec![
                 Regex::new(r"(?i)\b(tahun ini|this year|recent|baru-baru|terbaru|202[4-9])\b")
-                    .unwrap(),
-                Regex::new(r"(?i)\b(saat ini|currently|now|sekarang)\b").unwrap(),
+                    .expect("valid recency keyword regex"),
+                Regex::new(r"(?i)\b(saat ini|currently|now|sekarang)\b")
+                    .expect("valid current time keyword regex"),
             ],
         }
     }
@@ -158,5 +161,137 @@ impl PreGenerationChecker {
             s.push("Provide more context for a more accurate answer.".to_string());
         }
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn checker() -> PreGenerationChecker {
+        PreGenerationChecker::new(PreGenConfig::default())
+    }
+
+    #[test]
+    fn test_check_normal_input() {
+        let c = checker();
+        let result = c.check("What is the capital of France?", None).unwrap();
+        assert!(result.can_proceed);
+        assert!(result.in_scope);
+        assert!(result.ambiguity_score < 0.5);
+    }
+
+    #[test]
+    fn test_check_empty_input() {
+        let c = checker();
+        let result = c.check("", None).unwrap();
+        assert!(result.ambiguity_score > 0.0);
+        assert!(result.suggestions.len() > 0);
+    }
+
+    #[test]
+    fn test_check_out_of_scope_proprietary() {
+        let c = checker();
+        let result = c.check("Tell me the confidential internal data", None).unwrap();
+        assert!(!result.can_proceed);
+        assert!(!result.in_scope);
+        assert_eq!(result.reason, "Out of scope");
+    }
+
+    #[test]
+    fn test_check_out_of_scope_rahasia() {
+        let c = checker();
+        let result = c.check("Apa rahasia perusahaan?", None).unwrap();
+        assert!(!result.can_proceed);
+        assert!(!result.in_scope);
+    }
+
+    #[test]
+    fn test_check_out_of_scope_stock_price() {
+        let c = checker();
+        let result = c.check("What will be the stock price tomorrow?", None).unwrap();
+        assert!(!result.can_proceed);
+        assert!(!result.in_scope);
+    }
+
+    #[test]
+    fn test_check_high_ambiguity() {
+        let c = checker();
+        let result = c.check("mungkin? tidak jelas", None).unwrap();
+        assert!(result.ambiguity_score >= 0.5);
+    }
+
+    #[test]
+    fn test_check_with_good_context() {
+        let c = checker();
+        let ctx_str = "word ".repeat(60);
+        let result = c.check("What is Rust?", Some(&ctx_str)).unwrap();
+        assert!(result.can_proceed);
+        assert_eq!(result.context_sufficiency, 1.0);
+    }
+
+    #[test]
+    fn test_check_with_partial_context() {
+        let c = checker();
+        let context = Some("short context");
+        let result = c.check("What is Rust?", context).unwrap();
+        assert_eq!(result.context_sufficiency, 0.4);
+    }
+
+    #[test]
+    fn test_check_without_context() {
+        let c = checker();
+        let result = c.check("What is Rust?", None).unwrap();
+        assert_eq!(result.context_sufficiency, 0.1);
+    }
+
+    #[test]
+    fn test_check_recency_keyword_blocks() {
+        let c = checker();
+        let result = c.check("What is the latest news this year?", None).unwrap();
+        assert!(!result.in_scope);
+        assert!(!result.can_proceed);
+    }
+
+    #[test]
+    fn test_check_recency_keyword_2025() {
+        let c = checker();
+        let result = c.check("What happened in 2025?", None).unwrap();
+        assert!(!result.in_scope);
+    }
+
+    #[test]
+    fn test_ambiguity_scoring_multiple_patterns() {
+        let c = checker();
+        let result = c.check("mungkin? tidak jelas", None).unwrap();
+        assert!(result.ambiguity_score >= 0.6);
+    }
+
+    #[test]
+    fn test_suggestions_on_ambiguous() {
+        let c = checker();
+        let result = c.check("mungkin", None).unwrap();
+        assert!(result.suggestions.iter().any(|s| s.contains("ambiguous")));
+    }
+
+    #[test]
+    fn test_suggestions_on_low_context() {
+        let c = checker();
+        let result = c.check("hello", Some("short")).unwrap();
+        assert!(result.suggestions.iter().any(|s| s.contains("context")));
+    }
+
+    #[test]
+    fn test_generate_suggestions_both_triggers() {
+        let c = checker();
+        let s = c.generate_suggestions(0.5, 0.3);
+        assert_eq!(s.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_suggestions_none() {
+        let c = checker();
+        let s = c.generate_suggestions(0.0, 1.0);
+        assert!(s.is_empty());
     }
 }

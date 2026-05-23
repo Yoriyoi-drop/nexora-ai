@@ -202,7 +202,7 @@ impl MultiClusterSystem {
             .get_mut(region_name)
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
 
-        if region.mode_clusters.len() as u32 >= self.global_config.max_mode_clusters_per_region {
+        if u32::try_from(region.mode_clusters.len()).unwrap_or(u32::MAX) >= self.global_config.max_mode_clusters_per_region {
             return Err(MultiClusterError::MaxModeClustersReached(
                 region_name.to_string(),
             ));
@@ -237,7 +237,7 @@ impl MultiClusterSystem {
             .get_mut(&mode_id.0)
             .ok_or(MultiClusterError::ModeClusterNotFound(mode_id.clone()))?;
 
-        if mode.agent_clusters.len() as u32 >= self.global_config.max_agent_clusters_per_mode {
+        if u32::try_from(mode.agent_clusters.len()).unwrap_or(u32::MAX) >= self.global_config.max_agent_clusters_per_mode {
             return Err(MultiClusterError::MaxAgentClustersReached(mode_id.clone()));
         }
 
@@ -329,7 +329,7 @@ impl MultiClusterSystem {
             started_at: chrono::Utc::now(),
         };
 
-        if vm.execution_threads.len() as u32 >= self.global_config.max_threads_per_vm {
+        if u32::try_from(vm.execution_threads.len()).unwrap_or(u32::MAX) >= self.global_config.max_threads_per_vm {
             return Err(MultiClusterError::MaxThreadsReached(vm.id));
         }
 

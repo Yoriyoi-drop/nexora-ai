@@ -59,3 +59,45 @@ impl MetaNode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+
+    #[test]
+    fn test_metanode_new() {
+        let inner = NeuralGraph::new("inner");
+        let meta = MetaNode::new("meta", inner, 10.0, 20.0);
+        assert_eq!(meta.name, "meta");
+        assert_eq!(meta.position.x, 10.0);
+        assert_eq!(meta.aggregated_flops, 0);
+    }
+
+    #[test]
+    fn test_metanode_expand() {
+        let inner = NeuralGraph::new("inner");
+        let meta = MetaNode::new("meta", inner, 0.0, 0.0);
+        let expanded = meta.expand();
+        assert_eq!(expanded.name, "inner");
+    }
+
+    #[test]
+    fn test_metanode_refresh_stats_healthy() {
+        let inner = NeuralGraph::new("inner");
+        let mut meta = MetaNode::new("meta", inner, 0.0, 0.0);
+        meta.refresh_stats();
+        assert_eq!(meta.health, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn test_metanode_refresh_stats_dead() {
+        let mut inner = NeuralGraph::new("inner");
+        let mut node = GraphNode::new(crate::NodeType::Linear, "dead", 0.0, 0.0);
+        node.set_health(HealthStatus::Dead);
+        inner.add_node(node);
+        let mut meta = MetaNode::new("meta", inner, 0.0, 0.0);
+        meta.refresh_stats();
+        assert!(matches!(meta.health, HealthStatus::Critical { .. }));
+    }
+}

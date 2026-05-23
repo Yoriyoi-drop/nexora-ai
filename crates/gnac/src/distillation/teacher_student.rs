@@ -68,3 +68,64 @@ impl DistillationEngine {
         kl_div * temperature.powi(2)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_compress_empty() {
+        let teacher = NeuralGraph::new("teacher");
+        let config = DistillationConfig {
+            temperature: 2.0,
+            alpha: 0.5,
+            student_depth: 2,
+            student_width: 2,
+            target_hardware: "cpu".to_string(),
+        };
+        let student = DistillationEngine::compress(&teacher, &config).unwrap();
+        assert_eq!(student.name, "teacher_student");
+    }
+
+    #[test]
+    fn test_compress_with_io() {
+        let mut teacher = NeuralGraph::new("teacher");
+        teacher.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
+        teacher.add_node(GraphNode::new(NodeType::Output, "out", 0.0, 0.0));
+        let config = DistillationConfig {
+            temperature: 2.0,
+            alpha: 0.5,
+            student_depth: 2,
+            student_width: 2,
+            target_hardware: "cpu".to_string(),
+        };
+        let student = DistillationEngine::compress(&teacher, &config).unwrap();
+        assert_eq!(student.node_count(), 2);
+    }
+
+    #[test]
+    fn test_distillation_loss_identical() {
+        let logits = vec![1.0, 2.0, 3.0];
+        let loss = DistillationEngine::distillation_loss(&logits, &logits, 1.0);
+        assert!(loss.is_finite());
+        assert!(loss >= 0.0);
+    }
+
+    #[test]
+    fn test_distillation_loss_different() {
+        let teacher = vec![10.0, 20.0, 30.0];
+        let student = vec![1.0, 2.0, 3.0];
+        let loss = DistillationEngine::distillation_loss(&teacher, &student, 2.0);
+        assert!(loss > 0.0);
+    }
+
+    #[test]
+    fn test_distillation_loss_zero_teacher() {
+        let teacher = vec![0.0, 0.0, 0.0];
+        let student = vec![1.0, 2.0, 3.0];
+        let loss = DistillationEngine::distillation_loss(&teacher, &student, 1.0);
+        assert!(loss.is_finite());
+    }
+}

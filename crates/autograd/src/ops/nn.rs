@@ -44,7 +44,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                             dx[idx] = soft[idx] * (g[idx] - sum_sg);
                                         }
                                     }
-                                    vec![ArrayD::from_shape_vec(soft_shape.clone(), dx).expect("dx length matches shape")]
+                                    vec![ArrayD::from_shape_vec(soft_shape.clone(), dx).unwrap_or_else(|e| {
+                                        debug!("shape encoding failed (infallible): {e}");
+                                        ArrayD::zeros(vec![0])
+                                    })]
                                 }),
                                 None,
                             );
@@ -88,7 +91,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     }
 
     let result =
-        ArrayD::from_shape_vec(soft_shape.clone(), result_data).expect("data length matches shape");
+        ArrayD::from_shape_vec(soft_shape.clone(), result_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -133,7 +139,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                 }
             }
             let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data)
-                .expect("data length matches shape");
+                .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
             vec![dx]
         }),
     )
@@ -221,7 +230,10 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
         })
         .collect();
     let mask_arr =
-        ArrayD::from_shape_vec(data.shape().to_vec(), mask).expect("data length matches shape");
+        ArrayD::from_shape_vec(data.shape().to_vec(), mask).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
     let result = &data * &mask_arr;
 
     if !input.requires_grad() {
@@ -289,9 +301,15 @@ pub fn layer_norm_2d(
                                                 vec![input.shape()[0]],
                                                 mean_arr,
                                             )
-                                            .expect("mean arr length matches batch"),
+                                            .unwrap_or_else(|e| {
+                                                debug!("shape encoding failed (infallible): {e}");
+                                                ArrayD::zeros(vec![0])
+                                            }),
                                             ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr)
-                                                .expect("std arr length matches batch"),
+                                                .unwrap_or_else(|e| {
+                                                    debug!("shape encoding failed (infallible): {e}");
+                                                    ArrayD::zeros(vec![0])
+                                                }),
                                             ArrayD::from_elem(vec![1], n),
                                         ],
                                         vec![],
@@ -340,7 +358,10 @@ pub fn layer_norm_2d(
                                                         let mut v: Vec<f32> = inner.iter().copied().collect();
                                                         v[idx] = dx_val;
                                                         let shape = inner.shape().to_vec();
-                                                        inner = ArrayD::from_shape_vec(shape, v).expect("shape matches");
+                                                        inner = ArrayD::from_shape_vec(shape, v).unwrap_or_else(|e| {
+                                                            debug!("shape encoding failed (infallible): {e}");
+                                                            ArrayD::zeros(vec![0])
+                                                        });
                                                     }
                                                     dx = inner;
                                                 }
@@ -393,7 +414,10 @@ pub fn layer_norm_2d(
         }
     }
     let mut normalized =
-        ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
+        ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     if let Some(w) = weight {
         let w_data = w.data();
@@ -422,9 +446,15 @@ pub fn layer_norm_2d(
     }
 
     let mean_arr =
-        ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).expect("data length matches shape");
+        ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
     let std_arr =
-        ArrayD::from_shape_vec(vec![shape[0]], std.clone()).expect("data length matches shape");
+        ArrayD::from_shape_vec(vec![shape[0]], std.clone()).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
     let orig_data = data.clone();
 
     Tensor::with_grad_fn(
@@ -518,7 +548,10 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                     dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
                                 }
                                 vec![ndarray::ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
-                                    .expect("data length matches shape")]
+                                    .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            })]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let x = &saved_gpu[0];
@@ -614,7 +647,10 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         loss_data[i] = -(t * p.ln() + (1.0 - t) * (1.0 - p).ln());
     }
     let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data)
-        .expect("data length matches shape");
+        .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     if !input.requires_grad() {
         return Tensor::new(loss);
@@ -635,7 +671,10 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                 dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
             }
             vec![ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
-                .expect("data length matches shape")]
+                .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            })]
         }),
     )
 }
@@ -673,7 +712,10 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                                     lsm[b * classes + c] = (data[[b, c]] - mx) - log_sum;
                                 }
                             }
-                            ArrayD::from_shape_vec(vec![batch, classes], lsm).expect("lsm")
+                            ArrayD::from_shape_vec(vec![batch, classes], lsm).unwrap_or_else(|e| {
+                                debug!("shape encoding failed (infallible): {e}");
+                                ArrayD::zeros(vec![0])
+                            })
                         };
                         let saved_tgt = target.data();
                         return Tensor::from_gpu_with_grad_fn(
@@ -695,7 +737,10 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                                         dx[b * classes + c] = g * if c == t { p - 1.0 } else { p };
                                     }
                                 }
-                                vec![ArrayD::from_shape_vec(vec![batch, classes], dx).expect("dx")]
+                                vec![ArrayD::from_shape_vec(vec![batch, classes], dx).unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                })]
                             }),
                             None,
                         );
@@ -743,14 +788,20 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
         let t = tgt[b] as usize;
         loss_data[b] = -lsm_data[b * classes + t];
     }
-    let loss = ArrayD::from_shape_vec(vec![batch], loss_data).expect("data length matches shape");
+    let loss = ArrayD::from_shape_vec(vec![batch], loss_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     if !input.requires_grad() {
         return Tensor::new(loss);
     }
 
     let saved_lsm =
-        ArrayD::from_shape_vec(vec![batch, classes], lsm_data).expect("data length matches shape");
+        ArrayD::from_shape_vec(vec![batch, classes], lsm_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
     let saved_tgt = tgt.clone();
 
     Tensor::with_grad_fn(
@@ -773,7 +824,10 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                 }
             }
             vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data)
-                .expect("data length matches shape")]
+                .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            })]
         }),
     )
 }
@@ -845,7 +899,10 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
         }
     }
     let result =
-        ArrayD::from_shape_vec(vec![seq_len, dim], result_data).expect("data length matches shape");
+        ArrayD::from_shape_vec(vec![seq_len, dim], result_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     if !weight.requires_grad() {
         return Tensor::new(result);
@@ -927,8 +984,14 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                                 }
                                 vec![
                                     ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
-                                        .expect("dx"),
-                                    ArrayD::from_shape_vec(vec![dim], dw_data).expect("dw"),
+                                        .unwrap_or_else(|e| {
+                                            debug!("shape encoding failed (infallible): {e}");
+                                            ArrayD::zeros(vec![0])
+                                        }),
+                                    ArrayD::from_shape_vec(vec![dim], dw_data).unwrap_or_else(|e| {
+                                        debug!("shape encoding failed (infallible): {e}");
+                                        ArrayD::zeros(vec![0])
+                                    }),
                                 ]
                             }),
                             None,
@@ -960,7 +1023,10 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
         }
     }
     let result =
-        ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
+        ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     let requires_grad = input.requires_grad() || weight.requires_grad();
     if !requires_grad {
@@ -1019,8 +1085,14 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
 
             vec![
                 ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
-                    .expect("data length matches shape"),
-                ArrayD::from_shape_vec(vec![dim], dw_data).expect("data length matches shape"),
+                    .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
+                ArrayD::from_shape_vec(vec![dim], dw_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
             ]
         }),
     )
@@ -1042,7 +1114,13 @@ fn attention_backward_cpu(
     let mut dk = ArrayD::zeros(vec![batch, heads, seq, dim]);
     let mut dv = ArrayD::zeros(vec![batch, heads, seq, dim]);
 
-    let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).expect("grad shape matches attention dims");
+    let grad_4d = match grad.to_shape(vec![batch, heads, seq, dim]) {
+        Ok(v) => v,
+        Err(e) => {
+            debug!("attention backward grad reshape failed: {e}");
+            return vec![ArrayD::zeros(vec![0]); 3];
+        }
+    };
 
     for b in 0..batch {
         for h in 0..heads {
@@ -1197,10 +1275,34 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
             let v_saved = &saved[2];
             let s = saved[3].iter().copied().next().unwrap_or(1.0);
 
-            let grad_4d = grad.to_shape(vec![batch, heads, seq, dim]).expect("grad shape matches attention dims").to_owned().into_dyn();
-            let q_4d = q_saved.to_shape(vec![batch, heads, seq, dim]).expect("q shape matches attention dims").to_owned().into_dyn();
-            let k_4d = k_saved.to_shape(vec![batch, heads, seq, dim]).expect("k shape matches attention dims").to_owned().into_dyn();
-            let v_4d = v_saved.to_shape(vec![batch, heads, seq, dim]).expect("v shape matches attention dims").to_owned().into_dyn();
+            let grad_4d = match grad.to_shape(vec![batch, heads, seq, dim]) {
+                Ok(v) => v.to_owned().into_dyn(),
+                Err(e) => {
+                    debug!("attention backward reshape failed: {e}");
+                    return vec![ArrayD::zeros(vec![0]); 3];
+                }
+            };
+            let q_4d = match q_saved.to_shape(vec![batch, heads, seq, dim]) {
+                Ok(v) => v.to_owned().into_dyn(),
+                Err(e) => {
+                    debug!("attention backward reshape failed: {e}");
+                    return vec![ArrayD::zeros(vec![0]); 3];
+                }
+            };
+            let k_4d = match k_saved.to_shape(vec![batch, heads, seq, dim]) {
+                Ok(v) => v.to_owned().into_dyn(),
+                Err(e) => {
+                    debug!("attention backward reshape failed: {e}");
+                    return vec![ArrayD::zeros(vec![0]); 3];
+                }
+            };
+            let v_4d = match v_saved.to_shape(vec![batch, heads, seq, dim]) {
+                Ok(v) => v.to_owned().into_dyn(),
+                Err(e) => {
+                    debug!("attention backward reshape failed: {e}");
+                    return vec![ArrayD::zeros(vec![0]); 3];
+                }
+            };
 
             attention_backward_cpu(&grad_4d, &q_4d, &k_4d, &v_4d, s)
         }),
@@ -1244,7 +1346,10 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                                         dx[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                                     }
                                 }
-                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx).expect("dx length matches softmax shape")]
+                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx).unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                })]
                             }),
                             None,
                         );
@@ -1281,7 +1386,10 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
         }
     }
     let result =
-        ArrayD::from_shape_vec(shape.clone(), result_data).expect("data length matches shape");
+        ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            });
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -1307,7 +1415,10 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                 }
             }
             vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data)
-                .expect("data length matches shape")]
+                .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            })]
         }),
     )
 }

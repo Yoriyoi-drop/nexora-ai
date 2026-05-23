@@ -45,10 +45,9 @@ impl OracleVortexIntegration {
         })
     }
 
-    /// Legacy constructor — panics on failure. Prefer try_new().
-    /// safe: only fails on OOM or config deser which are caught at startup
-    pub fn new() -> Self {
-        Self::try_new().expect("failed to initialize ORACLE trainer")
+    /// Legacy constructor — returns Result. Prefer try_new().
+    pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::try_new()
     }
 
     pub async fn enhanced_code_analysis(
@@ -102,7 +101,7 @@ impl EnhancedCodeAnalysis {
 
 impl Default for OracleVortexIntegration {
     fn default() -> Self {
-        Self::new()
+        Self::try_new().expect("OracleVortexIntegration default failed")
     }
 }
 

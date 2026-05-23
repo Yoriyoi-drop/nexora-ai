@@ -25,3 +25,14 @@ pub enum LogicNodeType {
     RLFeedback,
     ContextMemory,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_logic_node_type_debug() {
+        let t = LogicNodeType::Condition;
+        assert!(!format!("{:?}", t).is_empty());
+    }
+}

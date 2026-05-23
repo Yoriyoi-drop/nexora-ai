@@ -34,3 +34,27 @@ pub enum CollabActionType {
     Fork,
     Merge,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_collab_action_type_debug() {
+        let t = CollabActionType::Fork;
+        assert!(!format!("{:?}", t).is_empty());
+    }
+
+    #[test]
+    fn test_collaborator_action() {
+        let action = CollaboratorAction {
+            user_id: Uuid::new_v4(),
+            action_type: CollabActionType::NodeAdded,
+            timestamp: Utc::now(),
+            graph_id: Uuid::new_v4(),
+            description: "Added conv layer".to_string(),
+        };
+        assert_eq!(action.action_type, CollabActionType::NodeAdded);
+        assert_eq!(action.description, "Added conv layer");
+    }
+}

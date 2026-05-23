@@ -72,12 +72,8 @@ impl ModelAgentManager {
 
 static MODEL_AGENTS: OnceLock<ModelAgentManager> = OnceLock::new();
 
-pub fn global_model_agents() -> &'static ModelAgentManager {
-    MODEL_AGENTS
-        .get()
-        .unwrap_or_else(|| {
-            panic!("ModelAgentManager not initialized. Call init_model_agents() first.")
-        })
+pub fn global_model_agents() -> Option<&'static ModelAgentManager> {
+    MODEL_AGENTS.get()
 }
 
 pub async fn init_model_agents() {

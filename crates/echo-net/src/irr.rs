@@ -226,7 +226,7 @@ impl IterativeResonanceReasoner {
         let memory_1d = self.to_1d_array(holographic_memory)?;
 
         // Compute resonance coefficient
-        let resonance_coeff = ResonanceCalculator::resonance_coefficient(&query_1d, &memory_1d);
+        let resonance_coeff = ResonanceCalculator::resonance_coefficient(&query_1d, &memory_1d)?;
 
         // Apply resonance operation
         let mut resonance = holographic_memory.clone();

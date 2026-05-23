@@ -74,3 +74,50 @@ impl ContextMemoryNode {
         self.memory_buffer.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_memory_new() {
+        let m = ContextMemoryNode::new("mem", 5, 3);
+        assert_eq!(m.memory_size, 5);
+        assert_eq!(m.state_dim, 3);
+    }
+
+    #[test]
+    fn test_push_and_retrieve() {
+        let mut m = ContextMemoryNode::new("mem", 2, 2);
+        m.push(vec![1.0, 2.0]);
+        m.push(vec![3.0, 4.0]);
+        assert_eq!(m.memory_buffer.len(), 2);
+        let result = m.retrieve(&[1.0, 2.0]);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_retrieve_empty() {
+        let m = ContextMemoryNode::new("mem", 5, 3);
+        let result = m.retrieve(&[1.0, 2.0, 3.0]);
+        assert_eq!(result, vec![0.0; 3]);
+    }
+
+    #[test]
+    fn test_push_boundary() {
+        let mut m = ContextMemoryNode::new("mem", 2, 2);
+        m.push(vec![1.0, 2.0]);
+        m.push(vec![3.0, 4.0]);
+        m.push(vec![5.0, 6.0]); // Should evict oldest
+        assert_eq!(m.memory_buffer.len(), 2);
+        assert_eq!(m.memory_buffer[0], vec![3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut m = ContextMemoryNode::new("mem", 5, 2);
+        m.push(vec![1.0, 2.0]);
+        m.clear();
+        assert!(m.memory_buffer.is_empty());
+    }
+}

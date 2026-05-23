@@ -75,7 +75,18 @@ pub struct AggregatedTelemetry {
 
 #[tauri::command]
 fn get_system_metrics(state: State<AppState>) -> SystemMetrics {
-    let mut sys = state.system.lock().unwrap();
+    let mut sys = match state.system.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            log::error!("Mutex lock failed on system state: {}", e);
+            return SystemMetrics {
+                cpu_usage: 0.0, ram_used_gb: 0.0, ram_total_gb: 0.0, ram_percent: 0.0,
+                disk_used_gb: 0.0, disk_total_gb: 0.0, disk_read_bytes: 0, disk_write_bytes: 0,
+                network_rx_bytes: 0, network_tx_bytes: 0, processes: 0, uptime_secs: 0,
+                cpu_cores: 0, cpu_per_core: vec![], gpu_usage: None, gpu_vram_used_gb: None, gpu_vram_total_gb: None,
+            };
+        }
+    };
     sys.refresh_all();
 
     let cpu_usage = sys.global_cpu_usage() as f64;
@@ -131,10 +142,11 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
 
     match &health {
         Ok(h) => {
-            tokio::task::block_in_place(|| {
-                let mut t = state.telemetry.lock().unwrap();
+            let _: Result<(), String> = tokio::task::block_in_place(|| {
+                let mut t = state.telemetry.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
                 t.nexora_ai_url = Some(base_url.clone());
                 t.telemetry_client = Some(TelemetryClient::new(&base_url));
+                Ok(())
             });
             Ok(NexoraAIMetrics {
                 connected: true,
@@ -144,8 +156,10 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
             })
         }
         Err(e) => {
-            tokio::task::block_in_place(|| {
-                state.telemetry.lock().unwrap().nexora_ai_url = None;
+            let _: Result<(), String> = tokio::task::block_in_place(|| {
+                let mut t = state.telemetry.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
+                t.nexora_ai_url = None;
+                Ok(())
             });
             Ok(NexoraAIMetrics {
                 connected: false, url: base_url,
@@ -158,7 +172,13 @@ async fn connect_nexora_ai(state: State<'_, AppState>, url: String) -> Result<Ne
 
 #[tauri::command]
 fn get_connection_status(state: State<AppState>) -> ConnectedStatus {
-    let t = state.telemetry.lock().unwrap();
+    let t = match state.telemetry.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            log::error!("Mutex lock failed on telemetry state: {}", e);
+            return ConnectedStatus { connected: false, url: String::new(), system_metrics: true, ai_metrics: false };
+        }
+    };
     let connected = t.nexora_ai_url.is_some();
     ConnectedStatus {
         connected,
@@ -170,7 +190,13 @@ fn get_connection_status(state: State<AppState>) -> ConnectedStatus {
 
 #[tauri::command]
 fn disconnect_nexora_ai(state: State<AppState>) {
-    let mut t = state.telemetry.lock().unwrap();
+    let mut t = match state.telemetry.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            log::error!("Mutex lock failed on telemetry state: {}", e);
+            return;
+        }
+    };
     t.nexora_ai_url = None;
     t.telemetry_client = None;
 }
@@ -179,7 +205,13 @@ fn disconnect_nexora_ai(state: State<AppState>) {
 
 fn get_client(state: &AppState) -> Option<TelemetryClient> {
     tokio::task::block_in_place(|| {
-        state.telemetry.lock().unwrap().telemetry_client.clone()
+        match state.telemetry.lock() {
+            Ok(g) => g.telemetry_client.clone(),
+            Err(e) => {
+                log::error!("Mutex lock failed on telemetry state: {}", e);
+                None
+            }
+        }
     })
 }
 
@@ -376,5 +408,7 @@ pub fn run() {
             get_aggregated_telemetry,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            log::error!("error while running tauri application: {}", e);
+        });
 }

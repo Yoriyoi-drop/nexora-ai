@@ -136,7 +136,7 @@ async fn handle_tls_stream(
     let mut app = app;
     let res = Service::call(&mut app, req)
         .await
-        .unwrap_or_else(|e| match e {});
+        .map_err(|e| anyhow::anyhow!("Service call failed: {}", e))?;
     let (parts, res_body) = res.into_parts();
     let status = parts.status;
     let body = axum::body::to_bytes(res_body, 10_000_000)

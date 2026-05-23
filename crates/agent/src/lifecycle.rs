@@ -410,7 +410,7 @@ impl LifecycleManager {
         {
             let mut agent_status = self.agent_status.write().await;
             agent_status.retain(|agent_id, status| {
-                let age_hours = (now - status.last_updated).num_hours() as u64;
+                let age_hours = (now - status.last_updated).num_hours().max(0) as u64;
                 let should_keep = age_hours <= max_age_hours
                     || matches!(status.status, AgentStatus::Ready | AgentStatus::Processing);
 

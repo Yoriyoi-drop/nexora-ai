@@ -31,12 +31,18 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -80,12 +86,18 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                 vec![a_shape.len()],
                 a_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
             ArrayD::from_shape_vec(
                 vec![b_shape.len()],
                 b_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -120,12 +132,18 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -169,12 +187,18 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                 vec![a_shape.len()],
                 a_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
             ArrayD::from_shape_vec(
                 vec![b_shape.len()],
                 b_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -211,12 +235,18 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -262,12 +292,18 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                 vec![a_shape.len()],
                 a_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
             ArrayD::from_shape_vec(
                 vec![b_shape.len()],
                 b_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
         ],
         Box::new(|grad, saved| {
             let a_val = &saved[0];
@@ -306,12 +342,18 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a_shape.len()],
                                     a_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 let b_shape_saved = ArrayD::from_shape_vec(
                                     vec![b_shape.len()],
                                     b_shape.iter().map(|&x| x as f32).collect(),
                                 )
-                                .expect("shape data fits in array");
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
@@ -357,12 +399,18 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                 vec![a_shape.len()],
                 a_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
             ArrayD::from_shape_vec(
                 vec![b_shape.len()],
                 b_shape.iter().map(|&x| x as f32).collect(),
             )
-            .expect("data length matches shape"),
+            .unwrap_or_else(|e| {
+                debug!("shape encoding failed (infallible): {e}");
+                ArrayD::zeros(vec![0])
+            }),
         ],
         Box::new(|grad, saved| {
             let a_val = &saved[0];

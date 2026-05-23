@@ -44,3 +44,20 @@ pub enum ExecutionMode {
     Eager,
     Compiled,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_execution_backend_name() {
+        assert_eq!(ExecutionBackend::CUDA.name(), "CUDA");
+        assert_eq!(ExecutionBackend::CPU.name(), "CPU");
+    }
+
+    #[test]
+    fn test_execution_backend_debug() {
+        let b = ExecutionBackend::Vulkan;
+        assert!(!format!("{:?}", b).is_empty());
+    }
+}

@@ -35,6 +35,7 @@ pub struct NxrAxiomModel {
     base: nexora_shared::base_model::BaseNxrModel<AxiomConfig, AxiomMetrics, AxiomState>,
     identity: AxiomIdentity,
     architecture: AxiomArchitecture,
+    #[allow(dead_code)]
     _agents: AxiomAgents,
     capabilities: AxiomCapabilities,
     components: FoundationComponents,

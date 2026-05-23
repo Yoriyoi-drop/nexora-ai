@@ -64,7 +64,7 @@ impl HLDVATrainer {
 
     /// Start training dengan 4-tahap curriculum learning
     pub fn train(&mut self, dataset: &dyn Dataset) -> HLDVAResult<()> {
-        println!("Starting HLDVA-T training with 4-stage curriculum learning");
+        tracing::info!("Starting HLDVA-T training with 4-stage curriculum learning");
 
         // Stage 0: Pre-training
         self.stage_0_pretraining(dataset)?;
@@ -78,19 +78,19 @@ impl HLDVATrainer {
         // Stage 3: End-to-end fine-tuning
         self.stage_3_finetune(dataset)?;
 
-        println!("Training completed!");
+        tracing::info!("Training completed!");
         Ok(())
     }
 
     /// Stage 0: Pre-training VAE dan CLIP
     fn stage_0_pretraining(&mut self, dataset: &dyn Dataset) -> HLDVAResult<()> {
-        println!("Stage 0: Pre-training VAE and CLIP");
+        tracing::info!("Stage 0: Pre-training VAE and CLIP");
 
         self.state.current_stage = 0;
 
         for epoch in 0..10 {
             // 10 epochs untuk pre-training
-            println!("Pre-training epoch {}/10", epoch + 1);
+            tracing::info!("Pre-training epoch {}/10", epoch + 1);
 
             // Train VAE
             let vae_loss = self.train_vae_epoch(dataset)?;
@@ -98,7 +98,7 @@ impl HLDVATrainer {
             // Train CLIP (jika perlu)
             let clip_loss = self.train_clip_epoch(dataset)?;
 
-            println!("VAE Loss: {:.4}, CLIP Loss: {:.4}", vae_loss, clip_loss);
+            tracing::info!("VAE Loss: {:.4}, CLIP Loss: {:.4}", vae_loss, clip_loss);
 
             self.state.current_epoch = epoch;
             self.state.total_steps += 1;
@@ -112,17 +112,17 @@ impl HLDVATrainer {
 
     /// Stage 1: Base DiT training
     fn stage_1_base_dit(&mut self, dataset: &dyn Dataset) -> HLDVAResult<()> {
-        println!("Stage 1: Base DiT training");
+        tracing::info!("Stage 1: Base DiT training");
 
         self.state.current_stage = 1;
 
         for epoch in 0..50 {
             // 50 epochs untuk base DiT
-            println!("Base DiT epoch {}/50", epoch + 1);
+            tracing::info!("Base DiT epoch {}/50", epoch + 1);
 
             let dit_loss = self.train_dit_epoch(dataset)?;
 
-            println!("DiT Loss: {:.4}", dit_loss);
+            tracing::info!("DiT Loss: {:.4}", dit_loss);
 
             self.state.current_epoch = epoch;
             self.state.total_steps += 1;
@@ -138,7 +138,7 @@ impl HLDVATrainer {
 
     /// Stage 2: Cascaded upsampler training
     fn stage_2_cascaded(&mut self, dataset: &dyn Dataset) -> HLDVAResult<()> {
-        println!("Stage 2: Cascaded upsampler training");
+        tracing::info!("Stage 2: Cascaded upsampler training");
 
         self.state.current_stage = 2;
 
@@ -153,7 +153,7 @@ impl HLDVATrainer {
 
     /// Stage 3: End-to-end fine-tuning
     fn stage_3_finetune(&mut self, dataset: &dyn Dataset) -> HLDVAResult<()> {
-        println!("Stage 3: End-to-end fine-tuning");
+        tracing::info!("Stage 3: End-to-end fine-tuning");
 
         self.state.current_stage = 3;
 
@@ -162,11 +162,11 @@ impl HLDVATrainer {
 
         for epoch in 0..20 {
             // 20 epochs untuk fine-tuning
-            println!("Fine-tuning epoch {}/20", epoch + 1);
+            tracing::info!("Fine-tuning epoch {}/20", epoch + 1);
 
             let finetune_loss = self.train_finetune_epoch(dataset)?;
 
-            println!("Fine-tune Loss: {:.4}", finetune_loss);
+            tracing::info!("Fine-tune Loss: {:.4}", finetune_loss);
 
             self.state.current_epoch = epoch;
             self.state.total_steps += 1;
@@ -201,7 +201,7 @@ impl HLDVATrainer {
             let vae_loss = recon_loss + self.config.vae.kl_weight * kl_loss.data()[0];
 
             // Backward pass dan update
-            self.optimizer.step(vae_loss)?;
+            self.optimizer.step()?;
 
             total_loss += vae_loss;
             num_batches += 1;
@@ -226,7 +226,7 @@ impl HLDVATrainer {
             let clip_loss = self.contrastive_loss(&text_features.text_features, &image_features)?;
 
             // Backward pass dan update
-            self.optimizer.step(clip_loss)?;
+            self.optimizer.step()?;
 
             total_loss += clip_loss;
             num_batches += 1;
@@ -269,7 +269,7 @@ impl HLDVATrainer {
             let dit_loss = self.mse_loss(&noise, &noise_pred.predicted_noise)?;
 
             // Backward pass dan update
-            self.optimizer.step(dit_loss)?;
+            self.optimizer.step()?;
 
             total_loss += dit_loss;
             num_batches += 1;
@@ -284,15 +284,15 @@ impl HLDVATrainer {
         dataset: &dyn Dataset,
         stage_idx: usize,
     ) -> HLDVAResult<()> {
-        println!("Training upsampler stage {}", stage_idx + 1);
+        tracing::info!("Training upsampler stage {}", stage_idx + 1);
 
         for epoch in 0..25 {
             // 25 epochs per upsampler
-            println!("Upsampler {} epoch {}/25", stage_idx + 1, epoch + 1);
+            tracing::info!("Upsampler {} epoch {}/25", stage_idx + 1, epoch + 1);
 
             let upsampler_loss = self.train_upsampler_epoch(dataset, stage_idx)?;
 
-            println!("Upsampler {} Loss: {:.4}", stage_idx + 1, upsampler_loss);
+            tracing::info!("Upsampler {} Loss: {:.4}", stage_idx + 1, upsampler_loss);
         }
 
         Ok(())
@@ -312,7 +312,10 @@ impl HLDVATrainer {
 
             // Get low-res dan high-res latents
             let low_res_latent = batch.latents.clone();
-            let high_res_latent = batch.latents.clone(); // Simplified - using same latent for both
+            // FIXME: high_res_latent should come from actual high-resolution data, not cloned low-res.
+            // Using same latent for both means upsampler learns identity mapping — fix by
+            // extracting proper high-res latents from the dataset's high-resolution targets.
+            let high_res_latent = batch.latents.clone();
 
             // Encode text
             let clip_embedding = self.pipeline.clip_encoder.encode(&batch.prompts[0])?;
@@ -330,7 +333,7 @@ impl HLDVATrainer {
             let upsampler_loss = self.mse_loss(&high_res_latent, &upscaled.data)?;
 
             // Backward pass dan update
-            self.optimizer.step(upsampler_loss)?;
+            self.optimizer.step()?;
 
             total_loss += upsampler_loss;
             num_batches += 1;
@@ -360,7 +363,7 @@ impl HLDVATrainer {
             let finetune_loss = self.calculate_finetune_loss(&output, &batch)?;
 
             // Backward pass dan update
-            self.optimizer.step(finetune_loss)?;
+            self.optimizer.step()?;
 
             total_loss += finetune_loss;
             num_batches += 1;
@@ -371,21 +374,21 @@ impl HLDVATrainer {
 
     /// Helper functions
     fn freeze_vae_clip(&mut self) -> HLDVAResult<()> {
-        println!("Freezing VAE and CLIP parameters");
+        tracing::info!("Freezing VAE and CLIP parameters");
         // Implementation would freeze parameters
         Ok(())
     }
 
     fn unfreeze_components(&mut self) -> HLDVAResult<()> {
-        println!("Unfreezing components for fine-tuning");
+        tracing::info!("Unfreezing components for fine-tuning");
         // Implementation would unfreeze parameters
         Ok(())
     }
 
     fn evaluate_base_dit(&self) -> HLDVAResult<()> {
-        println!("Evaluating base DiT...");
+        tracing::info!("Evaluating base DiT...");
         let metrics = self.pipeline.evaluate()?;
-        println!("CLIP Score: {:.4}", metrics.clip_score.unwrap_or(0.0));
+        tracing::info!("CLIP Score: {:.4}", metrics.clip_score.unwrap_or(0.0));
         Ok(())
     }
 
@@ -396,7 +399,7 @@ impl HLDVATrainer {
         );
         self.checkpoint_manager
             .save(&self.pipeline, &checkpoint_path)?;
-        println!("Saved checkpoint: {}", checkpoint_path);
+        tracing::info!("Saved checkpoint: {}", checkpoint_path);
         Ok(())
     }
 
@@ -542,7 +545,7 @@ impl AdamW {
         }
     }
 
-    pub fn step(&mut self, _loss: f32) -> HLDVAResult<()> {
+    pub fn step(&mut self) -> HLDVAResult<()> {
         if self.params.is_empty() {
             return Ok(());
         }

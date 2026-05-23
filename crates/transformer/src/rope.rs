@@ -50,10 +50,10 @@ impl RoPE {
                 if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
                     let half = cos.len();
                     let cos_gpu = GpuTensor::from_cpu(
-                        &ArrayD::from_shape_vec(vec![half], cos.to_vec()).unwrap()
+                        &ArrayD::from_shape_vec(vec![half], cos.to_vec()).expect("shape mismatch for cos")
                     ).ok();
                     let sin_gpu = GpuTensor::from_cpu(
-                        &ArrayD::from_shape_vec(vec![half], sin.to_vec()).unwrap()
+                        &ArrayD::from_shape_vec(vec![half], sin.to_vec()).expect("shape mismatch for sin")
                     ).ok();
                     if let (Some(cg), Some(sg)) = (cos_gpu, sin_gpu) {
                         if let Ok(result) = ctx.rotary_embedding(&x_gpu, &cg, &sg, head_dim as u32) {
@@ -130,12 +130,12 @@ impl RoPE {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
         let half_vec = vec![cos_cpu.len()];
-        let cos_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(half_vec.clone(), cos_cpu.to_vec()).unwrap()
-        )?;
-        let sin_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(half_vec, sin_cpu.to_vec()).unwrap()
-        )?;
+        let cos_arr = ndarray::ArrayD::from_shape_vec(half_vec.clone(), cos_cpu.to_vec())
+            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+        let cos_gpu = GpuTensor::from_cpu(&cos_arr)?;
+        let sin_arr = ndarray::ArrayD::from_shape_vec(half_vec, sin_cpu.to_vec())
+            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+        let sin_gpu = GpuTensor::from_cpu(&sin_arr)?;
         ctx.rotary_embedding(x, &cos_gpu, &sin_gpu, self.head_dim as u32)
     }
 }

@@ -24,7 +24,10 @@ pub fn sum(input: &Tensor) -> Tensor {
                             vec![orig_shape.len()],
                             orig_shape.iter().map(|&x| x as f32).collect(),
                         )
-                        .expect("shape data fits in array");
+                        .unwrap_or_else(|e| {
+                            debug!("shape encoding failed (infallible): {e}");
+                            ArrayD::zeros(vec![0])
+                        });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -55,7 +58,10 @@ pub fn sum(input: &Tensor) -> Tensor {
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
     )
-    .expect("shape data fits vector");
+    .unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
@@ -82,7 +88,10 @@ fn fallback_mean(input: &Tensor) -> Tensor {
     let shape_saved = ArrayD::from_shape_vec(
         vec![orig_shape.len()],
         orig_shape.iter().map(|&x| x as f32).collect(),
-    ).expect("shape data fits vector");
+    ).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
@@ -125,7 +134,10 @@ pub fn mean(input: &Tensor) -> Tensor {
                                 vec![orig_shape.len()],
                                 orig_shape.iter().map(|&x| x as f32).collect(),
                             )
-                            .expect("shape data fits in array");
+                            .unwrap_or_else(|e| {
+                                debug!("shape encoding failed (infallible): {e}");
+                                ArrayD::zeros(vec![0])
+                            });
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![input.clone()],

@@ -85,3 +85,67 @@ pub fn color_to_hex(color: CableColor) -> &'static str {
         CableColor::Gray => "#6B7280",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::smart_tensor::SmartTensorMetadata;
+    use crate::TensorDesc;
+
+    fn meta() -> SmartTensorMetadata {
+        SmartTensorMetadata::new(TensorDesc::new(vec![1, 64], crate::DType::F32))
+    }
+
+    #[test]
+    fn test_visualization_from_metadata_stable() {
+        let m = meta();
+        let vis = TensorVisualization::from_metadata(&m);
+        assert_eq!(vis.cable_color, CableColor::Green);
+        assert!((vis.opacity - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_visualization_exploding() {
+        let mut m = meta();
+        m.gradient = GradientStatus::Exploding(50.0);
+        let vis = TensorVisualization::from_metadata(&m);
+        assert_eq!(vis.cable_color, CableColor::Red);
+        assert_eq!(vis.animation_pattern, AnimationPattern::Pulsing);
+    }
+
+    #[test]
+    fn test_visualization_vanishing() {
+        let mut m = meta();
+        m.gradient = GradientStatus::Vanishing(1e-10);
+        let vis = TensorVisualization::from_metadata(&m);
+        assert_eq!(vis.cable_color, CableColor::Red);
+        assert_eq!(vis.animation_pattern, AnimationPattern::Pulsing);
+    }
+
+    #[test]
+    fn test_visualization_saturated() {
+        let mut m = meta();
+        m.gradient = GradientStatus::Saturated;
+        let vis = TensorVisualization::from_metadata(&m);
+        assert_eq!(vis.cable_color, CableColor::Yellow);
+        assert_eq!(vis.animation_pattern, AnimationPattern::Dashed);
+    }
+
+    #[test]
+    fn test_visualization_frozen() {
+        let mut m = meta();
+        m.is_frozen = true;
+        let vis = TensorVisualization::from_metadata(&m);
+        assert_eq!(vis.cable_color, CableColor::Blue);
+        assert!((vis.opacity - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_color_to_hex() {
+        assert_eq!(color_to_hex(CableColor::Green), "#22C55E");
+        assert_eq!(color_to_hex(CableColor::Red), "#EF4444");
+        assert_eq!(color_to_hex(CableColor::Blue), "#3B82F6");
+        assert_eq!(color_to_hex(CableColor::Gray), "#6B7280");
+        assert_eq!(color_to_hex(CableColor::Yellow), "#EAB308");
+    }
+}

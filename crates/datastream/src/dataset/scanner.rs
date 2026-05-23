@@ -87,7 +87,13 @@ impl ShardScanner {
 
         if ext == "arrow" {
             let compression = Compression::None;
-            let size = std::fs::metadata(path).ok().map(|m| m.len()).unwrap_or(0);
+            let size = match std::fs::metadata(path) {
+                Ok(m) => m.len(),
+                Err(e) => {
+                    tracing::warn!("Failed to read metadata for {}: {}", path.display(), e);
+                    0
+                }
+            };
             let split = detect_split(&fname);
             return Some(ShardPath {
                 path: path.to_path_buf(),
@@ -99,7 +105,13 @@ impl ShardScanner {
 
         let full_name = path.file_name()?.to_string_lossy().to_lowercase();
         if full_name.ends_with(".arrow.zst") || full_name.ends_with(".arrow.zstd") {
-            let size = std::fs::metadata(path).ok().map(|m| m.len()).unwrap_or(0);
+            let size = match std::fs::metadata(path) {
+                Ok(m) => m.len(),
+                Err(e) => {
+                    tracing::warn!("Failed to read metadata for {}: {}", path.display(), e);
+                    0
+                }
+            };
             let split = detect_split(&fname);
             return Some(ShardPath {
                 path: path.to_path_buf(),
@@ -109,7 +121,13 @@ impl ShardScanner {
             });
         }
         if full_name.ends_with(".arrow.lz4") {
-            let size = std::fs::metadata(path).ok().map(|m| m.len()).unwrap_or(0);
+            let size = match std::fs::metadata(path) {
+                Ok(m) => m.len(),
+                Err(e) => {
+                    tracing::warn!("Failed to read metadata for {}: {}", path.display(), e);
+                    0
+                }
+            };
             let split = detect_split(&fname);
             return Some(ShardPath {
                 path: path.to_path_buf(),

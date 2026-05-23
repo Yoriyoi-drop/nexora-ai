@@ -7,11 +7,17 @@ use crate::types::{DataSample, SampleStats, SourceCategory};
 use uuid::Uuid;
 
 fn client() -> Option<reqwest::Client> {
-    reqwest::Client::builder()
+    match reqwest::Client::builder()
         .user_agent("Nexora-DataStream/1.0")
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .ok()
+    {
+        Ok(client) => Some(client),
+        Err(e) => {
+            tracing::warn!("Failed to build HTTP client: {}", e);
+            None
+        }
+    }
 }
 
 /// Fetch HackerNews top stories via Firebase API (no auth required).
@@ -213,7 +219,13 @@ async fn fetch_wikipedia_extract(client: &reqwest::Client, title: &str) -> Optio
         .send()
         .await;
     let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
-        Ok(r) => r.json().await.ok()?,
+        Ok(r) => match r.json().await {
+            Ok(val) => val,
+            Err(e) => {
+                tracing::warn!("Wikipedia JSON response parse failed: {}", e);
+                return None;
+            }
+        },
         Err(_) => return None,
     };
 
@@ -270,10 +282,12 @@ impl SourceProvider for RedditProvider {
             .user_agent("Nexora-DataStream/1.0 (by /u/nexora)")
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .ok()
         {
-            Some(c) => c,
-            None => return vec![],
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to build Reddit HTTP client: {}", e);
+                return vec![];
+            }
         };
         let source = self.source_info();
         let mut samples = Vec::new();

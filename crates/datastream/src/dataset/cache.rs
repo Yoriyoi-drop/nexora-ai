@@ -20,7 +20,9 @@ struct MmapEntry {
 
 impl DatasetCache {
     pub fn new(cache_dir: PathBuf) -> Self {
-        std::fs::create_dir_all(&cache_dir).ok();
+        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+            warn!("Failed to create cache directory {}: {}", cache_dir.display(), e);
+        }
         Self {
             token_cache: Arc::new(RwLock::new(TokenizerCache::new(cache_dir.join("tokens")))),
             mmap_registry: Arc::new(RwLock::new(HashMap::new())),

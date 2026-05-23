@@ -128,3 +128,47 @@ impl DiagnosticAssistant {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intervention::detector::{AnomalyType, DetectedAnomaly};
+
+    #[test]
+    fn test_analyze_dead_activation() {
+        let anomaly = DetectedAnomaly {
+            anomaly_type: AnomalyType::DeadActivation,
+            node_id: uuid::Uuid::new_v4(),
+            severity: 0.8,
+            description: "test".to_string(),
+        };
+        let advice = DiagnosticAssistant::analyze(&anomaly);
+        assert!(advice.explanation.contains("dead"));
+        assert_eq!(advice.auto_fix, Some("Replace ReLU with LeakyReLU (negative_slope=0.01)".to_string()));
+    }
+
+    #[test]
+    fn test_analyze_saturated() {
+        let anomaly = DetectedAnomaly {
+            anomaly_type: AnomalyType::SaturatedActivation,
+            node_id: uuid::Uuid::new_v4(),
+            severity: 0.6,
+            description: "test".to_string(),
+        };
+        let advice = DiagnosticAssistant::analyze(&anomaly);
+        assert!(advice.explanation.contains("saturated"));
+        assert!(advice.auto_fix.is_some());
+    }
+
+    #[test]
+    fn test_analyze_unknown_type() {
+        let anomaly = DetectedAnomaly {
+            anomaly_type: AnomalyType::UnstableAttention,
+            node_id: uuid::Uuid::new_v4(),
+            severity: 0.5,
+            description: "test".to_string(),
+        };
+        let advice = DiagnosticAssistant::analyze(&anomaly);
+        assert_eq!(advice.auto_fix, None);
+    }
+}

@@ -61,25 +61,25 @@ struct PerformancePattern {
     rule_id: &'static str,
 }
 
-/// Regex patterns with proper error handling
+/// Regex patterns — all patterns are static and verified at first use
 static NESTED_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(").expect("Invalid nested loop regex pattern")
+    Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(").expect("valid nested-loop regex")
 });
 
 static PYTHON_STRING_CONCAT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\w+\s*\+=\s*["']"#).expect("Invalid Python string concat regex pattern")
+    Regex::new(r#"\w+\s*\+=\s*["']"#).expect("valid Python string concat regex")
 });
 
 static C_MALLOC_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\bmalloc\s*\(").expect("Invalid malloc regex pattern"));
+    Lazy::new(|| Regex::new(r"\bmalloc\s*\(").expect("valid malloc regex"));
 
 static BLOCKING_IO_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(")
-        .expect("Invalid blocking I/O regex pattern")
+        .expect("valid blocking I/O regex")
 });
 
 static INEFFICIENT_SORT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(bubble_sort|selection_sort)\b").expect("Invalid inefficient sort regex pattern")
+    Regex::new(r"\b(bubble_sort|selection_sort)\b").expect("valid inefficient sort regex")
 });
 
 /// Performance verifier

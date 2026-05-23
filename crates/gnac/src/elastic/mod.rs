@@ -19,3 +19,14 @@ pub enum ElasticStrategy {
     Balanced,      // Trade-off
     HighPrecision, // Akurasi maksimal
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_elastic_strategy() {
+        assert_eq!(ElasticStrategy::Lightweight as u8, 0);
+        assert_eq!(ElasticStrategy::HighPrecision as u8, 2);
+    }
+}

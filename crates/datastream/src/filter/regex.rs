@@ -30,16 +30,19 @@ impl RegexFilter {
     }
 }
 
+fn default_block_patterns() -> Vec<Regex> {
+    vec![
+        Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b").expect("valid regex: spam keywords"),
+        Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+").expect("valid regex: URL shorteners"),
+        Regex::new(r"(?m)^>{10,}").expect("valid regex: blockquote abuse"),
+        Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b").expect("valid regex: email pattern"),
+    ]
+}
+
 impl Default for RegexFilter {
     fn default() -> Self {
         Self {
-            block_patterns: vec![
-                // safe because: compile-time known regex literal
-                Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b").unwrap(),
-                Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+").unwrap(),
-                Regex::new(r"(?m)^>{10,}").unwrap(),
-                Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b").unwrap(),
-            ],
+            block_patterns: default_block_patterns(),
             require_patterns: vec![],
         }
     }

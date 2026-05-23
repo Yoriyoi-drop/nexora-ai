@@ -36,3 +36,34 @@ pub fn estimate_accuracy(graph: &NeuralGraph) -> f32 {
 
     (param_factor * 0.6 + depth_factor * 0.4).clamp(0.0, 1.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_estimate_accuracy_empty() {
+        let g = NeuralGraph::new("empty");
+        let acc = estimate_accuracy(&g);
+        assert!(acc >= 0.0 && acc <= 1.0);
+    }
+
+    #[test]
+    fn test_estimate_accuracy_with_nodes() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Output, "out", 0.0, 0.0));
+        let acc = estimate_accuracy(&g);
+        assert!(acc > 0.0);
+    }
+
+    #[test]
+    fn test_compute_fitness() {
+        let g = NeuralGraph::new("empty");
+        let config = SwarmConfig::default();
+        let fitness = compute_fitness(&g, 0.8, &config);
+        assert!(fitness.is_finite());
+    }
+}

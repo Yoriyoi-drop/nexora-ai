@@ -251,7 +251,7 @@ impl LatencyTracker {
             let index = ((percentile as f64 / 100.0) * latencies.len() as f64) as usize;
             let index = index.min(latencies.len().saturating_sub(1));
             // Convert f32 to integer key (multiply by 1000 to preserve 3 decimal places)
-            let percentile_key = (percentile * 1000.0) as u32;
+            let percentile_key = (percentile * 1000.0).max(0.0) as u32;
             percentile_stats.insert(percentile_key, latencies[index]);
         }
 

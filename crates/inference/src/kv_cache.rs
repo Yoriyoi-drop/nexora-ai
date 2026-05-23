@@ -130,11 +130,9 @@ impl KVCache {
         let hash = self.hash_key(&key);
         let mut entries = self.entries.write().await;
 
-        let prev = self
-            .total_memory_used
-            .fetch_add(entry_size, Ordering::Relaxed);
-
-        while entries.len() >= self.max_entries || (prev + entry_size) > self.max_memory_bytes {
+        while entries.len() >= self.max_entries
+            || (self.total_memory_used.load(Ordering::Relaxed) + entry_size) > self.max_memory_bytes
+        {
             let lru_key = entries
                 .iter()
                 .min_by_key(|(_, e)| e.last_access.load(Ordering::Relaxed))
@@ -165,6 +163,7 @@ impl KVCache {
             },
         );
         self.cache_size_count.fetch_add(1, Ordering::Relaxed);
+        self.total_memory_used.fetch_add(entry_size, Ordering::Relaxed);
         self.estimated_memory.fetch_add(entry_size, Ordering::Relaxed);
 
         drop(entries);
@@ -253,6 +252,7 @@ impl KVCache {
     }
 
     async fn maybe_cleanup(&self) {
+        // Lock ordering: last_cleanup → entries (dropped before evict_expired acquires entries)
         let mut last = self.last_cleanup.write().await;
         if last.elapsed() > Duration::from_secs(300) {
             *last = Instant::now();

@@ -352,7 +352,7 @@ impl NxrOmnisModel {
             .await?;
 
         // Step 3: World modeling
-        let world_model = self.agents.world_model_x().update_context(input).await?;
+        self.agents.world_model_x().update_context(input).await?;
 
         // Step 4: Chain execution
         let chain_result = self

@@ -1,18 +1,26 @@
 use super::super::tensor::Tensor;
+use ndarray::ArrayD;
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuTensor;
 #[cfg(feature = "gpu")]
 use crate::Storage;
-#[cfg(feature = "gpu")]
-use ndarray::ArrayD;
 
 pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     let a_shape = a.shape();
     let b_shape = b.shape();
 
-    assert_eq!(a_shape.len(), 2, "MatMul: a must be 2D");
-    assert_eq!(b_shape.len(), 2, "MatMul: b must be 2D");
-    assert_eq!(a_shape[1], b_shape[0], "MatMul: inner dims must match");
+    if a_shape.len() != 2 {
+        tracing::error!("MatMul: a must be 2D, got {}D", a_shape.len());
+        return Tensor::new(ArrayD::zeros(vec![0]));
+    }
+    if b_shape.len() != 2 {
+        tracing::error!("MatMul: b must be 2D, got {}D", b_shape.len());
+        return Tensor::new(ArrayD::zeros(vec![0]));
+    }
+    if a_shape[1] != b_shape[0] {
+        tracing::error!("MatMul: inner dims must match, got {} and {}", a_shape[1], b_shape[0]);
+        return Tensor::new(ArrayD::zeros(vec![0]));
+    }
 
     #[cfg(feature = "gpu")]
     {
@@ -121,12 +129,20 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     let a_view = a_data.view();
     let b_view = b_data.view();
 
-    let a_mat = a_view
-        .into_dimensionality::<ndarray::Ix2>()
-        .unwrap_or_else(|e| panic!("MatMul: a must be 2D: {e}"));
-    let b_mat = b_view
-        .into_dimensionality::<ndarray::Ix2>()
-        .unwrap_or_else(|e| panic!("MatMul: b must be 2D: {e}"));
+    let a_mat = match a_view.into_dimensionality::<ndarray::Ix2>() {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!("MatMul: a must be 2D: {e}");
+            return Tensor::new(ArrayD::zeros(vec![0]));
+        }
+    };
+    let b_mat = match b_view.into_dimensionality::<ndarray::Ix2>() {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!("MatMul: b must be 2D: {e}");
+            return Tensor::new(ArrayD::zeros(vec![0]));
+        }
+    };
 
     let result = a_mat.dot(&b_mat).into_dyn();
 

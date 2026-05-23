@@ -27,13 +27,18 @@ impl InGenerationGuard {
     pub fn new(config: InGenConfig) -> Self {
         Self {
             recency_keywords: vec![
-                Regex::new(r"(?i)\b(202[4-9]|2030)\b").unwrap(),
-                Regex::new(r"(?i)\b(terbaru|latest|recently|baru-baru)\b").unwrap(),
+                Regex::new(r"(?i)\b(202[4-9]|2030)\b")
+                    .expect("valid year pattern regex"),
+                Regex::new(r"(?i)\b(terbaru|latest|recently|baru-baru)\b")
+                    .expect("valid recency keyword regex"),
             ],
             specific_claim_patterns: vec![
-                Regex::new(r"\b\d{1,3}(,\d{3})*(\.\d+)?\b").unwrap(),
-                Regex::new(r#""[^"]{15,}""#).unwrap(),
-                Regex::new(r"(?i)\b(menurut|according to|research shows|studies show)\b").unwrap(),
+                Regex::new(r"\b\d{1,3}(,\d{3})*(\.\d+)?\b")
+                    .expect("valid number pattern regex"),
+                Regex::new(r#""[^"]{15,}""#)
+                    .expect("valid quote pattern regex"),
+                Regex::new(r"(?i)\b(menurut|according to|research shows|studies show)\b")
+                    .expect("valid citation keyword regex"),
             ],
             config,
         }
@@ -96,5 +101,108 @@ impl InGenerationGuard {
             .iter()
             .map(|p| p.find_iter(text).count())
             .sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn guard() -> InGenerationGuard {
+        InGenerationGuard::new(InGenConfig::default())
+    }
+
+    #[test]
+    fn test_uncertainty_clean_input() {
+        let g = guard();
+        let score = g.compute_uncertainty("What is Rust?", None);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_uncertainty_recency_keyword() {
+        let g = guard();
+        let score = g.compute_uncertainty("What happened in 2025?", None);
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_uncertainty_recency_latest() {
+        let g = guard();
+        let score = g.compute_uncertainty("What is the latest news?", None);
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_uncertainty_specific_claim() {
+        let g = guard();
+        let score = g.compute_uncertainty("Menurut penelitian, 1,234 people agree", None);
+        assert!(score >= 0.15);
+    }
+
+    #[test]
+    fn test_uncertainty_multiple_triggers_clamped() {
+        let g = guard();
+        let score = g.compute_uncertainty(
+            "In 2025, according to research, 1,234,567 people say the latest news",
+            None,
+        );
+        assert!(score <= 1.0);
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_enhance_with_uncertainty_low() {
+        let g = guard();
+        let result = g.enhance_with_uncertainty("Hello", 0.2);
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn test_enhance_with_uncertainty_medium() {
+        let g = guard();
+        let result = g.enhance_with_uncertainty("Hello", 0.5);
+        assert!(result.contains("verifikasi"));
+    }
+
+    #[test]
+    fn test_enhance_with_uncertainty_high() {
+        let g = guard();
+        let result = g.enhance_with_uncertainty("Hello", 0.8);
+        assert!(result.contains("TIDAK YAKIN"));
+    }
+
+    #[test]
+    fn test_extract_claims_short_sentences_ignored() {
+        let g = guard();
+        let claims = g.extract_claims("Hi. OK. Bye.");
+        assert!(claims.is_empty());
+    }
+
+    #[test]
+    fn test_extract_claims_with_numbers() {
+        let g = guard();
+        let claims = g.extract_claims("The population is 1,234,567 according to research.");
+        assert_eq!(claims.len(), 1);
+    }
+
+    #[test]
+    fn test_extract_claims_with_quotes() {
+        let g = guard();
+        let claims = g.extract_claims("He said \"this is a very long quote indeed\".");
+        assert_eq!(claims.len(), 1);
+    }
+
+    #[test]
+    fn test_count_specific_claims_none() {
+        let g = guard();
+        assert_eq!(g.count_specific_claims("hello world"), 0);
+    }
+
+    #[test]
+    fn test_count_specific_claims_numbers() {
+        let g = guard();
+        let count = g.count_specific_claims("There are 1,234 items and 5,678 people");
+        assert!(count > 0);
     }
 }

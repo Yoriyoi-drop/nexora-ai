@@ -3,6 +3,7 @@
 
 use ndarray::ArrayD;
 
+use crate::DeepLearningError;
 use crate::DLResult;
 use nexora_autograd::Tensor;
 
@@ -292,11 +293,11 @@ impl EchoNetModel {
         let wave = self.sse.forward(token_ids, &positions)?;
 
         // 2. APSS
-        let emb_flat = wave
+        let emb_flat: ArrayD<f32> = wave
             .amplitude
             .clone()
             .into_shape(wave.amplitude.len())
-            .expect("reshape to 1D")
+            .map_err(DeepLearningError::from)?
             .into_dyn();
         self.apss.forward(
             &mut HolographicWave {
@@ -348,8 +349,7 @@ impl EchoNetModel {
 
         // 9. ISC — returns Array1<f32> (sudah termasuk output_weights + bias + softmax)
         let logits_1d = self.isc.forward(&routed, timestamp)?;
-        let logits_arr = ArrayD::from_shape_vec(vec![1, logits_1d.len()], logits_1d.to_vec())
-            .expect("data length matches shape");
+        let logits_arr = ArrayD::from_shape_vec(vec![1, logits_1d.len()], logits_1d.to_vec())?;
 
         // Bungkus di Tensor, dipecah dari computation graph via no_grad
         let out = Tensor::new(logits_arr);

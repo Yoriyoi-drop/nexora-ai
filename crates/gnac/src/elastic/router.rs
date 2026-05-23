@@ -55,3 +55,36 @@ impl ElasticRouter {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::GraphNode;
+    use crate::NodeType;
+
+    #[test]
+    fn test_elastic_router_new() {
+        let r = ElasticRouter::new(ElasticStrategy::Balanced);
+        assert_eq!(r.strategy, ElasticStrategy::Balanced);
+    }
+
+    #[test]
+    fn test_select_path_lightweight() {
+        let mut g = NeuralGraph::new("g");
+        g.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::SelfAttention, "attn", 0.0, 0.0));
+        g.add_node(GraphNode::new(NodeType::Output, "out", 0.0, 0.0));
+        let r = ElasticRouter::new(ElasticStrategy::Lightweight);
+        let path = r.select_path(0.5, &g);
+        // SelfAttention should be excluded
+        assert!(!path.is_empty());
+    }
+
+    #[test]
+    fn test_select_path_high_precision() {
+        let g = NeuralGraph::new("empty");
+        let r = ElasticRouter::new(ElasticStrategy::HighPrecision);
+        let path = r.select_path(0.5, &g);
+        assert!(path.is_empty());
+    }
+}

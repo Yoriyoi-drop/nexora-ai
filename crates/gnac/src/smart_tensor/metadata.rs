@@ -74,3 +74,68 @@ impl SmartTensorMetadata {
         self.is_grad_required = true;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TensorDesc;
+
+    fn meta() -> SmartTensorMetadata {
+        SmartTensorMetadata::new(TensorDesc::new(vec![2, 3], crate::DType::F32))
+    }
+
+    #[test]
+    fn test_smart_tensor_metadata_new() {
+        let m = meta();
+        assert_eq!(m.tensor.shape, vec![2, 3]);
+        assert_eq!(m.memory_cost, 2 * 3 * 4);
+        assert_eq!(m.gradient, GradientStatus::Stable);
+        assert!(!m.is_frozen);
+        assert!(m.is_grad_required);
+    }
+
+    #[test]
+    fn test_smart_tensor_metadata_new_f64() {
+        let desc = TensorDesc::new(vec![10], crate::DType::F64);
+        let m = SmartTensorMetadata::new(desc);
+        assert_eq!(m.memory_cost, 10 * 8);
+    }
+
+    #[test]
+    fn test_update_entropy() {
+        let mut m = meta();
+        m.update_entropy(&[0.5, 0.5]);
+        assert!(m.entropy_score > 0.0);
+    }
+
+    #[test]
+    fn test_update_entropy_zero_total() {
+        let mut m = meta();
+        m.update_entropy(&[0.0, 0.0]);
+        assert_eq!(m.entropy_score, 0.0);
+    }
+
+    #[test]
+    fn test_estimate_bandwidth() {
+        let mut m = meta();
+        m.estimate_bandwidth(1_000_000);
+        assert!(m.bandwidth_estimate > 0.0);
+    }
+
+    #[test]
+    fn test_freeze() {
+        let mut m = meta();
+        m.freeze();
+        assert!(m.is_frozen);
+        assert!(!m.is_grad_required);
+    }
+
+    #[test]
+    fn test_unfreeze() {
+        let mut m = meta();
+        m.freeze();
+        m.unfreeze();
+        assert!(!m.is_frozen);
+        assert!(m.is_grad_required);
+    }
+}
