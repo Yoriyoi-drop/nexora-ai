@@ -82,7 +82,8 @@ impl RequestScheduler {
         Ok(())
     }
 
-    /// Spawn a background worker that periodically polls for ready batches.
+    /// Spawn a background worker that periodically polls for ready batches
+    /// and processes them by fanning out responses to request channels.
     /// This ensures timed-out batches are drained even when the engine's
     /// request loop is busy elsewhere.
     pub fn start(this: Arc<RwLock<Self>>) {
@@ -99,8 +100,22 @@ impl RequestScheduler {
                 if this.read().await.shutdown.load(Ordering::Relaxed) {
                     break;
                 }
-                while let Some(_batch) = this.read().await.pop_batch().await {
-                    debug!("background worker popped ready batch");
+                while let Some(batch) = this.read().await.pop_batch().await {
+                    debug!("background worker popped ready batch {}", batch.batch_id);
+                    // Process each request in the batch by sending a timeout response
+                    // so callers don't hang indefinitely.
+                    for breq in &batch.requests {
+                        let mut resp = crate::InferenceResponse::new(breq.request_id);
+                        resp.finish_reason = crate::FinishReason::Timeout;
+                        let guard = this.read().await;
+                        let requests = guard.requests.read().await;
+                        if let Some(tx) = requests.get(&breq.request_id).map(|r| r.response_tx.clone()) {
+                            let _ = tx.send(resp).await;
+                        }
+                        if let Err(e) = this.read().await.complete_request(breq.request_id).await {
+                            tracing::warn!("background worker: failed to complete request {}: {}", breq.request_id, e);
+                        }
+                    }
                 }
                 tokio::select! {
                     _ = shutdown_rx.changed() => {},
@@ -279,13 +294,20 @@ impl RequestScheduler {
         request_id: Uuid,
         response: crate::InferenceResponse,
     ) -> Result<(), anyhow::Error> {
-        let requests = self.requests.read().await;
-        if let Some(req) = requests.get(&request_id) {
-            req.response_tx
-                .send(response)
+        // Clone the sender while holding the lock, then drop the lock
+        // before awaiting on `.send()` to avoid holding an async lock
+        // across an await point (reduces contention / deadlock risk).
+        let maybe_tx = {
+            let requests = self.requests.read().await;
+            requests.get(&request_id).map(|req| req.response_tx.clone())
+        };
+
+        if let Some(tx) = maybe_tx {
+            tx.send(response)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
         }
+
         Ok(())
     }
 

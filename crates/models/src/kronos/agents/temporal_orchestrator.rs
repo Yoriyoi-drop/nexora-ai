@@ -227,6 +227,11 @@ impl TemporalOrchestratorAgent {
         &self,
         input: &TemporalOrchestratorTaskInput,
     ) -> AgentResult<Vec<String>> {
+        // TODO: Implement actual orchestration plan generation based on workflow analysis
+        // Current implementation is a placeholder that returns a fixed template
+        tracing::warn!(
+            "TemporalOrchestratorAgent::create_orchestration_plan called with placeholder implementation"
+        );
         Ok(vec![
             format!("Step 1: Initialize workflow: {}", input.workflow_definition),
             "Step 2: Set up temporal constraints and coordination".to_string(),

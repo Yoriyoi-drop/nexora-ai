@@ -63,7 +63,7 @@ pub struct InferenceEngine {
     scheduler: Arc<RwLock<RequestScheduler>>,
     kv_cache: Arc<RwLock<KVCache>>,
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
-    model: CausalLM,
+    model: Arc<CausalLM>,
     tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     prefix_cache: Arc<PrefixCache>,
@@ -88,7 +88,7 @@ impl InferenceEngine {
     pub fn new(config: InferenceConfig) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
         let model_config = TransformerConfig::default();
-        let model = CausalLM::new(model_config);
+        let model = Arc::new(CausalLM::new(model_config));
         info!(
             "CausalLM initialized with {} parameters",
             model.parameter_count()
@@ -131,7 +131,7 @@ impl InferenceEngine {
     }
 
     pub fn with_model(
-        model: CausalLM,
+        model: Arc<CausalLM>,
         tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
         config: InferenceConfig,
     ) -> Self {
@@ -267,7 +267,7 @@ impl InferenceEngine {
             .ok_or_else(|| InferenceError::InternalError("No streaming engine".to_string()))?;
 
         let (stream_id, mut rx) = se.write().await.create_stream().await?;
-        let model = self.model.clone();
+        let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let use_gpu = self.config.use_gpu;
         #[cfg(feature = "gpu")]
@@ -322,7 +322,7 @@ impl InferenceEngine {
                     core::slice::from_ref(all_ids.last().unwrap_or(&0))
                 };
 
-                let logits = ModelForward::forward(&model, input, &mut *kv_state);
+                let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
                 let logits_slice = logits.as_slice().unwrap_or(&[]);
 
                 let token_id = match sampler.sample(logits_slice) {
@@ -432,14 +432,25 @@ impl InferenceEngine {
         });
         sampler.set_use_gpu(self.config.use_gpu);
 
-        let (tokens, timed_out) = run_generation_loop(
-            &self.model,
-            &prompt_ids,
-            max_gen,
-            &mut sampler,
-            &mut *kv_state,
-            self.tokenizer.as_ref(),
-        );
+        // Run CPU-bound generation loop on blocking thread to avoid async runtime starvation
+        let model = Arc::clone(&self.model);
+        let tokenizer = self.tokenizer.clone();
+        let prompt_ids_for_loop = prompt_ids.clone();
+        let (tokens, timed_out) = tokio::task::spawn_blocking(move || {
+            run_generation_loop(
+                &model,
+                &prompt_ids_for_loop,
+                max_gen,
+                &mut sampler,
+                &mut *kv_state,
+                tokenizer.as_ref(),
+            )
+        })
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("Generation loop panicked: {:?}", e);
+            (Vec::new(), true)
+        });
 
         for token in tokens {
             response.add_token(token);
@@ -587,7 +598,7 @@ impl InferenceEngine {
     async fn spawn_batch_processor(&self, batch: crate::batching::Batch) {
         let engine = InferenceEngineHandle {
             scheduler: self.scheduler.clone(),
-            model: self.model.clone(),
+            model: Arc::clone(&self.model),
             tokenizer: self.tokenizer.clone(),
             state: self.state.clone(),
             use_gpu: self.config.use_gpu,
@@ -788,7 +799,7 @@ fn run_generation_loop(
 /// Handle used inside spawned tasks to avoid borrowing self
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
-    model: CausalLM,
+    model: Arc<CausalLM>,
     tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
     use_gpu: bool,

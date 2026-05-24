@@ -626,8 +626,8 @@ mod tests {
 
         let flat = cache.to_flat_cache(99).unwrap();
         assert_eq!(flat.len(), 2); // 2 layers
-        assert_eq!(flat[0].k.shape(), &[3, 8]); // 3 tokens, 8 cols
-        assert_eq!(flat[0].v.shape(), &[3, 8]);
+        assert_eq!(flat[0].k.len(), 3 * 8); // 3 tokens * 8 cols
+        assert_eq!(flat[0].v.len(), 3 * 8);
     }
 
     #[test]

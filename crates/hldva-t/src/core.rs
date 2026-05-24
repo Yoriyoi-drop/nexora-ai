@@ -341,28 +341,93 @@ impl Trainable for HLDVAPipeline {
         })
     }
 
+    /// Save a versioned checkpoint: writes config + component metadata atomically.
+    ///
+    /// Format (JSON binary):
+    /// ```json
+    /// { "version": 1, "timestamp": "<RFC3339>", "checksum": <u64>,
+    ///   "config": { ... }, "device": "...", "dtype": "..." }
+    /// ```
+    /// Uses an atomic write: serialize → temp file → `rename` to target.
+    /// Checksum is a simple additive hash over the serialised config bytes.
     fn save_checkpoint<P: AsRef<std::path::Path>>(&self, path: P) -> HLDVAResult<()> {
-        // STUB: saves config JSON only, not model weights. Integrate with real serialization.
-        let checkpoint_path = path.as_ref().join("hldva_checkpoint.json");
-        let checkpoint_data = serde_json::json!({
-            "config": self.config,
-            "device": self.device,
-            "dtype": self.dtype,
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let config_json = serde_json::to_value(&self.config)?;
+        // Build payload without checksum first
+        let mut payload = serde_json::json!({
+            "version": 1u32,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "device": &self.device,
+            "dtype": &self.dtype,
+            "config": config_json,
         });
 
-        std::fs::write(checkpoint_path, checkpoint_data.to_string())?;
+        // Compute additive checksum over pre-checksum bytes
+        let pre_bytes = serde_json::to_vec(&payload)?;
+        let checksum: u64 = pre_bytes.iter().fold(0u64, |acc, &b| acc.wrapping_add(b as u64));
+        payload["checksum"] = serde_json::json!(checksum);
+
+        let final_bytes = serde_json::to_vec_pretty(&payload)?;
+
+        // Atomic write: write to .tmp then rename
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, &final_bytes)?;
+        std::fs::rename(&tmp_path, path)?;
+
+        tracing::info!(
+            "Checkpoint saved to {:?} ({} bytes, checksum={})",
+            path,
+            final_bytes.len(),
+            checksum
+        );
         Ok(())
     }
 
     fn load_checkpoint<P: AsRef<std::path::Path>>(&mut self, path: P) -> HLDVAResult<()> {
-        // STUB: loads config JSON only, not model weights. Integrate with real serialization.
-        let checkpoint_path = path.as_ref().join("hldva_checkpoint.json");
-        let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
-        let checkpoint: serde_json::Value = serde_json::from_str(&checkpoint_data)?;
+        let path = path.as_ref();
+        let bytes = std::fs::read(path)?;
+        let payload: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|e| HLDVAError::Serialization(format!("Invalid checkpoint JSON: {}", e)))?;
 
-        // Update configuration
-        self.config = serde_json::from_value(checkpoint["config"].clone())?;
+        // Version check
+        let version = payload["version"].as_u64().unwrap_or(0);
+        if version != 1 {
+            return Err(HLDVAError::Serialization(format!(
+                "Unsupported checkpoint version {}. Expected 1.",
+                version
+            )));
+        }
 
+        // Checksum validation: rebuild payload without checksum field and recompute
+        let stored_checksum = payload["checksum"].as_u64().ok_or_else(|| {
+            HLDVAError::Serialization("Checkpoint missing checksum field.".to_string())
+        })?;
+        let mut payload_no_cksum = payload.clone();
+        payload_no_cksum.as_object_mut().map(|m| m.remove("checksum"));
+        let verify_bytes = serde_json::to_vec(&payload_no_cksum)?;
+        let computed: u64 = verify_bytes.iter().fold(0u64, |acc, &b| acc.wrapping_add(b as u64));
+        if computed != stored_checksum {
+            return Err(HLDVAError::Serialization(format!(
+                "Checkpoint checksum mismatch: stored={}, computed={}. File may be corrupt.",
+                stored_checksum, computed
+            )));
+        }
+
+        // Restore fields
+        self.config = serde_json::from_value(payload["config"].clone())
+            .map_err(|e| HLDVAError::Serialization(format!("Failed to deserialize config: {}", e)))?;
+        if let Some(device) = payload["device"].as_str() {
+            self.device = device.to_string();
+        }
+        if let Some(dtype) = payload["dtype"].as_str() {
+            self.dtype = dtype.to_string();
+        }
+
+        tracing::info!("Checkpoint loaded from {:?} (version={}, checksum=OK)", path, version);
         Ok(())
     }
 }

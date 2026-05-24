@@ -1,6 +1,7 @@
 use crate::types::{AuditEntry, RiskLevel};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
@@ -21,7 +22,7 @@ impl Default for MonitorConfig {
 
 pub struct Monitor {
     config: MonitorConfig,
-    audit_log: VecDeque<AuditEntry>,
+    audit_log: Mutex<VecDeque<AuditEntry>>,
     total_checked: AtomicU64,
     total_blocked: AtomicU64,
     total_flagged: AtomicU64,
@@ -33,7 +34,7 @@ impl Monitor {
         let max_audit_log = config.max_audit_log;
         Self {
             config,
-            audit_log: VecDeque::with_capacity(max_audit_log),
+            audit_log: Mutex::new(VecDeque::with_capacity(max_audit_log)),
             total_checked: AtomicU64::new(0),
             total_blocked: AtomicU64::new(0),
             total_flagged: AtomicU64::new(0),
@@ -42,7 +43,7 @@ impl Monitor {
     }
 
     pub fn record(&self, action: &str, input: &str) {
-        let _entry = AuditEntry {
+        let entry = AuditEntry {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp: chrono::Utc::now(),
             input: input.chars().take(200).collect(),
@@ -71,10 +72,15 @@ impl Monitor {
             }
         }
         self.total_checked.fetch_add(1, Ordering::Relaxed);
+        self.log_entry(entry);
     }
 
-    pub fn log_entry(&self, _entry: AuditEntry) {
-        if self.audit_log.len() >= self.config.max_audit_log {}
+    pub fn log_entry(&self, entry: AuditEntry) {
+        let mut log = self.audit_log.lock().unwrap();
+        if log.len() >= self.config.max_audit_log {
+            log.pop_front();
+        }
+        log.push_back(entry);
     }
 
     pub fn get_stats(&self) -> serde_json::Value {
@@ -87,7 +93,7 @@ impl Monitor {
                 self.total_blocked.load(Ordering::Relaxed) as f64
                     / self.total_checked.load(Ordering::Relaxed) as f64
             } else { 0.0 },
-            "audit_log_size": self.audit_log.len(),
+            "audit_log_size": self.audit_log.lock().unwrap().len(),
         })
     }
 
@@ -243,6 +249,6 @@ mod tests {
             m.record("Pass", &format!("input {}", i));
         }
         let stats = m.get_stats();
-        assert_eq!(stats["audit_log_size"], 0); // log_entry is a no-op currently
+        assert_eq!(stats["audit_log_size"], 5);
     }
 }

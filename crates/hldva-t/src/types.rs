@@ -314,7 +314,7 @@ pub enum HLDVAError {
     Io(#[from] std::io::Error),
 
     #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    Serialization(String),
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
@@ -323,6 +323,12 @@ pub enum HLDVAError {
 impl From<nexora_atqs::TensorError> for HLDVAError {
     fn from(err: nexora_atqs::TensorError) -> Self {
         HLDVAError::Tensor(err.to_string())
+    }
+}
+
+impl From<serde_json::Error> for HLDVAError {
+    fn from(err: serde_json::Error) -> Self {
+        HLDVAError::Serialization(err.to_string())
     }
 }
 

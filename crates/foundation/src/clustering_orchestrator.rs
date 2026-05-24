@@ -578,8 +578,13 @@ impl ClusteringOrchestrator {
                 }
             }
         }
-        // CPU fallback: compute full N×N matrix
+        // CPU fallback: compute full N×N matrix only for small N
         let n = data.len();
+        if n > 2000 {
+            tracing::warn!("Data size {} too large for N×N CPU matrix caching. Falling back to lazy on-the-fly computation to prevent OOM.", n);
+            self.invalidate_distances();
+            return;
+        }
         let mut dmat = vec![vec![0.0_f32; n]; n];
         for i in 0..n {
             for j in (i + 1)..n {

@@ -1,6 +1,8 @@
 //! Model Serving
 //!
-//! Model serving and inference coordination
+//! Real serving layer: OpenAI-compatible endpoint wired to an InferenceBackend trait.
+//! AppState holds an Arc<dyn InferenceBackend> that is REQUIRED at startup.
+//! The server will not start without a registered backend.
 
 pub mod unified_api;
 
@@ -19,7 +21,29 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
-/// Model serving configuration
+// ─── InferenceBackend trait ───────────────────────────────────────────────────
+
+/// Single interface required by the serving layer.
+/// Implement this on any struct that wraps a real model (nexora-intelligence,
+/// or a remote endpoint).
+#[async_trait::async_trait]
+pub trait InferenceBackend: Send + Sync {
+    /// Generate text for a prompt.
+    /// Returns `(generated_text, tokens_generated)`.
+    async fn generate(
+        &self,
+        model_id: &str,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+    ) -> Result<(String, usize)>;
+
+    /// Backend identifier for logging.
+    fn backend_name(&self) -> &str;
+}
+
+// ─── Serving config ───────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServingConfig {
     pub host: String,
@@ -43,16 +67,17 @@ impl Default for ServingConfig {
     }
 }
 
-/// Health check response
+// ─── HTTP types ───────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize)]
 struct HealthResponse {
     status: String,
     version: &'static str,
     uptime_seconds: u64,
     active_requests: usize,
+    backend: Option<String>,
 }
 
-/// Inference request
 #[derive(Debug, Deserialize)]
 struct InferenceRequest {
     model_id: String,
@@ -61,7 +86,6 @@ struct InferenceRequest {
     temperature: Option<f32>,
 }
 
-/// Inference response
 #[derive(Debug, Serialize)]
 struct InferenceResponse {
     generated_text: String,
@@ -69,7 +93,8 @@ struct InferenceResponse {
     inference_time_ms: u64,
 }
 
-/// Server state
+// ─── AppState ─────────────────────────────────────────────────────────────────
+
 struct ServerState {
     started_at: tokio::time::Instant,
     request_count: std::sync::atomic::AtomicUsize,
@@ -84,31 +109,39 @@ impl ServerState {
     }
 }
 
-/// HTTP server state
 struct AppState {
     config: ServingConfig,
     server_state: ServerState,
     semaphore: Semaphore,
+    /// The real inference backend (always present - required at startup).
+    inference: Arc<dyn InferenceBackend>,
 }
 
-/// Model server for serving AI models
+// ─── ModelServer ──────────────────────────────────────────────────────────────
+
 pub struct ModelServer {
     config: ServingConfig,
+    inference: Arc<dyn InferenceBackend>,
 }
 
 impl ModelServer {
-    pub fn new(config: ServingConfig) -> Self {
-        Self { config }
+    pub fn new(config: ServingConfig, backend: Arc<dyn InferenceBackend>) -> Self {
+        Self { config, inference: backend }
     }
 
     pub async fn start(&self) -> Result<()> {
         let addr = format!("{}:{}", self.config.host, self.config.port);
-        info!("Starting model server on {}", addr);
+        info!(
+            "Starting model server on {} (backend: {})",
+            addr,
+            self.inference.backend_name()
+        );
 
         let app_state = Arc::new(AppState {
             config: self.config.clone(),
             server_state: ServerState::new(),
             semaphore: Semaphore::new(self.config.max_concurrent_requests),
+            inference: self.inference.clone(),
         });
 
         let app = Router::new()
@@ -119,14 +152,13 @@ impl ModelServer {
 
         let listener = TcpListener::bind(&addr).await?;
         info!("Model server listening on {}", addr);
-
         axum::serve(listener, app).await?;
-
         Ok(())
     }
 }
 
-/// Health check endpoint
+// ─── Handlers ─────────────────────────────────────────────────────────────────
+
 async fn health_handler(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let uptime = state.server_state.started_at.elapsed().as_secs();
     let active = state
@@ -139,151 +171,173 @@ async fn health_handler(State(state): State<Arc<AppState>>) -> Json<HealthRespon
         version: env!("CARGO_PKG_VERSION"),
         uptime_seconds: uptime,
         active_requests: active,
+        backend: Some(state.inference.backend_name().to_string()),
     })
 }
 
-/// Inference endpoint
 async fn infer_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, (StatusCode, String)> {
     let _permit = state.semaphore.acquire().await.map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Too many concurrent requests".to_string(),
-        )
+        (StatusCode::SERVICE_UNAVAILABLE, "Too many concurrent requests".to_string())
     })?;
-    state
-        .server_state
-        .request_count
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state.server_state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    let config = state.config.clone();
+    let backend = state.inference.clone();
+    let timeout_ms = state.config.request_timeout_ms;
 
-    let body = async move {
+    if req.prompt.is_empty() {
+        state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        return Err((StatusCode::BAD_REQUEST, "Empty prompt".to_string()));
+    }
+
+    let task = async move {
         let start = std::time::Instant::now();
-
-        if req.prompt.is_empty() {
-            return Err("Empty prompt".to_string());
-        }
-
-        let generated_text = format!(
-            "Response from model '{}' to: {}",
-            req.model_id,
-            &req.prompt[..req.prompt.char_indices().map(|(i, _)| i).nth(50).unwrap_or(req.prompt.len())]
-        );
-        let tokens_generated = generated_text.len() / 4;
-        let inference_time_ms = start.elapsed().as_millis() as u64;
-
-        info!(
-            "Inference completed for model '{}' in {}ms",
-            req.model_id, inference_time_ms
-        );
-
-        Ok(Json(InferenceResponse {
-            generated_text,
-            tokens_generated,
-            inference_time_ms,
-        }))
+        let max_tokens = req.max_tokens.unwrap_or(512);
+        let temperature = req.temperature.unwrap_or(1.0);
+        backend
+            .generate(&req.model_id, &req.prompt, max_tokens, temperature)
+            .await
+            .map(|(text, tokens)| {
+                let ms = start.elapsed().as_millis() as u64;
+                info!("Inference for '{}' done in {}ms ({} tokens)", req.model_id, ms, tokens);
+                Json(InferenceResponse {
+                    generated_text: text,
+                    tokens_generated: tokens,
+                    inference_time_ms: ms,
+                })
+            })
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
     };
 
-    let result = tokio::time::timeout(Duration::from_millis(config.request_timeout_ms), body).await;
+    let result =
+        tokio::time::timeout(Duration::from_millis(timeout_ms), task).await;
 
-    state
-        .server_state
-        .request_count
-        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
     match result {
-        Ok(Ok(resp)) => Ok(resp),
-        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
-        Err(e) => {
-            warn!("Inference handler join error: {:?}", e);
-            Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()))
-        }
+        Ok(r) => r,
+        Err(_) => Err((StatusCode::REQUEST_TIMEOUT, "Request timed out".to_string())),
     }
 }
 
-/// OpenAI-compatible chat completions endpoint
+/// OpenAI-compatible `/v1/chat/completions` endpoint.
+/// Extracts messages, concatenates them into a prompt, and routes through the
+/// registered InferenceBackend. Returns an OpenAI-schema response.
 async fn openai_chat_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let _permit = state.semaphore.acquire().await.map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Too many concurrent requests".to_string(),
-        )
+        (StatusCode::SERVICE_UNAVAILABLE, "Too many concurrent requests".to_string())
     })?;
-    state
-        .server_state
-        .request_count
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state.server_state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    let config = state.config.clone();
+    let backend = state.inference.clone();
+    let timeout_ms = state.config.request_timeout_ms;
 
-    let body_future = async move {
-        let model = body
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let messages = body
-            .get("messages")
-            .and_then(|v| v.as_array())
-            .map(|a| a.len())
-            .unwrap_or(0);
+    let model_id = body
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("nexora-default")
+        .to_string();
 
-        warn!(
-            "OpenAI chat endpoint invoked for model '{}' ({} messages) — using stub response; wire to real inference for production",
-            model, messages
-        );
+    let max_tokens = body
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(512) as usize;
 
-        let created = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+    let temperature = body
+        .get("temperature")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
 
-        let response = serde_json::json!({
-            "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
-            "object": "chat.completion",
-            "created": created,
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": format!("Hello! I'm model '{}'. I received your {} message(s). In production, I would generate a proper response here.", model, messages)
-                },
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 20,
-                "total_tokens": 30
-            }
-        });
+    // Flatten messages into a single prompt string (role: content format)
+    let prompt = body
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .map(|messages| {
+            messages
+                .iter()
+                .filter_map(|m| {
+                    let role = m.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+                    let content = m.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                    if content.is_empty() {
+                        None
+                    } else {
+                        Some(format!("{}: {}", role, content))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
 
-        Ok::<Json<serde_json::Value>, String>(Json(response))
+    if prompt.is_empty() {
+        state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        return Err((StatusCode::BAD_REQUEST, "No message content provided.".to_string()));
+    }
+
+    info!(
+        "OpenAI /v1/chat/completions: model='{}', prompt_len={}, max_tokens={}, temperature={}",
+        model_id,
+        prompt.len(),
+        max_tokens,
+        temperature
+    );
+
+    let model_id_clone = model_id.clone();
+    let task = async move {
+        let start = std::time::Instant::now();
+        backend
+            .generate(&model_id_clone, &prompt, max_tokens, temperature)
+            .await
+            .map(|(text, tokens_generated)| {
+                let elapsed = start.elapsed().as_millis() as u64;
+                let created = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+
+                // Approximate prompt token count (4 chars/token heuristic)
+                let prompt_tokens = prompt.len() / 4;
+
+                Json(serde_json::json!({
+                    "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
+                    "object": "chat.completion",
+                    "created": created,
+                    "model": model_id_clone,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": text
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": tokens_generated,
+                        "total_tokens": prompt_tokens + tokens_generated
+                    },
+                    "inference_time_ms": elapsed
+                }))
+            })
+            .map_err(|e| {
+                error!("Inference backend error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            })
     };
 
-    let result = tokio::time::timeout(
-        Duration::from_millis(config.request_timeout_ms),
-        body_future,
-    )
-    .await;
-
-    state
-        .server_state
-        .request_count
-        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    let result = tokio::time::timeout(Duration::from_millis(timeout_ms), task).await;
+    state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
     match result {
-        Ok(Ok(resp)) => Ok(resp),
-        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
-        Err(e) => {
-            warn!("OpenAI chat handler join error: {:?}", e);
-            Err((StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()))
+        Ok(r) => r,
+        Err(_) => {
+            warn!("OpenAI endpoint timed out for model '{}'", model_id);
+            Err((StatusCode::REQUEST_TIMEOUT, "Inference timed out".to_string()))
         }
     }
 }

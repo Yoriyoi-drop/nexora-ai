@@ -45,9 +45,9 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                 });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
-                                    vec![a.clone(), b.clone()],
-                                    vec![a_shape_saved, b_shape_saved],
                                     vec![],
+                                    vec![a_shape_saved, b_shape_saved],
+                                    vec![ga.clone(), gb.clone()],
                                     Box::new(|grad, saved| {
                                         let a_shape: Vec<usize> =
                                             saved[0].iter().map(|&x| x as usize).collect();
@@ -80,7 +80,7 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![a.clone(), b.clone()],
+        vec![],
         vec![
             ArrayD::from_shape_vec(
                 vec![a_shape.len()],
@@ -98,6 +98,8 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                 debug!("shape encoding failed (infallible): {e}");
                 ArrayD::zeros(vec![0])
             }),
+            a_bc.clone(),
+            b_bc.clone(),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -146,9 +148,9 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                 });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
-                                    vec![a.clone(), b.clone()],
-                                    vec![a_shape_saved, b_shape_saved],
                                     vec![],
+                                    vec![a_shape_saved, b_shape_saved],
+                                    vec![ga.clone(), gb.clone()],
                                     Box::new(|grad, saved| {
                                         let a_shape: Vec<usize> =
                                             saved[0].iter().map(|&x| x as usize).collect();
@@ -181,7 +183,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
     let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![a.clone(), b.clone()],
+        vec![],
         vec![
             ArrayD::from_shape_vec(
                 vec![a_shape.len()],
@@ -199,6 +201,8 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                 debug!("shape encoding failed (infallible): {e}");
                 ArrayD::zeros(vec![0])
             }),
+            a_bc.clone(),
+            b_bc.clone(),
         ],
         Box::new(|grad, saved| {
             let a_shape: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
@@ -249,7 +253,7 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                 });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
-                                    vec![a.clone(), b.clone()],
+                                    vec![],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![ga_clone, gb_clone],
                                     Box::new(|grad, saved| {
@@ -284,7 +288,7 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
     let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![a.clone(), b.clone()],
+        vec![],
         vec![
             a_bc.clone(),
             b_bc.clone(),
@@ -356,7 +360,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                 });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
-                                    vec![a.clone(), b.clone()],
+                                    vec![],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![ga_clone, gb_clone],
                                     Box::new(|grad, saved| {
@@ -391,7 +395,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
     let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![a.clone(), b.clone()],
+        vec![],
         vec![
             a_bc.clone(),
             b_bc.clone(),
@@ -443,7 +447,7 @@ pub fn exp(input: &Tensor) -> Tensor {
                         let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![input.clone()],
+                            vec![],
                             vec![result_cpu],
                             vec![gpu_saved],
                             Box::new(|grad, saved| {
@@ -475,7 +479,7 @@ pub fn exp(input: &Tensor) -> Tensor {
     let saved = result.clone();
     Tensor::with_grad_fn(
         result,
-        vec![input.clone()],
+        vec![],
         vec![saved],
         Box::new(|grad, saved| {
             let e = &saved[0];
@@ -499,7 +503,7 @@ pub fn ln(input: &Tensor) -> Tensor {
                         let input_cpu = gpu_input.to_cpu();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![input.clone()],
+                            vec![],
                             vec![input_cpu],
                             vec![gpu_input.clone()],
                             Box::new(|grad, saved| {
@@ -532,7 +536,7 @@ pub fn ln(input: &Tensor) -> Tensor {
     let saved = data.clone();
     Tensor::with_grad_fn(
         result,
-        vec![input.clone()],
+        vec![],
         vec![saved],
         Box::new(|grad, saved| {
             let x = &saved[0];
@@ -563,7 +567,7 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                         let saved_x = data.clone();
                         return Tensor::with_grad_fn(
                             result,
-                            vec![input.clone()],
+                            vec![],
                             vec![saved_x],
                             Box::new(move |grad, saved| {
                                 let x = &saved[0];
@@ -588,7 +592,7 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                         let input_cpu = gpu_input.to_cpu();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![input.clone()],
+                            vec![],
                             vec![input_cpu],
                             vec![gpu_input.clone()],
                             Box::new(move |grad, saved| {
@@ -618,7 +622,7 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
     let saved_x = data.clone();
     Tensor::with_grad_fn(
         result,
-        vec![input.clone()],
+        vec![],
         vec![saved_x],
         Box::new(move |grad, saved| {
             let x = &saved[0];
@@ -650,7 +654,7 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                         let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![input.clone()],
+                            vec![],
                             vec![result_cpu],
                             vec![gpu_saved],
                             Box::new(|grad, saved| {
@@ -697,7 +701,7 @@ pub fn sqrt(input: &Tensor) -> Tensor {
     let saved = result.clone();
     Tensor::with_grad_fn(
         result,
-        vec![input.clone()],
+        vec![],
         vec![saved],
         Box::new(|grad, saved| {
             let s = &saved[0];
@@ -721,7 +725,7 @@ pub fn neg(a: &Tensor) -> Tensor {
                         }
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![a.clone()],
+                            vec![],
                             vec![],
                             vec![],
                             Box::new(|grad, _| vec![-grad.clone()]),
@@ -748,7 +752,7 @@ pub fn neg(a: &Tensor) -> Tensor {
     }
     Tensor::with_grad_fn(
         result,
-        vec![a.clone()],
+        vec![],
         vec![],
         Box::new(|grad, _| vec![-grad.clone()]),
     )

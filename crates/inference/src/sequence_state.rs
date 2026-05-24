@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::{FinishReason, GeneratedToken, InferenceRequest};
 
@@ -20,6 +21,8 @@ pub enum SeqState {
 pub struct Sequence {
     /// Unique sequence ID (used as PagedKVCache sequence ID)
     pub id: u64,
+    /// Original request UUID — propagated to the response so callers can correlate
+    pub request_id: Uuid,
     /// Prompt token IDs
     pub prompt: Vec<u32>,
     /// Tokens generated so far
@@ -46,6 +49,7 @@ impl Sequence {
     pub fn from_request(id: u64, request: &InferenceRequest) -> Self {
         Self {
             id,
+            request_id: request.request_id,
             prompt: request.input_tokens.clone(),
             generated: Vec::with_capacity(request.max_tokens as usize),
             state: SeqState::New,

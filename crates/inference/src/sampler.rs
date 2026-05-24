@@ -1,7 +1,7 @@
 use rand::Rng;
 use rand::SeedableRng;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::{InferenceError, Result};
 
@@ -42,6 +42,7 @@ pub struct Sampler {
     rng: Option<rand::rngs::StdRng>,
     use_gpu: bool,
     gpu_fallback_count: AtomicU64,
+    allow_gpu_fallback: bool,
 }
 
 impl Sampler {
@@ -56,6 +57,7 @@ impl Sampler {
             rng,
             use_gpu,
             gpu_fallback_count: AtomicU64::new(0),
+            allow_gpu_fallback: true, // Default to true for backward compatibility
         }
     }
 
@@ -70,11 +72,23 @@ impl Sampler {
             #[cfg(not(feature = "gpu"))]
             use_gpu: false,
             gpu_fallback_count: AtomicU64::new(0),
+            allow_gpu_fallback: true,
         }
     }
 
     pub fn set_use_gpu(&mut self, use_gpu: bool) {
         self.use_gpu = use_gpu;
+    }
+
+    /// Enable or disable automatic GPU fallback to CPU on GPU errors.
+    /// When disabled, GPU errors will be returned instead of silently falling back.
+    pub fn set_allow_gpu_fallback(&mut self, allow: bool) {
+        self.allow_gpu_fallback = allow;
+    }
+
+    /// Get the number of GPU fallbacks that have occurred.
+    pub fn gpu_fallback_count(&self) -> u64 {
+        self.gpu_fallback_count.load(Ordering::Relaxed)
     }
 
     pub fn reset_seed(&mut self, seed: u64) {
@@ -111,16 +125,28 @@ impl Sampler {
         match self.sample_gpu_impl(logits) {
             Ok(token) => Ok(token),
             Err(e) => {
-                warn!("GPU sampling failed: {}, falling back to CPU", e);
-                self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
-                self.sample_cpu(logits)
+                if self.allow_gpu_fallback {
+                    warn!(
+                        "GPU sampling failed: {}, falling back to CPU (fallback count: {})",
+                        e,
+                        self.gpu_fallback_count.load(Ordering::Relaxed) + 1
+                    );
+                    self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                    self.sample_cpu(logits)
+                } else {
+                    error!(
+                        "GPU sampling failed: {}, fallback disabled - returning error",
+                        e
+                    );
+                    Err(e)
+                }
             }
         }
     }
 
     /// Batch GPU sample: stack B logit vectors into [B, vocab] and sample once.
     /// Returns one token ID per sequence, all with a single GPU call.
-    /// Falls back to per-sequence CPU sampling on GPU error.
+    /// Falls back to per-sequence CPU sampling on GPU error if allow_gpu_fallback is enabled.
     #[cfg(feature = "gpu")]
     pub fn sample_gpu_batched(&mut self, batch_logits: &[&[f32]]) -> Result<Vec<usize>> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
@@ -132,9 +158,21 @@ impl Sampler {
         let ctx = match GpuContext::global() {
             Ok(c) => c,
             Err(e) => {
-                warn!("GPU sampling batched failed: {}, falling back to per-sequence", e);
-                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
-                return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
+                if self.allow_gpu_fallback {
+                    warn!(
+                        "GPU sampling batched failed: {}, falling back to per-sequence (fallback count: {})",
+                        e,
+                        self.gpu_fallback_count.load(Ordering::Relaxed) + batch as u64
+                    );
+                    self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                    return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
+                } else {
+                    error!(
+                        "GPU sampling batched failed: {}, fallback disabled - returning error",
+                        e
+                    );
+                    return Err(InferenceError::DecodingError(format!("GPU context error: {}", e)));
+                }
             }
         };
 
@@ -154,9 +192,21 @@ impl Sampler {
         let out = match ctx.gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed) {
             Ok(o) => o,
             Err(e) => {
-                warn!("GPU sampling batched call failed: {}, falling back to per-sequence", e);
-                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
-                return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
+                if self.allow_gpu_fallback {
+                    warn!(
+                        "GPU sampling batched call failed: {}, falling back to per-sequence (fallback count: {})",
+                        e,
+                        self.gpu_fallback_count.load(Ordering::Relaxed) + batch as u64
+                    );
+                    self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                    return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
+                } else {
+                    error!(
+                        "GPU sampling batched call failed: {}, fallback disabled - returning error",
+                        e
+                    );
+                    return Err(InferenceError::DecodingError(format!("GPU sample error: {}", e)));
+                }
             }
         };
 
@@ -233,10 +283,6 @@ impl Sampler {
 
     pub fn config(&self) -> &SamplingConfig {
         &self.config
-    }
-
-    pub fn gpu_fallback_count(&self) -> u64 {
-        self.gpu_fallback_count.load(Ordering::Relaxed)
     }
 
     pub fn get_stats(&self) -> SamplingStats {

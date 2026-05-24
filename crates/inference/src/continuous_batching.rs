@@ -10,7 +10,7 @@ use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
 use nexora_transformer::CpuKVCache;
 
-/// Result of a single continuous batching step.
+/// Result of a single sequential batching step.
 #[derive(Debug)]
 pub struct StepResult {
     pub completed: Vec<InferenceResponse>,
@@ -18,18 +18,19 @@ pub struct StepResult {
     pub idle: bool,
 }
 
-/// A continuous batching engine that manages multiple sequences.
+/// A sequential batching engine that manages multiple sequences.
 ///
-/// Each step collects all ready sequences and runs a batched forward pass
-/// through the model (via `ModelForward::forward_batched`), then samples
-/// the next token for each. Sequences dynamically enter (via `add_request`)
-/// and leave (via completion or error).
+/// Each step collects all ready sequences and processes them sequentially
+/// (one-by-one) through the model, then samples the next token for each.
+/// Sequences dynamically enter (via `add_request`) and leave (via completion or error).
 ///
-/// NOTE: The current implementation is a hybrid. When multiple sequences are
-/// ready, they are processed via `forward_batched`. For single sequences,
-/// the single-sequence `forward` is used. True batched computation across
-/// all sequences simultaneously requires model-level support.
-pub struct ContinuousBatchingEngine<M> {
+/// NOTE: This is NOT true batched inference. Sequences are processed one-by-one
+/// in a loop. For true batched computation across all sequences simultaneously,
+/// model-level support for batched forward passes is required.
+///
+/// This engine provides dynamic batching at the request level (managing multiple
+/// concurrent sequences), but not at the computation level (single kernel launch).
+pub struct SequentialBatchingEngine<M> {
     sequences: HashMap<u64, Sequence>,
     kv_caches: HashMap<u64, CpuKVCache>,
     model: M,
@@ -40,7 +41,7 @@ pub struct ContinuousBatchingEngine<M> {
     use_gpu: bool,
 }
 
-impl<M> ContinuousBatchingEngine<M>
+impl<M> SequentialBatchingEngine<M>
 where
     M: crate::inference_trait::ModelForward,
 {
@@ -70,7 +71,7 @@ where
     pub fn add_request(&mut self, request: InferenceRequest) -> u64 {
         if self.sequences.len() >= self.max_total_sequences {
             warn!(
-                "ContinuousBatchingEngine: max sequences ({}) reached",
+                "SequentialBatchingEngine: max sequences ({}) reached",
                 self.max_total_sequences
             );
             return 0;
@@ -99,12 +100,11 @@ where
     }
 
     /// Run a single step, processing up to `max_batch_size` ready sequences
-    /// in a batched forward pass.
+    /// sequentially (one-by-one).
     ///
-    /// ⚠️  CURRENT LIMITATION — NOT TRUE BATCHED INFERENCE:
-    /// Currently processes sequences one-by-one via `forward_batched`.
-    /// True batched forward (all sequences in a single kernel launch) is not
-    /// yet implemented.
+    /// ⚠️  NOT TRUE BATCHED INFERENCE:
+    /// Sequences are processed one-by-one in a loop. For true batched forward
+    /// (all sequences in a single kernel launch), model-level support is required.
     pub fn step(&mut self) -> StepResult {
         let step_start = Instant::now();
         let mut completed = Vec::with_capacity(self.max_batch_size.min(self.sequences.len()));
@@ -248,7 +248,7 @@ where
             .map(|t| (&*t.token_text).to_string())
             .collect();
         Some(InferenceResponse {
-            request_id: uuid::Uuid::new_v4(),
+            request_id: seq.request_id,
             tokens: seq.generated.iter().map(|t| (**t).clone()).collect(),
             text,
             finish_reason: reason,
@@ -287,7 +287,7 @@ where
                     .map(|t| (&*t.token_text).to_string())
                     .collect();
                 results.push(InferenceResponse {
-                    request_id: uuid::Uuid::new_v4(),
+                    request_id: seq.request_id,
                     tokens: seq.generated.iter().map(|t| (**t).clone()).collect(),
                     text,
                     finish_reason: reason,
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_add_sequence_increases_active_count() {
         let model = MockModel { vocab_size: 100 };
-        let mut engine = ContinuousBatchingEngine::new(model, 4);
+        let mut engine = SequentialBatchingEngine::new(model, 4);
         let seq_id = engine.add_request(test_request(vec![1, 2, 3], 10));
         assert!(engine.get_sequence(seq_id).is_some());
         assert_eq!(engine.active_count(), 1);
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn test_step_prefill_then_generate() {
         let model = MockModel { vocab_size: 100 };
-        let mut engine = ContinuousBatchingEngine::new(model, 4);
+        let mut engine = SequentialBatchingEngine::new(model, 4);
         engine.add_request(test_request(vec![5, 10], 20));
 
         let r = engine.step();
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn test_sequence_completes_at_max_tokens() {
         let model = MockModel { vocab_size: 100 };
-        let mut engine = ContinuousBatchingEngine::new(model, 4);
+        let mut engine = SequentialBatchingEngine::new(model, 4);
         engine.add_request(test_request(vec![1, 2], 4));
 
         let r = engine.step();
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn test_multiple_sequences() {
         let model = MockModel { vocab_size: 100 };
-        let mut engine = ContinuousBatchingEngine::new(model, 4);
+        let mut engine = SequentialBatchingEngine::new(model, 4);
         engine.add_request(test_request(vec![1, 2], 5));
         engine.add_request(test_request(vec![3, 4, 5], 6));
         assert_eq!(engine.active_count(), 2);
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn test_drain_completed() {
         let model = MockModel { vocab_size: 100 };
-        let mut engine = ContinuousBatchingEngine::new(model, 4);
+        let mut engine = SequentialBatchingEngine::new(model, 4);
         engine.add_request(test_request(vec![1], 2));
         for _ in 0..10 {
             let r = engine.step();
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn test_idle_step_empty_no_panic() {
         let model = MockModel { vocab_size: 100 };
-        let mut engine = ContinuousBatchingEngine::new(model, 4);
+        let mut engine = SequentialBatchingEngine::new(model, 4);
         let r = engine.step();
         assert!(r.idle);
         assert!(r.completed.is_empty());

@@ -1009,14 +1009,9 @@ impl crate::DatabaseConnection for PostgreSQLConnection {
         self.is_active
     }
 
-    async fn execute_query(&self, query: &str, _params: Vec<Value>) -> Result<QueryResult> {
-        // Simplified implementation
-        Ok(QueryResult {
-            rows: Vec::new(),
-            affected_rows: 0,
-            execution_time_ms: 0,
-            query: query.to_string(),
-        })
+    async fn execute_query(&self, query: &str, params: Vec<Value>) -> Result<QueryResult> {
+        // Delegate to the real implementation on PostgreSQLConnection
+        PostgreSQLConnection::execute_query(self, query, params).await
     }
 
     async fn close(&mut self) -> Result<()> {

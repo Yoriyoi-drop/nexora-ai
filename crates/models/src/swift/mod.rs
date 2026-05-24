@@ -35,7 +35,6 @@ pub struct NxrSwiftModel {
     base: nexora_shared::base_model::BaseNxrModel<SwiftConfig, SwiftMetrics, SwiftState>,
     identity: SwiftIdentity,
     architecture: SwiftArchitecture,
-    #[allow(dead_code)]
     _agents: SwiftAgents,
     capabilities: SwiftCapabilities,
     components: FoundationComponents,
