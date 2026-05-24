@@ -35,7 +35,7 @@ pub struct NxrSwiftModel {
     base: nexora_shared::base_model::BaseNxrModel<SwiftConfig, SwiftMetrics, SwiftState>,
     identity: SwiftIdentity,
     architecture: SwiftArchitecture,
-    _agents: SwiftAgents,
+    agents: SwiftAgents,
     capabilities: SwiftCapabilities,
     components: FoundationComponents,
     config: SwiftConfig,
@@ -120,7 +120,7 @@ impl NxrSwiftModel {
             ),
             identity,
             architecture: SwiftArchitecture::new(&config),
-            _agents: SwiftAgents::new(&config),
+            agents: SwiftAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
             config,
@@ -130,6 +130,11 @@ impl NxrSwiftModel {
     }
 
     async fn fast_inference(&self, input: &str) -> NxrModelResult<String> {
+        // Check cache first
+        if let Some(cached) = self.agents.check_inference_cache(input) {
+            return Ok(cached);
+        }
+
         let start_time = std::time::Instant::now();
 
         // Tokenize input
@@ -155,13 +160,18 @@ impl NxrSwiftModel {
 
         let latency = start_time.elapsed().as_millis() as u32;
 
-        Ok(format!(
+        let result = format!(
             "Edge Response ({}ms): {}\nDL Processing: {} (tokens: {})",
             latency,
             optimized,
             dl_result,
             tokens.len()
-        ))
+        );
+
+        // Store in cache
+        self.agents.store_inference_cache(input, &result);
+
+        Ok(result)
     }
 
     fn minimal_processing(&self, input: &str) -> NxrModelResult<String> {

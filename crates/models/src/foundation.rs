@@ -359,6 +359,17 @@ macro_rules! define_foundation_model {
 
             #[instrument(skip_all, fields(model_id = %self.identity().model_id))]
             async fn infer(&self, input: &NxrInput) -> Result<NxrOutput, NxrModelError> {
+                // Circuit breaker protection at outermost inference call
+                let cb_manager = nexora_core::error_recovery::global_error_recovery();
+                let cb_breaker = cb_manager.get_circuit_breaker("model_inference").await
+                    .map_err(|e| NxrModelError::Inference(e.to_string()))?;
+                if cb_breaker.get_state() == nexora_core::error_recovery::CircuitState::Open {
+                    cb_breaker.record_failure();
+                    return Err(NxrModelError::Inference(
+                        "Circuit breaker 'model_inference' is open — request rejected".to_string()
+                    ));
+                }
+
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),
                     InputData::Tokens(tokens) => self.decode_ids(tokens),
@@ -426,6 +437,7 @@ macro_rules! define_foundation_model {
                     output.metadata.extras = meta;
                 }
 
+                cb_breaker.record_success();
                 Ok(output)
             }
 

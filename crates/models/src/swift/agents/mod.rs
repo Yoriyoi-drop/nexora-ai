@@ -63,6 +63,17 @@ impl SwiftAgents {
         summary.insert("edge_opt".to_string(), self.edge_opt.get_status());
         summary
     }
+
+    /// Check the inference result cache. Returns cached response if found.
+    pub fn check_inference_cache(&self, input: &str) -> Option<String> {
+        self.fast_cache.get_cached_string(input)
+    }
+
+    /// Store an inference result in cache.
+    pub fn store_inference_cache(&self, input: &str, result: &str) {
+        self.fast_cache
+            .set_cached_string(input.to_string(), result.to_string());
+    }
 }
 
 /// Common Swift Agent Configuration

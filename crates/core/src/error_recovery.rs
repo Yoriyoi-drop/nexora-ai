@@ -233,7 +233,7 @@ impl CircuitBreaker {
         }
     }
 
-    fn record_success(&self) {
+    pub fn record_success(&self) {
         let mut inner = self.inner.write();
 
         match inner.state {
@@ -258,7 +258,7 @@ impl CircuitBreaker {
         }
     }
 
-    fn record_failure(&self) {
+    pub fn record_failure(&self) {
         let mut inner = self.inner.write();
         inner.failure_count += 1;
         inner.last_failure_time = Some(Instant::now());
@@ -307,7 +307,7 @@ pub struct CircuitBreakerStats {
     pub last_failure_time: Option<Instant>,
 }
 
-/// Retry policy configuration
+/// Retry policy configuration — delegates to nexora_common::retry::RetryConfig
 #[derive(Debug, Clone)]
 pub struct RetryPolicy {
     pub max_attempts: u32,
@@ -315,6 +315,17 @@ pub struct RetryPolicy {
     pub max_delay_ms: u64,
     pub backoff_multiplier: f64,
     pub jitter: bool,
+}
+
+impl From<&RetryPolicy> for nexora_common::retry::RetryConfig {
+    fn from(policy: &RetryPolicy) -> Self {
+        nexora_common::retry::RetryConfig {
+            max_retries: policy.max_attempts.saturating_sub(1),
+            base_delay_ms: policy.base_delay_ms,
+            max_delay_ms: policy.max_delay_ms,
+            jitter: policy.jitter,
+        }
+    }
 }
 
 impl Default for RetryPolicy {
@@ -378,16 +389,9 @@ impl RetryHandler {
     }
 
     fn calculate_delay(&self, attempt: u32) -> u64 {
-        let mut delay =
-            self.policy.base_delay_ms as f64 * self.policy.backoff_multiplier.powi(attempt as i32);
-
-        if self.policy.jitter {
-            // Add ±25% jitter
-            let jitter_factor = 0.75 + (rand::random::<f64>() * 0.5);
-            delay *= jitter_factor;
-        }
-
-        delay.clamp(0.0, self.policy.max_delay_ms as f64) as u64
+        // Delegate to shared RetryConfig for consistent backoff logic
+        let config: nexora_common::retry::RetryConfig = (&self.policy).into();
+        config.calculate_delay(attempt)
     }
 }
 
@@ -687,6 +691,50 @@ pub struct ErrorStats {
 impl Default for ErrorRecoveryManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+static GLOBAL_RECOVERY: std::sync::OnceLock<ErrorRecoveryManager> = std::sync::OnceLock::new();
+
+/// Get or initialize the global error recovery manager.
+pub fn global_error_recovery() -> &'static ErrorRecoveryManager {
+    GLOBAL_RECOVERY.get_or_init(|| {
+        let manager = ErrorRecoveryManager::new();
+        // Block briefly to let strategies initialize (spawned in tokio)
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        manager
+    })
+}
+
+/// Execute an async operation with circuit breaker protection.
+/// If the circuit is open, the operation is rejected immediately.
+pub async fn with_circuit_breaker<F, Fut, T>(
+    service_name: &str,
+    operation: F,
+) -> CoreResult<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = CoreResult<T>>,
+{
+    let manager = global_error_recovery();
+    let breaker = manager.get_circuit_breaker(service_name).await?;
+
+    if breaker.get_state() == CircuitState::Open {
+        return Err(CoreError::TaskExecution(format!(
+            "Circuit breaker '{}' is open — request rejected",
+            service_name
+        )));
+    }
+
+    match operation().await {
+        Ok(result) => {
+            breaker.record_success();
+            Ok(result)
+        }
+        Err(e) => {
+            breaker.record_failure();
+            Err(e)
+        }
     }
 }
 

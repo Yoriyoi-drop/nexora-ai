@@ -71,7 +71,7 @@ impl RetryConfig {
         }
     }
 
-    fn calculate_delay(&self, attempt: u32) -> u64 {
+    pub fn calculate_delay(&self, attempt: u32) -> u64 {
         let delay = self.base_delay_ms * 2u64.pow(attempt);
         let delay = delay.min(self.max_delay_ms);
         if self.jitter {

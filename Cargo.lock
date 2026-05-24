@@ -3458,6 +3458,7 @@ dependencies = [
  "async-trait",
  "mockall",
  "nexora-autograd",
+ "nexora-common",
  "parking_lot",
  "proptest",
  "rand 0.8.6",

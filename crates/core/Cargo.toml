@@ -15,6 +15,7 @@ parking_lot.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
 rand.workspace = true
+nexora-common = { path = "../infrastructure/common" }
 nexora-autograd = { path = "../autograd", optional = true }
 
 [features]

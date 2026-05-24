@@ -9,16 +9,32 @@ use nexora_shared::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Fast Cache Agent - Intelligent caching system
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FastCacheAgent {
     pub config: FastCacheConfig,
-    pub cache_engine: CacheEngine,
+    pub cache_engine: Arc<std::sync::Mutex<CacheEngine>>,
     pub similarity_matcher: SimilarityMatcher,
     pub eviction_policy: EvictionPolicy,
     pub status: AgentStatus,
     pub metrics: AgentMetrics,
+    pub string_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+}
+
+impl Clone for FastCacheAgent {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            cache_engine: Arc::clone(&self.cache_engine),
+            similarity_matcher: self.similarity_matcher.clone(),
+            eviction_policy: self.eviction_policy.clone(),
+            status: self.status.clone(),
+            metrics: self.metrics.clone(),
+            string_cache: Arc::clone(&self.string_cache),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,7 +278,7 @@ impl Default for FastCacheAgent {
     fn default() -> Self {
         Self {
             config: FastCacheConfig::default(),
-            cache_engine: CacheEngine::default(),
+            cache_engine: Arc::new(std::sync::Mutex::new(CacheEngine::default())),
             similarity_matcher: SimilarityMatcher::default(),
             eviction_policy: EvictionPolicy::default(),
             status: AgentStatus::Idle,
@@ -273,6 +289,7 @@ impl Default for FastCacheAgent {
                 current_load: 0.0,
                 last_activity: chrono::Utc::now(),
             },
+            string_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
@@ -388,7 +405,7 @@ impl FastCacheAgent {
     pub fn new(config: FastCacheConfig) -> Self {
         Self {
             config,
-            cache_engine: CacheEngine::default(),
+            cache_engine: Arc::new(std::sync::Mutex::new(CacheEngine::default())),
             similarity_matcher: SimilarityMatcher::default(),
             eviction_policy: EvictionPolicy::default(),
             status: AgentStatus::Idle,
@@ -399,6 +416,7 @@ impl FastCacheAgent {
                 current_load: 0.0,
                 last_activity: chrono::Utc::now(),
             },
+            string_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -429,7 +447,9 @@ impl FastCacheAgent {
         query_embedding: &[f32],
         input: &FastCacheTaskInput,
     ) -> AgentResult<CacheResult> {
-        if self.cache_engine.cache_storage.is_empty() {
+        let engine = self.cache_engine.lock().unwrap();
+
+        if engine.cache_storage.is_empty() {
             return Ok(CacheResult::Miss {
                 reason: MissReason::CacheEmpty,
                 suggested_cache_key: self.generate_cache_key(&input.query),
@@ -442,7 +462,7 @@ impl FastCacheAgent {
             .unwrap_or(self.config.similarity_threshold);
 
         // Search for similar entries
-        for (key, entry) in &self.cache_engine.cache_storage {
+        for (key, entry) in &engine.cache_storage {
             let similarity = self.calculate_similarity(query_embedding, &entry.embedding);
 
             if similarity > similarity_threshold {
@@ -538,8 +558,9 @@ impl FastCacheAgent {
     async fn analyze_similarity(&self, query_embedding: &[f32]) -> AgentResult<SimilarityAnalysis> {
         let start_time = std::time::Instant::now();
 
+        let engine = self.cache_engine.lock().unwrap();
         let mut similarities = Vec::new();
-        for entry in self.cache_engine.cache_storage.values() {
+        for entry in engine.cache_storage.values() {
             let similarity = self.calculate_similarity(query_embedding, &entry.embedding);
             similarities.push(similarity);
         }
@@ -579,15 +600,16 @@ impl FastCacheAgent {
     }
 
     async fn calculate_cache_metrics(&self) -> AgentResult<CacheMetrics> {
-        let total_queries = self.cache_engine.hit_count + self.cache_engine.miss_count;
+        let engine = self.cache_engine.lock().unwrap();
+        let total_queries = engine.hit_count + engine.miss_count;
         let hit_rate = if total_queries > 0 {
-            self.cache_engine.hit_count as f32 / total_queries as f32
+            engine.hit_count as f32 / total_queries as f32
         } else {
             0.0
         };
         let miss_rate = 1.0 - hit_rate;
 
-        let cache_size_mb = self.cache_engine.cache_size_bytes as f32 / (1024.0 * 1024.0);
+        let cache_size_mb = engine.cache_size_bytes as f32 / (1024.0 * 1024.0);
         let avg_lookup_time_ms = 0.1; // Simulated average lookup time
 
         Ok(CacheMetrics {
@@ -596,7 +618,7 @@ impl FastCacheAgent {
             total_queries,
             cache_size_mb,
             avg_lookup_time_ms,
-            eviction_count: self.cache_engine.eviction_count,
+            eviction_count: engine.eviction_count,
         })
     }
 
@@ -658,6 +680,18 @@ impl FastCacheAgent {
         }
 
         Ok(recommendations)
+    }
+
+    /// Check string cache for a query. Returns cached result if found.
+    pub fn get_cached_string(&self, key: &str) -> Option<String> {
+        let cache = self.string_cache.lock().unwrap();
+        cache.get(key).cloned()
+    }
+
+    /// Store a string result in cache.
+    pub fn set_cached_string(&self, key: String, value: String) {
+        let mut cache = self.string_cache.lock().unwrap();
+        cache.insert(key, value);
     }
 }
 
