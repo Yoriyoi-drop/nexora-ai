@@ -79,10 +79,6 @@ pub struct MessageTracking {
 
 /// Message bus untuk inter-agent communication
 pub struct MessageBus {
-    /// Channel untuk incoming messages
-    _message_tx: mpsc::Sender<Arc<InterAgentMessage>>,
-    /// Receiver untuk incoming messages
-    _message_rx: Arc<RwLock<Option<mpsc::Receiver<Arc<InterAgentMessage>>>>>,
     /// Per-agent message channels (bounded, buffer=16)
     subscribers: Arc<RwLock<HashMap<Uuid, mpsc::Sender<Arc<InterAgentMessage>>>>>,
     /// Topic subscribers (topic -> vec of agent IDs)
@@ -91,8 +87,9 @@ pub struct MessageBus {
     role_subscribers: Arc<RwLock<HashMap<String, Vec<Uuid>>>>,
     /// Message tracking
     message_tracking: Arc<RwLock<HashMap<Uuid, MessageTracking>>>,
-    /// Broadcast channel untuk events
+    /// Broadcast channel untuk events (receiver disimpan agar send tidak gagal)
     event_tx: broadcast::Sender<MessageBusEvent>,
+    _event_rx: broadcast::Receiver<MessageBusEvent>,
     /// Message queue untuk pending messages (VecDeque for O(1) front removal)
     message_queue: Arc<RwLock<VecDeque<Arc<InterAgentMessage>>>>,
 }
@@ -119,17 +116,15 @@ pub enum MessageBusEvent {
 impl MessageBus {
     /// Create new message bus
     pub fn new() -> Self {
-        let (message_tx, message_rx) = mpsc::channel(1024);
-        let (event_tx, _) = broadcast::channel(1000);
+        let (event_tx, _event_rx) = broadcast::channel(1000);
 
         Self {
-            _message_tx: message_tx,
-            _message_rx: Arc::new(RwLock::new(Some(message_rx))),
             subscribers: Arc::new(RwLock::new(HashMap::new())),
             topic_subscribers: Arc::new(RwLock::new(HashMap::new())),
             role_subscribers: Arc::new(RwLock::new(HashMap::new())),
             message_tracking: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
+            _event_rx,
             message_queue: Arc::new(RwLock::new(VecDeque::new())),
         }
     }

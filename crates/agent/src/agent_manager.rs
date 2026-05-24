@@ -360,17 +360,27 @@ impl AgentManager {
         debug!("Sending message to agent: {}", agent_id);
 
         let agent_handle = self.registry.get_agent(agent_id).await?;
-        let mut agent = agent_handle.lock().await;
-        agent.receive(message).await?;
 
-        // Create context
+        // Step 1: Receive message (hold lock only for receive)
+        {
+            let mut agent = agent_handle.lock().await;
+            agent.receive(message).await?;
+        }
+
+        // Create context (no lock needed)
         let context = crate::AgentContext::new(Uuid::new_v4());
 
-        // Process message
-        let response = agent.process(context).await?;
+        // Step 2: Process message (hold lock only for process)
+        let response = {
+            let mut agent = agent_handle.lock().await;
+            agent.process(context).await?
+        };
 
-        // Send response
-        agent.respond(response.clone()).await?;
+        // Step 3: Send response (hold lock only for respond)
+        {
+            let mut agent = agent_handle.lock().await;
+            agent.respond(response.clone()).await?;
+        }
 
         debug!("Message processed successfully for agent: {}", agent_id);
         Ok(response)

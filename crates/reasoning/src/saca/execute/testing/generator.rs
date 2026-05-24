@@ -7,38 +7,149 @@ use crate::saca::error::*;
 /// Test generator for implementations
 pub struct TestGenerator;
 
+/// Parsed function signature information
+#[derive(Debug, Clone, Default)]
+struct SignatureInfo {
+    name: String,
+    input_types: Vec<String>,
+    output_type: String,
+    is_result: bool,
+    is_option: bool,
+    is_vec: bool,
+    is_bool: bool,
+    is_int: bool,
+    is_float: bool,
+    is_string: bool,
+    has_slice_param: bool,
+    has_vec_param: bool,
+    has_string_param: bool,
+    has_int_param: bool,
+    has_float_param: bool,
+    has_mut_param: bool,
+    has_lifetime: bool,
+    is_async: bool,
+    has_generics: bool,
+    num_params: usize,
+}
+
+impl SignatureInfo {
+    /// Parse function signature from implementation text
+    fn from_impl(implementation: &str) -> Self {
+        let lower = implementation.to_lowercase();
+        let mut info = SignatureInfo::default();
+
+        // Extract function name from fn keyword
+        if let Some(fn_idx) = lower.find("fn ") {
+            let after_fn = &lower[fn_idx + 3..];
+            if let Some(paren_idx) = after_fn.find('(') {
+                info.name = after_fn[..paren_idx].trim().to_string();
+            }
+        }
+
+        // Count and extract parameter information
+        let mut paren_depth = 0i32;
+        let mut in_params = false;
+        let mut current_param = String::new();
+        let mut params: Vec<String> = Vec::new();
+
+        for ch in implementation.chars() {
+            match ch {
+                '(' if !in_params => { in_params = true; paren_depth = 1; }
+                '(' if in_params => { paren_depth += 1; }
+                ')' if in_params && paren_depth > 1 => { paren_depth -= 1; current_param.push(ch); }
+                ')' if in_params => {
+                    if !current_param.trim().is_empty() {
+                        params.push(current_param.trim().to_string());
+                    }
+                    break;
+                }
+                ',' if in_params && paren_depth == 1 => {
+                    params.push(current_param.trim().to_string());
+                    current_param.clear();
+                }
+                _ if in_params && paren_depth >= 1 => { current_param.push(ch); }
+                _ => {}
+            }
+        }
+        info.num_params = params.len();
+
+        // Analyze each parameter
+        for param in &params {
+            let pl = param.to_lowercase();
+            // Extract type after ':'
+            if let Some(type_idx) = pl.find(':') {
+                let ptype = pl[type_idx + 1..].trim();
+                if ptype.contains("&[") || ptype.contains("&mut [") || ptype.contains("slice") {
+                    info.has_slice_param = true;
+                }
+                if ptype.contains("vec<") || ptype.contains("vector") {
+                    info.has_vec_param = true;
+                }
+                if ptype.contains("string") || ptype.contains("&str") {
+                    info.has_string_param = true;
+                }
+                if ptype.contains("i32") || ptype.contains("i64") || ptype.contains("usize") || ptype.contains("u32") || ptype.contains("u64") || ptype.contains("isize") {
+                    info.has_int_param = true;
+                }
+                if ptype.contains("f32") || ptype.contains("f64") {
+                    info.has_float_param = true;
+                }
+                if ptype.contains("&mut") {
+                    info.has_mut_param = true;
+                }
+                info.input_types.push(ptype.to_string());
+            }
+        }
+
+        // Detect generics
+        info.has_generics = lower.contains('<') && lower.contains('>');
+
+        // Detect async
+        info.is_async = lower.contains("async fn") || lower.contains("async ");
+
+        // Detect lifetimes
+        info.has_lifetime = lower.contains('\'');
+
+        // Return type analysis - find -> token
+        if let Some(ret_idx) = lower.find("-> ") {
+            let after_ret = lower[ret_idx + 3..].trim();
+            // Extract return type (up to '{' or 'where' or ';')
+            let ret_type = after_ret.split(|c: char| c == '{' || c == ';')
+                .next().unwrap_or("").trim()
+                .split("where").next().unwrap_or("").trim();
+            info.output_type = ret_type.to_string();
+
+            info.is_result = ret_type.starts_with("result<")
+                || ret_type.starts_with("core::result::")
+                || ret_type.starts_with("std::result::")
+                || ret_type.starts_with("result<");
+            info.is_option = ret_type.starts_with("option<")
+                || ret_type.starts_with("core::option::")
+                || ret_type.starts_with("std::option::")
+                || ret_type.starts_with("option<");
+            info.is_vec = ret_type.starts_with("vec<")
+                || ret_type.starts_with("std::vec::")
+                || ret_type.contains("vec<") || ret_type.contains("> vec");
+            info.is_bool = ret_type == "bool";
+            info.is_int = ret_type == "i32" || ret_type == "i64" || ret_type == "usize"
+                || ret_type == "u32" || ret_type == "u64" || ret_type == "isize"
+                || ret_type == "i8" || ret_type == "u8" || ret_type == "i16" || ret_type == "u16";
+            info.is_float = ret_type == "f32" || ret_type == "f64";
+            info.is_string = ret_type.contains("string") || ret_type.contains("&str") || ret_type.contains("string");
+        }
+
+        info
+    }
+}
+
 impl TestGenerator {
     /// Generate test cases by analyzing the implementation's structure
     pub async fn generate_test_cases(&self, implementation: &str) -> SACAResult<Vec<TestCase>> {
         let mut test_cases = Vec::new();
         let lower = implementation.to_lowercase();
 
-        // Detect return type for expected output generation
-        let returns_result = lower.contains("-> result<")
-            || lower.contains("-> core::result::")
-            || lower.contains("-> std::result::");
-        let returns_option = lower.contains("-> option<")
-            || lower.contains("-> core::option::")
-            || lower.contains("-> std::option::");
-        let returns_vec = lower.contains("-> vec<")
-            || lower.contains("-> std::vec::");
-        let returns_bool = lower.contains("-> bool");
-        let returns_int = lower.contains("-> i32")
-            || lower.contains("-> i64")
-            || lower.contains("-> usize")
-            || lower.contains("-> u32")
-            || lower.contains("-> u64");
-        let returns_float = lower.contains("-> f32") || lower.contains("-> f64");
-        let returns_string = lower.contains("-> string")
-            || lower.contains("-> &str")
-            || lower.contains("-> std::string::string");
-
-        // Detect parameter types for input generation
-        let takes_slice = lower.contains("&[") || lower.contains("&mut [") || lower.contains("slice");
-        let takes_vec_param = lower.contains("vec<") || lower.contains("vector");
-        let takes_string_param = lower.contains("string") || lower.contains("&str");
-        let takes_int_param = lower.contains("i32") || lower.contains("i64") || lower.contains("usize") || lower.contains("u32") || lower.contains("u64");
-        let takes_float_param = lower.contains("f32") || lower.contains("f64");
+        // Parse function signature for type-driven test generation
+        let sig = SignatureInfo::from_impl(implementation);
 
         // Detect operation types from function/type names and comments
         let is_sort = lower.contains("sort")

@@ -86,10 +86,6 @@ pub struct AgentLifecycleStatus {
 pub struct LifecycleManager {
     /// Tracking status per agent
     agent_status: Arc<RwLock<HashMap<Uuid, AgentLifecycleStatus>>>,
-    /// Event channel untuk lifecycle events
-    event_tx: mpsc::Sender<AgentLifecycleEvent>,
-    /// Event receiver
-    _event_rx: Arc<RwLock<Option<mpsc::Receiver<AgentLifecycleEvent>>>>,
     /// Event subscribers (buffer=1024 per subscriber)
     event_subscribers: Arc<tokio::sync::Mutex<Vec<mpsc::Sender<AgentLifecycleEvent>>>>,
     /// Konfigurasi
@@ -99,27 +95,30 @@ pub struct LifecycleManager {
 impl LifecycleManager {
     /// Create new lifecycle manager
     pub fn new(config: AgentManagerConfig) -> Self {
-        let (event_tx, event_rx) = mpsc::channel(1024);
-
         Self {
             agent_status: Arc::new(RwLock::new(HashMap::new())),
-            event_tx,
-            _event_rx: Arc::new(RwLock::new(Some(event_rx))),
             event_subscribers: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             config,
         }
     }
 
-    /// Emit lifecycle event
-    fn emit_event(&self, event: AgentLifecycleEvent) {
-        match self.event_tx.try_send(event) {
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                warn!("Lifecycle event channel full — dropping event");
+    /// Emit lifecycle event to all subscribers
+    async fn emit_event(&self, event: AgentLifecycleEvent) {
+        let mut subscribers = self.event_subscribers.lock().await;
+        let mut dead = Vec::new();
+        for (i, subscriber) in subscribers.iter().enumerate() {
+            match subscriber.try_send(event.clone()) {
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    warn!("Lifecycle subscriber channel full — dropping event");
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    dead.push(i);
+                }
+                Ok(_) => {}
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                warn!("Lifecycle event receiver dropped");
-            }
-            Ok(_) => {}
+        }
+        for &i in dead.iter().rev() {
+            subscribers.remove(i);
         }
     }
 
@@ -149,9 +148,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         // Transition to ready
         self.transition_to_ready(agent_id).await?;
@@ -179,9 +176,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         // Final status update
         {
@@ -228,7 +223,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        self.emit_event(event);
+        self.emit_event(event).await;
 
         // Restart lifecycle
         self.start_agent(agent_id).await?;
@@ -256,9 +251,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         Ok(())
     }
@@ -283,9 +276,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         Ok(())
     }
@@ -308,9 +299,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         Ok(())
     }
@@ -338,9 +327,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         Ok(())
     }
@@ -365,9 +352,7 @@ impl LifecycleManager {
             error: error.clone(),
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         Ok(())
     }
@@ -475,9 +460,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).await.is_err() {
-            warn!("Lifecycle event receiver dropped");
-        }
+        self.emit_event(event).await;
 
         Ok(())
     }

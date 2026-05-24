@@ -520,10 +520,25 @@ impl ContextEngine {
         // Analyze how modules fit into existing repository structure
         for module in modules {
             // Check if similar functionality already exists
-            self.check_existing_functionality(context, module).await?;
+            let check = self.check_existing_functionality(context, module).await?;
+            if check.duplicate_risk > 0.5 {
+                info!(
+                    "High duplication risk ({:.2}) for '{}' — similar to: {:?}",
+                    check.duplicate_risk, module.name, check.similar_functions
+                );
+            }
         }
 
         Ok(())
+    }
+
+    /// Result of checking existing functionality
+    #[derive(Debug, Clone)]
+    struct FunctionalityCheck {
+        similar_functions: Vec<String>,
+        similar_names: Vec<String>,
+        duplicate_risk: f32,
+        existing_modules: Vec<String>,
     }
 
     /// Check if similar functionality already exists by searching
@@ -532,7 +547,7 @@ impl ContextEngine {
         &self,
         context: &RepositoryContext,
         module: &Module,
-    ) -> SACAResult<()> {
+    ) -> SACAResult<FunctionalityCheck> {
         let module_lower = module.name.to_lowercase();
         let desc_lower = module.description.to_lowercase();
 
@@ -583,6 +598,17 @@ impl ContextEngine {
         })
         .collect();
 
+        // Search through context's file analysis for actual module names
+        let existing_modules: Vec<String> = context
+            .coding_patterns
+            .keys()
+            .filter(|pattern| {
+                let pl = pattern.to_lowercase();
+                keywords.iter().any(|kw| pl.contains(kw))
+            })
+            .cloned()
+            .collect();
+
         if !similar_functions.is_empty() {
             info!(
                 "Found {} similar existing patterns for module '{}': {:?}",
@@ -609,14 +635,30 @@ impl ContextEngine {
             );
         }
 
+        let duplicate_risk = if similar_functions.len() > 3 {
+            0.9
+        } else if similar_functions.len() > 1 {
+            0.6
+        } else if !similar_names.is_empty() {
+            0.3
+        } else {
+            0.0
+        };
+
         debug!(
-            "Functionality check for module '{}': {} pattern matches, {} naming overlaps",
+            "Functionality check for module '{}': {} pattern matches, {} naming overlaps, risk={}",
             module.name,
             similar_functions.len(),
-            similar_names.len()
+            similar_names.len(),
+            duplicate_risk
         );
 
-        Ok(())
+        Ok(FunctionalityCheck {
+            similar_functions,
+            similar_names,
+            duplicate_risk,
+            existing_modules,
+        })
     }
 
     /// Generate cache key for context results

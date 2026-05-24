@@ -163,7 +163,7 @@ impl Pipeline {
         ),
     ) -> Vec<graph::ExecutionResult> {
         self.cancel_tx = Some(cancel_tx);
-        self.graph.finalize();
+        // Graph is already finalized by PipelineBuilder::build()
         let mut results = Vec::with_capacity(samples.len());
 
         for sample in samples {

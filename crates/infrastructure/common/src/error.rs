@@ -764,19 +764,25 @@ impl ErrorRecoveryManager {
     }
 
     /// Check if circuit breaker is open
-    pub fn is_circuit_breaker_open(&self, component: &str) -> bool {
+    pub fn is_circuit_breaker_open(&mut self, component: &str) -> bool {
         self.circuit_breakers
-            .get(component)
+            .get_mut(component)
             .map(|cb| cb.is_open())
             .unwrap_or(false)
     }
 }
 
 impl CircuitBreakerState {
-    fn is_open(&self) -> bool {
+    fn is_open(&mut self) -> bool {
         match self.state {
             CircuitBreakerStateType::Open => {
-                Instant::now().duration_since(self.last_failure) > self.timeout
+                if Instant::now().duration_since(self.last_failure) > self.timeout {
+                    // Transition to HalfOpen — allow probe requests
+                    self.state = CircuitBreakerStateType::HalfOpen;
+                    false
+                } else {
+                    true // Still open, block requests
+                }
             }
             CircuitBreakerStateType::HalfOpen => false,
             CircuitBreakerStateType::Closed => false,
@@ -946,8 +952,12 @@ mod tests {
 
         cb.failure_count = 5;
         cb.state = CircuitBreakerStateType::Open;
-        // Circuit breaker in Open state returns false until timeout passes
-        // So we test the state directly instead of is_open()
-        assert!(matches!(cb.state, CircuitBreakerStateType::Open));
+        // In Open state, is_open() returns true (blocking requests)
+        assert!(cb.is_open());
+
+        // After timeout passes, is_open transitions to HalfOpen
+        cb.last_failure = Instant::now() - Duration::from_secs(120);
+        assert!(!cb.is_open());
+        assert!(matches!(cb.state, CircuitBreakerStateType::HalfOpen));
     }
 }

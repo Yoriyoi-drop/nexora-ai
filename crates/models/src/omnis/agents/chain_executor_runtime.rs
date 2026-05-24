@@ -93,7 +93,7 @@ impl ChainExecutorRuntimeAgent {
             state.coherence_trace.push(coherence);
 
             // Track key concepts as context for subsequent steps
-            for concept in &state.steps.last().unwrap().reasoning.split_whitespace() {
+            for concept in state.steps.last().unwrap().reasoning.split_whitespace() {
                 if concept.len() > 3 {
                     state
                         .context

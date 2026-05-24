@@ -37,10 +37,20 @@ impl StreamIntakeEngine {
         let semaphore = self.semaphore.clone();
 
         tokio::spawn(async move {
-            let content = match tokio::fs::read_to_string(&path).await {
-                Ok(c) => c,
-                Err(e) => {
+            let read_result = tokio::time::timeout(
+                Duration::from_secs(60),
+                tokio::fs::read_to_string(&path),
+            )
+            .await;
+
+            let content = match read_result {
+                Ok(Ok(c)) => c,
+                Ok(Err(e)) => {
                     warn!("Failed to read file {}: {}", path, e);
+                    return;
+                }
+                Err(_) => {
+                    warn!("Timed out reading file {} after 60s", path);
                     return;
                 }
             };
@@ -75,8 +85,15 @@ impl StreamIntakeEngine {
         let batch_cfg = self.batch_config.clone();
 
         tokio::spawn(async move {
+            let ingest_timeout = Duration::from_secs(300);
+            let start = std::time::Instant::now();
+
             let mut batch = Vec::with_capacity(batch_cfg.max_batch_size);
             for (text, source) in texts {
+                if start.elapsed() > ingest_timeout {
+                    warn!("ingest_batch timed out after 300s");
+                    return;
+                }
                 let sample = DataSample {
                     id: Uuid::new_v4(),
                     text,

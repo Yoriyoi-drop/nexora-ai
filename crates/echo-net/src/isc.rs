@@ -270,6 +270,55 @@ impl InverseSpectralCollapse {
         Ok(output)
     }
 
+    /// Forward pass with Tensor output for gradient passthrough.
+    /// Spectral collapse uses ndarray internally (FFT, filtering), but
+    /// the output projection (W_o * h + b) and softmax use Tensor ops
+    /// so gradients flow back to the provided weight/bias Tensors.
+    pub fn forward_tensor(
+        &mut self,
+        context: &ArrayD<f32>,
+        timestamp: usize,
+        weights_tensor: &Tensor,
+        bias_tensor: &Tensor,
+    ) -> DLResult<Tensor> {
+        let start_time = std::time::Instant::now();
+
+        let complex_context = self.context_to_complex(context)?;
+        let filtered_context = if self.config.frequency_filtering {
+            self.apply_frequency_filtering(&complex_context)?
+        } else {
+            complex_context
+        };
+        let collapsed_wave = self.perform_wave_collapse(&filtered_context)?;
+        let phase_preserved = self.apply_phase_preservation(&collapsed_wave)?;
+        let normalized = if self.config.amplitude_normalization {
+            self.normalize_amplitude(&phase_preserved)?
+        } else {
+            phase_preserved
+        };
+        let real_representation = self.complex_to_real(&normalized)?;
+
+        // Tensor-aware output projection with gradient tracking
+        let input_tensor = Tensor::new(real_representation.clone().into_dyn());
+        input_tensor.set_requires_grad(true);
+
+        let input_2d = input_tensor.reshape(&[1, real_representation.len()]);
+        let projected = input_2d.matmul(weights_tensor);
+        let biased = projected.add(bias_tensor);
+        let output = biased.softmax(1);
+        let output_1d = output.reshape(&[real_representation.len()]);
+
+        let out_data = output_1d.data();
+        let out_1d = Array1::from_shape_vec(out_data.len(), out_data.into_raw_vec())
+            .unwrap_or_else(|_| Array1::zeros(real_representation.len()));
+        let collapse_time = start_time.elapsed().as_secs_f32();
+        self.record_collapse_event(context, &out_1d, collapse_time, timestamp)?;
+        self.update_adaptive_parameters(&out_1d)?;
+        self.update_performance_metrics(collapse_time, &out_1d)?;
+
+        Ok(output_1d)
+    }
+
     /// Convert context to complex representation
     fn context_to_complex(&self, context: &ArrayD<f32>) -> DLResult<Array2<Complex>> {
         let total_elements = context.len();

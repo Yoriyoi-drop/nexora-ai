@@ -261,6 +261,21 @@ impl AsyncTaskExecutor {
             }
         }
 
+        // Track task as queued in active tasks
+        {
+            let mut active = self.active_tasks.write().await;
+            active.insert(
+                task_id.clone(),
+                TaskInfo {
+                    task: task.clone(),
+                    status: TaskStatus::Queued,
+                    started_at: None,
+                    retry_count: 0,
+                    last_retry_at: None,
+                },
+            );
+        }
+
         // Update metrics
         {
             let mut metrics = self.metrics.write().await;

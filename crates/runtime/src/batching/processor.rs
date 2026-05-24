@@ -2,7 +2,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
@@ -44,6 +46,8 @@ pub struct BatchProcessor {
     batch_sender: mpsc::Sender<Batch>,
     /// Receiver for batch completion notifications
     batch_receiver: Arc<RwLock<Option<mpsc::Receiver<Batch>>>>,
+    /// Tracked background task handles for shutdown/cancellation
+    background_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
 impl Clone for BatchProcessor {
@@ -57,6 +61,7 @@ impl Clone for BatchProcessor {
             state: Arc::clone(&self.state),
             batch_sender: self.batch_sender.clone(),
             batch_receiver: Arc::clone(&self.batch_receiver),
+            background_tasks: Arc::clone(&self.background_tasks),
         }
     }
 }
@@ -76,6 +81,7 @@ impl BatchProcessor {
             state: Arc::new(RwLock::new(ProcessorState::Uninitialized)),
             batch_sender,
             batch_receiver: Arc::new(RwLock::new(Some(batch_receiver))),
+            background_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -236,8 +242,9 @@ impl BatchProcessor {
     /// Flush pending queue based on max_wait_time_ms timer
     async fn start_flush_task(&self) -> Result<()> {
         let processor = self.clone();
+        let background_tasks = Arc::clone(&self.background_tasks);
         let wait = std::time::Duration::from_millis(self.config.max_wait_time_ms);
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(wait).await;
                 {
@@ -246,11 +253,21 @@ impl BatchProcessor {
                         break;
                     }
                 }
-                if let Err(e) = processor.try_form_batch().await {
-                    error!("Flush batch error: {}", e);
+                // Timeout wrapping for the flush attempt
+                if tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    processor.try_form_batch(),
+                )
+                .await
+                .is_err()
+                {
+                    error!("Flush batch timed out after 30s");
                 }
             }
         });
+        if let Ok(mut tasks) = background_tasks.lock() {
+            tasks.push(handle);
+        }
         Ok(())
     }
 
@@ -289,8 +306,9 @@ impl BatchProcessor {
     /// Start background processing task
     async fn start_processing_task(&self) -> Result<()> {
         let processor = self.clone();
+        let background_tasks = Arc::clone(&self.background_tasks);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut receiver = {
                 let mut receiver_lock = processor.batch_receiver.write().await;
                 receiver_lock.take()
@@ -298,8 +316,14 @@ impl BatchProcessor {
 
             if let Some(ref mut rx) = receiver {
                 while let Some(batch) = rx.recv().await {
-                    if let Err(e) = processor.process_completed_batch(batch).await {
-                        error!("Error processing completed batch: {}", e);
+                    if tokio::time::timeout(
+                        std::time::Duration::from_secs(60),
+                        processor.process_completed_batch(batch),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        error!("Processing completed batch timed out");
                     }
 
                     // Try to form new batch after processing
@@ -309,6 +333,10 @@ impl BatchProcessor {
                 }
             }
         });
+
+        if let Ok(mut tasks) = background_tasks.lock() {
+            tasks.push(handle);
+        }
 
         Ok(())
     }

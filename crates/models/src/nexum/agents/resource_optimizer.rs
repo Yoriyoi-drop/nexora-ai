@@ -905,7 +905,7 @@ pub struct PolicyConstraint {
     /// Constraint type
     pub constraint_type: PolicyConstraintType,
     /// Enforcement level
-    pub enforcement_level: EnforcementLevel,
+    pub enforcement_level: String,
 }
 
 /// PolicyConstraintType
@@ -923,18 +923,7 @@ pub enum PolicyConstraintType {
     ResourcePolicy,
 }
 
-/// EnforcementLevel
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EnforcementLevel {
-    /// Advisory
-    Advisory,
-    /// Warning
-    Warning,
-    /// Error
-    Error,
-    /// Critical
-    Critical,
-}
+
 
 /// Resource Optimization Task Output
 #[derive(Debug, Clone, Serialize, Deserialize)]

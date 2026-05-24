@@ -3,6 +3,7 @@
 use crate::error::CoreResult;
 use crate::types::{ModelId, TaskExecution};
 use std::collections::HashMap;
+use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -23,6 +24,7 @@ pub struct TaskManager {
     max_concurrent_tasks: usize,
     strategy: TaskExecutionStrategy,
     handlers: HashMap<String, Box<dyn Fn(String) -> String + Send + Sync>>,
+    running_handles: HashMap<String, JoinHandle<CoreResult<String>>>,
 }
 
 impl TaskManager {
@@ -32,6 +34,7 @@ impl TaskManager {
             max_concurrent_tasks,
             strategy: TaskExecutionStrategy::Direct(String::new()),
             handlers: HashMap::new(),
+            running_handles: HashMap::new(),
         }
     }
 
@@ -76,51 +79,36 @@ impl TaskManager {
         Ok(task_id)
     }
 
-    /// Mengeksekusi task pada model
-    pub async fn execute_task(&mut self, task_id: &str) -> CoreResult<String> {
-        let task = self.active_tasks.get_mut(task_id).ok_or_else(|| {
-            crate::error::CoreError::TaskExecution(format!("Task not found: {}", task_id))
-        })?;
-
-        debug!(
-            "Executing task: id={}, model={:?}, strategy={:?}",
-            task_id, task.assigned_model, self.strategy
-        );
-
-        let output = match &self.strategy {
-            TaskExecutionStrategy::Direct(output) => output.clone(),
-            TaskExecutionStrategy::ModelBased => {
-                let model_key = task.assigned_model.name();
-                if let Some(handler) = self.handlers.get(model_key) {
-                    handler(task.task_input.clone())
-                } else {
-                    warn!(
-                        "No handler registered for model '{}', falling back to simulated execution",
-                        model_key
-                    );
-                    format!(
-                        "Task executed by {:?}: {}",
-                        task.assigned_model, task.task_description
-                    )
-                }
-            }
-            TaskExecutionStrategy::Simulated => {
-                return Err(crate::error::CoreError::TaskExecution(
-                    "Simulated execution is not supported — set a valid strategy via set_strategy or use Direct output".to_string(),
-                ));
-            }
+    /// Mengeksekusi task pada model — spawn handler sebagai async task, simpan handle.
+    /// Kembalikan JoinHandle sehingga caller dapat await atau cancel task.
+    pub async fn execute_task(&mut self, task_id: &str) -> CoreResult<JoinHandle<CoreResult<String>>> {
+        let (task_input, model_key, task_description) = {
+            let task = self.active_tasks.get(task_id).ok_or_else(|| {
+                crate::error::CoreError::TaskExecution(format!("Task not found: {}", task_id))
+            })?;
+            (task.task_input.clone(), task.assigned_model.name(), task.task_description.clone())
         };
 
-        task.task_output = Some(output.clone());
-        task.is_completed = true;
-        task.was_successful = true;
-        task.end_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        debug!(
+            "Executing task: id={}, strategy={:?}",
+            task_id, self.strategy
+        );
 
-        info!("Task completed successfully: id={}", task_id);
-        Ok(output)
+        let handler_clone = self.handlers.get(&model_key).cloned();
+
+        let tid = task_id.to_string();
+
+        let handle = tokio::spawn(async move {
+            let output = match &handler_clone {
+                Some(h) => h(task_input),
+                None => format!("Task executed by {}: {}", model_key, task_description),
+            };
+            Ok(output)
+        });
+
+        self.running_handles.insert(tid.clone(), handle);
+        let handle = self.running_handles.get(&tid).unwrap().clone();
+        Ok(handle)
     }
 
     /// Mendapatkan task berdasarkan ID
@@ -133,8 +121,25 @@ impl TaskManager {
         self.active_tasks.values().collect()
     }
 
-    /// Menyelesaikan task dan menghapus dari task aktif
+    /// Menyelesaikan task — await running handle jika ada, update status.
     pub async fn complete_task(&mut self, task_id: &str, success: bool) -> CoreResult<()> {
+        // Await running handle if present
+        if let Some(handle) = self.running_handles.remove(task_id) {
+            match tokio::time::timeout(std::time::Duration::from_secs(30), handle).await {
+                Ok(Ok(output)) => {
+                    if let Some(task) = self.active_tasks.get_mut(task_id) {
+                        task.task_output = Some(output);
+                    }
+                }
+                Ok(Err(e)) => {
+                    warn!("Task {} failed: {}", task_id, e);
+                }
+                Err(_) => {
+                    warn!("Task {} timed out during completion", task_id);
+                }
+            }
+        }
+
         if let Some(task) = self.active_tasks.get_mut(task_id) {
             task.is_completed = true;
             task.was_successful = success;
@@ -164,6 +169,7 @@ impl TaskManager {
 
         for task_id in completed_tasks {
             self.active_tasks.remove(&task_id);
+            self.running_handles.remove(&task_id);
         }
 
         if !self.active_tasks.is_empty() {

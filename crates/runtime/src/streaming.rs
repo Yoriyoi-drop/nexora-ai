@@ -487,6 +487,13 @@ impl StreamingEngine {
             }
         }
 
+        // Cancel tracked background tasks
+        if let Ok(mut tasks) = self.background_tasks.lock() {
+            for h in tasks.drain(..) {
+                h.abort();
+            }
+        }
+
         // Update state
         {
             let mut state = self.state.write().await;
@@ -644,9 +651,15 @@ pub mod utils {
         let (text_tx, text_rx) = mpsc::channel(64);
 
         tokio::spawn(async move {
+            let timeout = tokio::time::Duration::from_secs(300);
+            let start = std::time::Instant::now();
             let mut accumulated_text = String::new();
 
             while let Some(stream_token) = token_stream.token_rx.recv().await {
+                if start.elapsed() > timeout {
+                    debug!("tokens_to_text timed out");
+                    break;
+                }
                 accumulated_text.push_str(&stream_token.token.text);
 
                 if let Err(_) = text_tx.send(accumulated_text.clone()).await {
@@ -671,10 +684,16 @@ pub mod utils {
         let (buffered_tx, buffered_rx) = mpsc::channel(64);
 
         tokio::spawn(async move {
+            let timeout = tokio::time::Duration::from_secs(300);
+            let start = std::time::Instant::now();
             let mut buffer = Vec::new();
             let mut last_flush = std::time::Instant::now();
 
             while let Some(stream_token) = token_stream.token_rx.recv().await {
+                if start.elapsed() > timeout {
+                    debug!("buffer_tokens timed out");
+                    break;
+                }
                 buffer.push(stream_token.token);
 
                 let should_flush = buffer.len() >= buffer_size

@@ -464,7 +464,7 @@ impl FixGenerator {
 
             // Detect Mutex usage without proper guard
             if trimmed.contains("lock()") && trimmed.contains("unwrap") {
-                fixed = fixed.replace(".lock().unwrap()", ".lock().expect("Mutex poisoned")");
+                fixed = fixed.replace(".lock().unwrap()", ".lock().expect(\"Mutex poisoned\")");
             }
 
             // Detect missing Arc wrapping

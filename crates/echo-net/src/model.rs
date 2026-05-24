@@ -351,13 +351,14 @@ impl EchoNetModel {
         let all_data = vec![flat_memory.clone(), retrieved.clone()];
         let routed = self.tkrr.forward(&wave, &all_data, &all_data)?;
 
-        // 9. ISC — returns Array1<f32> (sudah termasuk output_weights + bias + softmax)
-        let logits_1d = self.isc.forward(&routed, timestamp)?;
-        let logits_arr = ArrayD::from_shape_vec(vec![1, logits_1d.len()], logits_1d.to_vec())?;
-
-        // Bungkus di Tensor, dipecah dari computation graph via no_grad
-        let out = Tensor::new(logits_arr);
-        // out.softmax(1) — sudah di-softmax oleh ISC
+        // 9. ISC — forward_tensor returns Tensor with gradient tracking
+        //    through output_projection (matmul + bias + softmax)
+        let out = self.isc.forward_tensor(
+            &routed,
+            timestamp,
+            &self.isc_params[0],
+            &self.isc_params[1],
+        )?;
 
         self.state.temporal_position += token_ids.len();
         Ok(out)

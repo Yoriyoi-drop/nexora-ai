@@ -1,8 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{watch, Notify, RwLock};
+use tokio::task::JoinHandle;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -48,6 +49,7 @@ pub struct RequestScheduler {
     notify: Arc<Notify>,
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
+    background_handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl RequestScheduler {
@@ -64,7 +66,9 @@ impl RequestScheduler {
             notify: Arc::new(Notify::new()),
             shutdown_tx,
             shutdown_rx,
+            background_handles: Mutex::new(Vec::new()),
         }
+    }
     }
 
     pub fn with_max_concurrent(mut self, max: usize) -> Self {
@@ -77,6 +81,11 @@ impl RequestScheduler {
         self
     }
 
+    pub fn with_max_queue_time(mut self, max_queue_time_ms: u64) -> Self {
+        self.max_queue_time_ms = max_queue_time_ms;
+        self
+    }
+
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
         self.shutdown.store(false, Ordering::Relaxed);
         Ok(())
@@ -86,7 +95,8 @@ impl RequestScheduler {
     /// and processes them by fanning out responses to request channels.
     /// This ensures timed-out batches are drained even when the engine's
     /// request loop is busy elsewhere.
-    pub fn start(this: Arc<RwLock<Self>>) {
+    /// Returns the JoinHandle so callers can await/cancel the background worker.
+    pub fn start(this: Arc<RwLock<Self>>) -> JoinHandle<()> {
         tokio::spawn(async move {
             let notify = {
                 let s = this.read().await;
@@ -125,7 +135,7 @@ impl RequestScheduler {
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                 }
             }
-        });
+        })
     }
 
     pub async fn submit_request(
@@ -177,17 +187,69 @@ impl RequestScheduler {
 
     /// Pop the next ready batch from the collector.
     /// Returns None if no batch is ready or max_concurrent is saturated.
+    /// Requests that have exceeded max_queue_time_ms are timed out before processing.
     pub async fn pop_batch(&self) -> Option<Batch> {
         let active = *self.active_count.read().await;
         if active >= self.max_concurrent {
             return None;
         }
         let mut collector = self.batch_collector.write().await;
-        let mut batches = collector.drain_ready();
+        let batches = collector.drain_ready();
         if batches.is_empty() {
             return None;
         }
-        let batch = batches.remove(0);
+
+        let now = chrono::Utc::now();
+        let mut timed_out = Vec::new();
+
+        // Find first batch with non-timed-out requests
+        let batch = 'search: {
+            for mut b in batches {
+                let mut batch_timed_out = Vec::new();
+                b.requests.retain(|breq| {
+                    let requests = self.requests.try_read();
+                    match requests {
+                        Some(guard) => {
+                            if let Some(sreq) = guard.get(&breq.request_id) {
+                                let elapsed_ms = (now - sreq._submitted_at)
+                                    .num_milliseconds()
+                                    .max(0) as u64;
+                                if elapsed_ms > self.max_queue_time_ms {
+                                    batch_timed_out.push(breq.request_id);
+                                    return false;
+                                }
+                            }
+                            true
+                        }
+                        None => true,
+                    }
+                });
+                timed_out.extend(batch_timed_out);
+
+                if !b.requests.is_empty() {
+                    break 'search Some(b);
+                }
+            }
+            None
+        };
+
+        // Send timeout responses for timed-out requests
+        for req_id in &timed_out {
+            self.update_status(*req_id, RequestStatus::Timeout).await;
+            let mut resp = crate::InferenceResponse::new(*req_id);
+            resp.finish_reason = crate::FinishReason::Timeout;
+            let guard = self.requests.read().await;
+            if let Some(tx) = guard.get(req_id).map(|r| r.response_tx.clone()) {
+                drop(guard);
+                let _ = tx.send(resp).await;
+            }
+        }
+
+        let batch = match batch {
+            Some(b) => b,
+            None => return None,
+        };
+
         // claim a concurrent slot for the whole batch
         {
             let mut active = self.active_count.write().await;
@@ -237,6 +299,22 @@ impl RequestScheduler {
         queue.clear();
         requests.retain(|_, req| matches!(req.status, RequestStatus::Processing));
         Ok(())
+    }
+
+    /// Register a background handle for tracking (called from start() result).
+    pub fn register_background_handle(&self, handle: JoinHandle<()>) {
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(handle);
+        }
+    }
+
+    /// Cancel all tracked background handles.
+    pub fn cancel_background_handles(&self) {
+        if let Ok(mut handles) = self.background_handles.lock() {
+            for h in handles.drain(..) {
+                h.abort();
+            }
+        }
     }
 
     pub async fn get_stats(&self) -> SchedulerStats {

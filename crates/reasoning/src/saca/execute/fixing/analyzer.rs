@@ -203,7 +203,7 @@ impl ErrorAnalyzer {
             if !matched && matches!(self.analysis_depth, ErrorAnalysisDepth::Deep | ErrorAnalysisDepth::Comprehensive) {
                 analysis.error_types.push("UnknownError".to_string());
                 analysis.root_causes.push("Unrecognized error pattern".to_string());
-                analysis.fix_strategies.push("Inspect error log context for clues; add structured error handling").to_string();
+                analysis.fix_strategies.push("Inspect error log context for clues; add structured error handling".to_string());
                 analysis.confidence_scores.push(0.3);
             }
         }

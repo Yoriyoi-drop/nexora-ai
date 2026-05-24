@@ -315,59 +315,70 @@ impl InferenceEngine {
 
             let max_gen = max_tokens.min(2048) as usize;
 
-            for pos in 0..max_gen {
-                let input: &[u32] = if pos == 0 {
-                    &prompt_ids
-                } else {
-                    core::slice::from_ref(all_ids.last().unwrap_or(&0))
-                };
+            let generation_timeout = Duration::from_secs(60);
+            let gen_result = tokio::time::timeout(generation_timeout, async {
+                for pos in 0..max_gen {
+                    let input: &[u32] = if pos == 0 {
+                        &prompt_ids
+                    } else {
+                        core::slice::from_ref(all_ids.last().unwrap_or(&0))
+                    };
 
-                let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
-                let logits_slice = logits.as_slice().unwrap_or(&[]);
+                    let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
+                    let logits_slice = logits.as_slice().unwrap_or(&[]);
 
-                let token_id = match sampler.sample(logits_slice) {
-                    Ok(idx) => idx as u32,
-                    Err(e) => {
-                        warn!("Sampler failed, error: {:?}, falling back to argmax", e);
-                        match logits
-                            .iter()
-                            .enumerate()
-                            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                        {
-                            Some((i, _)) => i as u32,
-                            None => {
-                                warn!("Empty logits in streaming, using default token 1");
-                                1
+                    let token_id = match sampler.sample(logits_slice) {
+                        Ok(idx) => idx as u32,
+                        Err(e) => {
+                            warn!("Sampler failed, error: {:?}, falling back to argmax", e);
+                            match logits
+                                .iter()
+                                .enumerate()
+                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                            {
+                                Some((i, _)) => i as u32,
+                                None => {
+                                    warn!("Empty logits in streaming, using default token 1");
+                                    1
+                                }
                             }
                         }
+                    };
+
+                    let token_text = match &tokenizer {
+                        Some(tok) => {
+                            let t = tok.read();
+                            t.decode(&[token_id])
+                        }
+                        None => token_id_to_text_fallback(token_id),
+                    };
+
+                    let log_prob = logits.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                    let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
+
+                    let is_last = pos == max_gen - 1 || token_id == 0;
+                    if let Err(e) = se_clone
+                        .write()
+                        .await
+                        .push_tokens(stream_id, vec![Arc::new(token)], is_last)
+                        .await
+                    {
+                        warn!("Stream push failed: {}", e);
+                        break;
                     }
-                };
 
-                let token_text = match &tokenizer {
-                    Some(tok) => {
-                        let t = tok.read();
-                        t.decode(&[token_id])
+                    all_ids.push(token_id);
+                    if is_last {
+                        break;
                     }
-                    None => token_id_to_text_fallback(token_id),
-                };
-
-                let log_prob = logits.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
-                let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
-
-                let is_last = pos == max_gen - 1 || token_id == 0;
-                if let Err(e) = se_clone
-                    .write()
-                    .await
-                    .push_tokens(stream_id, vec![Arc::new(token)], is_last)
-                    .await
-                {
-                    warn!("Stream push failed: {}", e);
-                    break;
                 }
+            }).await;
 
-                all_ids.push(token_id);
-                if is_last {
-                    break;
+            match gen_result {
+                Ok(()) => {}
+                Err(_elapsed) => {
+                    warn!("Streaming generation timed out after 60s for request {}", request_id);
+                    let _ = se_clone.write().await.push_tokens(stream_id, vec![], true).await;
                 }
             }
 
@@ -604,8 +615,122 @@ impl InferenceEngine {
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
         };
+        Self::spawn_batch_processor_inner(&engine, &self.active_requests, batch).await;
+    }
+
+    // --- private ---
+
+    /// Start the request processing loop as a background task.
+    /// This does NOT block — the infinite loop runs in a spawned tokio task.
+    async fn start_request_loop(&self) -> Result<()> {
+        info!("Starting request processing loop");
+        let mut rx =
+            self.request_rx.lock().await.take().ok_or_else(|| {
+                InferenceError::InternalError("Receiver already taken".to_string())
+            })?;
+
+        let state = self.state.clone();
+        let scheduler = self.scheduler.clone();
+        let active_requests = self.active_requests.clone();
+        let session_manager = self.session_manager.clone();
+
+        let engine = InferenceEngineHandle {
+            scheduler: self.scheduler.clone(),
+            model: Arc::clone(&self.model),
+            tokenizer: self.tokenizer.clone(),
+            state: self.state.clone(),
+            use_gpu: self.config.use_gpu,
+            #[cfg(feature = "gpu")]
+            use_gpu_cache: self.config.use_gpu_cache,
+        };
+
+        tokio::spawn(async move {
+            let mut last_cleanup = std::time::Instant::now();
+
+            loop {
+                if matches!(
+                    *state.read().await,
+                    EngineState::ShuttingDown | EngineState::Shutdown
+                ) {
+                    break;
+                }
+
+                if last_cleanup.elapsed() >= Duration::from_secs(300) {
+                    // Evict stale sessions
+                    {
+                        let mut sessions = session_manager.write().await;
+                        let before = sessions.len();
+                        let now = chrono::Utc::now();
+                        let timeout = chrono::Duration::seconds(
+                            InferenceSession::default_timeout_seconds() as i64,
+                        );
+                        sessions.retain(|_, s| (now - s.created_at()) < timeout);
+                        let evicted = before - sessions.len();
+                        if evicted > 0 {
+                            info!("Evicted {} stale sessions", evicted);
+                        }
+                    }
+                    {
+                        let mut active = active_requests.write().await;
+                        active.retain(|_, h| !h.is_finished());
+                    }
+                    last_cleanup = std::time::Instant::now();
+                }
+
+                // Try to pop a batch first
+                if let Some(batch) = scheduler.read().await.pop_batch().await {
+                    Self::spawn_batch_processor_inner(&engine, &active_requests, batch).await;
+                    continue;
+                }
+
+                // No batch ready, wait for next request
+                let request = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+
+                match request {
+                    Ok(Some(req)) => {
+                        scheduler
+                            .write()
+                            .await
+                            .add_to_batch_collector(&req)
+                            .await;
+
+                        if let Some(batch) = scheduler.read().await.pop_batch().await {
+                            Self::spawn_batch_processor_inner(&engine, &active_requests, batch).await;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(_) => {
+                        if let Some(batch) = scheduler.read().await.pop_batch().await {
+                            Self::spawn_batch_processor_inner(&engine, &active_requests, batch).await;
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            info!("Request processing loop ended");
+        });
+
+        Ok(())
+    }
+
+    /// Spawn a batch processor task (standalone helper used by the spawned request loop).
+    async fn spawn_batch_processor_inner(
+        engine: &InferenceEngineHandle,
+        active_requests: &Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
+        batch: crate::batching::Batch,
+    ) {
         let bid = batch.batch_id;
-        let active = self.active_requests.clone();
+        let engine = InferenceEngineHandle {
+            scheduler: engine.scheduler.clone(),
+            model: Arc::clone(&engine.model),
+            tokenizer: engine.tokenizer.clone(),
+            state: engine.state.clone(),
+            use_gpu: engine.use_gpu,
+            #[cfg(feature = "gpu")]
+            use_gpu_cache: engine.use_gpu_cache,
+        };
+        let active = active_requests.clone();
         let task = tokio::spawn(async move {
             let result = std::panic::AssertUnwindSafe(engine.process_batch(batch))
                 .catch_unwind()
@@ -621,68 +746,6 @@ impl InferenceEngine {
             }
         });
         active.write().await.insert(bid, task);
-    }
-
-    // --- private ---
-
-    async fn start_request_loop(&self) -> Result<()> {
-        info!("Starting request processing loop");
-        let mut rx =
-            self.request_rx.lock().await.take().ok_or_else(|| {
-                InferenceError::InternalError("Receiver already taken".to_string())
-            })?;
-
-        let mut last_cleanup = std::time::Instant::now();
-
-        loop {
-            if matches!(
-                *self.state.read().await,
-                EngineState::ShuttingDown | EngineState::Shutdown
-            ) {
-                break;
-            }
-
-            if last_cleanup.elapsed() >= Duration::from_secs(300) {
-                self.evict_stale_sessions().await;
-                {
-                    let mut active = self.active_requests.write().await;
-                    active.retain(|_, h| !h.is_finished());
-                }
-                last_cleanup = std::time::Instant::now();
-            }
-
-            // Try to pop a batch first
-            if let Some(batch) = self.scheduler.read().await.pop_batch().await {
-                self.spawn_batch_processor(batch).await;
-                continue;
-            }
-
-            // No batch ready, wait for next request
-            let request = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
-
-            match request {
-                Ok(Some(req)) => {
-                    self.scheduler
-                        .write()
-                        .await
-                        .add_to_batch_collector(&req)
-                        .await;
-
-                    if let Some(batch) = self.scheduler.read().await.pop_batch().await {
-                        self.spawn_batch_processor(batch).await;
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    warn!("Batch scheduler error: {:?}, flushing timed-out batches", e);
-                    if let Some(batch) = self.scheduler.read().await.pop_batch().await {
-                        self.spawn_batch_processor(batch).await;
-                    }
-                    continue;
-                }
-            }
-        }
-        Ok(())
     }
 
     fn validate_request(&self, request: &InferenceRequest) -> Result<()> {
