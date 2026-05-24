@@ -728,8 +728,6 @@ impl CipherArchitecture {
                 ],
                 attack_generation: AttackGeneration {
                     attack_types: vec![AttackType::Evasion, AttackType::Poisoning],
-                    attack_intensity: AttackIntensity::Medium,
-                    attack_diversity: AttackDiversity::Multiple,
                 },
                 defense_mechanisms: vec![DefenseMechanism {
                     name: "adversarial_training".to_string(),

@@ -265,8 +265,7 @@ impl ExecutionGraph {
                                 let filter = filter.clone();
                                 let sample = sample.clone();
                                 async move {
-                                    filter.filter(&*sample).await
-                                        .map_err(|e| format!("Filter panicked: {:?}", e))
+                                    Ok(filter.filter(&*sample).await)
                                 }
                             })
                             .await

@@ -13,6 +13,16 @@ use nexora_transformer::{CpuKVCache, KVCacheProvider};
 /// Global counter of GPU forward failures — resettable, observable.
 pub static GPU_FORWARD_ERRORS: AtomicU64 = AtomicU64::new(0);
 
+/// Returns current GPU forward error count.
+pub fn gpu_forward_error_count() -> u64 {
+    GPU_FORWARD_ERRORS.load(Ordering::Relaxed)
+}
+
+/// Resets GPU forward error counter to zero.
+pub fn reset_gpu_forward_errors() {
+    GPU_FORWARD_ERRORS.store(0, Ordering::Relaxed);
+}
+
 /// Trait for model forward pass — abstracts over CausalLM for testing.
 pub trait ModelForward: Send + Sync {
     /// Run the model forward for a single token, updating the KV cache.
