@@ -17,6 +17,7 @@ use crate::streaming::StreamingEngine;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
+use nexora_common::retry::RetryConfig;
 use nexora_tokenizer::BpeTokenizer;
 use nexora_transformer::{CausalLM, KVCacheProvider, TransformerConfig};
 #[cfg(feature = "gpu")]
@@ -995,15 +996,24 @@ impl InferenceEngineHandle {
                 }
                 response.inference_time_ms = start.elapsed().as_millis() as u64;
 
-                if let Err(e) = scheduler
-                    .write()
-                    .await
-                    .send_response(breq.request_id, response)
+                let rid = breq.request_id;
+                if let Err(e) = RetryConfig::default()
+                    .retry(|| {
+                        let scheduler = scheduler.clone();
+                        let response = response.clone();
+                        async move {
+                            scheduler
+                                .write()
+                                .await
+                                .send_response(rid, response)
+                                .await
+                        }
+                    })
                     .await
                 {
                     error!(
                         "Failed to send batch response for {}: {}",
-                        breq.request_id, e
+                        rid, e
                     );
                 }
             });

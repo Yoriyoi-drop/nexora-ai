@@ -307,35 +307,39 @@ impl Trie {
         Ok(removed)
     }
 
-    /// Compact the trie after removal by merging single-child chains
+    /// Update trie metadata after removal (size, depth tracking)
     fn cleanup_after_removal(&mut self, token_ids: &[u32]) {
-        // Compaction: walk from root along the given path and merge
-        // single-child non-leaf nodes into their parent to reduce depth.
-        let mut current = &mut self.root;
-        let mut path_indices: Vec<usize> = Vec::new();
-
-        // Record the path of child indices
+        if token_ids.is_empty() {
+            return;
+        }
+        // remove_recursive already handles pruning of empty nodes.
+        // This method updates size tracking.
+        // Traverse path and re-count nodes for accurate size
+        let mut current = &self.root;
         for &token_id in token_ids {
-            if let Some(pos) = current.children.iter().position(|(k, _)| *k == token_id) {
-                path_indices.push(pos);
-                current = current.children[pos].1.as_mut();
-            } else {
-                return;
+            match current.children.iter().position(|(k, _)| *k == token_id) {
+                Some(pos) => { current = &current.children[pos].1; }
+                None => return,
             }
         }
+        // Update max_depth if needed
+        let depth = token_ids.len();
+        if depth < self.max_depth {
+            // Recalculate max_depth since nodes may have been removed
+            self.max_depth = self.calculate_depth();
+        }
+    }
 
-        // Now compact leaf-to-root: if a node has exactly one child
-        // and is not a leaf itself, merge the child up
-        if let Some((_, last_child)) = current.children.iter_mut().next() {
-            if current.children.len() == 1 && !current.is_leaf {
-                // Promote child's children and leaf status up
-                let child_data = std::mem::take(last_child);
-                current.children = child_data.children;
-                current.is_leaf = child_data.is_leaf;
-                current.result_id = child_data.result_id;
-                self.size -= 1; // one fewer node after merge
+    /// Calculate the maximum depth of the trie
+    fn calculate_depth(&self) -> usize {
+        fn node_depth(node: &TrieNode, depth: usize) -> usize {
+            let mut max = if node.is_leaf { depth } else { 0 };
+            for (_, child) in &node.children {
+                max = max.max(node_depth(child, depth + 1));
             }
+            max
         }
+        node_depth(&self.root, 0)
     }
 
     /// Clear the trie

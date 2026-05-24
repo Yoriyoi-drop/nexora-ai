@@ -19,7 +19,6 @@ pub struct ArchitectureBranch {
 pub enum BranchStatus {
     Active,
     Merged,
-    Abandoned,
 }
 
 /// Branch Manager untuk eksperimen paralel

@@ -23,15 +23,8 @@ impl std::fmt::Display for ModeId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModeKind {
-    Reasoning,
-    Coding,
-    Memory,
     Research,
     Defense,
-    Creative,
-    Analysis,
-    System,
-    Custom(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,11 +56,8 @@ pub struct ModeIsolationPolicy {
 pub enum ModeStatus {
     Creating,
     Active,
-    Idle,
     Quarantined,
     Terminating,
-    Terminated,
-    KillSwitch,
 }
 
 pub type SharedModeIsolation = Arc<RwLock<ModeIsolationLayer>>;

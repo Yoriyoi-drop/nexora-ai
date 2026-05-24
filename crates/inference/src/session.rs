@@ -46,14 +46,6 @@ impl Default for SessionConfig {
 pub enum SessionState {
     /// Session aktif
     Active,
-    /// Session idle
-    Idle,
-    /// Session sedang diproses
-    Processing,
-    /// Session paused
-    Paused,
-    /// Session error
-    Error(String),
     /// Session closed
     Closed,
     /// Session timeout
@@ -356,15 +348,7 @@ impl InferenceSession {
         // Check session state
         let state = self.get_state().await;
         match state {
-            SessionState::Active | SessionState::Idle => Ok(()),
-            SessionState::Processing => Ok(()), // Allow processing
-            SessionState::Paused => Err(InferenceError::InternalError(
-                "Session is paused".to_string(),
-            )),
-            SessionState::Error(ref msg) => Err(InferenceError::InternalError(format!(
-                "Session error: {}",
-                msg
-            ))),
+            SessionState::Active => Ok(()),
             SessionState::Closed => Err(InferenceError::InternalError(
                 "Session is closed".to_string(),
             )),

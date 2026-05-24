@@ -15,7 +15,6 @@ pub enum PortVisualType {
     Matrix2D,
     Tensor3D,
     SequenceTensor,
-    MultimodalEmbedding,
     Scalar,
 }
 

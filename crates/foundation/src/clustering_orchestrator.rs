@@ -34,11 +34,6 @@ pub enum ClusterGranularity {
 #[derive(Debug, Clone)]
 pub enum ClusterMetric {
     Euclidean,
-    Cosine,
-    Jaccard,
-    KLDivergence,
-    MutualInformation,
-    Correlation,
 }
 
 #[derive(Debug, Clone)]

@@ -1,6 +1,5 @@
-use crate::canvas::{GraphNode, NeuralGraph, NodeType};
-use crate::{DeepLearningError, DLResult};
-use std::collections::HashMap;
+use crate::canvas::{GraphNode, NeuralGraph};
+use crate::{DeepLearningError, DLResult, NodeType};
 
 /// Asynchronous Execution — overlapping compute & memory transfer
 pub struct AsyncExecutor;
@@ -34,56 +33,19 @@ impl AsyncExecutor {
                 );
 
                 for node in &stage_nodes {
-                    match node.node_type {
-                        NodeType::MatMul | NodeType::Linear => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_matmul(1024, 1024)
-                            }).await;
-                        }
-                        NodeType::Conv2D | NodeType::Conv1D | NodeType::Conv3D => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_conv2d(3, 64, 32)
-                            }).await;
-                        }
-                        NodeType::SelfAttention
-                        | NodeType::MultiHeadAttention
-                        | NodeType::FlashAttention => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_attention(8, 64, 64)
-                            }).await;
-                        }
-                        NodeType::LayerNorm | NodeType::BatchNorm | NodeType::RMSNorm => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_normalization(4096)
-                            }).await;
-                        }
-                        NodeType::ReLU | NodeType::GELU | NodeType::Sigmoid | NodeType::Tanh => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_activation(4096, &node.node_type)
-                            }).await;
-                        }
-                        NodeType::Softmax => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_softmax(4096)
-                            }).await;
-                        }
-                        NodeType::Embedding => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_embedding(10000, 768)
-                            }).await;
-                        }
-                        NodeType::MambaBlock | NodeType::StateSpaceModel => {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_ssm(4096, 64)
-                            }).await;
-                        }
-                        _ => {
-                            // Generic compute fallback
-                            let _ = tokio::task::spawn_blocking(move || {
-                                compute_generic(1024)
-                            }).await;
-                        }
-                    }
+                    let nt = node.node_type.clone();
+                    let compute_fn: fn() -> f64 = match nt {
+                        NodeType::MatMul | NodeType::Linear => || compute_matmul(1024, 1024),
+                        NodeType::Conv2D | NodeType::Conv1D | NodeType::Conv3D => || compute_conv2d(3, 64, 32),
+                        NodeType::SelfAttention | NodeType::MultiHeadAttention | NodeType::FlashAttention => || compute_attention(8, 64, 64),
+                        NodeType::LayerNorm | NodeType::BatchNorm | NodeType::RMSNorm => || compute_normalization(4096),
+                        NodeType::ReLU | NodeType::GELU | NodeType::Sigmoid | NodeType::Tanh => || compute_activation_relu(4096),
+                        NodeType::Softmax => || compute_softmax(4096),
+                        NodeType::Embedding => || compute_embedding(10000, 768),
+                        NodeType::MambaBlock | NodeType::StateSpaceModel => || compute_ssm(4096, 64),
+                        _ => || compute_generic(1024),
+                    };
+                    let _ = tokio::task::spawn_blocking(compute_fn).await;
                 }
 
                 let result: DLResult<()> = Ok(());
@@ -201,22 +163,30 @@ fn compute_normalization(dim: usize) -> f64 {
     result
 }
 
-fn compute_activation(dim: usize, node_type: &NodeType) -> f64 {
+fn compute_activation_relu(dim: usize) -> f64 {
     let mut x = vec![0.0f64; dim];
     for i in 0..dim {
         x[i] = (i as f64 * 0.3).sin() * 2.0 - 1.0;
     }
-    match node_type {
-        NodeType::ReLU => x.iter().map(|&v| v.max(0.0)).sum(),
-        NodeType::GELU => {
-            x.iter().map(|&v| {
-                0.5 * v * (1.0 + (std::f64::consts::FRAC_2_SQRT_PI * (v + 0.044715 * v * v * v)).tanh())
-            }).sum()
-        }
-        NodeType::Sigmoid => x.iter().map(|&v| 1.0 / (1.0 + (-v).exp())).sum(),
-        NodeType::Tanh => x.iter().map(|&v| v.tanh()).sum(),
-        _ => x.iter().map(|&v| v.max(0.0)).sum(),
+    x.iter().map(|&v| v.max(0.0)).sum()
+}
+
+fn compute_activation_gelu(dim: usize) -> f64 {
+    let mut x = vec![0.0f64; dim];
+    for i in 0..dim {
+        x[i] = (i as f64 * 0.3).sin() * 2.0 - 1.0;
     }
+    x.iter().map(|&v| {
+        0.5 * v * (1.0 + (std::f64::consts::FRAC_2_SQRT_PI * (v + 0.044715 * v * v * v)).tanh())
+    }).sum()
+}
+
+fn compute_activation_sigmoid(dim: usize) -> f64 {
+    let mut x = vec![0.0f64; dim];
+    for i in 0..dim {
+        x[i] = (i as f64 * 0.3).sin() * 2.0 - 1.0;
+    }
+    x.iter().map(|&v| 1.0 / (1.0 + (-v).exp())).sum()
 }
 
 fn compute_softmax(dim: usize) -> f64 {

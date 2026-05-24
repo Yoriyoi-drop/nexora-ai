@@ -30,9 +30,7 @@ pub enum CollabActionType {
     NodeModified,
     EdgeAdded,
     EdgeRemoved,
-    CommentAdded,
     Fork,
-    Merge,
 }
 
 #[cfg(test)]

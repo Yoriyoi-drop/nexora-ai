@@ -14,10 +14,7 @@ pub struct ResourceConstraints {
 pub enum HardwareTarget {
     EdgeTPU,
     Mobile,
-    Browser,
-    Embedded,
     CloudGPU,
-    CloudTPU,
 }
 
 impl ResourceConstraints {

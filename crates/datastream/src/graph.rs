@@ -5,6 +5,7 @@ use tracing::{debug, info, warn};
 
 use crate::filter::Filter;
 use crate::types::{DataSample, FilterAction, FilterMetric, FilterResult, PipelineMetrics};
+use nexora_common::retry::RetryConfig;
 
 type FilterArc = Arc<dyn Filter>;
 
@@ -219,7 +220,28 @@ impl ExecutionGraph {
                     let sample = sample_arc.clone();
                     let node_id = node_id.clone();
                     handles.push(tokio::spawn(async move {
-                        (node_id, filter.filter(&*sample).await)
+                        let result = RetryConfig::default()
+                            .retry(|| {
+                                let filter = filter.clone();
+                                let sample = sample.clone();
+                                async move {
+                                    tokio::spawn(async move { filter.filter(&*sample).await })
+                                        .await
+                                        .map_err(|e| format!("Filter panicked: {:?}", e))
+                                }
+                            })
+                            .await
+                            .unwrap_or_else(|e| {
+                                warn!("Filter '{}' failed after retries: {}", node_id, e);
+                                FilterResult {
+                                    passed: false,
+                                    sample_id: sample.id,
+                                    filter_name: filter.name().to_string(),
+                                    reason: Some(e),
+                                    score_delta: 0.0,
+                                }
+                            });
+                        (node_id, result)
                     }));
                 }
                 for handle in handles {
@@ -234,7 +256,23 @@ impl ExecutionGraph {
             } else {
                 let node_id = &level_nodes[0];
                 let node = &self.nodes[node_id];
-                let filter_result = node.filter.filter(&*sample_arc).await;
+                let filter_result = RetryConfig::default()
+                    .retry(|| {
+                        let filter = node.filter.clone();
+                        let sample = sample_arc.clone();
+                        async move { Ok::<_, String>(filter.filter(&*sample).await) }
+                    })
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!("Filter '{}' failed after retries: {}", node_id, e);
+                        FilterResult {
+                            passed: false,
+                            sample_id: sample_arc.id,
+                            filter_name: node.filter.name().to_string(),
+                            reason: Some(e),
+                            score_delta: 0.0,
+                        }
+                    });
                 filter_results.push((node_id.clone(), filter_result));
             }
 

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::{ApiHandler, ApiResponse, RequestContext, RouteInfo};
+use nexora_common::retry::RetryConfig;
 
 /// Handler registry for managing API handlers
 pub struct HandlerRegistry {
@@ -89,7 +90,11 @@ impl ApiHandler for HealthHandler {
         });
 
         let response = ApiResponse::success(health_data, ctx.request_id);
-        Ok(serde_json::to_vec(&response)?)
+        let bytes = RetryConfig::default()
+            .retry(|| async { serde_json::to_vec(&response) })
+            .await
+            .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+        Ok(bytes)
     }
 
     fn name(&self) -> &str {
@@ -115,7 +120,11 @@ impl ApiHandler for EchoHandler {
         });
 
         let response = ApiResponse::success(echo_data, ctx.request_id);
-        Ok(serde_json::to_vec(&response)?)
+        let bytes = RetryConfig::default()
+            .retry(|| async { serde_json::to_vec(&response) })
+            .await
+            .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+        Ok(bytes)
     }
 
     fn name(&self) -> &str {
@@ -155,7 +164,11 @@ impl ApiHandler for StatusHandler {
         });
 
         let response = ApiResponse::success(status_data, ctx.request_id);
-        Ok(serde_json::to_vec(&response)?)
+        let bytes = RetryConfig::default()
+            .retry(|| async { serde_json::to_vec(&response) })
+            .await
+            .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+        Ok(bytes)
     }
 
     fn name(&self) -> &str {
@@ -226,7 +239,11 @@ impl ApiHandler for MetricsHandler {
         });
 
         let response = ApiResponse::success(metrics_data, ctx.request_id);
-        Ok(serde_json::to_vec(&response)?)
+        let bytes = RetryConfig::default()
+            .retry(|| async { serde_json::to_vec(&response) })
+            .await
+            .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+        Ok(bytes)
     }
 
     fn name(&self) -> &str {
@@ -265,7 +282,11 @@ impl ApiHandler for ConfigHandler {
             "GET" => {
                 let config = self.get_config().await;
                 let response = ApiResponse::success(config, ctx.request_id);
-                Ok(serde_json::to_vec(&response)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&response) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
             "PUT" | "POST" => {
                 let auth = ctx
@@ -280,14 +301,22 @@ impl ApiHandler for ConfigHandler {
                         "Authentication required to modify config".to_string(),
                         ctx.request_id,
                     );
-                    return Ok(serde_json::to_vec(&error)?);
+                    let bytes = RetryConfig::default()
+                        .retry(|| async { serde_json::to_vec(&error) })
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                    return Ok(bytes);
                 }
                 let new_config: serde_json::Value = serde_json::from_slice(&body)?;
                 self.update_config(new_config).await?;
 
                 let config = self.get_config().await;
                 let response = ApiResponse::success(config, ctx.request_id);
-                Ok(serde_json::to_vec(&response)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&response) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
             _ => {
                 let error: ApiResponse<serde_json::Value> = ApiResponse::error(
@@ -295,7 +324,11 @@ impl ApiHandler for ConfigHandler {
                     "Method not allowed".to_string(),
                     ctx.request_id,
                 );
-                Ok(serde_json::to_vec(&error)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&error) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
         }
     }
@@ -355,7 +388,11 @@ impl ApiHandler for InfoHandler {
         });
 
         let response = ApiResponse::success(info_data, ctx.request_id);
-        Ok(serde_json::to_vec(&response)?)
+        let bytes = RetryConfig::default()
+            .retry(|| async { serde_json::to_vec(&response) })
+            .await
+            .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+        Ok(bytes)
     }
 
     fn name(&self) -> &str {
@@ -403,7 +440,11 @@ impl ApiHandler for TestHandler {
             ("GET", "/test/data") => {
                 let data = self.test_data.read().await;
                 let response = ApiResponse::success(json!({"data": *data}), ctx.request_id);
-                Ok(serde_json::to_vec(&response)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&response) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
             ("POST", "/test/data") => {
                 let new_data: serde_json::Value = serde_json::from_slice(&body)?;
@@ -415,13 +456,21 @@ impl ApiHandler for TestHandler {
 
                 let data = self.test_data.read().await;
                 let response = ApiResponse::success(json!({"data": *data}), ctx.request_id);
-                Ok(serde_json::to_vec(&response)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&response) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
             ("DELETE", "/test/data") => {
                 self.clear_test_data().await;
                 let response =
                     ApiResponse::success(json!({"message": "Test data cleared"}), ctx.request_id);
-                Ok(serde_json::to_vec(&response)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&response) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
             _ => {
                 let error: ApiResponse<serde_json::Value> = ApiResponse::error(
@@ -429,7 +478,11 @@ impl ApiHandler for TestHandler {
                     "Endpoint not found".to_string(),
                     ctx.request_id,
                 );
-                Ok(serde_json::to_vec(&error)?)
+                let bytes = RetryConfig::default()
+                    .retry(|| async { serde_json::to_vec(&error) })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
+                Ok(bytes)
             }
         }
     }

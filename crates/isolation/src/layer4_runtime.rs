@@ -33,8 +33,6 @@ pub struct ContainerRuntime {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContainerKind {
-    Docker,
-    Podman,
     Containerd,
     Firecracker,
     Kata,

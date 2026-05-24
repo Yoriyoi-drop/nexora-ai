@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::layer3_tool::ToolKind;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryQuarantine {
     pub id: Uuid,
@@ -22,37 +20,14 @@ pub enum QuarantineReason {
         score: f64,
         details: String,
     },
-    MemoryCorruption {
-        region_id: Uuid,
-        checksum_mismatch: bool,
-    },
-    HallucinationSpread {
-        affected_chains: Vec<Uuid>,
-    },
     SecurityViolation {
         capability: String,
         action: String,
-    },
-    ResourceExhaustion {
-        resource: String,
-        usage_pct: f64,
-    },
-    ManualIntervention {
-        triggered_by: String,
-    },
-    ChainContamination {
-        source_chain: Uuid,
-    },
-    ToolAbuse {
-        tool: ToolKind,
-        violations: u32,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuarantineSeverity {
-    Low,
-    Medium,
     High,
     Critical,
 }
@@ -75,10 +50,7 @@ pub struct QuarantineManager {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EscalationMode {
-    AutoKill,
     NotifyAdmin,
-    PauseMode(String),
-    FullClusterAlert,
 }
 
 impl QuarantineManager {

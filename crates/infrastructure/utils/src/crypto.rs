@@ -361,8 +361,8 @@ mod tests {
 
         // Test password hashing
         let password = std::env::var("NEXORA_TEST_PASSWORD").unwrap_or_else(|_| "test_password_do_not_use_in_prod".to_string());
-        let hash = CryptoUtils::hash_password(password, None).unwrap();
-        let verified = CryptoUtils::verify_password(password, &hash).unwrap();
+        let hash = CryptoUtils::hash_password(&password, None).unwrap();
+        let verified = CryptoUtils::verify_password(&password, &hash).unwrap();
         assert!(verified);
 
         // Test secure compare

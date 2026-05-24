@@ -11,16 +11,11 @@ pub enum Capability {
     ShellAccess,
     CompilerAccess,
     FileSystemRead,
-    FileSystemWrite,
-    NetworkScan,
-    DatabaseQuery,
-    ExternalApiCall,
     AgentSpawn,
     MemoryRead(Uuid),
     MemoryWrite(Uuid),
     ToolExecution(String),
     ModelInference(String),
-    Custom(String),
 }
 
 impl std::fmt::Display for Capability {
@@ -31,16 +26,11 @@ impl std::fmt::Display for Capability {
             Self::ShellAccess => write!(f, "cap:shell"),
             Self::CompilerAccess => write!(f, "cap:compiler"),
             Self::FileSystemRead => write!(f, "cap:fs-read"),
-            Self::FileSystemWrite => write!(f, "cap:fs-write"),
-            Self::NetworkScan => write!(f, "cap:network-scan"),
-            Self::DatabaseQuery => write!(f, "cap:db-query"),
-            Self::ExternalApiCall => write!(f, "cap:external-api"),
             Self::AgentSpawn => write!(f, "cap:spawn-agent"),
             Self::MemoryRead(id) => write!(f, "cap:mem-read:{id}"),
             Self::MemoryWrite(id) => write!(f, "cap:mem-write:{id}"),
             Self::ToolExecution(t) => write!(f, "cap:tool:{t}"),
             Self::ModelInference(m) => write!(f, "cap:model:{m}"),
-            Self::Custom(c) => write!(f, "cap:custom:{c}"),
         }
     }
 }

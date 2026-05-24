@@ -131,7 +131,6 @@ pub enum VerifierType {
     Performance,
     Correctness,
     Style,
-    BestPractices,
 }
 
 /// Verification result

@@ -3,6 +3,7 @@
 //! Agent untuk merge context dari memory, prompt, dan session.
 
 use async_trait::async_trait;
+use nexora_common::retry::RetryConfig;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -351,21 +352,23 @@ impl ContextAgent {
     async fn fetch_wikipedia_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching Wikipedia context via API");
 
-        let response = reqwest::get("https://en.wikipedia.org/api/rest_v1/page/random/summary")
+        let response = RetryConfig::new(3, 500)
+            .retry(|| async {
+                reqwest::get("https://en.wikipedia.org/api/rest_v1/page/random/summary")
+                    .await
+                    .map_err(|e| format!("Request failed: {}", e))
+                    .and_then(|r| {
+                        if r.status().is_success() {
+                            Ok(r)
+                        } else {
+                            Err(format!("Wikipedia API returned status: {}", r.status()))
+                        }
+                    })
+            })
             .await
             .map_err(|e| {
-                AgentError::ProcessingError(format!(
-                    "External source wikipedia requires reqwest dependency: {}",
-                    e
-                ))
+                AgentError::ProcessingError(format!("Wikipedia context fetch failed: {}", e))
             })?;
-
-        if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(format!(
-                "Wikipedia API returned unexpected status: {}",
-                response.status()
-            )));
-        }
 
         let data: Value = response.json().await?;
 
@@ -392,25 +395,31 @@ impl ContextAgent {
             )
         })?;
 
-        let response = reqwest::Client::new()
-            .get("https://newsapi.org/v2/top-headlines")
-            .query(&[("country", "us"), ("pageSize", "5")])
-            .header("X-Api-Key", &api_key)
-            .send()
+        let api_key_clone = api_key.clone();
+        let response = RetryConfig::new(3, 500)
+            .retry(move || {
+                let ak = api_key_clone.clone();
+                async move {
+                    reqwest::Client::new()
+                        .get("https://newsapi.org/v2/top-headlines")
+                        .query(&[("country", "us"), ("pageSize", "5")])
+                        .header("X-Api-Key", &ak)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Request failed: {}", e))
+                        .and_then(|r| {
+                            if r.status().is_success() {
+                                Ok(r)
+                            } else {
+                                Err(format!("News API returned status: {}", r.status()))
+                            }
+                        })
+                }
+            })
             .await
             .map_err(|e| {
-                AgentError::ProcessingError(format!(
-                    "External source news requires reqwest dependency: {}",
-                    e
-                ))
+                AgentError::ProcessingError(format!("News context fetch failed: {}", e))
             })?;
-
-        if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(format!(
-                "News API returned status: {}",
-                response.status()
-            )));
-        }
 
         let data: Value = response.json().await?;
 

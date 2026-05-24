@@ -294,11 +294,6 @@ pub struct SandboxEnvironment {
 /// Isolation Level
 #[derive(Debug, Clone)]
 pub enum IsolationLevel {
-    /// Basic isolation
-    Basic,
-    /// Strong isolation
-    Strong,
-    /// Complete isolation
     Complete,
 }
 

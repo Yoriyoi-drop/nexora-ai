@@ -25,6 +25,7 @@ parking_lot = { workspace = true }
 unicode-segmentation = { workspace = true }
 reqwest = { workspace = true }
 nexora-tokenizer = { path = "../tokenizer" }
+nexora-common = { path = "../infrastructure/common" }
 nexora-autograd = { path = "../autograd", optional = true }
 arrow = { version = "53", default-features = false, features = ["ipc"], optional = true }
 

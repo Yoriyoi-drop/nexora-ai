@@ -77,12 +77,8 @@ pub enum RuntimeState {
     Initializing,
     /// Runtime siap
     Ready,
-    /// Runtime sedang busy
-    Busy,
     /// Runtime sedang shutdown
     ShuttingDown,
-    /// Runtime error
-    Error(String),
     /// Runtime sudah shutdown
     Shutdown,
 }
@@ -441,7 +437,7 @@ impl InferenceRuntime {
 
                     let state = runtime.get_state().await;
                     match state {
-                        RuntimeState::Ready | RuntimeState::Busy => {
+                        RuntimeState::Ready => {
                             if let Err(e) = runtime.update_resource_usage().await {
                                 warn!("Failed to update resource usage: {}", e);
                             }
@@ -479,7 +475,7 @@ impl InferenceRuntime {
 
                     let state = runtime.get_state().await;
                     match state {
-                        RuntimeState::Ready | RuntimeState::Busy => {
+                        RuntimeState::Ready => {
                             let metrics = runtime.performance_metrics.read().await;
                             let total = metrics.total_requests;
                             let tokens = metrics.tokens_per_second as u64;

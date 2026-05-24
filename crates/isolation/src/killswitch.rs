@@ -30,23 +30,13 @@ pub struct KillEvent {
 pub enum KillTarget {
     Agent(Uuid),
     Mode(ModeId),
-    Group(Uuid),
-    Tool(ToolTarget),
     Cluster,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolTarget {
-    pub tool_type: String,
-    pub pod_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum KillTrigger {
     Manual { user: String },
     AutoQuarantine { anomaly_score: f64 },
-    SecurityViolation { capability: String },
-    ResourceExhaustion { resource: String },
     HallucinationOutbreak { chain_count: usize },
     KillChain { parent_event: Uuid },
 }
@@ -211,8 +201,6 @@ impl std::fmt::Display for KillTarget {
         match self {
             Self::Agent(id) => write!(f, "agent:{id}"),
             Self::Mode(mode) => write!(f, "mode:{}", mode.0),
-            Self::Group(id) => write!(f, "group:{id}"),
-            Self::Tool(t) => write!(f, "tool:{}:{}", t.tool_type, t.pod_id),
             Self::Cluster => write!(f, "cluster:global"),
         }
     }

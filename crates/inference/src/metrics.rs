@@ -236,17 +236,12 @@ pub struct MetricAlert {
 pub enum AlertType {
     ErrorRateHigh,
     LatencyHigh,
-    ThroughputLow,
     CpuHigh,
-    MemoryHigh,
-    QueueDepthHigh,
-    Custom(String),
 }
 
 /// Alert severity
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AlertSeverity {
-    Info,
     Warning,
     Critical,
 }

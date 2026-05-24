@@ -195,9 +195,6 @@ impl IsolationOrchestrator {
             killswitch::KillTarget::Cluster => ks
                 .kill_cluster(reason)
                 .map_err(|e| IsolationCheckError::KillSwitchError(e.to_string())),
-            _ => Err(IsolationCheckError::KillSwitchError(
-                "unsupported target".into(),
-            )),
         }
     }
 }

@@ -72,10 +72,8 @@ pub struct AgentMessage {
 /// Priority level untuk message
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MessagePriority {
-    Low,
     Normal,
     High,
-    Critical,
 }
 
 /// Response dari agent
@@ -102,8 +100,6 @@ pub struct AgentResponse {
 pub enum ResponseStatus {
     Success,
     Error(String),
-    Partial,
-    Rejected,
 }
 
 /// Context yang diberikan ke agent saat processing

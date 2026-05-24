@@ -4,6 +4,7 @@ use tracing::info;
 
 use crate::source::SourceProvider;
 use crate::types::{DataSample, SampleStats, SourceCategory};
+use nexora_common::retry::RetryConfig;
 use uuid::Uuid;
 
 fn client() -> Option<reqwest::Client> {
@@ -18,6 +19,28 @@ fn client() -> Option<reqwest::Client> {
             None
         }
     }
+}
+
+async fn fetch_with_retry(client: &reqwest::Client, url: &str) -> Result<reqwest::Response, String> {
+    let config = RetryConfig::new(3, 200);
+    let url = url.to_string();
+    config
+        .retry(|| async {
+            client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {}", e))
+                .and_then(|r| r.error_for_status().map_err(|e| format!("HTTP error: {}", e)))
+        })
+        .await
+}
+
+async fn fetch_json_with_retry(client: &reqwest::Client, url: &str) -> Result<serde_json::Value, String> {
+    let resp = fetch_with_retry(client, url).await?;
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("JSON parse failed: {}", e))
 }
 
 /// Fetch HackerNews top stories via Firebase API (no auth required).
@@ -51,20 +74,11 @@ impl SourceProvider for HackerNewsProvider {
         };
         let source = self.source_info();
 
-        let resp = client
-            .get("https://hacker-news.firebaseio.com/v0/topstories.json")
-            .send()
-            .await;
-        let ids: Vec<u64> = match resp.and_then(|r| r.error_for_status()) {
-            Ok(r) => match r.json().await {
-                Ok(ids) => ids,
-                Err(e) => {
-                    tracing::warn!("HN: json parse failed: {}", e);
-                    return vec![];
-                }
-            },
+        let ids: Vec<u64> = match fetch_json_with_retry(&client, "https://hacker-news.firebaseio.com/v0/topstories.json").await {
+            Ok(serde_json::Value::Array(arr)) => arr.iter().filter_map(|v| v.as_u64()).collect(),
+            Ok(_) => return vec![],
             Err(e) => {
-                tracing::warn!("HN: request failed: {}", e);
+                tracing::warn!("HN: request failed after retries: {}", e);
                 return vec![];
             }
         };
@@ -72,17 +86,10 @@ impl SourceProvider for HackerNewsProvider {
         let mut samples = Vec::with_capacity(ids.len().min(100));
         for &id in ids.iter().take(100) {
             let url = format!("https://hacker-news.firebaseio.com/v0/item/{}.json", id);
-            let resp = client.get(&url).send().await;
-            let item: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
-                Ok(r) => match r.json().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!("HN: item {} json failed: {}", id, e);
-                        continue;
-                    }
-                },
+            let item: serde_json::Value = match fetch_json_with_retry(&client, &url).await {
+                Ok(v) => v,
                 Err(e) => {
-                    tracing::warn!("HN: item {} failed: {}", id, e);
+                    tracing::warn!("HN: item {} failed after retries: {}", id, e);
                     continue;
                 }
             };
@@ -154,23 +161,9 @@ impl SourceProvider for WikipediaProvider {
         let mut samples = Vec::new();
 
         for _ in 0..10 {
-            let params = [
-                ("action", "query"),
-                ("list", "random"),
-                ("rnlimit", "1"),
-                ("rnnamespace", "0"),
-                ("format", "json"),
-            ];
-            let resp = client
-                .get("https://en.wikipedia.org/w/api.php")
-                .query(&params)
-                .send()
-                .await;
-            let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
-                Ok(r) => match r.json().await {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                },
+            let url = "https://en.wikipedia.org/w/api.php?action=query&list=random&rnlimit=1&rnnamespace=0&format=json".to_string();
+            let json: serde_json::Value = match fetch_json_with_retry(&client, &url).await {
+                Ok(v) => v,
                 Err(_) => continue,
             };
 
@@ -205,33 +198,33 @@ impl SourceProvider for WikipediaProvider {
 }
 
 async fn fetch_wikipedia_extract(client: &reqwest::Client, title: &str) -> Option<String> {
-    let params = [
-        ("action", "query"),
-        ("prop", "extracts"),
-        ("exintro", "1"),
-        ("explaintext", "1"),
-        ("titles", title),
-        ("format", "json"),
-    ];
-    let resp = client
-        .get("https://en.wikipedia.org/w/api.php")
-        .query(&params)
-        .send()
-        .await;
-    let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
-        Ok(r) => match r.json().await {
-            Ok(val) => val,
-            Err(e) => {
-                tracing::warn!("Wikipedia JSON response parse failed: {}", e);
-                return None;
-            }
-        },
-        Err(_) => return None,
+    let url = format!(
+        "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles={}&format=json",
+        urlencoding(title)
+    );
+    let json: serde_json::Value = match fetch_json_with_retry(client, &url).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Wikipedia extract fetch failed: {}", e);
+            return None;
+        }
     };
 
     let pages = json["query"]["pages"].as_object()?;
     let extract = pages.values().next()?.get("extract")?.as_str()?.to_string();
     Some(extract)
+}
+
+fn urlencoding(s: &str) -> String {
+    s.chars().map(|c| match c {
+        ' ' => "%20".to_string(),
+        '&' => "%26".to_string(),
+        '?' => "%3F".to_string(),
+        '=' => "%3D".to_string(),
+        '#' => "%23".to_string(),
+        '%' => "%25".to_string(),
+        _ => c.to_string(),
+    }).collect()
 }
 
 /// Fetch recent Reddit posts from technology subreddits (no auth required).
@@ -297,21 +290,10 @@ impl SourceProvider for RedditProvider {
                 "https://www.reddit.com/r/{}/top.json?limit={}",
                 sub, self.limit
             );
-            let resp = client
-                .get(&url)
-                .header("Accept", "application/json")
-                .send()
-                .await;
-            let json: serde_json::Value = match resp.and_then(|r| r.error_for_status()) {
-                Ok(r) => match r.json().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!("Reddit r/{}: json error: {}", sub, e);
-                        continue;
-                    }
-                },
+            let json: serde_json::Value = match fetch_json_with_retry(&client, &url).await {
+                Ok(v) => v,
                 Err(e) => {
-                    tracing::warn!("Reddit r/{}: request failed: {}", sub, e);
+                    tracing::warn!("Reddit r/{}: request failed after retries: {}", sub, e);
                     continue;
                 }
             };

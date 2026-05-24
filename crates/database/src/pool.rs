@@ -8,6 +8,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
+use serde_json;
 
 mod serde_timestamp {
     use serde::{Deserializer, Serializer};
@@ -44,6 +45,8 @@ mod serde_timestamp {
 }
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
+
+use nexora_common::retry::RetryConfig;
 
 /// Database connection pool configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,11 +146,11 @@ impl Default for PoolStatistics {
     }
 }
 
-/// Cached query result
+/// Cached query result — stores serialized JSON rows
 #[derive(Debug)]
 struct CachedQuery {
-    // Note: PgRow doesn't implement Clone, so we'll store query hash instead
-    _query_hash: u64,
+    query_hash: u64,
+    rows_json: Vec<serde_json::Value>,
     timestamp: Instant,
     ttl: Duration,
 }
@@ -226,7 +229,7 @@ impl DatabasePool {
     }
 
     /// Execute query with monitoring and caching
-    pub async fn execute_query(&self, query: &str) -> Result<Vec<sqlx::postgres::PgRow>> {
+    pub async fn execute_query(&self, query: &str) -> Result<Vec<serde_json::Value>> {
         let start_time = Instant::now();
 
         // Check cache for SELECT queries
@@ -237,8 +240,16 @@ impl DatabasePool {
             }
         }
 
-        // Execute query
-        let result = sqlx::query(query).fetch_all(&self.pool).await;
+        // Execute query with retry
+        let pool = self.pool.clone();
+        let query_string = query.to_string();
+        let result = RetryConfig::default()
+            .retry(|| {
+                let pool = pool.clone();
+                let query_string = query_string.clone();
+                async move { sqlx::query(&query_string).fetch_all(&pool).await }
+            })
+            .await;
 
         let duration = start_time.elapsed();
 
@@ -252,9 +263,23 @@ impl DatabasePool {
                     self.log_slow_query(query, duration, None, None).await;
                 }
 
-                // Cache SELECT queries (skipped: PgRow doesn't implement Clone)
+                // Convert PgRow to JSON for return value
+                let json_rows: Vec<serde_json::Value> = rows.iter().map(|row| {
+                    let cols: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
+                    let mut map = serde_json::Map::new();
+                    for col in cols {
+                        let val: serde_json::Value = row.try_get(&col).unwrap_or(serde_json::Value::Null);
+                        map.insert(col, val);
+                    }
+                    serde_json::Value::Object(map)
+                }).collect();
 
-                Ok(rows)
+                // Cache SELECT queries
+                if self.is_select_query(query) {
+                    self.cache_query(query, &rows).await?;
+                }
+
+                Ok(json_rows)
             }
             Err(e) => {
                 // Update error statistics
@@ -369,35 +394,30 @@ impl DatabasePool {
         query_lower.starts_with("select") && !query_lower.contains("for update")
     }
 
-    async fn check_query_cache(&self, query: &str) -> Result<Option<Vec<sqlx::postgres::PgRow>>> {
+    async fn check_query_cache(&self, query: &str) -> Result<Option<Vec<serde_json::Value>>> {
         let cache = self.query_cache.read().await;
 
         if let Some(cached) = cache.get(query) {
             if cached.timestamp.elapsed() < cached.ttl {
-                // Note: PgRow doesn't implement Clone, so we'll skip cache hit for now
-                return Ok(None);
+                debug!("Query cache hit for: {}", query);
+                return Ok(Some(cached.rows_json.clone()));
             }
         }
 
         Ok(None)
     }
 
-    async fn _cache_query(&self, query: &str, _result: Vec<sqlx::postgres::PgRow>) -> Result<()> {
+    /// Cache SELECT query results as serialized JSON values.
+    /// Serializes PgRow to JSON for storage since PgRow doesn't implement Clone.
+    async fn cache_query(&self, query: &str, rows: &[sqlx::postgres::PgRow]) -> Result<()> {
         let mut cache = self.query_cache.write().await;
 
-        // Implement simple LRU eviction if cache is too large
-        if cache.len() > 1000 {
-            // Remove oldest entries
-            let mut entries: Vec<_> = cache.iter().collect();
-            entries.sort_by_key(|(_, cached)| cached.timestamp);
-
-            let keys_to_remove: Vec<String> = entries
-                .iter()
-                .take(100)
-                .map(|(key, _)| key.to_string())
-                .collect();
-
-            for key in keys_to_remove {
+        // LRU eviction if cache exceeds limit
+        if cache.len() >= 1000 {
+            let oldest_key = cache.iter()
+                .min_by_key(|(_, v)| v.timestamp)
+                .map(|(k, _)| k.clone());
+            if let Some(key) = oldest_key {
                 cache.remove(&key);
             }
         }
@@ -409,10 +429,22 @@ impl DatabasePool {
         query.hash(&mut hasher);
         let query_hash = hasher.finish();
 
+        // Serialize rows to JSON for cache storage
+        let rows_json: Vec<serde_json::Value> = rows.iter().map(|row| {
+            let cols: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
+            let mut map = serde_json::Map::new();
+            for col in cols {
+                let val: serde_json::Value = row.try_get(&col).unwrap_or(serde_json::Value::Null);
+                map.insert(col, val);
+            }
+            serde_json::Value::Object(map)
+        }).collect();
+
         cache.insert(
             query.to_string(),
             CachedQuery {
-                _query_hash: query_hash,
+                query_hash,
+                rows_json,
                 timestamp: Instant::now(),
                 ttl: Duration::from_secs(300), // 5 minutes TTL
             },
@@ -550,7 +582,7 @@ impl DatabasePool {
 
         Ok(rows
             .iter()
-            .filter_map(|row| row.get::<Option<String>, _>("tablename"))
+            .filter_map(|row| row["tablename"].as_str().map(String::from))
             .collect())
     }
 
@@ -573,15 +605,15 @@ impl DatabasePool {
         let stats = rows
             .iter()
             .filter_map(|row| {
-                let table_name: Option<String> = row.get("tablename");
+                let table_name = row["tablename"].as_str().map(String::from);
                 table_name.map(|name| {
                     let stats = TableStatistics {
                         table_name: name.clone(),
-                        inserts: row.get::<Option<i64>, _>("inserts").unwrap_or(0),
-                        updates: row.get::<Option<i64>, _>("updates").unwrap_or(0),
-                        deletes: row.get::<Option<i64>, _>("deletes").unwrap_or(0),
-                        live_tuples: row.get::<Option<i64>, _>("live_tuples").unwrap_or(0),
-                        dead_tuples: row.get::<Option<i64>, _>("dead_tuples").unwrap_or(0),
+                        inserts: row["inserts"].as_i64().unwrap_or(0),
+                        updates: row["updates"].as_i64().unwrap_or(0),
+                        deletes: row["deletes"].as_i64().unwrap_or(0),
+                        live_tuples: row["live_tuples"].as_i64().unwrap_or(0),
+                        dead_tuples: row["dead_tuples"].as_i64().unwrap_or(0),
                     };
                     (name, stats)
                 })
@@ -646,15 +678,9 @@ impl DatabasePool {
         Ok(rows
             .iter()
             .map(|row| {
-                let schema: String = row
-                    .get::<Option<String>, _>("schemaname")
-                    .unwrap_or_else(|| "public".to_string());
-                let table: String = row
-                    .get::<Option<String>, _>("tablename")
-                    .unwrap_or_else(|| "unknown".to_string());
-                let index: String = row
-                    .get::<Option<String>, _>("indexname")
-                    .unwrap_or_else(|| "unknown".to_string());
+                let schema = row["schemaname"].as_str().unwrap_or("public").to_string();
+                let table = row["tablename"].as_str().unwrap_or("unknown").to_string();
+                let index = row["indexname"].as_str().unwrap_or("unknown").to_string();
                 format!("{}.{}.{}", schema, table, index)
             })
             .collect())

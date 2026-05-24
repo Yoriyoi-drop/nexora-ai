@@ -678,7 +678,6 @@ pub enum RecoveryAction {
     UseFallback,
     Escalate,
     LogOnly,
-    Ignore,
 }
 
 /// Error statistics

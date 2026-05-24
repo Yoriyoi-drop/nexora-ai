@@ -24,6 +24,7 @@ flate2 = "1.0"
 sysinfo = "0.30"
 # Infrastructure
 nexora-infrastructure = { path = "../infrastructure" }
+nexora-common = { path = "../infrastructure/common" }
 
 [features]
 default = ["cors", "metrics"]

@@ -128,32 +128,32 @@ impl RequestScheduler {
                 }
                 while let Some(batch) = this.read().await.pop_batch().await {
                     debug!("background worker popped ready batch {}", batch.batch_id);
+                    let req_ids: Vec<Uuid> = batch.requests.iter().map(|r| r.request_id).collect();
                     let handler = this.read().await.engine_handler.clone();
                     match handler {
                         Some(engine_fn) => {
-                            // Dispatch batch to inference engine
-                            match engine_fn(batch.clone()) {
+                            match engine_fn(batch) {
                                 Ok(_) => {
-                                    // Mark all requests in batch as completed
-                                    for breq in &batch.requests {
-                                        if let Err(e) = this.read().await.complete_request(breq.request_id).await {
-                                            tracing::warn!("failed to complete request {}: {}", breq.request_id, e);
+                                    for req_id in &req_ids {
+                                        if let Err(e) = this.read().await.complete_request(*req_id).await {
+                                            tracing::warn!("failed to complete request {}: {}", req_id, e);
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    // Engine processing failed - send error responses
-                                    for breq in &batch.requests {
-                                        this.read().await.update_status(breq.request_id, RequestStatus::Failed(e.to_string())).await;
-                                        let mut resp = crate::InferenceResponse::new(breq.request_id);
+                                    for req_id in &req_ids {
+                                        this.read().await.update_status(*req_id, RequestStatus::Failed(e.to_string())).await;
+                                        let mut resp = crate::InferenceResponse::new(*req_id);
                                         resp.finish_reason = crate::FinishReason::Error(e.to_string());
-                                        let guard = this.read().await;
-                                        let requests = guard.requests.read().await;
-                                        if let Some(tx) = requests.get(&breq.request_id).map(|r| r.response_tx.clone()) {
-                                            drop(guard);
+                                        let tx = {
+                                            let guard = this.read().await;
+                                            let requests = guard.requests.read().await;
+                                            requests.get(req_id).map(|r| r.response_tx.clone())
+                                        };
+                                        if let Some(tx) = tx {
                                             let _ = tx.send(resp).await;
                                         }
-                                        if let Err(e) = this.read().await.complete_request(breq.request_id).await {
+                                        if let Err(e) = this.read().await.complete_request(*req_id).await {
                                             tracing::warn!("failed to complete errored request: {}", e);
                                         }
                                     }
@@ -161,19 +161,20 @@ impl RequestScheduler {
                             }
                         }
                         None => {
-                            // No engine handler - send timeout responses so callers don't hang
-                            for breq in &batch.requests {
-                                this.read().await.update_status(breq.request_id, RequestStatus::Timeout).await;
-                                let mut resp = crate::InferenceResponse::new(breq.request_id);
+                            for req_id in &req_ids {
+                                this.read().await.update_status(*req_id, RequestStatus::Timeout).await;
+                                let mut resp = crate::InferenceResponse::new(*req_id);
                                 resp.finish_reason = crate::FinishReason::Timeout;
-                                let guard = this.read().await;
-                                let requests = guard.requests.read().await;
-                                if let Some(tx) = requests.get(&breq.request_id).map(|r| r.response_tx.clone()) {
-                                    drop(guard);
+                                let tx = {
+                                    let guard = this.read().await;
+                                    let requests = guard.requests.read().await;
+                                    requests.get(req_id).map(|r| r.response_tx.clone())
+                                };
+                                if let Some(tx) = tx {
                                     let _ = tx.send(resp).await;
                                 }
-                                if let Err(e) = this.read().await.complete_request(breq.request_id).await {
-                                    tracing::warn!("background worker: failed to complete request {}: {}", breq.request_id, e);
+                                if let Err(e) = this.read().await.complete_request(*req_id).await {
+                                    tracing::warn!("background worker: failed to complete request {}: {}", req_id, e);
                                 }
                             }
                         }
@@ -257,25 +258,21 @@ impl RequestScheduler {
         let batch = 'search: {
             for mut b in batches {
                 let mut batch_timed_out = Vec::new();
+                let guard = self.requests.read().await;
                 b.requests.retain(|breq| {
-                    let requests = self.requests.try_read();
-                    match requests {
-                        Ok(guard) => {
-                            if let Some(sreq) = guard.get(&breq.request_id) {
-                                let elapsed_ms = now
-                                    .signed_duration_since(sreq._submitted_at)
-                                    .num_milliseconds()
-                                    .unsigned_abs() as u64;
-                                if elapsed_ms > self.max_queue_time_ms {
-                                    batch_timed_out.push(breq.request_id);
-                                    return false;
-                                }
-                            }
-                            true
+                    if let Some(sreq) = guard.get(&breq.request_id) {
+                        let elapsed_ms = now
+                            .signed_duration_since(sreq._submitted_at)
+                            .num_milliseconds()
+                            .unsigned_abs() as u64;
+                        if elapsed_ms > self.max_queue_time_ms {
+                            batch_timed_out.push(breq.request_id);
+                            return false;
                         }
-                        Err(_) => true,
                     }
+                    true
                 });
+                drop(guard);
                 timed_out.extend(batch_timed_out);
 
                 if !b.requests.is_empty() {
@@ -350,6 +347,8 @@ impl RequestScheduler {
         let mut queue = self.queue.write().await;
         queue.clear();
         requests.retain(|_, req| matches!(req.status, RequestStatus::Processing));
+        // Await background handles for graceful shutdown
+        self.cancel_background_handles().await;
         Ok(())
     }
 
@@ -360,11 +359,11 @@ impl RequestScheduler {
         }
     }
 
-    /// Cancel all tracked background handles.
-    pub fn cancel_background_handles(&self) {
+    /// Cancel all tracked background handles with graceful shutdown.
+    pub async fn cancel_background_handles(&self) {
         if let Ok(mut handles) = self.background_handles.lock() {
             for h in handles.drain(..) {
-                h.abort();
+                let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
             }
         }
     }
