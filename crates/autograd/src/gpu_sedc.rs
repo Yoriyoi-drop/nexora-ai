@@ -625,7 +625,7 @@ impl GpuContext {
         let _eps = tolerance;
         let n_pairs = n * (n - 1) / 2;
         if n <= 1 {
-            let cpu = a.to_cpu();
+            let cpu = a.to_cpu().map_err(SedcError::Gpu)?;
             let slice: &[f32] = cpu.as_slice().unwrap_or(&[]);
             return Ok((slice.to_vec(), ndarray::Array2::eye(n)));
         }
@@ -663,10 +663,10 @@ impl GpuContext {
         }
 
         // Read back eigenvalues and eigenvectors
-        let a_cpu = a_gpu.to_cpu();
+        let a_cpu = a_gpu.to_cpu().map_err(SedcError::Gpu)?;
         let a_slice: &[f32] = a_cpu.as_slice().unwrap_or(&[]);
         let eigenvalues: Vec<f32> = (0..n).map(|i| a_slice[i * n + i]).collect();
-        let v_cpu = v.to_cpu();
+        let v_cpu = v.to_cpu().map_err(SedcError::Gpu)?;
         let v_slice: &[f32] = v_cpu.as_slice().unwrap_or(&[]);
         let v_arr = ndarray::Array2::from_shape_vec((n, n), v_slice.to_vec())
             .map_err(|e| SedcError::Svd(e.to_string()))?;
@@ -841,7 +841,7 @@ impl GpuContext {
         for b in 0..bits {
             // Compute τ_b = η · Std(r_{b-1})
             // Download r to CPU for std — small overhead for control
-            let r_cpu = r_gpu.to_cpu();
+            let r_cpu = r_gpu.to_cpu()?;
             let r_slice: &[f32] = r_cpu.as_slice().unwrap_or(&[]);
             let mean: f32 = r_slice.iter().sum::<f32>() / d as f32;
             let variance: f32 = r_slice.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / d as f32;
@@ -872,7 +872,7 @@ impl GpuContext {
             };
 
             // Download q for orthogonalization against previous bits
-            let q_cpu = q_gpu.to_cpu();
+            let q_cpu = q_gpu.to_cpu()?;
             let q_slice: &[f32] = q_cpu.as_slice().unwrap_or(&[]);
             let mut q_i8: Vec<i8> = q_slice.iter().map(|x| if *x >= 0.0 { 1 } else { -1 }).collect();
 
@@ -976,11 +976,13 @@ impl GpuContext {
 
         // Truncate to k_actual
         let s_arr = ndarray::Array1::from_vec(s.iter().take(k_actual).copied().collect());
+        let u_cpu = u.to_cpu().map_err(SedcError::Gpu)?;
         let u_trunc = GpuTensor::from_cpu(
-            &u.to_cpu().slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
+            &u_cpu.slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
         ).map_err(SedcError::Gpu)?;
+        let v_cpu = v.to_cpu().map_err(SedcError::Gpu)?;
         let v_trunc = GpuTensor::from_cpu(
-            &v.to_cpu().slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
+            &v_cpu.slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
         ).map_err(SedcError::Gpu)?;
 
         let s_inv_data: Vec<f32> = s.iter().take(k_actual).map(|x| if *x > 1e-10 { 1.0 / x } else { 0.0 }).collect();
@@ -1167,8 +1169,8 @@ impl SedcCompressor {
         let s_trunc: Vec<f32> = s_final.iter().take(k_final).copied().collect();
 
         // Download results to CPU
-        let u_cpu = u_final_gpu.to_cpu();
-        let v_cpu = v_final_gpu.to_cpu();
+        let u_cpu = u_final_gpu.to_cpu().map_err(SedcError::Gpu)?;
+        let v_cpu = v_final_gpu.to_cpu().map_err(SedcError::Gpu)?;
         let u_arr = u_cpu.slice(ndarray::s![.., 0..k_final]).to_owned();
         let v_arr = v_cpu.slice(ndarray::s![.., 0..k_final]).to_owned();
         let s_arr = ndarray::Array1::from_vec(s_trunc.clone());
@@ -1188,8 +1190,8 @@ impl SedcCompressor {
                 &w_gpu, k_new, self.config.oversamples, self.config.power_iters,
             )?;
             let s3_trunc: Vec<f32> = s3.iter().take(k_new).copied().collect();
-            let u3_cpu = u3.to_cpu();
-            let v3_cpu = v3.to_cpu();
+            let u3_cpu = u3.to_cpu().map_err(SedcError::Gpu)?;
+            let v3_cpu = v3.to_cpu().map_err(SedcError::Gpu)?;
             let u3_arr = u3_cpu.slice(ndarray::s![.., 0..k_new]).to_owned();
             let v3_arr = v3_cpu.slice(ndarray::s![.., 0..k_new]).to_owned();
             let s3_arr = ndarray::Array1::from_vec(s3_trunc.clone());
@@ -1213,7 +1215,7 @@ impl SedcCompressor {
 
         // Upload threshold mask to GPU
         let mask_gpu = ctx.sparsity_mask_gpu(&w_gpu, threshold)?;
-        let mask_cpu = mask_gpu.to_cpu();
+        let mask_cpu = mask_gpu.to_cpu().map_err(SedcError::Gpu)?;
         let mask_arr = mask_cpu.into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
 
@@ -1312,9 +1314,9 @@ impl SedcCompressor {
         )?;
 
         // Download results
-        let r_cpu = r_gpu.to_cpu();
-        let c_cpu = c_gpu.to_cpu();
-        let w_approx_cpu = w_approx_gpu.to_cpu();
+        let r_cpu = r_gpu.to_cpu().map_err(SedcError::Gpu)?;
+        let c_cpu = c_gpu.to_cpu().map_err(SedcError::Gpu)?;
+        let w_approx_cpu = w_approx_gpu.to_cpu().map_err(SedcError::Gpu)?;
         let r_arr = r_cpu.into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
         let c_arr = c_cpu.into_dimensionality::<ndarray::Ix2>()
@@ -1483,7 +1485,7 @@ impl SedcCompressor {
                 // No compression applied or no previous error → pass through
                 let w_gpu = GpuTensor::from_cpu(&w_orig.clone().into_dyn())
                     .map_err(|e| SedcError::Svd(e.to_string()))?;
-                let w_cpu_arr = w_gpu.to_cpu();
+                let w_cpu_arr = w_gpu.to_cpu().map_err(SedcError::Gpu)?;
                 let w_cpu = w_cpu_arr.into_dimensionality::<ndarray::Ix2>()
                     .map_err(|e| SedcError::Svd(e.to_string()))?;
                 compensated.push(w_cpu);
@@ -1514,7 +1516,7 @@ impl SedcCompressor {
             let w_comp = ctx.rec_compensate_gpu(
                 &w_next_gpu, &error_gpu, &v_gpu, self.config.rec_lambda,
             )?;
-            let w_comp_arr = w_comp.to_cpu();
+            let w_comp_arr = w_comp.to_cpu().map_err(SedcError::Gpu)?;
             let w_comp_cpu = w_comp_arr.into_dimensionality::<ndarray::Ix2>()
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
             compensated.push(w_comp_cpu);

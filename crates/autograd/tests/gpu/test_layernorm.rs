@@ -28,7 +28,7 @@ mod tests {
         let gx = GpuTensor::from_cpu(&x).unwrap();
         let gw = GpuTensor::from_cpu(&weight).unwrap();
         let gpu_result = ctx.rms_norm(&gx, &gw, epsilon).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         // CPU reference
         let tx = Tensor::new(x);
@@ -73,7 +73,7 @@ mod tests {
         let gw = GpuTensor::from_cpu(&weight).unwrap();
         let gb = GpuTensor::from_cpu(&bias).unwrap();
         let gpu_result = ctx.layer_norm(&gx, &gw, &gb, epsilon).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         // CPU reference
         let tx = Tensor::new(x);
@@ -110,7 +110,7 @@ mod tests {
         let gx = GpuTensor::from_cpu(&x).unwrap();
         let gw = GpuTensor::from_cpu(&weight).unwrap();
         let gpu_result = ctx.rms_norm(&gx, &gw, 1e-6).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         // Check that each row is normalized
         for i in 0..2 {

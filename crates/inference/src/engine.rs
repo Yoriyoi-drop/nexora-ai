@@ -65,7 +65,7 @@ pub struct InferenceEngine {
     kv_cache: Arc<RwLock<KVCache>>,
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     model: Arc<CausalLM>,
-    tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
+    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     prefix_cache: Arc<PrefixCache>,
     request_tx: mpsc::Sender<InferenceRequest>,
@@ -133,7 +133,7 @@ impl InferenceEngine {
 
     pub fn with_model(
         model: Arc<CausalLM>,
-        tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
+    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
         config: InferenceConfig,
     ) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
@@ -286,7 +286,7 @@ impl InferenceEngine {
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
                 Some(tok) => {
-                    let t = tok.read();
+                    let t = tok.lock().await;
                     t.encode(&request.prompt)
                 }
                 None => request.prompt.bytes().map(|b| b as u32).collect(),
@@ -348,7 +348,7 @@ impl InferenceEngine {
 
                     let token_text = match &tokenizer {
                         Some(tok) => {
-                            let t = tok.read();
+                            let t = tok.lock().await;
                             t.decode(&[token_id])
                         }
                         None => token_id_to_text_fallback(token_id),
@@ -408,7 +408,7 @@ impl InferenceEngine {
                 .with_inference_time(start.elapsed().as_millis() as u64));
         }
 
-        let prompt_ids = self.encode_prompt(&request.prompt);
+        let prompt_ids = self.encode_prompt(&request.prompt).await;
         let max_gen = request.max_tokens.min(2048) as usize;
 
         // Check prefix cache (informational hit/miss tracking)
@@ -778,20 +778,20 @@ impl InferenceEngine {
         Ok(())
     }
 
-    fn encode_prompt(&self, prompt: &str) -> Vec<u32> {
+    async fn encode_prompt(&self, prompt: &str) -> Vec<u32> {
         match &self.tokenizer {
             Some(tok) => {
-                let t = tok.read();
+                let t = tok.lock().await;
                 t.encode(prompt)
             }
             None => prompt.bytes().map(|b| b as u32).collect(),
         }
     }
 
-    fn token_id_to_text(&self, token_id: u32) -> String {
+    async fn token_id_to_text(&self, token_id: u32) -> String {
         match &self.tokenizer {
             Some(tok) => {
-                let guard = tok.read();
+                let guard = tok.lock().await;
                 guard.decode(&[token_id])
             }
             None => token_id_to_text_fallback(token_id),
@@ -818,7 +818,7 @@ fn run_generation_loop(
     max_gen: usize,
     sampler: &mut crate::sampler::Sampler,
     kv_state: &mut dyn KVCacheProvider,
-    tokenizer: Option<&Arc<parking_lot::RwLock<BpeTokenizer>>>,
+    tokenizer: Option<&Arc<tokio::sync::Mutex<BpeTokenizer>>>,
 ) -> (Vec<GeneratedToken>, Vec<f32>, bool) {
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
@@ -852,7 +852,7 @@ fn run_generation_loop(
 
         let token_text: String = match tokenizer {
             Some(tok) => {
-                let t = tok.read();
+                let t = tok.blocking_lock();
                 t.decode(&[token_id])
             }
             None => token_id_to_text_fallback(token_id),
@@ -875,7 +875,7 @@ fn run_generation_loop(
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
     model: Arc<CausalLM>,
-    tokenizer: Option<Arc<parking_lot::RwLock<BpeTokenizer>>>,
+    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
     use_gpu: bool,
     #[cfg(feature = "gpu")]
@@ -941,7 +941,7 @@ impl InferenceEngineHandle {
 
                 let prompt_ids: Vec<u32> = match &tokenizer {
                     Some(tok) => {
-                        let t = tok.read();
+                        let t = tok.lock().await;
                         t.encode(&breq.prompt)
                     }
                     None => breq.prompt.bytes().map(|b| b as u32).collect(),

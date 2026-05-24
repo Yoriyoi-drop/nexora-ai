@@ -128,7 +128,9 @@ impl Sampler {
         let out = ctx
             .gpu_sample(&gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
             .map_err(|e| InferenceError::DecodingError(format!("gpu_sample: {}", e)))?;
-        let raw = out.to_cpu_raw_bytes();
+        let raw = out
+            .to_cpu_raw_bytes()
+            .map_err(|e| InferenceError::DecodingError(format!("to_cpu_raw_bytes: {}", e)))?;
         let token = u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]);
         Ok(token as usize)
     }
@@ -246,7 +248,9 @@ impl Sampler {
             }
         };
 
-        let raw = out.to_cpu_raw_bytes();
+        let raw = out
+            .to_cpu_raw_bytes()
+            .map_err(|e| InferenceError::DecodingError(format!("to_cpu_raw_bytes: {}", e)))?;
         let tokens: Vec<usize> = raw
             .chunks_exact(4)
             .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize)

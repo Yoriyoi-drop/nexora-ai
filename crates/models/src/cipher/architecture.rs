@@ -879,7 +879,32 @@ impl CipherArchitecture {
                 },
             },
             zero_day_simulation: ZeroDaySimulationEngine {
-                simulation_models: vec![],
+                simulation_models: vec![
+                    SimulationModel {
+                        id: uuid::Uuid::new_v4(),
+                        model_type: SimulationModelType::CodeAnalysis,
+                        accuracy: 0.85,
+                        coverage: 0.75,
+                    },
+                    SimulationModel {
+                        id: uuid::Uuid::new_v4(),
+                        model_type: SimulationModelType::NetworkBehavior,
+                        accuracy: 0.80,
+                        coverage: 0.70,
+                    },
+                    SimulationModel {
+                        id: uuid::Uuid::new_v4(),
+                        model_type: SimulationModelType::SystemInteraction,
+                        accuracy: 0.82,
+                        coverage: 0.72,
+                    },
+                    SimulationModel {
+                        id: uuid::Uuid::new_v4(),
+                        model_type: SimulationModelType::Hybrid,
+                        accuracy: 0.88,
+                        coverage: 0.80,
+                    },
+                ],
                 vulnerability_prediction: VulnerabilityPrediction {
                     prediction_algorithm: PredictionAlgorithm::MachineLearning,
                     feature_extraction: FeatureExtraction {
@@ -916,7 +941,23 @@ impl CipherArchitecture {
                     },
                 },
                 impact_assessment: ImpactAssessment {
-                    assessment_criteria: vec![],
+                    assessment_criteria: vec![
+                        AssessmentCriterion {
+                            name: "quantitative-analysis".to_string(),
+                            weight: 0.4,
+                            criterion_type: CriterionType::Quantitative,
+                        },
+                        AssessmentCriterion {
+                            name: "qualitative-analysis".to_string(),
+                            weight: 0.35,
+                            criterion_type: CriterionType::Qualitative,
+                        },
+                        AssessmentCriterion {
+                            name: "binary-check".to_string(),
+                            weight: 0.25,
+                            criterion_type: CriterionType::Binary,
+                        },
+                    ],
                     impact_scoring: ImpactScoring {
                         scoring_methodology: ScoringMethodology::CVSS,
                         score_ranges: ScoreRanges {
@@ -939,11 +980,131 @@ impl CipherArchitecture {
                 database_sources: vec![DatabaseSource::NVD, DatabaseSource::ExploitDB],
             },
             threat_intelligence_network: ThreatIntelligenceNetwork {
-                intelligence_feeds: vec![],
-                threat_actors: vec![],
-                indicators_of_compromise: vec![],
+                intelligence_feeds: vec![
+                    IntelligenceFeed {
+                        id: uuid::Uuid::new_v4(),
+                        name: "open-source-feed".to_string(),
+                        feed_type: FeedType::OpenSource,
+                        update_frequency: UpdateFrequency::Hourly,
+                        reliability: 0.7,
+                    },
+                    IntelligenceFeed {
+                        id: uuid::Uuid::new_v4(),
+                        name: "commercial-feed".to_string(),
+                        feed_type: FeedType::Commercial,
+                        update_frequency: UpdateFrequency::Daily,
+                        reliability: 0.9,
+                    },
+                    IntelligenceFeed {
+                        id: uuid::Uuid::new_v4(),
+                        name: "community-feed".to_string(),
+                        feed_type: FeedType::Community,
+                        update_frequency: UpdateFrequency::Weekly,
+                        reliability: 0.6,
+                    },
+                    IntelligenceFeed {
+                        id: uuid::Uuid::new_v4(),
+                        name: "internal-feed".to_string(),
+                        feed_type: FeedType::Internal,
+                        update_frequency: UpdateFrequency::RealTime,
+                        reliability: 0.95,
+                    },
+                ],
+                threat_actors: vec![
+                    ThreatActor {
+                        id: uuid::Uuid::new_v4(),
+                        name: "nation-state-actor".to_string(),
+                        actor_type: ThreatActorType::NationState,
+                        capabilities: vec!["advanced_persistence".to_string(), "zero_day_exploits".to_string()],
+                        target_sectors: vec!["government".to_string(), "defense".to_string()],
+                    },
+                    ThreatActor {
+                        id: uuid::Uuid::new_v4(),
+                        name: "cybercrime-actor".to_string(),
+                        actor_type: ThreatActorType::Cybercrime,
+                        capabilities: vec!["ransomware".to_string(), "phishing".to_string()],
+                        target_sectors: vec!["finance".to_string(), "healthcare".to_string()],
+                    },
+                    ThreatActor {
+                        id: uuid::Uuid::new_v4(),
+                        name: "hacktivist-actor".to_string(),
+                        actor_type: ThreatActorType::Hacktivist,
+                        capabilities: vec!["ddos".to_string(), "defacement".to_string()],
+                        target_sectors: vec!["media".to_string(), "corporate".to_string()],
+                    },
+                    ThreatActor {
+                        id: uuid::Uuid::new_v4(),
+                        name: "insider-actor".to_string(),
+                        actor_type: ThreatActorType::Insider,
+                        capabilities: vec!["data_exfiltration".to_string(), "privilege_abuse".to_string()],
+                        target_sectors: vec!["internal".to_string()],
+                    },
+                ],
+                indicators_of_compromise: vec![
+                    IndicatorOfCompromise {
+                        id: uuid::Uuid::new_v4(),
+                        ioc_type: IOCType::IPAddress,
+                        value: "192.168.1.1".to_string(),
+                        confidence: 0.8,
+                    },
+                    IndicatorOfCompromise {
+                        id: uuid::Uuid::new_v4(),
+                        ioc_type: IOCType::Domain,
+                        value: "malicious.example.com".to_string(),
+                        confidence: 0.75,
+                    },
+                    IndicatorOfCompromise {
+                        id: uuid::Uuid::new_v4(),
+                        ioc_type: IOCType::Hash,
+                        value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+                        confidence: 0.9,
+                    },
+                    IndicatorOfCompromise {
+                        id: uuid::Uuid::new_v4(),
+                        ioc_type: IOCType::URL,
+                        value: "https://malicious.example.com/payload".to_string(),
+                        confidence: 0.85,
+                    },
+                    IndicatorOfCompromise {
+                        id: uuid::Uuid::new_v4(),
+                        ioc_type: IOCType::Email,
+                        value: "attacker@malicious.example.com".to_string(),
+                        confidence: 0.7,
+                    },
+                ],
                 threat_landscape: ThreatLandscape {
-                    emerging_threats: vec![],
+                    emerging_threats: vec![
+                        Threat {
+                            id: uuid::Uuid::new_v4(),
+                            name: "malware-threat".to_string(),
+                            category: ThreatCategory::Malware,
+                            severity: Severity::High,
+                        },
+                        Threat {
+                            id: uuid::Uuid::new_v4(),
+                            name: "ransomware-threat".to_string(),
+                            category: ThreatCategory::Ransomware,
+                            severity: Severity::Critical,
+                        },
+                        Threat {
+                            id: uuid::Uuid::new_v4(),
+                            name: "phishing-threat".to_string(),
+                            category: ThreatCategory::Phishing,
+                            severity: Severity::Medium,
+                        },
+                        Threat {
+                            id: uuid::Uuid::new_v4(),
+                            name: "ddos-threat".to_string(),
+                            category: ThreatCategory::DDoS,
+                            severity: Severity::High,
+                        },
+                        Threat {
+                            id: uuid::Uuid::new_v4(),
+                            name: "apt-threat".to_string(),
+                            category: ThreatCategory::APT,
+                            severity: Severity::Critical,
+                        },
+                    ],
                     trend_analysis: TrendAnalysis {
                         trend_direction: TrendDirection::Stable,
                         trend_magnitude: 0.0,

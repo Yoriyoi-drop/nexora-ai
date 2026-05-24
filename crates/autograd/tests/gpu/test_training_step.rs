@@ -130,8 +130,8 @@ mod tests {
             adam.step(&ctx, &[gw.clone(), gbias.clone()], &[gw_grad, gbias_grad]).unwrap();
 
             // Update parameters
-            let w_updated = gw.to_cpu();
-            let bias_updated = gbias.to_cpu();
+            let w_updated = gw.to_cpu().unwrap();
+            let bias_updated = gbias.to_cpu().unwrap();
             w.set_data(ArrayD::from(w_updated.into_raw_vec()).into_shape(vec![4, 8]).unwrap());
             bias.set_data(ArrayD::from(bias_updated.into_raw_vec()).into_shape(vec![8]).unwrap());
 

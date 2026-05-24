@@ -188,7 +188,7 @@ impl MultiHeadAttention {
             scores_gpu = ctx.mul(&scores_gpu, &scale_factor).ok()?;
 
             // Softmax on CPU
-            let scores_cpu = scores_gpu.to_cpu();
+            let scores_cpu = scores_gpu.to_cpu().ok()?;
             let scores_vec: Vec<f32> = scores_cpu.iter().copied().collect();
             let softmax_vec = self.softmax(&scores_vec);
 
@@ -198,7 +198,7 @@ impl MultiHeadAttention {
             ).ok()?;
             let attn_gpu = ctx.matmul(&softmax_gpu, &v_gpu).ok()?;
 
-            let attn_cpu = attn_gpu.to_cpu();
+            let attn_cpu = attn_gpu.to_cpu().ok()?;
             output.extend(attn_cpu.iter().copied());
         }
 
@@ -382,7 +382,7 @@ impl Linear {
             out_gpu = ctx.add(&out_gpu, &bias_gpu).ok()?;
         }
 
-        let out_cpu = out_gpu.to_cpu();
+        let out_cpu = out_gpu.to_cpu().ok()?;
         let result: Vec<f32> = out_cpu.iter().copied().collect();
         Some(Tensor::new(result, vec![self.out_features]))
     }

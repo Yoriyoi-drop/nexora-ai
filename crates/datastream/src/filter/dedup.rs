@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
@@ -91,7 +91,7 @@ impl DedupFilter {
     }
 
     pub fn reset(&mut self) {
-        self.seen_hashes.lock().clear();
+        self.seen_hashes.blocking_lock().clear();
     }
 }
 
@@ -124,10 +124,7 @@ impl Filter for DedupFilter {
         let fingerprints = self.fingerprint(&sample.text);
         let total_hashes = fingerprints.len();
 
-        // SAFETY: parking_lot::Mutex::lock() is used in an async fn, but no
-        // .await calls are made while the guard is held — all operations below
-        // (contains, insert, len) are synchronous hash-set operations.
-        let mut hashes = self.seen_hashes.lock();
+        let mut hashes = self.seen_hashes.lock().await;
         if hashes.len() >= self.max_seen {
             return FilterResult {
                 passed: true,

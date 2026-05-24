@@ -67,9 +67,10 @@ impl RMSNorm {
                 if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![x.shape()[0], x.shape()[1]], x_flat) {
                     if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
                         if let Ok(result) = self.forward_gpu(&x_gpu) {
-                            let cpu = result.to_cpu();
-                            if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
-                                return arr2.to_owned();
+                            if let Ok(cpu) = result.to_cpu() {
+                                if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
+                                    return arr2.to_owned();
+                                }
                             }
                         }
                     }

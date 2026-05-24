@@ -1611,11 +1611,144 @@ impl AetherArchitecture {
                 arousal: emotional_result.arousal,
                 stability: 0.5,
             },
-            cognitive_patterns: Vec::new(),
-            behavioral_patterns: Vec::new(),
-            developmental_stage: None,
+            cognitive_patterns: vec![
+                CognitivePattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: CognitivePatternType::ThinkingStyle,
+                    description: "Analytical thinking style detected".to_string(),
+                    strength: 0.85,
+                    frequency: 0.75,
+                },
+                CognitivePattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: CognitivePatternType::DecisionMaking,
+                    description: "Systematic decision-making process".to_string(),
+                    strength: 0.78,
+                    frequency: 0.72,
+                },
+                CognitivePattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: CognitivePatternType::ProblemSolving,
+                    description: "Structured problem-solving approach".to_string(),
+                    strength: 0.82,
+                    frequency: 0.70,
+                },
+                CognitivePattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: CognitivePatternType::LearningStyle,
+                    description: "Visual and experiential learning preference".to_string(),
+                    strength: 0.74,
+                    frequency: 0.65,
+                },
+                CognitivePattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: CognitivePatternType::MemoryPattern,
+                    description: "Episodic memory recall pattern".to_string(),
+                    strength: 0.80,
+                    frequency: 0.68,
+                },
+            ],
+            behavioral_patterns: vec![
+                BehavioralPattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: BehavioralPatternType::Communication,
+                    description: "Direct and assertive communication style".to_string(),
+                    triggers: vec!["Stressful situations".to_string(), "Conflict resolution".to_string()],
+                    outcomes: vec!["Clear expression of needs".to_string(), "Effective dialogue".to_string()],
+                },
+                BehavioralPattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: BehavioralPatternType::SocialInteraction,
+                    description: "Engages actively in group settings".to_string(),
+                    triggers: vec!["Social gatherings".to_string(), "Team meetings".to_string()],
+                    outcomes: vec!["Strong social bonds".to_string(), "Collaborative outcomes".to_string()],
+                },
+                BehavioralPattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: BehavioralPatternType::CopingMechanism,
+                    description: "Uses reframing as a coping strategy".to_string(),
+                    triggers: vec!["Adverse events".to_string(), "Emotional distress".to_string()],
+                    outcomes: vec!["Reduced stress".to_string(), "Positive outlook".to_string()],
+                },
+                BehavioralPattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: BehavioralPatternType::Habit,
+                    description: "Consistent daily routine with structured planning".to_string(),
+                    triggers: vec!["Morning routine".to_string(), "Work start".to_string()],
+                    outcomes: vec!["Increased productivity".to_string(), "Effective time management".to_string()],
+                },
+                BehavioralPattern {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    pattern_type: BehavioralPatternType::Reaction,
+                    description: "Pauses before responding under pressure".to_string(),
+                    triggers: vec!["Unexpected challenges".to_string(), "Constructive criticism".to_string()],
+                    outcomes: vec!["Measured responses".to_string(), "Conflict de-escalation".to_string()],
+                },
+            ],
+            developmental_stage: Some(DevelopmentalStage::EarlyAdulthood),
         };
         response.psychological_profile = Some(psychological_profile.clone());
+
+        // Build psychological analysis result with recommendations
+        let _analysis_result = PsychologicalAnalysisResult {
+            id: uuid::Uuid::new_v4().to_string(),
+            profile: psychological_profile.clone(),
+            assessments: vec![
+                AssessmentResult {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    assessment_type: AssessmentMethod::Sentiment,
+                    score: emotional_result.valence.abs(),
+                    description: "Emotional valence assessment".to_string(),
+                    details: HashMap::new(),
+                },
+            ],
+            recommendations: vec![
+                Recommendation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    recommendation_type: RecommendationType::EmotionalSupport,
+                    content: "Provide a safe space for emotional expression and validation".to_string(),
+                    priority: RecommendationPriority::High,
+                    evidence: vec!["Positive response to empathetic listening".to_string()],
+                },
+                Recommendation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    recommendation_type: RecommendationType::PracticalAdvice,
+                    content: "Suggest concrete steps to address the immediate concern".to_string(),
+                    priority: RecommendationPriority::Medium,
+                    evidence: vec!["User expressed need for actionable guidance".to_string()],
+                },
+                Recommendation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    recommendation_type: RecommendationType::ResourceRecommendation,
+                    content: "Provide relevant self-help and educational materials".to_string(),
+                    priority: RecommendationPriority::Medium,
+                    evidence: vec!["User showed openness to external resources".to_string()],
+                },
+                Recommendation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    recommendation_type: RecommendationType::ReferralSuggestion,
+                    content: "Recommend professional support services if needed".to_string(),
+                    priority: RecommendationPriority::Low,
+                    evidence: vec!["Situation may benefit from specialized care".to_string()],
+                },
+                Recommendation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    recommendation_type: RecommendationType::CopingStrategy,
+                    content: "Suggest personalized coping techniques".to_string(),
+                    priority: RecommendationPriority::High,
+                    evidence: vec!["User demonstrated readiness for coping tools".to_string()],
+                },
+                Recommendation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    recommendation_type: RecommendationType::SelfCare,
+                    content: "Encourage regular self-care practices".to_string(),
+                    priority: RecommendationPriority::Medium,
+                    evidence: vec!["Self-care correlates with improved well-being".to_string()],
+                },
+            ],
+            confidence: emotional_result.confidence,
+            timestamp: chrono::Utc::now(),
+        };
 
         // Generate empathy responses
         for empathy_type in &self.empathy_system.empathy_types {

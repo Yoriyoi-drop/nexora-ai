@@ -455,9 +455,10 @@ impl GQA {
                         }
                     })();
                     if let Ok(result) = gpu_result {
-                        let cpu = result.to_cpu();
-                        if let Ok(arr2) = cpu.into_dimensionality::<Ix2>() {
-                            return arr2.to_owned();
+                        if let Ok(cpu) = result.to_cpu() {
+                            if let Ok(arr2) = cpu.into_dimensionality::<Ix2>() {
+                                return arr2.to_owned();
+                            }
                         }
                     }
                 }

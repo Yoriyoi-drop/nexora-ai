@@ -903,7 +903,10 @@ fn evaluate_loss_gpu(
 
             match loss.storage() {
                 nexora_autograd::Storage::Gpu(g) => {
-                    let loss_cpu = g.to_cpu();
+                    let loss_cpu = g.to_cpu().unwrap_or_else(|e| {
+                        tracing::warn!("Training eval GPU readback failed: {e}");
+                        ndarray::ArrayD::zeros(vec![1])
+                    });
                     let step_loss = loss_cpu.as_slice().map(|s| s[0] as f64).unwrap_or(f64::NAN);
                     if !step_loss.is_finite() {
                         warn!("NaN/Inf detected during GPU evaluation — skipping chunk");

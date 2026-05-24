@@ -27,7 +27,7 @@ mod tests {
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
         let gb = GpuTensor::from_cpu(&b_data).unwrap();
         let gpu_result = ctx.matmul(&ga, &gb).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         // CPU reference
         let a_tensor = Tensor::new(a_data);
@@ -66,7 +66,7 @@ mod tests {
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
         let gb = GpuTensor::from_cpu(&b_data).unwrap();
         let gpu_result = ctx.matmul(&ga, &gb).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         let a_tensor = Tensor::new(a_data);
         let b_tensor = Tensor::new(b_data);
@@ -104,7 +104,7 @@ mod tests {
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
         let gb = GpuTensor::from_cpu(&b_data).unwrap();
         let gpu_result = ctx.matmul(&ga, &gb).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         let a_tensor = Tensor::new(a_data);
         let b_tensor = Tensor::new(b_data);
@@ -141,7 +141,7 @@ mod tests {
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
         let gb = GpuTensor::from_cpu(&b_data).unwrap();
         let gpu_result = ctx.matmul(&ga, &gb).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         assert_eq!(gpu_cpu.shape(), &[16, 24]);
         println!("GPU matmul broadcast [16,32]x[32,24] OK");

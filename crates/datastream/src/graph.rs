@@ -149,6 +149,46 @@ impl ExecutionGraph {
                 cycle_nodes.len(),
                 cycle_nodes
             );
+
+            // Break the cycle by removing one edge
+            let mut broken = false;
+            for node_id in &cycle_nodes {
+                if let Some(node) = self.nodes.get(node_id.as_str()) {
+                    for dep in &node.depends_on {
+                        if cycle_nodes.contains(&dep) {
+                            if let Some(deg) = in_degree.get_mut(*node_id) {
+                                *deg = deg.saturating_sub(1);
+                                warn!(
+                                    "Breaking cycle: removing edge {} -> {}",
+                                    dep, node_id
+                                );
+                                if *deg == 0 {
+                                    queue.push_back((*node_id).clone());
+                                }
+                                broken = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+                if broken {
+                    break;
+                }
+            }
+
+            while let Some(node_id) = queue.pop_front() {
+                result.push(node_id.clone());
+                if let Some(node) = self.nodes.get(&node_id) {
+                    for child in &node.children {
+                        if let Some(deg) = in_degree.get_mut(child) {
+                            *deg = deg.saturating_sub(1);
+                            if *deg == 0 {
+                                queue.push_back(child.clone());
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         result
@@ -372,17 +412,17 @@ impl ExecutionGraph {
         results
     }
 
-    pub async fn run_rayon(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult>
-    where
-        Self: Sync,
-    {
+    pub async fn run_rayon(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {
         let (cancel_tx, _) = tokio::sync::watch::channel(false);
-        let mut results = Vec::with_capacity(samples.len());
-        for sample in samples {
+        let handles: Vec<_> = samples.into_iter().map(|sample| {
             let cancel = cancel_tx.subscribe();
-            results.push(self.execute(sample, cancel).await);
-        }
-        results
+            let this = self.clone();
+            tokio::spawn(async move { this.execute(sample, cancel).await })
+        }).collect();
+        futures::future::join_all(handles).await
+            .into_iter()
+            .filter_map(|r| r.ok())
+            .collect()
     }
 }
 

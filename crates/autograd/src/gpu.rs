@@ -4611,14 +4611,8 @@ impl GpuTensor {
         })
     }
 
-    pub fn to_cpu(&self) -> ArrayD<f32> {
-        let ctx = match Self::ctx() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                tracing::warn!("GPU context not initialized in to_cpu: {e}, returning zeros");
-                return ArrayD::zeros(self.shape());
-            }
-        };
+    pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
+        let ctx = Self::ctx()?;
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
@@ -4640,31 +4634,22 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        if readback_with_timeout(&ctx.device, &rx).is_err() {
-            tracing::warn!("GPU readback failed in to_cpu, returning zeros");
-            staging.unmap();
-            return ArrayD::zeros(self.shape());
-        }
+        readback_with_timeout(&ctx.device, &rx)
+            .map_err(|e| GpuError::Device(format!("to_cpu readback failed: {e}")))?;
 
         let result = {
             let mapped = slice.get_mapped_range();
             let data: &[f32] = bytemuck::cast_slice(&*mapped);
             ArrayD::from_shape_vec(self.shape.clone(), data.to_vec())
-                .unwrap()
+                .map_err(|e| GpuError::ShapeMismatch(format!("to_cpu shape mismatch: {e}")))?
         };
         staging.unmap();
-        result
+        Ok(result)
     }
 
     /// Read back raw bytes (for u32 output buffers like sampler tokens)
-    pub fn to_cpu_raw_bytes(&self) -> Vec<u8> {
-        let ctx = match Self::ctx() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                tracing::warn!("GPU context not initialized in to_cpu_raw_bytes: {e}, returning empty");
-                return Vec::new();
-            }
-        };
+    pub fn to_cpu_raw_bytes(&self) -> Result<Vec<u8>, GpuError> {
+        let ctx = Self::ctx()?;
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
@@ -4686,30 +4671,21 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        if readback_with_timeout(&ctx.device, &rx).is_err() {
-            tracing::warn!("GPU readback failed in to_cpu_raw_bytes, returning empty");
-            staging.unmap();
-            return Vec::new();
-        }
+        readback_with_timeout(&ctx.device, &rx)
+            .map_err(|e| GpuError::Device(format!("to_cpu_raw_bytes readback failed: {e}")))?;
 
         let data = {
             let mapped = slice.get_mapped_range();
             mapped.to_vec()
         };
         staging.unmap();
-        data
+        Ok(data)
     }
 
     /// Read back only the first element for quick validation
     /// Much faster than full tensor readback
-    pub fn to_cpu_first_element(&self) -> f32 {
-        let ctx = match Self::ctx() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                tracing::warn!("GPU context not initialized in to_cpu_first_element: {e}, returning 0.0");
-                return 0.0;
-            }
-        };
+    pub fn to_cpu_first_element(&self) -> Result<f32, GpuError> {
+        let ctx = Self::ctx()?;
         ctx.flush();
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -4730,29 +4706,20 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        if readback_with_timeout(&ctx.device, &rx).is_err() {
-            tracing::warn!("GPU readback failed in to_cpu_first_element, returning 0.0");
-            staging.unmap();
-            return 0.0;
-        }
+        readback_with_timeout(&ctx.device, &rx)
+            .map_err(|e| GpuError::Device(format!("to_cpu_first_element readback failed: {e}")))?;
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);
         let value = data[0];
         staging.unmap();
-        value
+        Ok(value)
     }
 
     /// Read back a checksum of the tensor for validation
     /// Faster than full readback for large tensors
-    pub fn to_cpu_checksum(&self) -> f32 {
-        let ctx = match Self::ctx() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                tracing::warn!("GPU context not initialized in to_cpu_checksum: {e}, returning 0.0");
-                return 0.0;
-            }
-        };
+    pub fn to_cpu_checksum(&self) -> Result<f64, GpuError> {
+        let ctx = Self::ctx()?;
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
@@ -4774,17 +4741,14 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        if readback_with_timeout(&ctx.device, &rx).is_err() {
-            tracing::warn!("GPU readback failed in to_cpu_checksum, returning 0.0");
-            staging.unmap();
-            return 0.0;
-        }
+        readback_with_timeout(&ctx.device, &rx)
+            .map_err(|e| GpuError::Device(format!("to_cpu_checksum readback failed: {e}")))?;
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);
-        let checksum: f32 = data.iter().sum();
+        let checksum: f64 = data.iter().map(|&x| x as f64).sum();
         staging.unmap();
-        checksum
+        Ok(checksum)
     }
 
     pub fn shape(&self) -> Vec<usize> {

@@ -348,9 +348,10 @@ impl TemperatureSampling {
                 let seed = 42u64;
                 match ctx.gpu_sample(&gpu, config.temperature, top_k, config.top_p, seed) {
                     Ok(out) => {
-                        let raw = out.to_cpu_raw_bytes();
-                        if raw.len() >= 4 {
-                            return Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
+                        if let Ok(raw) = out.to_cpu_raw_bytes() {
+                            if raw.len() >= 4 {
+                                return Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
+                            }
                         }
                     }
                     Err(e) => {

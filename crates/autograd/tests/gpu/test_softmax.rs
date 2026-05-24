@@ -19,7 +19,7 @@ mod tests {
         // GPU result
         let g = GpuTensor::from_cpu(&logits).unwrap();
         let gpu_result = ctx.softmax(&g).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         // CPU reference
         let t = Tensor::new(logits);
@@ -49,7 +49,7 @@ mod tests {
         
         let g = GpuTensor::from_cpu(&logits).unwrap();
         let gpu_result = ctx.softmax(&g).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         let t = Tensor::new(logits.clone());
         let cpu_result = softmax(&t, 1).unwrap();
@@ -80,7 +80,7 @@ mod tests {
         
         let g = GpuTensor::from_cpu(&logits).unwrap();
         let gpu_result = ctx.softmax(&g).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         for i in 0..5 {
             let mut sum = 0.0f32;
@@ -108,7 +108,7 @@ mod tests {
         
         let g = GpuTensor::from_cpu(&logits).unwrap();
         let gpu_result = ctx.softmax(&g).unwrap();
-        let gpu_cpu = gpu_result.to_cpu();
+        let gpu_cpu = gpu_result.to_cpu().unwrap();
 
         // Should not produce NaN or Inf
         for i in 0..4 {

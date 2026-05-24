@@ -2,6 +2,9 @@ use ndarray::ArrayD;
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(feature = "gpu")]
+use crate::gpu::GpuError;
+
 /// Physical device where tensor data resides
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Device {
@@ -79,11 +82,19 @@ impl Storage {
     }
 
     /// Extract CPU data — clones data. For zero-copy access, use as_cpu() or data_arc().
+    #[cfg(feature = "gpu")]
+    pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
+        match self {
+            Storage::Cpu(arr) => Ok(arr.as_ref().clone()),
+            Storage::Gpu(t) => t.to_cpu(),
+        }
+    }
+
+    /// Extract CPU data — clones data (CPU-only path).
+    #[cfg(not(feature = "gpu"))]
     pub fn to_cpu(&self) -> ArrayD<f32> {
         match self {
             Storage::Cpu(arr) => arr.as_ref().clone(),
-            #[cfg(feature = "gpu")]
-            Storage::Gpu(t) => t.to_cpu(),
         }
     }
 
@@ -104,11 +115,18 @@ impl Storage {
         }
     }
 
+    #[cfg(feature = "gpu")]
+    pub fn into_cpu(self) -> Result<ArrayD<f32>, GpuError> {
+        match self {
+            Storage::Cpu(arr) => Ok(Arc::unwrap_or_clone(arr)),
+            Storage::Gpu(t) => t.to_cpu(),
+        }
+    }
+
+    #[cfg(not(feature = "gpu"))]
     pub fn into_cpu(self) -> ArrayD<f32> {
         match self {
             Storage::Cpu(arr) => Arc::unwrap_or_clone(arr),
-            #[cfg(feature = "gpu")]
-            Storage::Gpu(t) => t.to_cpu(),
         }
     }
 
@@ -117,7 +135,13 @@ impl Storage {
         match self {
             Storage::Cpu(arr) => Arc::clone(arr),
             #[cfg(feature = "gpu")]
-            Storage::Gpu(t) => Arc::new(t.to_cpu()),
+            Storage::Gpu(t) => match t.to_cpu() {
+                Ok(data) => Arc::new(data),
+                Err(e) => {
+                    tracing::warn!("GPU readback failed in data_arc: {e}, returning zeros");
+                    Arc::new(ArrayD::zeros(t.shape()))
+                }
+            },
         }
     }
 }
@@ -163,6 +187,9 @@ mod tests {
         assert_eq!(storage.numel(), 6);
         assert_eq!(storage.ndim(), 2);
         assert_eq!(storage.device(), Device::Cpu);
+        #[cfg(feature = "gpu")]
+        assert_eq!(storage.to_cpu().unwrap(), arr);
+        #[cfg(not(feature = "gpu"))]
         assert_eq!(storage.to_cpu(), arr);
         assert!(storage.as_cpu().is_some());
     }
@@ -171,6 +198,9 @@ mod tests {
     fn test_storage_into_cpu() {
         let arr = ArrayD::zeros(vec![4]);
         let storage: Storage = arr.clone().into();
+        #[cfg(feature = "gpu")]
+        let recovered = storage.into_cpu().unwrap();
+        #[cfg(not(feature = "gpu"))]
         let recovered = storage.into_cpu();
         assert_eq!(recovered, arr);
     }

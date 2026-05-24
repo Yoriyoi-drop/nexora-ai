@@ -11,48 +11,61 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     {
         let storage = input.storage();
         if let Storage::Gpu(gpu_input) = &storage {
-            if axis == input.ndim() - 1 && input.ndim() == 2 {
-                if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                    match ctx.softmax(gpu_input) {
-                        Ok(gpu_result) => {
-                            if !input.requires_grad() {
-                                let id = next_tensor_id();
-                                return Tensor::from_gpu(gpu_result, id, false);
-                            }
-                            let soft_cpu = gpu_result.to_cpu();
-                            let soft_shape = soft_cpu.shape().to_vec();
-                            return Tensor::from_gpu_with_grad_fn(
-                                gpu_result,
-                                vec![input.clone()],
-                                vec![soft_cpu],
-                                vec![],
-                                Box::new(move |grad, saved| {
-                                    let soft = &saved[0];
-                                    let g = grad.clone();
-                                    let n = soft.len();
-                                    let batch = soft_shape[0];
-                                    let dim = soft_shape[1];
-                                    let mut dx = vec![0.0f32; n];
-                                    for b in 0..batch {
-                                        let base = b * dim;
-                                        let mut sum_sg = 0.0;
-                                        for j in 0..dim {
-                                            sum_sg += soft[base + j] * g[base + j];
-                                        }
-                                        for j in 0..dim {
-                                            let idx = base + j;
-                                            dx[idx] = soft[idx] * (g[idx] - sum_sg);
-                                        }
+            if axis == input.ndim() - 1 {
+                let orig_shape = input.shape().to_vec();
+                let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
+                let dim = orig_shape[orig_shape.len() - 1];
+                if let Ok(gpu_2d) = gpu_input.reshape(vec![batch, dim]) {
+                    if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                        match ctx.softmax(&gpu_2d) {
+                            Ok(gpu_result_2d) => {
+                                let soft_cpu = gpu_result_2d.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in softmax: {e}"); ndarray::ArrayD::zeros(gpu_result_2d.shape()) });
+                                let soft_shape_2d = soft_cpu.shape().to_vec();
+                                let gpu_result = gpu_result_2d.reshape(orig_shape.clone());
+                                let gpu_result = match gpu_result {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        warn!("softmax reshape back failed: {e}");
+                                        return Tensor::new(input.data());
                                     }
-                                    vec![ArrayD::from_shape_vec(soft_shape.clone(), dx).unwrap_or_else(|e| {
-                                        debug!("shape encoding failed (infallible): {e}");
-                                        ArrayD::zeros(vec![0])
-                                    })]
-                                }),
-                                None,
-                            );
+                                };
+                                if !input.requires_grad() {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_gpu(gpu_result, id, false);
+                                }
+                                return Tensor::from_gpu_with_grad_fn(
+                                    gpu_result,
+                                    vec![input.clone()],
+                                    vec![soft_cpu],
+                                    vec![],
+                                    Box::new(move |grad, saved| {
+                                        let soft = &saved[0];
+                                        let g_vec: Vec<f32> = grad.iter().copied().collect();
+                                        let n = soft.len();
+                                        let batch = soft_shape_2d[0];
+                                        let dim = soft_shape_2d[1];
+                                        let mut dx = vec![0.0f32; n];
+                                        for b in 0..batch {
+                                            let base = b * dim;
+                                            let mut sum_sg = 0.0;
+                                            for j in 0..dim {
+                                                sum_sg += soft[base + j] * g_vec[base + j];
+                                            }
+                                            for j in 0..dim {
+                                                let idx = base + j;
+                                                dx[idx] = soft[idx] * (g_vec[idx] - sum_sg);
+                                            }
+                                        }
+                                        vec![ArrayD::from_shape_vec(orig_shape.clone(), dx).unwrap_or_else(|e| {
+                                            debug!("shape encoding failed (infallible): {e}");
+                                            ArrayD::zeros(vec![0])
+                                        })]
+                                    }),
+                                    None,
+                                );
+                            }
+                            Err(e) => warn!("autograd nn backward failed: {e}")
                         }
-                        Err(e) => warn!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -153,36 +166,71 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
     {
         let storage = input.storage();
         if let Storage::Gpu(gpu_input) = &storage {
-            if axis == input.ndim() - 1 && input.ndim() == 2 {
-                if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                    // GPU: softmax(input) then ln = log_softmax
-                    match ctx.softmax(gpu_input) {
-                        Ok(soft) => match ctx.elementwise_unary(&soft, crate::gpu::ElemOp::Ln) {
-                            Ok(gpu_result) => {
-                                let requires_grad = input.requires_grad();
-                                if !requires_grad {
-                                    let id = crate::tensor::next_tensor_id();
-                                    return Tensor::from_gpu(gpu_result, id, false);
+            if axis == input.ndim() - 1 {
+                let orig_shape = input.shape().to_vec();
+                let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
+                let dim = orig_shape[orig_shape.len() - 1];
+                if let Ok(gpu_2d) = gpu_input.reshape(vec![batch, dim]) {
+                    if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                        // GPU: softmax(input) then ln = log_softmax
+                        match ctx.softmax(&gpu_2d) {
+                                Ok(soft_2d) => {
+                                let soft_cpu = soft_2d.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in log_softmax: {e}"); ndarray::ArrayD::zeros(soft_2d.shape()) });
+                                let soft_shape_2d = soft_cpu.shape().to_vec();
+                                match ctx.elementwise_unary(&soft_2d, crate::gpu::ElemOp::Ln) {
+                                    Ok(gpu_result_2d) => {
+                                        let gpu_result = gpu_result_2d.reshape(orig_shape.clone());
+                                        let gpu_result = match gpu_result {
+                                            Ok(r) => r,
+                                            Err(e) => {
+                                                warn!("log_softmax reshape back failed: {e}");
+                                                return Tensor::new(input.data());
+                                            }
+                                        };
+                                        let requires_grad = input.requires_grad();
+                                        if !requires_grad {
+                                            let id = crate::tensor::next_tensor_id();
+                                            return Tensor::from_gpu(gpu_result, id, false);
+                                        }
+                                        return Tensor::from_gpu_with_grad_fn(
+                                            gpu_result,
+                                            vec![input.clone()],
+                                            vec![soft_cpu],
+                                            vec![],
+                                            Box::new(move |grad, saved| {
+                                                let soft = &saved[0];
+                                                let g_vec: Vec<f32> = grad.iter().copied().collect();
+                                                let s_vec: Vec<f32> = soft.iter().copied().collect();
+                                                let batch = soft_shape_2d[0];
+                                                let dim = soft_shape_2d[1];
+                                                let mut sum_g = vec![0.0f32; batch];
+                                                for b in 0..batch {
+                                                    let base = b * dim;
+                                                    for j in 0..dim {
+                                                        sum_g[b] += g_vec[base + j];
+                                                    }
+                                                }
+                                                let mut dx = vec![0.0f32; grad.len()];
+                                                for b in 0..batch {
+                                                    let base = b * dim;
+                                                    for j in 0..dim {
+                                                        let idx = base + j;
+                                                        dx[idx] = g_vec[idx] - s_vec[idx] * sum_g[b];
+                                                    }
+                                                }
+                                                vec![ArrayD::from_shape_vec(orig_shape.clone(), dx).unwrap_or_else(|e| {
+                                                    debug!("shape encoding failed (infallible): {e}");
+                                                    ArrayD::zeros(vec![0])
+                                                })]
+                                            }),
+                                            None,
+                                        );
+                                    }
+                                    Err(e) => warn!("autograd nn backward failed: {e}")
                                 }
-                                let soft_cpu = soft.to_cpu();
-                                let _shape = soft_cpu.shape().to_vec();
-                                return Tensor::from_gpu_with_grad_fn(
-                                    gpu_result,
-                                    vec![input.clone()],
-                                    vec![soft_cpu],
-                                    vec![],
-                                    Box::new(move |grad, saved| {
-                                        let soft = &saved[0];
-                                        let sum_g = grad.sum_axis(ndarray::Axis(axis)).into_dyn();
-                                        let dx = grad - soft * &sum_g;
-                                        vec![dx]
-                                    }),
-                                    None,
-                                );
-                            }
+                            },
                             Err(e) => warn!("autograd nn backward failed: {e}")
-                        },
-                        Err(e) => warn!("autograd nn backward failed: {e}")
+                        }
                     }
                 }
             }
@@ -532,8 +580,8 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                             let id = crate::tensor::next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let data_cpu = gpu_in.to_cpu();
-                        let tgt_cpu = gpu_t.to_cpu();
+                        let data_cpu = gpu_in.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_in.shape()) });
+                        let tgt_cpu = gpu_t.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_t.shape()) });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -683,11 +731,13 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             })
                         };
                         let saved_tgt = target.data();
+                        let batch = lsm_data.shape()[0];
+                        let classes = lsm_data.shape()[1];
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
                             vec![lsm_data, saved_tgt],
-                            vec![],
+                            vec![gpu_in.clone(), gpu_t.clone()],
                             Box::new(move |grad, saved| {
                                 let lsm = &saved[0];
                                 let tgt_saved = &saved[1];
@@ -707,7 +757,32 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                                     ArrayD::zeros(vec![0])
                                 })]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                let logits = &saved_gpu[0];
+                                let targets = &saved_gpu[1];
+                                let shape = logits.shape();
+                                let batch = shape[0];
+                                let classes = shape[1];
+                                let softmax = ctx.softmax(logits)
+                                    .map_err(|e| format!("cross entropy gpu backward softmax failed: {e}"))?;
+                                let tgt_cpu = targets.to_cpu().map_err(|e| format!("cross entropy gpu backward to_cpu failed: {e}"))?;
+                                let mut one_hot_data = vec![0.0f32; batch * classes];
+                                for i in 0..batch {
+                                    let t = tgt_cpu[i] as usize;
+                                    if t < classes {
+                                        one_hot_data[i * classes + t] = 1.0;
+                                    }
+                                }
+                                let one_hot_arr = ArrayD::from_shape_vec(vec![batch, classes], one_hot_data)
+                                    .map_err(|e| format!("cross entropy one_hot shape error: {e}"))?;
+                                let one_hot = crate::gpu::GpuTensor::from_cpu(&one_hot_arr)
+                                    .map_err(|e| format!("cross entropy one_hot gpu error: {e}"))?;
+                                let d_logits = ctx.sub(&softmax, &one_hot)
+                                    .map_err(|e| format!("cross entropy gpu backward sub failed: {e}"))?;
+                                let result = ctx.mul(&grad_gpu, &d_logits)
+                                    .map_err(|e| format!("cross entropy gpu backward mul failed: {e}"))?;
+                                Ok(vec![result])
+                            })),
                         );
                     }
                     Err(e) => warn!("autograd nn backward failed: {e}")
@@ -818,11 +893,12 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                         }
                         let ids_saved = input_ids.data();
                         let w_shape = weight.shape().to_vec();
+                        let w_shape_gpu = w_shape.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input_ids.clone(), weight.clone()],
                             vec![ids_saved],
-                            vec![],
+                            vec![gpu_ids.clone()],
                             Box::new(move |grad, saved| {
                                 let ids_arr = &saved[0];
                                 let d = grad.shape()[1];
@@ -836,7 +912,27 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                                 }
                                 vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                let ids_gpu = &saved_gpu[0];
+                                let ids_cpu = ids_gpu.to_cpu().map_err(|e| format!("embedding gpu backward to_cpu failed: {e}"))?;
+                                let grad_cpu = grad_gpu.to_cpu().map_err(|e| format!("embedding gpu backward to_cpu failed: {e}"))?;
+                                let d = grad_cpu.shape()[1];
+                                let batch_seq = grad_cpu.shape()[0];
+                                let vocab_size = w_shape_gpu[0];
+                                let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
+                                for i in 0..ids_cpu.len() {
+                                    let idx = ids_cpu[i] as usize;
+                                    for j in 0..d {
+                                        d_weight[[idx, j]] += grad_cpu[[i, j]];
+                                    }
+                                }
+                                let d_input_arr = ArrayD::<f32>::zeros(vec![batch_seq, d]);
+                                let d_input_gpu = crate::gpu::GpuTensor::from_cpu(&d_input_arr)
+                                    .map_err(|e| format!("embedding d_input gpu error: {e}"))?;
+                                let d_weight_gpu = crate::gpu::GpuTensor::from_cpu(&d_weight)
+                                    .map_err(|e| format!("embedding d_weight gpu error: {e}"))?;
+                                Ok(vec![d_input_gpu, d_weight_gpu])
+                            })),
                         );
                     }
                     Err(e) => warn!("autograd nn backward failed: {e}")
@@ -1189,7 +1285,25 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                     let s = saved[3].iter().copied().next().unwrap_or(1.0);
                                     attention_backward_cpu(grad, qs, ks, vs, s)
                                 }),
-                                None,
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    let gq = &saved_gpu[0];
+                                    let gk = &saved_gpu[1];
+                                    let gv = &saved_gpu[2];
+                                    let q_cpu = gq.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
+                                    let k_cpu = gk.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
+                                    let v_cpu = gv.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
+                                    let grad_cpu = grad_gpu.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
+                                    let results = attention_backward_cpu(
+                                        &grad_cpu, &q_cpu, &k_cpu, &v_cpu, scale,
+                                    );
+                                    let dq_gpu = crate::gpu::GpuTensor::from_cpu(&results[0])
+                                        .map_err(|e| format!("causal attention dq gpu error: {e}"))?;
+                                    let dk_gpu = crate::gpu::GpuTensor::from_cpu(&results[1])
+                                        .map_err(|e| format!("causal attention dk gpu error: {e}"))?;
+                                    let dv_gpu = crate::gpu::GpuTensor::from_cpu(&results[2])
+                                        .map_err(|e| format!("causal attention dv gpu error: {e}"))?;
+                                    Ok(vec![dq_gpu, dk_gpu, dv_gpu])
+                                })),
                             );
                         }
                         Err(e) => warn!("autograd nn backward failed: {e}")

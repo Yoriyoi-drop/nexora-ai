@@ -205,7 +205,10 @@ impl CompiledExecutor {
                     let cpu_inputs: HashMap<String, Tensor> = gpu_tensors
                         .iter()
                         .map(|(k, gpu)| {
-                            let arr = gpu.to_cpu();
+                            let arr = gpu.to_cpu().unwrap_or_else(|e| {
+                                tracing::warn!("GNAC GPU fallback readback failed: {e}");
+                                ndarray::ArrayD::zeros(gpu.shape())
+                            });
                             (k.clone(), Tensor::new(arr))
                         })
                         .collect();
@@ -234,7 +237,10 @@ impl CompiledExecutor {
         // Read all GPU tensors back to CPU
         let mut outputs = HashMap::new();
         for (name, gpu_tensor) in &gpu_tensors {
-            let cpu_data = gpu_tensor.to_cpu();
+            let cpu_data = gpu_tensor.to_cpu().unwrap_or_else(|e| {
+                tracing::warn!("GNAC final readback failed for {name}: {e}");
+                ndarray::ArrayD::zeros(gpu_tensor.shape())
+            });
             outputs.insert(name.clone(), Tensor::new(cpu_data));
         }
 

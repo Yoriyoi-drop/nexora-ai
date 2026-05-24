@@ -36,7 +36,7 @@ mod tests {
         adam.step(&ctx, &[gparam], &[ggrad]).unwrap();
 
         // Parameters should have changed
-        let updated = gparam.to_cpu();
+        let updated = gparam.to_cpu().unwrap();
         for i in 0..4 {
             assert!(
                 (updated[[i]] - param_data[[i]]).abs() > 1e-6,
@@ -79,7 +79,7 @@ mod tests {
             adam.step(&ctx, &[gparam.clone()], &[ggrad.clone()]).unwrap();
         }
 
-        let updated = gparam.to_cpu();
+        let updated = gparam.to_cpu().unwrap();
         println!("GPU Adam 5 steps OK - params changed from {:?} to {:?}", 
                  param_data.as_slice().unwrap(), 
                  updated.as_slice().unwrap());
@@ -108,7 +108,7 @@ mod tests {
 
         adam.step(&ctx, &[gparam], &[ggrad]).unwrap();
 
-        let updated = gparam.to_cpu();
+        let updated = gparam.to_cpu().unwrap();
         // With weight decay and zero gradient, params should decay toward zero
         for i in 0..4 {
             assert!(

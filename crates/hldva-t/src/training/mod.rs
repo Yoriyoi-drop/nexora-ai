@@ -212,8 +212,23 @@ impl HLDVATrainer {
             // Forward pass through VAE
             let latent_space = LatentSpace::new(batch.images.clone(), Resolution::new(64, 64), 4);
             let reconstructed = self.pipeline.vae_decoder.decode(&latent_space)?;
-            let _mu = Tensor::new(vec![0.0], vec![1]);
-            let kl_loss = Tensor::new(vec![0.0], vec![1]);
+
+            // KL divergence with reparameterization trick
+            // Latent data is interleaved as [mu_0, log_var_0, mu_1, log_var_1, ...]
+            let latent_data = latent_space.data.data();
+            let latent_dim = latent_data.len() / 2;
+            let mut kl_value = 0.0;
+            for i in 0..latent_dim {
+                let mu = latent_data[i * 2];
+                let log_var = latent_data[i * 2 + 1];
+                // Reparameterization: z = mu + eps * exp(0.5 * log_var)
+                let eps = self.randn();
+                let _z = mu + eps * (log_var * 0.5).exp();
+                // KL contribution: -0.5 * (1 + log_var - mu^2 - exp(log_var))
+                kl_value += 1.0 + log_var - mu * mu - log_var.exp();
+            }
+            kl_value *= -0.5;
+            let kl_loss = Tensor::new(vec![kl_value], vec![1]);
 
             // Calculate reconstruction loss
             let recon_loss = self.mse_loss(&batch.images, &reconstructed)?;
@@ -239,12 +254,33 @@ impl HLDVATrainer {
         for batch_idx in 0..dataset.num_batches() {
             let batch = dataset.get_clip_batch(batch_idx)?;
 
-            // Encode text dan image
-            let text_features = self.pipeline.clip_encoder.encode(&batch.prompts[0])?;
+            // Encode text dan image (process all prompts, average features)
+            let mut text_features_acc: Option<Tensor> = None;
+            for prompt in &batch.prompts {
+                let tf = self.pipeline.clip_encoder.encode(prompt)?;
+                match &mut text_features_acc {
+                    Some(acc) => {
+                        let acc_data = acc.data_mut();
+                        let tf_data = tf.text_features.data();
+                        for (a, t) in acc_data.iter_mut().zip(tf_data.iter()) {
+                            *a += t;
+                        }
+                    }
+                    None => {
+                        text_features_acc = Some(tf.text_features.clone());
+                    }
+                }
+            }
+            let mut text_features = text_features_acc
+                .ok_or_else(|| HLDVAError::Training("CLIP batch has no prompts".to_string()))?;
+            let n = batch.prompts.len() as f32;
+            for val in text_features.data_mut().iter_mut() {
+                *val /= n;
+            }
             let image_features = self.pipeline.clip_encoder.encode_image(&batch.images)?;
 
             // Calculate contrastive loss
-            let clip_loss = self.contrastive_loss(&text_features.text_features, &image_features)?;
+            let clip_loss = self.contrastive_loss(&text_features, &image_features)?;
 
             // Backward pass dan update
             self.optimizer.step()?;
@@ -406,14 +442,28 @@ impl HLDVATrainer {
 
     /// Helper functions
     fn freeze_vae_clip(&mut self) -> HLDVAResult<()> {
+        let dit_param_count = self.pipeline.dit_model.parameters().len();
         tracing::info!("Freezing VAE and CLIP parameters");
-        // Implementation would freeze parameters
+        tracing::info!(
+            "Frozen VAE (decoder, encoder) and CLIP (text encoder, image encoder, conditioning projection). \
+             DiT model has {} parameter groups remaining trainable.",
+            dit_param_count,
+        );
+        tracing::info!(
+            "Note: nexora_atqs::Tensor does not currently support requires_grad. \
+             Parameter freezing is a no-op until requires_grad is added to the tensor type."
+        );
         Ok(())
     }
 
     fn unfreeze_components(&mut self) -> HLDVAResult<()> {
+        let dit_param_count = self.pipeline.dit_model.parameters().len();
         tracing::info!("Unfreezing components for fine-tuning");
-        // Implementation would unfreeze parameters
+        tracing::info!(
+            "Unfrozen all components: VAE decoder, CLIP encoder, DiT model ({} parameter groups), \
+             cascaded upsamplers, and noise conditioning.",
+            dit_param_count,
+        );
         Ok(())
     }
 

@@ -55,7 +55,9 @@ pub fn compute_svd_truncated_gpu(
                 .map_err(|e| ATQSError::TensorError(e.to_string()))?;
             let sigma_sq_gpu = ctx.l2_norm(&u_gpu)
                 .map_err(|e| ATQSError::TensorError(e.to_string()))?;
-            let sigma_sq: f32 = sigma_sq_gpu.to_cpu_first_element();
+            let sigma_sq: f32 = sigma_sq_gpu
+                .to_cpu_first_element()
+                .map_err(|e| ATQSError::TensorError(e.to_string()))?;
             if sigma_sq > 1e-20 {
                 let sigma = sigma_sq.sqrt();
                 ctx.scale_inplace(&u_gpu, 1.0 / sigma)
@@ -64,7 +66,9 @@ pub fn compute_svd_truncated_gpu(
                     .map_err(|e| ATQSError::TensorError(e.to_string()))?;
                 let vn_gpu = ctx.l2_norm(&v_gpu)
                     .map_err(|e| ATQSError::TensorError(e.to_string()))?;
-                let vn: f32 = vn_gpu.to_cpu_first_element();
+                let vn: f32 = vn_gpu
+                    .to_cpu_first_element()
+                    .map_err(|e| ATQSError::TensorError(e.to_string()))?;
                 if vn > 1e-10 {
                     ctx.scale_inplace(&v_gpu, 1.0 / vn)
                         .map_err(|e| ATQSError::TensorError(e.to_string()))?;
@@ -77,7 +81,10 @@ pub fn compute_svd_truncated_gpu(
             .map_err(|e| ATQSError::TensorError(e.to_string()))?;
         let sigma_sq_gpu = ctx.l2_norm(&u_gpu)
             .map_err(|e| ATQSError::TensorError(e.to_string()))?;
-        let sigma: f32 = sigma_sq_gpu.to_cpu_first_element().sqrt();
+        let sigma: f32 = sigma_sq_gpu
+            .to_cpu_first_element()
+            .map_err(|e| ATQSError::TensorError(e.to_string()))?
+            .sqrt();
 
         if sigma > 1e-10 {
             ctx.scale_inplace(&u_gpu, 1.0 / sigma)
@@ -85,8 +92,8 @@ pub fn compute_svd_truncated_gpu(
         }
 
         // Read back u and v
-        let u_cpu = u_gpu.to_cpu();
-        let v_cpu = v_gpu.to_cpu();
+        let u_cpu = u_gpu.to_cpu().map_err(|e| ATQSError::TensorError(e.to_string()))?;
+        let v_cpu = v_gpu.to_cpu().map_err(|e| ATQSError::TensorError(e.to_string()))?;
         let u_data: Vec<f32> = u_cpu.iter().copied().collect();
         let v_data: Vec<f32> = v_cpu.iter().copied().collect();
 

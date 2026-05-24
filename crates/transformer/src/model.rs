@@ -62,7 +62,13 @@ fn sample_token_gpu(logits: &Array1<f32>, temperature: f32, top_k: usize, top_p:
     };
     match ctx.gpu_sample(&gpu, temperature, u32::try_from(top_k).unwrap_or(u32::MAX), top_p, seed) {
         Ok(result) => {
-            let raw = result.to_cpu_raw_bytes();
+            let raw = match result.to_cpu_raw_bytes() {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("Failed to download GPU tensor to CPU: {}", e);
+                    return fallback();
+                }
+            };
             u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]])
         }
         Err(e) => {
@@ -696,7 +702,7 @@ impl CausalLM {
 
         let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
-        let logits_cpu = logits_gpu.to_cpu();
+        let logits_cpu = logits_gpu.to_cpu()?;
         let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
@@ -771,7 +777,7 @@ impl CausalLM {
 
         let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
-        let logits_cpu = logits_gpu.to_cpu();
+        let logits_cpu = logits_gpu.to_cpu()?;
         let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
@@ -1016,8 +1022,14 @@ impl CausalLM {
         let cpu_cache: Vec<KVCacheEntry> = gpu_cache
             .iter()
             .map(|entry| {
-                let k_cpu: ndarray::ArrayD<f32> = entry.k_view().to_cpu();
-                let v_cpu: ndarray::ArrayD<f32> = entry.v_view().to_cpu();
+                let k_cpu: ndarray::ArrayD<f32> = entry.k_view().to_cpu().unwrap_or_else(|e| {
+                    tracing::warn!("KV cache GPU readback k failed: {e}");
+                    ndarray::ArrayD::zeros(vec![0])
+                });
+                let v_cpu: ndarray::ArrayD<f32> = entry.v_view().to_cpu().unwrap_or_else(|e| {
+                    tracing::warn!("KV cache GPU readback v failed: {e}");
+                    ndarray::ArrayD::zeros(vec![0])
+                });
                 let kv_dim = entry.kv_heads * entry.head_dim;
                 KVCacheEntry {
                     k: k_cpu.into_iter().collect(),
@@ -1103,7 +1115,7 @@ impl CausalLM {
         let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
         // 6. Download logits to CPU
-        let logits_cpu = logits_gpu.to_cpu();
+        let logits_cpu = logits_gpu.to_cpu()?;
         let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
@@ -1217,7 +1229,7 @@ impl CausalLM {
 
             let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
 
-            let logits_cpu = logits_gpu.to_cpu();
+            let logits_cpu = logits_gpu.to_cpu()?;
             let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
             all_logits.push(Array1::from_vec(logits_flat));
         }

@@ -131,7 +131,7 @@ impl Expert {
         let hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
 
         // GELU on CPU (GELU GPU kernel not assumed available)
-        let hidden_cpu = hidden_gpu.to_cpu();
+        let hidden_cpu = hidden_gpu.to_cpu().ok()?;
         let hidden_slice: Vec<f32> = hidden_cpu.iter().copied().collect();
         let activated: Vec<f32> = hidden_slice.iter().map(|&x| gelu(x)).collect();
 
@@ -158,7 +158,7 @@ impl Expert {
         let out_gpu = ctx.matmul(&dropped_gpu, &w2t_gpu).ok()?;
         let out_gpu = ctx.add(&out_gpu, &b2_gpu).ok()?;
 
-        let out_cpu = out_gpu.to_cpu();
+        let out_cpu = out_gpu.to_cpu().ok()?;
         Some(out_cpu.iter().copied().collect())
     }
 

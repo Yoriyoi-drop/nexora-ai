@@ -572,14 +572,63 @@ impl SwiftArchitecture {
                     }),
                 }],
                 workflow_orchestrator: WorkflowOrchestrator {
-                    workflow_templates: HashMap::new(),
+                    workflow_templates: {
+                        let mut templates = HashMap::new();
+                        templates.insert("default-pipeline".to_string(), WorkflowTemplate {
+                            id: uuid::Uuid::new_v4(),
+                            name: "default-pipeline".to_string(),
+                            steps: vec![
+                                WorkflowStep {
+                                    id: uuid::Uuid::new_v4(),
+                                    name: "process-data".to_string(),
+                                    step_type: WorkflowStepType::Processing,
+                                    dependencies: vec![],
+                                },
+                                WorkflowStep {
+                                    id: uuid::Uuid::new_v4(),
+                                    name: "transform-data".to_string(),
+                                    step_type: WorkflowStepType::Transformation,
+                                    dependencies: vec![],
+                                },
+                                WorkflowStep {
+                                    id: uuid::Uuid::new_v4(),
+                                    name: "validate-output".to_string(),
+                                    step_type: WorkflowStepType::Validation,
+                                    dependencies: vec![],
+                                },
+                                WorkflowStep {
+                                    id: uuid::Uuid::new_v4(),
+                                    name: "notify-result".to_string(),
+                                    step_type: WorkflowStepType::Notification,
+                                    dependencies: vec![],
+                                },
+                            ],
+                        });
+                        templates
+                    },
                     execution_engine: ExecutionEngine {
                         execution_mode: ExecutionMode::Parallel,
                         concurrency_limit: 10,
                     },
                 },
                 event_bus: EventBus {
-                    event_channels: vec![],
+                    event_channels: vec![
+                        EventChannel {
+                            name: "main-bus".to_string(),
+                            channel_type: ChannelType::PubSub,
+                            buffer_size: 1024,
+                        },
+                        EventChannel {
+                            name: "direct-queue".to_string(),
+                            channel_type: ChannelType::PointToPoint,
+                            buffer_size: 512,
+                        },
+                        EventChannel {
+                            name: "broadcast-channel".to_string(),
+                            channel_type: ChannelType::Broadcast,
+                            buffer_size: 2048,
+                        },
+                    ],
                     message_broker: MessageBroker::InMemory,
                 },
             },

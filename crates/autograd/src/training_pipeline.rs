@@ -59,15 +59,21 @@ impl GpuOptimizerState {
 
     /// Convert to CPU state for checkpointing
     pub fn to_cpu(&self) -> OptimizerState {
+        fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
+            match t.to_cpu() {
+                Ok(cpu) => cpu.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
+                    tracing::warn!("GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter");
+                    cpu.iter().copied().collect()
+                }),
+                Err(e) => {
+                    tracing::warn!("GpuOptimizerState::to_cpu GPU readback failed: {e}, returning zeros");
+                    vec![0.0; t.numel()]
+                }
+            }
+        }
         OptimizerState {
-            m: self.m.iter().map(|t| t.to_cpu().as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                tracing::warn!("GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter");
-                t.to_cpu().iter().copied().collect()
-            })).collect(),
-            v: self.v.iter().map(|t| t.to_cpu().as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                tracing::warn!("GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter");
-                t.to_cpu().iter().copied().collect()
-            })).collect(),
+            m: self.m.iter().map(|t| gpu_tensor_to_vec(t)).collect(),
+            v: self.v.iter().map(|t| gpu_tensor_to_vec(t)).collect(),
             step: self.step,
         }
     }
@@ -196,15 +202,24 @@ impl GpuCheckpoint {
 
     /// Convert to CPU checkpoint for serialization
     pub fn to_cpu(&self) -> Checkpoint {
+        fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
+            match t.to_cpu() {
+                Ok(cpu) => cpu.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
+                    tracing::warn!("CheckpointGpu::to_cpu: non-contiguous tensor, falling back to iter");
+                    cpu.iter().copied().collect()
+                }),
+                Err(e) => {
+                    tracing::warn!("CheckpointGpu::to_cpu GPU readback failed: {e}, returning zeros");
+                    vec![0.0; t.numel()]
+                }
+            }
+        }
         Checkpoint {
             step: self.step,
             epoch: self.epoch,
             best_val_loss: self.best_val_loss,
             loss_scaler_scale: self.loss_scaler_scale,
-            model_params: self.model_params.iter().map(|t| t.to_cpu().as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                tracing::warn!("CheckpointGpu::to_cpu: non-contiguous tensor, falling back to iter");
-                t.to_cpu().iter().copied().collect()
-            })).collect(),
+            model_params: self.model_params.iter().map(|t| gpu_tensor_to_vec(t)).collect(),
             model_shapes: self.model_shapes.clone(),
             optimizer_state: self.optimizer_state.as_ref().map(|opt| opt.to_cpu()),
         }
@@ -232,8 +247,10 @@ impl GpuCheckpoint {
     pub fn restore_params(&self, params: &[Tensor]) {
         for (i, p) in params.iter().enumerate() {
             if i < self.model_params.len() && i < self.model_shapes.len() {
-                let arr = self.model_params[i].to_cpu();
-                p.set_data(arr);
+                match self.model_params[i].to_cpu() {
+                    Ok(arr) => p.set_data(arr),
+                    Err(e) => tracing::warn!("CheckpointGpu::restore_params GPU readback failed for param {i}: {e}"),
+                }
             }
         }
     }
@@ -420,6 +437,7 @@ pub struct TrainingLoop {
     pub total_tokens: usize,
     pub start_time: Option<Instant>,
     pub stop_flag: Arc<AtomicBool>,
+    pub checkpoint_callback: Option<Box<dyn Fn(u64) -> super::DLResult<()> + Send>>,
 }
 
 impl TrainingLoop {
@@ -434,6 +452,7 @@ impl TrainingLoop {
             total_tokens: 0,
             start_time: None,
             stop_flag: Arc::new(AtomicBool::new(false)),
+            checkpoint_callback: None,
         }
     }
 
@@ -447,6 +466,15 @@ impl TrainingLoop {
     /// Create a shared stop signal
     pub fn stop_signal(&self) -> Arc<AtomicBool> {
         self.stop_flag.clone()
+    }
+
+    /// Set a checkpoint callback that the caller provides to serialize model weights.
+    /// The callback receives the current step number and should return Ok(()) on success.
+    pub fn set_checkpoint_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(u64) -> super::DLResult<()> + Send + 'static,
+    {
+        self.checkpoint_callback = Some(Box::new(callback));
     }
 
     /// Request graceful stop
@@ -510,6 +538,12 @@ impl TrainingLoop {
                         tracing::warn!("  Failed to save checkpoint: {}", e);
                     } else {
                         tracing::info!("  Checkpoint metadata saved to {:?}", path);
+                        // Invoke the external checkpoint callback to save model weights
+                        if let Some(ref cb) = self.checkpoint_callback {
+                            if let Err(e) = cb(self.step as u64) {
+                                tracing::warn!("  Checkpoint callback failed: {}", e);
+                            }
+                        }
                     }
                 }
             }

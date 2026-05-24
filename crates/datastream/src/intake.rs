@@ -55,13 +55,23 @@ impl StreamIntakeEngine {
                 }
             };
 
+            let char_count = content.chars().count();
+            let word_count = content.split_whitespace().count();
+            let token_count = content.len() / 4;
+            let token_ids = Some(content.bytes().map(|b| b as u32).collect());
+
             let sample = DataSample {
                 id: Uuid::new_v4(),
                 text: content,
-                token_ids: None,
+                token_ids,
                 metadata: std::collections::HashMap::new(),
                 source: source.clone(),
-                stats: SampleStats::default(),
+                stats: SampleStats {
+                    char_count,
+                    word_count,
+                    token_count,
+                    ..Default::default()
+                },
                 domains: Vec::new(),
                 score: None,
                 curriculum_level: None,
@@ -94,13 +104,23 @@ impl StreamIntakeEngine {
                     warn!("ingest_batch timed out after 300s");
                     return;
                 }
+                let char_count = text.chars().count();
+                let word_count = text.split_whitespace().count();
+                let token_count = text.len() / 4;
+                let token_ids = Some(text.bytes().map(|b| b as u32).collect());
+
                 let sample = DataSample {
                     id: Uuid::new_v4(),
                     text,
-                    token_ids: None,
+                    token_ids,
                     metadata: std::collections::HashMap::new(),
                     source,
-                    stats: SampleStats::default(),
+                    stats: SampleStats {
+                        char_count,
+                        word_count,
+                        token_count,
+                        ..Default::default()
+                    },
                     domains: Vec::new(),
                     score: None,
                     curriculum_level: None,
@@ -154,13 +174,23 @@ impl StreamIntakeEngine {
                     return;
                 }
                 let _permit = semaphore.acquire().await;
+                let char_count = text.chars().count();
+                let word_count = text.split_whitespace().count();
+                let token_count = text.len() / 4;
+                let token_ids = Some(text.bytes().map(|b| b as u32).collect());
+
                 let sample = DataSample {
                     id: Uuid::new_v4(),
                     text,
-                    token_ids: None,
+                    token_ids,
                     metadata: std::collections::HashMap::new(),
                     source: source.clone(),
-                    stats: SampleStats::default(),
+                    stats: SampleStats {
+                        char_count,
+                        word_count,
+                        token_count,
+                        ..Default::default()
+                    },
                     domains: Vec::new(),
                     score: None,
                     curriculum_level: None,

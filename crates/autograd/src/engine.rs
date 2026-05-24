@@ -78,9 +78,13 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                 let grad_gpu_result = match &grad_out_storage {
                                     Storage::Gpu(g) => Ok(g.clone()),
                                     _ => {
-                                        crate::gpu::GpuTensor::from_cpu(
-                                            &grad_out_storage.to_cpu(),
-                                        )
+                                        match grad_out_storage.to_cpu() {
+                                            Ok(cpu) => crate::gpu::GpuTensor::from_cpu(&cpu),
+                                            Err(e) => {
+                                                tracing::warn!("GPU backward: Storage::to_cpu failed: {e}");
+                                                Err(e)
+                                            }
+                                        }
                                     }
                                 };
                                 let used_gpu_inner = match grad_gpu_result {
@@ -98,12 +102,20 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                                             );
                                                             if shape_matches {
                                                                 if let Storage::Gpu(ref mut e) = existing {
-                                                                    let _ = ctx.add_inplace(e, &gpu_grad);
+                                                                    if let Err(err) = ctx.add_inplace(e, &gpu_grad) {
+                tracing::warn!("GPU add_inplace failed in backward: {err}");
+            }
                                                                 }
                                                             } else {
-                                                                let mut e_cpu = existing.to_cpu();
-                                                                e_cpu += &gpu_grad.to_cpu();
-                                    *existing = Storage::Cpu(Arc::new(e_cpu));
+                                                                match (existing.to_cpu(), gpu_grad.to_cpu()) {
+                                                                    (Ok(ref mut e_cpu), Ok(ref g_cpu)) => {
+                                                                        *e_cpu += g_cpu;
+                                    *existing = Storage::Cpu(Arc::new(e_cpu.clone()));
+                                                                    }
+                                                                    (Err(e), _) | (_, Err(e)) => {
+                                                                        tracing::warn!("GPU backward shape mismatch fallback readback failed: {e}");
+                                                                    }
+                                                                }
                                                                 }
                                                         } else {
                                                             grads.insert(inp.id(), Storage::Gpu(gpu_grad));
@@ -138,7 +150,11 @@ pub(crate) fn backward_engine(output: &Tensor) {
                 if !used_gpu {
                     let backward_fn = tape::with_tape_mut(|tap| tap.take_backward(fn_idx));
                     if let Some(backward) = backward_fn {
-                        let grad_inputs = backward(&grad_out_storage.to_cpu(), &saved);
+                        let grad_cpu = grad_out_storage.to_cpu().unwrap_or_else(|e| {
+                            tracing::warn!("Backward CPU fallback: Storage::to_cpu failed: {e}");
+                            ndarray::ArrayD::zeros(grad_out_storage.shape())
+                        });
+                        let grad_inputs = backward(&grad_cpu, &saved);
                         for (i, inp) in inputs.iter().enumerate() {
                             if i < grad_inputs.len() && inp.requires_grad() {
                                 let g = grad_inputs[i].clone();
@@ -152,9 +168,13 @@ pub(crate) fn backward_engine(output: &Tensor) {
         Storage::Cpu(ref mut e) => *e = Arc::new(g),
                                         #[cfg(feature = "gpu")]
                                         Storage::Gpu(_) => {
-                                            let mut e_cpu = existing.to_cpu();
-                                            e_cpu += &g;
-                                            *existing = Storage::Cpu(Arc::new(e_cpu));
+                                            match existing.to_cpu() {
+                                                Ok(mut e_cpu) => {
+                                                    e_cpu += &g;
+                                                    *existing = Storage::Cpu(Arc::new(e_cpu));
+                                                }
+                                                Err(e) => tracing::warn!("Backward CPU fallback: Storage::to_cpu failed: {e}"),
+                                            }
                                         }
                                     }
                                 } else {

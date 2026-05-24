@@ -57,8 +57,10 @@ impl RoPE {
                     ).ok();
                     if let (Some(cg), Some(sg)) = (cos_gpu, sin_gpu) {
                         if let Ok(result) = ctx.rotary_embedding(&x_gpu, &cg, &sg, head_dim as u32) {
-                            if let Ok(cpu) = result.to_cpu().into_dimensionality::<ndarray::Ix2>() {
-                                return cpu.to_owned();
+                            if let Ok(cpu_data) = result.to_cpu() {
+                                if let Ok(cpu) = cpu_data.into_dimensionality::<ndarray::Ix2>() {
+                                    return cpu.to_owned();
+                                }
                             }
                         }
                     }

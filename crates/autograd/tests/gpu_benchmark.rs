@@ -230,7 +230,7 @@ mod tests {
         let a_gpu = GpuTensor::from_cpu(&a_data).unwrap();
         let b_gpu = GpuTensor::from_cpu(&b_data).unwrap();
         let result = ctx.matmul(&a_gpu, &b_gpu).unwrap();
-        let cpu = result.to_cpu();
+        let cpu = result.to_cpu().unwrap();
         println!("GPU matmul [64,64] OK — first element: {}", cpu[[0, 0]]);
     }
 
@@ -244,7 +244,7 @@ mod tests {
         let ga = GpuTensor::from_cpu(&a).unwrap();
         let gb = GpuTensor::from_cpu(&b).unwrap();
         let sum = ctx.add(&ga, &gb).unwrap();
-        let sum_cpu = sum.to_cpu();
+        let sum_cpu = sum.to_cpu().unwrap();
         assert!((sum_cpu[[0]] - 0.0).abs() < 1e-5, "sum[0] should be 0");
         assert!((sum_cpu[[1]] - 4.0).abs() < 1e-5, "sum[1] should be 4");
         println!("GPU elementwise add OK");
@@ -253,7 +253,7 @@ mod tests {
         let sum_all = ctx
             .reduce(&ga, nexora_autograd::gpu::ReduceOp::Sum)
             .unwrap();
-        let sum_all_cpu = sum_all.to_cpu();
+        let sum_all_cpu = sum_all.to_cpu().unwrap();
         let expected: f32 = (0..128).sum::<i32>() as f32;
         assert!(
             (sum_all_cpu[[0]] - expected).abs() < 1.0,
@@ -263,7 +263,7 @@ mod tests {
 
         // Test fill_zero
         ctx.fill_zero(&ga).unwrap();
-        let zeroed = ga.to_cpu();
+        let zeroed = ga.to_cpu().unwrap();
         assert!(zeroed[[0]].abs() < 1e-6, "fill_zero failed");
         assert!(zeroed[[127]].abs() < 1e-6, "fill_zero failed");
         println!("GPU fill_zero OK");
@@ -533,7 +533,7 @@ mod tests {
                     let gc = ctx.matmul(&ga, &gb).unwrap();
 
                     // Readback
-                    let _ = gc.to_cpu();
+                    let _ = gc.to_cpu().unwrap();
                 }
                 Ok::<(), ()>(())
             }).unwrap();
@@ -558,7 +558,7 @@ mod tests {
         let a = GpuTensor::from_cpu(&data).unwrap();
         let b = GpuTensor::from_cpu(&ones).unwrap();
         let sum = ctx.add(&a, &b).unwrap();
-        let cpu = sum.to_cpu();
+        let cpu = sum.to_cpu().unwrap();
         println!("add result: {:?}", cpu);
         assert!((cpu[[0]] - 11.0).abs() < 1e-5);
         assert!((cpu[[3]] - 14.0).abs() < 1e-5);
@@ -568,7 +568,7 @@ mod tests {
         let logits = ArrayD::from_shape_vec(vec![1, 4], vec![0.0, 1.0, 2.0, 3.0]).unwrap();
         let g = GpuTensor::from_cpu(&logits).unwrap();
         let result = ctx.softmax(&g).unwrap();
-        let cpu = result.to_cpu();
+        let cpu = result.to_cpu().unwrap();
         let e: Vec<f32> = vec![0.0f32, 1.0, 2.0, 3.0]
             .iter()
             .map(|x| x.exp())
@@ -667,11 +667,11 @@ mod tests {
 
         // Fused result
         let fused = ctx.fused_matmul_bias(&ga, &gb, &gbias).unwrap();
-        let fused_cpu = fused.to_cpu();
+        let fused_cpu = fused.to_cpu().unwrap();
 
         // Reference: separate matmul + add
         let matmul_ref = ctx.matmul(&ga, &gb).unwrap();
-        let matmul_cpu = matmul_ref.to_cpu();
+        let matmul_cpu = matmul_ref.to_cpu().unwrap();
         for row in 0..4usize {
             for col in 0..4usize {
                 let expected = matmul_cpu[[row, col]] + bias_data[[col]];
@@ -699,7 +699,7 @@ mod tests {
         let gbias = GpuTensor::from_cpu(&bias).unwrap();
 
         let out = ctx.fused_matmul_bias_gelu(&ga, &gb, &gbias).unwrap();
-        let cpu = out.to_cpu();
+        let cpu = out.to_cpu().unwrap();
 
         // All outputs should be in GELU range (positive dominant for pos input)
         println!("fused_matmul_bias_gelu output: {:?}", cpu);
@@ -836,7 +836,7 @@ mod tests {
         let (out, elapsed) = ctx
             .fused_matmul_bias_gelu_profiled(&ga, &gb, &gbias)
             .unwrap();
-        let cpu = out.to_cpu();
+        let cpu = out.to_cpu().unwrap();
 
         assert_eq!(cpu.shape(), &[m, n]);
         assert!(cpu[[0, 0]].is_finite(), "output must be finite");
@@ -855,7 +855,7 @@ mod tests {
         let ginp = GpuTensor::from_cpu(&inp).unwrap();
 
         let out = ctx.fused_softmax_online(&ginp).unwrap();
-        let cpu = out.to_cpu();
+        let cpu = out.to_cpu().unwrap();
 
         // Each row must sum to ~1.0
         for row in 0..4usize {
@@ -868,7 +868,7 @@ mod tests {
 
         // Compare against regular softmax for numerical agreement
         let ref_out = ctx.softmax(&ginp).unwrap();
-        let ref_cpu = ref_out.to_cpu();
+        let ref_cpu = ref_out.to_cpu().unwrap();
         for row in 0..4usize {
             for col in 0..8usize {
                 let diff = (cpu[[row, col]] - ref_cpu[[row, col]]).abs();
@@ -910,8 +910,8 @@ mod tests {
         assert_eq!(ops, 2, "submit should report 2 dispatches");
         ctx.sync();
 
-        let a_cpu = a.to_cpu();
-        let b_cpu = b.to_cpu();
+        let a_cpu = a.to_cpu().unwrap();
+        let b_cpu = b.to_cpu().unwrap();
         assert!(a_cpu[[0]].abs() < 1e-6, "batch fill_zero A failed");
         assert!(b_cpu[[63]].abs() < 1e-6, "batch fill_zero B failed");
 

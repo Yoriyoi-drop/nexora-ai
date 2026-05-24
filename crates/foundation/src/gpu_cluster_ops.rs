@@ -25,7 +25,7 @@ pub fn gpu_pairwise_distances(data: &[Vec<f32>]) -> Result<Vec<Vec<f32>>, String
         let gpu_t = ctx.transpose(&gpu).map_err(|e| e.to_string())?;
         let dots = ctx.matmul(&gpu, &gpu_t).map_err(|e| e.to_string())?;
 
-        let dots_cpu = dots.to_cpu();
+        let dots_cpu = dots.to_cpu().map_err(|e| e.to_string())?;
         let dots_slice = dots_cpu.as_slice().ok_or("dots not contiguous")?;
 
         let mut result = vec![vec![0.0_f32; n]; n];

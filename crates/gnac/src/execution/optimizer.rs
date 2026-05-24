@@ -34,22 +34,70 @@ impl GraphOptimizer {
     }
 
     /// Operator fusion: gabungkan operasi berurutan
+    /// Tags the surviving node with a "fused_<op>" attribute to track what was fused.
     fn fuse_operations(&self, ir: &GraphIR) -> GraphIR {
         let mut fused = ir.clone();
         let mut to_remove = HashSet::with_capacity(fused.operations.len());
         let mut i = 0;
 
         while i + 1 < fused.operations.len() {
-            let current = &fused.operations[i];
-            let next = &fused.operations[i + 1];
+            let relu_idx = i;
+            let matmul_idx = i + 1;
 
-            // ReLU + matmul fusion
-            if current.op_type == IROpType::Relu && next.op_type == IROpType::MatMul {
-                to_remove.insert(current.id);
+            // ReLU + MatMul fusion
+            if fused.operations[relu_idx].op_type == IROpType::Relu
+                && fused.operations[matmul_idx].op_type == IROpType::MatMul
+            {
+                // Fix up the MatMul's inputs to skip the ReLU node
+                let relu_out_names: Vec<String> = fused.operations[relu_idx]
+                    .outputs
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect();
+                let relu_in_names: Vec<String> = fused.operations[relu_idx]
+                    .inputs
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect();
+                for matmul_input in fused.operations[matmul_idx].inputs.iter_mut() {
+                    for (r_out, r_in) in relu_out_names.iter().zip(relu_in_names.iter()) {
+                        if matmul_input.name == *r_out {
+                            matmul_input.name = r_in.clone();
+                        }
+                    }
+                }
+                to_remove.insert(fused.operations[relu_idx].id);
+                fused.operations[matmul_idx]
+                    .attributes
+                    .insert("fused_relu".to_string(), 1.0);
             }
-            // LayerNorm + attention fusion
-            if current.op_type == IROpType::LayerNorm && next.op_type == IROpType::Attention {
-                to_remove.insert(current.id);
+
+            // LayerNorm + Attention fusion
+            if fused.operations[relu_idx].op_type == IROpType::LayerNorm
+                && fused.operations[matmul_idx].op_type == IROpType::Attention
+            {
+                // Fix up the Attention's inputs to skip the LayerNorm node
+                let ln_out_names: Vec<String> = fused.operations[relu_idx]
+                    .outputs
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect();
+                let ln_in_names: Vec<String> = fused.operations[relu_idx]
+                    .inputs
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect();
+                for attn_input in fused.operations[matmul_idx].inputs.iter_mut() {
+                    for (l_out, l_in) in ln_out_names.iter().zip(ln_in_names.iter()) {
+                        if attn_input.name == *l_out {
+                            attn_input.name = l_in.clone();
+                        }
+                    }
+                }
+                to_remove.insert(fused.operations[relu_idx].id);
+                fused.operations[matmul_idx]
+                    .attributes
+                    .insert("fused_layernorm".to_string(), 1.0);
             }
 
             i += 1;

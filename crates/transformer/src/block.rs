@@ -46,9 +46,10 @@ impl TransformerBlock {
                 if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
                     match self.forward_gpu(&x_gpu, cache, layer_idx, cos, sin) {
                         Ok(result) => {
-                            let cpu = result.to_cpu();
-                            if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
-                                return arr2.to_owned();
+                            if let Ok(cpu) = result.to_cpu() {
+                                if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
+                                    return arr2.to_owned();
+                                }
                             }
                         }
                         Err(e) => {

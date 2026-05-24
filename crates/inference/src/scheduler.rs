@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{watch, Notify, RwLock};
 use tokio::task::JoinHandle;
 use tracing::debug;
@@ -29,13 +29,17 @@ pub struct SchedulerStats {
     pub failed_requests: usize,
     pub pending_batches: usize,
     pub pending_batch_requests: usize,
+    pub avg_queue_time_ms: f64,
+    pub avg_processing_time_ms: f64,
+    pub throughput_rps: f64,
 }
 
 struct ScheduledRequest {
     _request_id: Uuid,
     response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
     status: RequestStatus,
-    _submitted_at: chrono::DateTime<chrono::Utc>,
+    queued_at: Instant,
+    processing_started_at: Option<Instant>,
     batch_key: Option<BatchKey>,
 }
 
@@ -44,7 +48,7 @@ pub type BatchHandler = Arc<dyn Fn(Batch) -> crate::Result<()> + Send + Sync>;
 
 pub struct RequestScheduler {
     queue: RwLock<VecDeque<Uuid>>,
-    requests: RwLock<HashMap<Uuid, ScheduledRequest>>,
+    requests: Arc<RwLock<HashMap<Uuid, ScheduledRequest>>>,
     max_concurrent: usize,
     max_batch_size: usize,
     max_queue_time_ms: u64,
@@ -56,6 +60,9 @@ pub struct RequestScheduler {
     shutdown_rx: watch::Receiver<bool>,
     background_handles: Mutex<Vec<JoinHandle<()>>>,
     engine_handler: Option<BatchHandler>,
+    total_queue_time_ms: RwLock<f64>,
+    total_processing_time_ms: RwLock<f64>,
+    scheduler_start: Instant,
 }
 
 impl RequestScheduler {
@@ -63,7 +70,7 @@ impl RequestScheduler {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Self {
             queue: RwLock::new(VecDeque::new()),
-            requests: RwLock::new(HashMap::new()),
+            requests: Arc::new(RwLock::new(HashMap::new())),
             max_concurrent: 4,
             max_batch_size: 8,
             max_queue_time_ms: 5000,
@@ -75,6 +82,9 @@ impl RequestScheduler {
             shutdown_rx,
             background_handles: Mutex::new(Vec::new()),
             engine_handler: None,
+            total_queue_time_ms: RwLock::new(0.0),
+            total_processing_time_ms: RwLock::new(0.0),
+            scheduler_start: Instant::now(),
         }
     }
 
@@ -109,12 +119,26 @@ impl RequestScheduler {
         Ok(())
     }
 
+    pub fn validate(&self) -> Result<(), anyhow::Error> {
+        if self.engine_handler.is_none() {
+            return Err(anyhow::anyhow!("engine_handler not set — call set_engine_handler before start"));
+        }
+        Ok(())
+    }
+
     /// Spawn a background worker that periodically polls for ready batches,
     /// dispatches them to the inference engine, and fans out responses.
     /// This ensures both timed-out and ready batches are drained.
     /// Returns the JoinHandle so callers can await/cancel the background worker.
     pub fn start(this: Arc<RwLock<Self>>) -> JoinHandle<()> {
         tokio::spawn(async move {
+            {
+                let s = this.read().await;
+                if s.engine_handler.is_none() {
+                    tracing::error!("engine_handler not set — call set_engine_handler before start");
+                    return;
+                }
+            }
             let notify = {
                 let s = this.read().await;
                 s.notify.clone()
@@ -146,9 +170,9 @@ impl RequestScheduler {
                                         this.read().await.update_status(*req_id, RequestStatus::Failed(e.to_string())).await;
                                         let mut resp = crate::InferenceResponse::new(*req_id);
                                         resp.finish_reason = crate::FinishReason::Error(e.to_string());
+                                        let requests = this.read().await.requests.clone();
                                         let tx = {
-                                            let guard = this.read().await;
-                                            let requests = guard.requests.read().await;
+                                            let requests = requests.read().await;
                                             requests.get(req_id).map(|r| r.response_tx.clone())
                                         };
                                         if let Some(tx) = tx {
@@ -168,9 +192,9 @@ impl RequestScheduler {
                                 this.read().await.update_status(*req_id, RequestStatus::Timeout).await;
                                 let mut resp = crate::InferenceResponse::new(*req_id);
                                 resp.finish_reason = crate::FinishReason::Timeout;
+                                let requests = this.read().await.requests.clone();
                                 let tx = {
-                                    let guard = this.read().await;
-                                    let requests = guard.requests.read().await;
+                                    let requests = requests.read().await;
                                     requests.get(req_id).map(|r| r.response_tx.clone())
                                 };
                                 if let Some(tx) = tx {
@@ -209,7 +233,8 @@ impl RequestScheduler {
                 _request_id: request_id,
                 response_tx,
                 status: RequestStatus::Queued,
-                _submitted_at: chrono::Utc::now(),
+                queued_at: Instant::now(),
+                processing_started_at: None,
                 batch_key: None,
             },
         );
@@ -234,7 +259,8 @@ impl RequestScheduler {
                 _request_id: request.request_id,
                 response_tx,
                 status: RequestStatus::Queued,
-                _submitted_at: chrono::Utc::now(),
+                queued_at: Instant::now(),
+                processing_started_at: None,
                 batch_key: Some(key.clone()),
             },
         );
@@ -256,7 +282,6 @@ impl RequestScheduler {
             return None;
         }
 
-        let now = chrono::Utc::now();
         let mut timed_out = Vec::new();
 
         // Find first batch with non-timed-out requests
@@ -266,10 +291,7 @@ impl RequestScheduler {
                 let guard = self.requests.read().await;
                 b.requests.retain(|breq| {
                     if let Some(sreq) = guard.get(&breq.request_id) {
-                        let elapsed_ms = now
-                            .signed_duration_since(sreq._submitted_at)
-                            .num_milliseconds()
-                            .unsigned_abs() as u64;
+                        let elapsed_ms = sreq.queued_at.elapsed().as_millis() as u64;
                         if elapsed_ms > self.max_queue_time_ms {
                             batch_timed_out.push(breq.request_id);
                             return false;
@@ -314,6 +336,10 @@ impl RequestScheduler {
         for breq in &batch.requests {
             self.update_status(breq.request_id, RequestStatus::Processing)
                 .await;
+            let mut requests = self.requests.write().await;
+            if let Some(sreq) = requests.get_mut(&breq.request_id) {
+                sreq.processing_started_at = Some(Instant::now());
+            }
         }
         Some(batch)
     }
@@ -321,7 +347,20 @@ impl RequestScheduler {
     async fn update_status(&self, request_id: Uuid, status: RequestStatus) {
         let mut requests = self.requests.write().await;
         if let Some(req) = requests.get_mut(&request_id) {
-            req.status = status.clone();
+            if status == RequestStatus::Processing && req.processing_started_at.is_none() {
+                req.processing_started_at = Some(Instant::now());
+            }
+            if req.status != status
+                && matches!(&status, RequestStatus::Completed | RequestStatus::Failed(_) | RequestStatus::Timeout)
+            {
+                if let Some(started) = req.processing_started_at {
+                    let queue_time = started.duration_since(req.queued_at).as_secs_f64() * 1000.0;
+                    let processing_time = started.elapsed().as_secs_f64() * 1000.0;
+                    *self.total_queue_time_ms.write().await += queue_time;
+                    *self.total_processing_time_ms.write().await += processing_time;
+                }
+            }
+            req.status = status;
         }
     }
 
@@ -389,6 +428,9 @@ impl RequestScheduler {
             failed_requests: 0,
             pending_batches: batching.batch_count(),
             pending_batch_requests: batching.pending_count(),
+            avg_queue_time_ms: 0.0,
+            avg_processing_time_ms: 0.0,
+            throughput_rps: 0.0,
         };
         for req in requests.values() {
             match req.status {
@@ -399,6 +441,15 @@ impl RequestScheduler {
                 RequestStatus::Cancelled => {}
                 RequestStatus::Timeout => {}
             }
+        }
+        let completed_count = stats.completed_requests.max(1);
+        let total_queue = *self.total_queue_time_ms.read().await;
+        let total_proc = *self.total_processing_time_ms.read().await;
+        stats.avg_queue_time_ms = total_queue / completed_count as f64;
+        stats.avg_processing_time_ms = total_proc / completed_count as f64;
+        let elapsed = self.scheduler_start.elapsed().as_secs_f64();
+        if elapsed > 0.0 {
+            stats.throughput_rps = completed_count as f64 / elapsed;
         }
         stats
     }
@@ -453,6 +504,20 @@ impl RequestScheduler {
     }
 
     pub async fn complete_request(&self, request_id: Uuid) -> Result<(), anyhow::Error> {
+        {
+            let requests = self.requests.read().await;
+            if let Some(sreq) = requests.get(&request_id) {
+                let queue_time = sreq.queued_at.elapsed().as_secs_f64() * 1000.0;
+                let processing_time = sreq
+                    .processing_started_at
+                    .map(|t| t.elapsed().as_secs_f64() * 1000.0)
+                    .unwrap_or(0.0);
+                let mut total_q = self.total_queue_time_ms.write().await;
+                let mut total_p = self.total_processing_time_ms.write().await;
+                *total_q += queue_time;
+                *total_p += processing_time;
+            }
+        }
         self.update_status(request_id, RequestStatus::Completed)
             .await;
         let mut active = self.active_count.write().await;
@@ -547,9 +612,9 @@ impl nexora_runtime::Scheduler for RequestScheduler {
             cancelled_requests: 0,
             current_queue_length: s.queued_requests,
             current_active_requests: s.active_requests,
-            avg_queue_time_ms: 0.0,
-            avg_processing_time_ms: 0.0,
-            throughput_rps: 0.0,
+            avg_queue_time_ms: s.avg_queue_time_ms,
+            avg_processing_time_ms: s.avg_processing_time_ms,
+            throughput_rps: s.throughput_rps,
             last_updated: chrono::Utc::now(),
         }
     }

@@ -164,12 +164,16 @@ impl Database for SQLiteDatabase {
 
         #[cfg(feature = "sqlite")]
         {
-            let conn = rusqlite::Connection::open(&database_path).map_err(|e| {
-                anyhow!("Failed to open SQLite database '{}': {}", database_path, e)
-            })?;
-
-            conn.execute_batch("SELECT 1")
-                .map_err(|e| anyhow!("SQLite connection test failed: {}", e))?;
+            let path = database_path.clone();
+            let conn = tokio::task::spawn_blocking(move || {
+                let conn = rusqlite::Connection::open(&path)
+                    .map_err(|e| anyhow!("Failed to open SQLite database '{}': {}", path, e))?;
+                conn.execute_batch("SELECT 1")
+                    .map_err(|e| anyhow!("SQLite connection test failed: {}", e))?;
+                Ok::<_, anyhow::Error>(conn)
+            })
+            .await
+            .map_err(|e| anyhow!("spawn_blocking failed: {e}"))??;
 
             drop(conn);
 
@@ -326,8 +330,13 @@ impl Database for SQLiteDatabase {
                 .into_inner()
                 .map_err(|e| anyhow!("Mutex poisoned: {}", e))?;
 
-            conn.execute_batch("BEGIN TRANSACTION")
-                .map_err(|e| anyhow!("Failed to begin transaction: {}", e))?;
+            let conn = tokio::task::spawn_blocking(move || {
+                conn.execute_batch("BEGIN TRANSACTION")
+                    .map_err(|e| anyhow!("Failed to begin transaction: {}", e))?;
+                Ok::<_, anyhow::Error>(conn)
+            })
+            .await
+            .map_err(|e| anyhow!("spawn_blocking join failed: {e}"))??;
 
             return Ok(Transaction::new_sqlite(conn, connection_id));
         }
@@ -409,8 +418,13 @@ fn convert_instant_to_systemtime(instant: std::time::Instant) -> std::time::Syst
 impl SQLiteConnection {
     #[cfg(feature = "sqlite")]
     pub async fn new(id: String, database_path: &str) -> Result<Self> {
-        let conn = rusqlite::Connection::open(database_path)
-            .map_err(|e| anyhow!("Failed to open SQLite '{}': {}", database_path, e))?;
+        let path = database_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || {
+            rusqlite::Connection::open(&path)
+                .map_err(|e| anyhow!("Failed to open SQLite '{}': {}", path, e))
+        })
+        .await
+        .map_err(|e| anyhow!("spawn_blocking failed: {e}"))??;
 
         Ok(Self {
             id,

@@ -35,17 +35,9 @@ pub struct MultiModelCoordinator {
 struct TaskInfo {
     task_id: String,
     model: ModelId,
-    status: TaskStatus,
+    status: String,
     created_at: u64,
     dependencies: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-enum TaskStatus {
-    Pending,
-    Running,
-    Completed,
-    Failed(String),
 }
 
 /// Trait untuk model executor

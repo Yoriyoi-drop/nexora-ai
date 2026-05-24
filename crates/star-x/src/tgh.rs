@@ -190,7 +190,7 @@ impl TemporalGatingHierarchy {
         let wt_gpu = ctx.transpose(&w_gpu).ok()?;
 
         let out_gpu = ctx.matmul(&input_gpu, &wt_gpu).ok()?;
-        let out_cpu = out_gpu.to_cpu();
+        let out_cpu = out_gpu.to_cpu().ok()?;
         let result: Vec<f32> = out_cpu.iter().copied().collect();
         Some(Array1::from_vec(result).into_dyn())
     }

@@ -422,7 +422,7 @@ pub fn gpu_cosine_similarity_matrix(embeddings: &ArrayD<f32>) -> DLResult<Array2
         .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
     // Download
-    let sim_cpu = sim.to_cpu();
+    let sim_cpu = sim.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
     let sim_slice = sim_cpu.as_slice().ok_or_else(|| {
         DeepLearningError::Computation { reason: "similarity matrix not contiguous".into() }
     })?;

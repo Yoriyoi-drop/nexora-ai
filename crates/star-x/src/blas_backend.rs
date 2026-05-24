@@ -699,7 +699,7 @@ impl BlasOperations {
             .matmul(&a_gpu, &b_t)
             .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
-        let result_cpu = result_gpu.to_cpu();
+        let result_cpu = result_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
         let result_slice = result_cpu.as_slice().ok_or_else(|| {
             DeepLearningError::Computation {
                 reason: "result not contiguous".into(),
@@ -763,7 +763,7 @@ impl BlasOperations {
             .matmul(&a_gpu, &x_gpu)
             .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
-        let result_cpu = result_gpu.to_cpu();
+        let result_cpu = result_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
         let result_slice = result_cpu.as_slice().ok_or_else(|| {
             DeepLearningError::Computation {
                 reason: "result not contiguous".into(),

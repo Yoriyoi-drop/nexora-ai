@@ -18,7 +18,7 @@ pub fn relu(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-let input_cpu = gpu_input.to_cpu();
+let input_cpu = gpu_input.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in relu: {e}"); ndarray::ArrayD::zeros(gpu_input.shape()) });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -80,7 +80,7 @@ pub fn gelu(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let input_cpu = gpu_input.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in gelu: {e}"); ndarray::ArrayD::zeros(gpu_input.shape()) });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -153,7 +153,7 @@ pub fn tanh(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let result_cpu = gpu_result.to_cpu();
+                        let result_cpu = gpu_result.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in tanh: {e}"); ndarray::ArrayD::zeros(gpu_result.shape()) });
                         let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
@@ -215,7 +215,7 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
                             let id = crate::tensor::next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let input_cpu = gpu_input.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in leaky_relu: {e}"); ndarray::ArrayD::zeros(gpu_input.shape()) });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -264,7 +264,7 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let result_cpu = gpu_result.to_cpu();
+                        let result_cpu = gpu_result.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in sigmoid: {e}"); ndarray::ArrayD::zeros(gpu_result.shape()) });
                         let gpu_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
@@ -331,7 +331,7 @@ pub fn silu(input: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let input_cpu = gpu_input.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in silu: {e}"); ndarray::ArrayD::zeros(gpu_input.shape()) });
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
@@ -421,8 +421,8 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                                 let id = crate::tensor::next_tensor_id();
                                 return Tensor::from_gpu(gpu_result, id, false);
                             }
-                            let saved_gate = gpu_gate.to_cpu();
-                            let saved_x = gpu_x.to_cpu();
+                            let saved_gate = gpu_gate.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in swiglu: {e}"); ndarray::ArrayD::zeros(gpu_gate.shape()) });
+                            let saved_x = gpu_x.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in swiglu: {e}"); ndarray::ArrayD::zeros(gpu_x.shape()) });
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![gate.clone(), x.clone()],

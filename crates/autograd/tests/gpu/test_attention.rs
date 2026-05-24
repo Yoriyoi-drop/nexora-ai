@@ -32,7 +32,7 @@ mod tests {
 
         // Compute attention
         let output = ctx.attention(&gq, &gk, &gv, None, None).unwrap();
-        let cpu_output = output.to_cpu();
+        let cpu_output = output.to_cpu().unwrap();
 
         // Check output shape
         assert_eq!(cpu_output.shape(), &[2, 4, 8, 16]);
@@ -73,7 +73,7 @@ mod tests {
         let gmask = GpuTensor::from_cpu(&mask_data).unwrap();
 
         let output = ctx.attention(&gq, &gk, &gv, Some(&gmask), None).unwrap();
-        let cpu_output = output.to_cpu();
+        let cpu_output = output.to_cpu().unwrap();
 
         assert_eq!(cpu_output.shape(), &[1, 2, 4, 8]);
         
@@ -109,7 +109,7 @@ mod tests {
         let gv = GpuTensor::from_cpu(&v_data).unwrap();
 
         let output = ctx.attention(&gq, &gk, &gv, None, None).unwrap();
-        let cpu_output = output.to_cpu();
+        let cpu_output = output.to_cpu().unwrap();
 
         // Check for NaN/Inf
         for i in 0..32 {

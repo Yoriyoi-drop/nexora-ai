@@ -73,7 +73,7 @@ impl AugmentationUtils {
         ).ok()?;
         let noise_gpu = GpuTensor::from_cpu(&noise_arr).ok()?;
         let result = ctx.add(&data_gpu, &noise_gpu).ok()?;
-        let cpu = result.to_cpu();
+        let cpu = result.to_cpu().ok()?;
         cpu.into_dimensionality::<ndarray::Ix2>().ok().map(|a| a.to_owned())
     }
 
@@ -119,7 +119,7 @@ impl AugmentationUtils {
             &ArrayD::from_shape_vec(shape, mask).ok()?
         ).ok()?;
         let result = ctx.mul(&data_gpu, &mask_gpu).ok()?;
-        let cpu = result.to_cpu();
+        let cpu = result.to_cpu().ok()?;
         cpu.into_dimensionality::<ndarray::Ix2>().ok().map(|a| a.to_owned())
     }
 
