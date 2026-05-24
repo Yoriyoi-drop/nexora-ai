@@ -61,8 +61,11 @@ impl FusedLinearActivation {
         }
 
         #[cfg(feature = "gpu")]
-        if let Ok(result) = self.forward_gpu(input_view) {
-            return Ok(result);
+        {
+            match self.forward_gpu(input_view) {
+                Ok(result) => return Ok(result),
+                Err(e) => tracing::warn!("StarX fused GPU forward failed: {}, falling back to CPU", e),
+            }
         }
 
         // Use pooled tensor untuk output

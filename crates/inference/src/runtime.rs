@@ -6,9 +6,9 @@ use chrono::{DateTime, Utc};
 use procfs::process::Process as ProcProcess;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use sysinfo::System;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -406,10 +406,9 @@ impl InferenceRuntime {
         }
 
         // Cancel tracked background tasks
-        if let Ok(mut tasks) = self.background_tasks.lock() {
-            for h in tasks.drain(..) {
-                h.abort();
-            }
+        let mut tasks = self.background_tasks.lock().await;
+        for h in tasks.drain(..) {
+            h.abort();
         }
 
         // Update state to shutdown
@@ -451,9 +450,7 @@ impl InferenceRuntime {
                 error!("Resource monitoring loop panicked: {:?}", e);
             }
         });
-        if let Ok(mut tasks) = tasks.lock() {
-            tasks.push(handle);
-        }
+        tasks.lock().await.push(handle);
 
         Ok(())
     }
@@ -507,9 +504,7 @@ impl InferenceRuntime {
                 error!("Performance tracking loop panicked: {:?}", e);
             }
         });
-        if let Ok(mut tasks) = tasks.lock() {
-            tasks.push(handle);
-        }
+        tasks.lock().await.push(handle);
 
         Ok(())
     }

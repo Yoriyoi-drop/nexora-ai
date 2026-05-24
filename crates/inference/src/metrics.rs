@@ -417,6 +417,16 @@ impl MetricsCollector {
         self.active_alerts.read().await.clone()
     }
 
+    /// Get count of currently active (unresolved) alerts
+    pub async fn get_active_alert_count(&self) -> usize {
+        self.active_alerts
+            .read()
+            .await
+            .iter()
+            .filter(|a| a.resolved_at.is_none())
+            .count()
+    }
+
     /// Resolve alert
     pub async fn resolve_alert(&self, alert_id: Uuid) -> Result<bool> {
         let mut alerts = self.active_alerts.write().await;
@@ -726,7 +736,7 @@ pub mod analysis {
     }
 
     /// Generate metrics summary
-    pub fn generate_summary(metrics: &InferenceMetrics) -> MetricsSummary {
+    pub fn generate_summary(metrics: &InferenceMetrics, active_alerts: usize) -> MetricsSummary {
         MetricsSummary {
             total_requests: metrics.requests.total_requests,
             success_rate: if metrics.requests.total_requests > 0 {
@@ -739,7 +749,7 @@ pub mod analysis {
             error_rate: metrics.errors.error_rate,
             cpu_usage: metrics.resources.cpu_usage_percent,
             memory_usage: metrics.resources.memory_usage_percent,
-            active_alerts: 0, // Would be populated separately
+            active_alerts,
         }
     }
 

@@ -128,13 +128,19 @@ impl DecodingStrategy for GreedyDecoding {
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| InferenceError::DecodingError("Empty logits".to_string()))?;
 
+        let max_token = u32::try_from(max_index)
+            .map_err(|e| InferenceError::DecodingError(format!("Invalid token index: {}", e)))?;
         // Check if token is forbidden
-        if context.forbidden_tokens.contains(&(u32::try_from(max_index).unwrap_or(u32::MAX))) {
+        if context.forbidden_tokens.contains(&max_token) {
             // Find next best token
             let (next_index, &next_logit) = adjusted_logits
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| !context.forbidden_tokens.contains(&(u32::try_from(*i).unwrap_or(u32::MAX))))
+                .filter(|(i, _)| {
+                    u32::try_from(*i)
+                        .map(|t| !context.forbidden_tokens.contains(&t))
+                        .unwrap_or(false)
+                })
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .ok_or_else(|| {
                     InferenceError::DecodingError("No valid tokens available".to_string())
@@ -143,8 +149,10 @@ impl DecodingStrategy for GreedyDecoding {
             let log_prob = self.compute_log_prob(next_logit, config);
             let selection_prob = log_prob.exp();
 
+            let token_id = u32::try_from(next_index)
+                .map_err(|e| InferenceError::DecodingError(format!("Invalid token index: {}", e)))?;
             return Ok(TokenSelection {
-                token_id: u32::try_from(next_index).unwrap_or(u32::MAX),
+                token_id,
                 token_text: alloc_token_text(next_index),
                 log_prob,
                 selection_prob,
@@ -156,7 +164,7 @@ impl DecodingStrategy for GreedyDecoding {
         let selection_prob = log_prob.exp();
 
         Ok(TokenSelection {
-            token_id: u32::try_from(max_index).unwrap_or(u32::MAX),
+            token_id: max_token,
             token_text: alloc_token_text(max_index),
             log_prob,
             selection_prob,

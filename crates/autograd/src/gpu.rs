@@ -73,7 +73,6 @@ pub struct GpuContext {
     pub(crate) pipelines: HashMap<String, CompiledPipeline>,
     pub(crate) shader_cache: HashMap<u64, wgpu::ShaderModule>,
     pub(crate) bind_group_layout_cache: HashMap<u64, wgpu::BindGroupLayout>,
-    pub(crate) bind_group_cache: HashMap<u64, wgpu::BindGroup>,
     /// Thread-safe bind group cache for &self access (used by dispatch methods)
     /// Uses `std::sync::Mutex` — all GPU dispatch methods are sync. Never used in async context.
     pub(crate) bind_group_cache_mutex: Mutex<HashMap<u64, wgpu::BindGroup>>,
@@ -195,7 +194,7 @@ impl GpuContext {
     }
 
     /// Return a buffer to the memory pool for reuse
-    pub fn dealloc_buffer(&mut self, buf: crate::gpu_memory::PooledBuffer) {
+    pub fn dealloc_buffer(&self, buf: crate::gpu_memory::PooledBuffer) {
         self.memory_pool
             .lock()
             .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
@@ -212,7 +211,7 @@ impl GpuContext {
     }
 
     /// Clear the memory pool (free all cached buffers)
-    pub fn clear_memory_pool(&mut self) {
+    pub fn clear_memory_pool(&self) {
         self.memory_pool
             .lock()
             .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
@@ -225,19 +224,68 @@ impl GpuContext {
     where
         F: FnOnce(&mut wgpu::CommandEncoder) -> Result<(), GpuError>,
     {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("batch_dispatch_encoder"),
+        if let Some(query_set) = &self.profiling_query_set {
+            let (start_idx, end_idx) = self.next_query_index();
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("batch_dispatch_encoder"),
+                });
+
+            encoder.write_timestamp(query_set, start_idx);
+            ops(&mut encoder)?;
+            encoder.write_timestamp(query_set, end_idx);
+
+            let query_count = 2;
+            let buf_size = ((query_count as u64 * wgpu::QUERY_SIZE as u64 + 255) / 256) * 256;
+            let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("batch_timestamp_query_buffer"),
+                size: buf_size,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
             });
 
-        ops(&mut encoder)?;
+            encoder.resolve_query_set(query_set, start_idx..end_idx + 1, &query_buffer, 0);
 
-        self.queue.submit(Some(encoder.finish()));
+            let readback_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("batch_timestamp_readback"),
+                size: buf_size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
 
-        // Removed sync to avoid CPU-GPU bottleneck
-        // Caller should explicitly call sync() when needed (e.g., before readback)
-        Ok(None) // Timestamp query not implemented for batch yet
+            encoder.copy_buffer_to_buffer(&query_buffer, 0, &readback_buffer, 0, buf_size);
+
+            self.queue.submit(Some(encoder.finish()));
+
+            let buffer_slice = readback_buffer.slice(..);
+            buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+            self.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            });
+
+            let result = self.read_timestamps_from_buffer(&buffer_slice, &readback_buffer);
+            readback_buffer.destroy();
+
+            let gpu_duration = result.map(|(start, end)| {
+                let timestamp_period = self.queue.get_timestamp_period();
+                std::time::Duration::from_secs_f64((end - start) / 1_000_000_000.0 * timestamp_period as f64)
+            });
+
+            Ok(gpu_duration)
+        } else {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("batch_dispatch_encoder"),
+                });
+
+            ops(&mut encoder)?;
+            self.queue.submit(Some(encoder.finish()));
+
+            Ok(None)
+        }
     }
 
     // ── Cache helpers ─────────────────────────────────────────────────────────
@@ -534,7 +582,6 @@ impl GpuContext {
             pipelines: HashMap::new(),
             shader_cache: HashMap::new(),
             bind_group_layout_cache: HashMap::new(),
-            bind_group_cache: HashMap::new(),
             bind_group_cache_mutex: Mutex::new(HashMap::new()),
             memory_pool,
             profiling_query_set,
@@ -1150,42 +1197,6 @@ impl GpuContext {
 
     /// Get or create bind group from cache
     /// Key is computed from buffer properties to identify unique bind group configurations
-    fn get_or_create_bind_group(
-        &mut self,
-        layout: &wgpu::BindGroupLayout,
-        entries: &[wgpu::BindGroupEntry],
-        label: &str,
-    ) -> wgpu::BindGroup {
-        // Compute a simple hash from buffer properties for caching
-        let mut hash: u64 = 0;
-        for entry in entries {
-            if let wgpu::BindingResource::Buffer(buffer_binding) = &entry.resource {
-                hash = hash.wrapping_add(buffer_binding.offset);
-                hash = hash.wrapping_mul(31).wrapping_add(
-                    buffer_binding.size.unwrap_or(std::num::NonZeroU64::MIN).get()
-                );
-            }
-        }
-
-        if let Some(cached) = self.bind_group_cache.get(&hash) {
-            return cached.clone();
-        }
-
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(label),
-            layout,
-            entries,
-        });
-
-        // Cache with max size — evict all when exceeded to prevent unbounded growth
-        const MAX_CACHE_SIZE: usize = 1024;
-        if self.bind_group_cache.len() >= MAX_CACHE_SIZE {
-            self.bind_group_cache.clear();
-        }
-        self.bind_group_cache.insert(hash, bind_group.clone());
-        bind_group
-    }
-
     /// Thread-safe bind group cache for &self access.
     /// Hashes buffer (id, offset) pairs for reuse across dispatches.
     /// Designed for hot-path ops where buffers are stable (pre-uploaded weights,
@@ -1501,17 +1512,26 @@ impl GpuContext {
                 timeout: None,
             });
 
-            match rx.recv() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    tracing::warn!("Query buffer mapping failed: {e}");
-                    readback_buffer.unmap();
-                    return std::time::Duration::ZERO;
-                }
-                Err(e) => {
-                    tracing::warn!("Query channel closed: {e}");
-                    readback_buffer.unmap();
-                    return std::time::Duration::ZERO;
+            loop {
+                match rx.try_recv() {
+                    Ok(Ok(())) => break,
+                    Ok(Err(e)) => {
+                        tracing::warn!("Query buffer mapping failed: {e}");
+                        readback_buffer.unmap();
+                        return std::time::Duration::ZERO;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        self.device.poll(wgpu::PollType::Wait {
+                            submission_index: None,
+                            timeout: Some(Duration::from_micros(1000)),
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Query channel disconnected: {e}");
+                        readback_buffer.unmap();
+                        return std::time::Duration::ZERO;
+                    }
                 }
             }
 
@@ -4574,6 +4594,37 @@ impl GpuTensor {
         }
     }
 
+    fn alloc_staging(ctx: &GpuContext, byte_size: u64, readable: bool) -> wgpu::Buffer {
+        let usage = if readable {
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ
+        } else {
+            wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE
+        };
+        let key = (crate::gpu_memory::bucket_for(byte_size), usage);
+        if let Ok(mut pool) = ctx.memory_pool.lock() {
+            let pooled = pool.alloc(byte_size, usage);
+            return pooled.buffer;
+        }
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("staging_fallback"),
+            size: byte_size,
+            usage,
+            mapped_at_creation: readable,
+        })
+    }
+
+    fn return_staging(ctx: &GpuContext, buffer: wgpu::Buffer, byte_size: u64, readable: bool) {
+        let usage = if readable {
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ
+        } else {
+            wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE
+        };
+        let key = (crate::gpu_memory::bucket_for(byte_size), usage);
+        if let Ok(mut pool) = ctx.memory_pool.lock() {
+            pool.return_buffer_raw(buffer, key);
+        }
+    }
+
     pub fn zeros(shape: &[usize]) -> Result<Self, GpuError> {
         let ctx = Self::ctx()?;
         let numel: usize = shape.iter().product();
@@ -4586,12 +4637,7 @@ impl GpuTensor {
                 | wgpu::BufferUsages::COPY_SRC,
         ).buffer;
 
-        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::zeros_staging"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
-            mapped_at_creation: true,
-        });
+        let staging = Self::alloc_staging(ctx, byte_size, false);
         {
             let mut view = staging.slice(..).get_mapped_range_mut();
             view.copy_from_slice(&vec![0u8; byte_size as usize]);
@@ -4604,6 +4650,8 @@ impl GpuTensor {
         encoder.copy_buffer_to_buffer(&staging, 0, &buffer, 0, byte_size);
         ctx.queue.submit(Some(encoder.finish()));
 
+        Self::return_staging(ctx, staging, byte_size, false);
+
         Ok(Self {
             shape: shape.to_vec(),
             buffer,
@@ -4611,22 +4659,13 @@ impl GpuTensor {
         })
     }
 
-    pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
-        let ctx = Self::ctx()?;
-        ctx.flush();
-        let byte_size = (self.numel() * 4) as u64;
-
-        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::to_cpu_staging"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+    fn readback_impl(ctx: &GpuContext, buffer: &wgpu::Buffer, byte_size: u64) -> Result<wgpu::Buffer, GpuError> {
+        let staging = Self::alloc_staging(ctx, byte_size, true);
 
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging, 0, byte_size);
+        encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, byte_size);
         ctx.queue.submit(Some(encoder.finish()));
 
         let slice = staging.slice(..);
@@ -4635,15 +4674,27 @@ impl GpuTensor {
             let _ = tx.send(result);
         });
         readback_with_timeout(&ctx.device, &rx)
-            .map_err(|e| GpuError::Device(format!("to_cpu readback failed: {e}")))?;
+            .map_err(|e| GpuError::Device(format!("readback failed: {e}")))?;
+
+        Ok(staging)
+    }
+
+    pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
+        let ctx = Self::ctx()?;
+        ctx.flush();
+        let byte_size = (self.numel() * 4) as u64;
+
+        let staging = Self::readback_impl(ctx, &self.buffer, byte_size)?;
 
         let result = {
+            let slice = staging.slice(..);
             let mapped = slice.get_mapped_range();
             let data: &[f32] = bytemuck::cast_slice(&*mapped);
             ArrayD::from_shape_vec(self.shape.clone(), data.to_vec())
                 .map_err(|e| GpuError::ShapeMismatch(format!("to_cpu shape mismatch: {e}")))?
         };
         staging.unmap();
+        Self::return_staging(ctx, staging, byte_size, true);
         Ok(result)
     }
 
@@ -4653,32 +4704,15 @@ impl GpuTensor {
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
-        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::to_cpu_raw"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging, 0, byte_size);
-        ctx.queue.submit(Some(encoder.finish()));
-
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-        readback_with_timeout(&ctx.device, &rx)
-            .map_err(|e| GpuError::Device(format!("to_cpu_raw_bytes readback failed: {e}")))?;
+        let staging = Self::readback_impl(ctx, &self.buffer, byte_size)?;
 
         let data = {
+            let slice = staging.slice(..);
             let mapped = slice.get_mapped_range();
             mapped.to_vec()
         };
         staging.unmap();
+        Self::return_staging(ctx, staging, byte_size, true);
         Ok(data)
     }
 
@@ -4688,12 +4722,7 @@ impl GpuTensor {
         let ctx = Self::ctx()?;
         ctx.flush();
 
-        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::to_cpu_first_element"),
-            size: 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let staging = Self::alloc_staging(ctx, 4, true);
 
         let mut encoder = ctx
             .device
@@ -4713,6 +4742,7 @@ impl GpuTensor {
         let data: &[f32] = bytemuck::cast_slice(&*mapped);
         let value = data[0];
         staging.unmap();
+        Self::return_staging(ctx, staging, 4, true);
         Ok(value)
     }
 
@@ -4723,31 +4753,14 @@ impl GpuTensor {
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
-        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::to_cpu_checksum"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging, 0, byte_size);
-        ctx.queue.submit(Some(encoder.finish()));
+        let staging = Self::readback_impl(ctx, &self.buffer, byte_size)?;
 
         let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-        readback_with_timeout(&ctx.device, &rx)
-            .map_err(|e| GpuError::Device(format!("to_cpu_checksum readback failed: {e}")))?;
-
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);
         let checksum: f64 = data.iter().map(|&x| x as f64).sum();
         staging.unmap();
+        Self::return_staging(ctx, staging, byte_size, true);
         Ok(checksum)
     }
 
@@ -4765,5 +4778,34 @@ impl GpuTensor {
 
     pub fn buffer(&self) -> &wgpu::Buffer {
         &self.buffer
+    }
+
+    /// GPU max element reduction
+    pub fn max_element_gpu(&self) -> Result<f32, GpuError> {
+        let ctx = Self::ctx()?;
+        let pipeline_key = "reduce_max";
+        let numel = self.numel();
+        if numel == 0 {
+            return Ok(f32::NEG_INFINITY);
+        }
+        if numel == 1 {
+            return self.to_cpu_first_element();
+        }
+        // Use simple staged reduction via CPU fallback for now
+        // Full GPU reduction would use warp-level primitives
+        let cpu = self.to_cpu()?;
+        Ok(cpu.iter().copied().fold(f32::NEG_INFINITY, f32::max))
+    }
+
+    /// GPU sum reduction
+    pub fn sum_gpu(&self) -> Result<f32, GpuError> {
+        let ctx = Self::ctx()?;
+        let numel = self.numel();
+        if numel == 0 {
+            return Ok(0.0);
+        }
+        // Use simple staged reduction via CPU fallback for now
+        let cpu = self.to_cpu()?;
+        Ok(cpu.iter().sum())
     }
 }

@@ -50,8 +50,8 @@ impl AdaptiveSchedulerNode {
             }
             SchedulerType::ReduceOnPlateau { patience, factor } => {
                 if self.metrics.len() > patience {
-                    let recent = &self.metrics[self.metrics.len() - patience..];
-                    let improving = recent.windows(2).any(|w| w[1] < w[0]);
+                    let recent = &self.metrics[self.metrics.len() - patience - 1..];
+                    let improving = recent.first().map(|first| recent.last().map(|last| last < first)).flatten().unwrap_or(false);
                     if !improving {
                         self.current_lr * factor
                     } else {

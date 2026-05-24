@@ -9,6 +9,11 @@ pub mod controller;
 pub mod coordination;
 pub mod error;
 pub mod error_recovery;
+pub use error_recovery::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, ErrorCategory, ErrorInfo,
+    ErrorRecoveryManager, ErrorSeverity, ErrorStats, RecoveryAction, RecoveryStrategy,
+    RetryHandler, RetryPolicy,
+};
 pub mod execution;
 pub mod fusion;
 pub mod input;

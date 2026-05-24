@@ -438,6 +438,10 @@ pub struct TrainingLoop {
     pub start_time: Option<Instant>,
     pub stop_flag: Arc<AtomicBool>,
     pub checkpoint_callback: Option<Box<dyn Fn(u64) -> super::DLResult<()> + Send>>,
+    /// Stored model parameters for direct checkpoint serialization
+    pub params: Option<Vec<Tensor>>,
+    /// Stored Adam optimizer for direct checkpoint serialization
+    pub adam: Option<Adam>,
 }
 
 impl TrainingLoop {
@@ -453,14 +457,35 @@ impl TrainingLoop {
             start_time: None,
             stop_flag: Arc::new(AtomicBool::new(false)),
             checkpoint_callback: None,
+            params: None,
+            adam: None,
         }
     }
 
-    /// Load state from checkpoint
+    /// Load state from checkpoint.
+    /// Restores step/epoch/loss, and if model params are stored on the loop,
+    /// applies checkpoint weights and optimizer state to the model.
     pub fn resume(&mut self, ckpt: &Checkpoint) {
         self.step = ckpt.step;
         self.epoch = ckpt.epoch;
         self.best_val_loss = ckpt.best_val_loss;
+
+        // Restore model weights if we have stored params
+        if let Some(ref params) = self.params {
+            if !ckpt.model_params.is_empty() && !ckpt.model_shapes.is_empty() {
+                ckpt.restore_params(params);
+                tracing::info!(
+                    "Restored {} parameter groups from checkpoint",
+                    ckpt.model_params.len()
+                );
+            }
+        }
+
+        // Restore optimizer state
+        if let Some(ref mut adam) = self.adam {
+            ckpt.restore_optimizer(adam);
+            tracing::info!("Restored optimizer state from checkpoint");
+        }
     }
 
     /// Create a shared stop signal
@@ -475,6 +500,13 @@ impl TrainingLoop {
         F: Fn(u64) -> super::DLResult<()> + Send + 'static,
     {
         self.checkpoint_callback = Some(Box::new(callback));
+    }
+
+    /// Set model parameters and optimizer for direct checkpoint serialization.
+    /// When set, `on_step` saves full checkpoint weights in addition to JSON metadata.
+    pub fn set_model_state(&mut self, params: Vec<Tensor>, adam: Adam) {
+        self.params = Some(params);
+        self.adam = Some(adam);
     }
 
     /// Request graceful stop
@@ -520,30 +552,47 @@ impl TrainingLoop {
             if let Some(ref dir) = self.config.checkpoint_dir {
                 let path = dir.join(format!("checkpoint-{}.json", self.step));
                 tracing::info!("  Saving checkpoint to {:?}", path);
-                // Checkpoint save requires external params/optimizer reference.
-                // The caller must pass these when they exist.
-                // Writing a metadata-only checkpoint for resume support:
-                let meta_ckpt = serde_json::json!({
-                    "step": self.step,
-                    "epoch": self.epoch,
-                    "best_val_loss": self.best_val_loss,
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "type": "metadata-checkpoint",
-                    "note": "full checkpoint requires model params + optimizer state"
-                });
-                if let Ok(json) = serde_json::to_string_pretty(&meta_ckpt) {
-                    if let Err(e) = std::fs::create_dir_all(dir) {
-                        tracing::warn!("  Failed to create checkpoint dir: {}", e);
-                    } else if let Err(e) = std::fs::write(&path, &json) {
-                        tracing::warn!("  Failed to save checkpoint: {}", e);
-                    } else {
-                        tracing::info!("  Checkpoint metadata saved to {:?}", path);
-                        // Invoke the external checkpoint callback to save model weights
-                        if let Some(ref cb) = self.checkpoint_callback {
-                            if let Err(e) = cb(self.step as u64) {
-                                tracing::warn!("  Checkpoint callback failed: {}", e);
-                            }
+
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    tracing::warn!("  Failed to create checkpoint dir: {}", e);
+                } else if self.params.is_some() && self.adam.is_some() {
+                    let params = self.params.as_ref().unwrap();
+                    let adam = self.adam.as_ref().unwrap();
+                    match Checkpoint::save(
+                        &path,
+                        params,
+                        adam,
+                        self.step,
+                        self.epoch,
+                        self.best_val_loss,
+                        None::<&LossScaler>,
+                    ) {
+                        Ok(_) => tracing::info!("  Full checkpoint saved to {:?}", path),
+                        Err(e) => tracing::warn!("  Failed to save full checkpoint: {}", e),
+                    }
+                } else {
+                    // Metadata-only checkpoint when model state is not stored
+                    let meta_ckpt = serde_json::json!({
+                        "step": self.step,
+                        "epoch": self.epoch,
+                        "best_val_loss": self.best_val_loss,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "type": "metadata-checkpoint",
+                        "note": "full checkpoint requires call to set_model_state()"
+                    });
+                    if let Ok(json) = serde_json::to_string_pretty(&meta_ckpt) {
+                        if let Err(e) = std::fs::write(&path, &json) {
+                            tracing::warn!("  Failed to save checkpoint: {}", e);
+                        } else {
+                            tracing::info!("  Checkpoint metadata saved to {:?}", path);
                         }
+                    }
+                }
+
+                // Invoke the external checkpoint callback for custom serialization
+                if let Some(ref cb) = self.checkpoint_callback {
+                    if let Err(e) = cb(self.step as u64) {
+                        tracing::warn!("  Checkpoint callback failed: {}", e);
                     }
                 }
             }
@@ -699,9 +748,17 @@ pub fn compute_grad_norm_gpu(grads: &[crate::gpu::GpuTensor], ctx: &crate::gpu::
             if let Some(val) = rb.try_recv() {
                 return val[0];
             }
-            // Final fallback: blocking wait
+            // Non-blocking spin loop with device polling
             ctx.wait_device();
-            return rb.recv()[0];
+            for _ in 0..100 {
+                ctx.poll_timeout(100_000);
+                if let Some(val) = rb.try_recv() {
+                    return val[0];
+                }
+            }
+            if let Some(val) = rb.try_recv() {
+                return val[0];
+            }
         }
     }
     0.0

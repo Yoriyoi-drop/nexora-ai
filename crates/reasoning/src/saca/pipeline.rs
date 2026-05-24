@@ -111,7 +111,7 @@ impl SACAPipeline {
             debug!("Starting pipeline iteration {}", session.iterations);
 
             // Execute the 6-phase pipeline
-            let solution = self.execute_single_iteration(&task, &mut session).await?;
+            let (solution, context) = self.execute_single_iteration(&task, &mut session).await?;
 
             // Check if solution meets quality threshold
             if solution.quality_score >= self.config.quality_threshold {
@@ -128,8 +128,7 @@ impl SACAPipeline {
                 return Ok(solution);
             }
 
-            // Generate feedback for improvement
-            let context = RepositoryContext::default(); // Would be populated from context phase
+            // Generate feedback for improvement using context from phase 3
             let feedback = self
                 .feedback_system
                 .generate_feedback(&solution, &context)
@@ -146,12 +145,13 @@ impl SACAPipeline {
         }
     }
 
-    /// Execute single pipeline iteration
+    /// Execute single pipeline iteration, returning both the solution and the
+    /// repository context produced by the context phase for use in feedback loops.
     async fn execute_single_iteration(
         &self,
         task: &CodingTask,
         session: &mut PipelineSession,
-    ) -> SACAResult<SACASolution> {
+    ) -> SACAResult<(SACASolution, RepositoryContext)> {
         let mut pipeline_data = PipelineData::new();
 
         // Phase 1: Chain-of-Thought Reasoning
@@ -185,7 +185,7 @@ impl SACAPipeline {
 
         // Phase 3: Repository-Level Context
         session.current_phase = SACAPhase::Context;
-        let context = self
+        let repo_context = self
             .execute_phase_with_metrics(
                 SACAPhase::Context,
                 "Repository Context Analysis",
@@ -198,7 +198,7 @@ impl SACAPipeline {
                 ),
             )
             .await?;
-        pipeline_data.context = Some(context);
+        pipeline_data.context = Some(repo_context);
         session.phase_history.push(session.current_phase);
 
         // Phase 4: Large-Scale Sampling
@@ -276,7 +276,12 @@ impl SACAPipeline {
         solution.total_feedback_loops = session.feedback_loops;
         solution.execution_time = Utc::now() - session.start_time;
 
-        Ok(solution)
+        let repo_context = pipeline_data
+            .context
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Repository context not produced by context phase"))?;
+
+        Ok((solution, repo_context))
     }
 
     /// Execute a phase with metrics collection

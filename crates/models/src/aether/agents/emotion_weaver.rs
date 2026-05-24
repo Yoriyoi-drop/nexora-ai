@@ -45,16 +45,10 @@ pub struct EmotionWeaverConfig {
 /// Emotional Depth
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmotionalDepth {
-    /// Surface emotions
-    Surface,
-    /// Primary emotions
-    Primary,
     /// Secondary emotions
     Secondary,
     /// Complex emotions
     Complex,
-    /// Transcendent emotions
-    Transcendent,
 }
 
 /// Emotional Granularity

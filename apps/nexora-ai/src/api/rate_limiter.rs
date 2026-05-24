@@ -2,9 +2,8 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::config::api::RateLimitConfig;
@@ -37,7 +36,7 @@ impl RateLimiter {
             return Ok(RateLimitStatus::Allowed);
         }
 
-        let mut clients = self.clients.lock().await;
+        let mut clients = self.clients.lock().unwrap();
         let now = Instant::now();
 
         // Get or create client info
@@ -101,7 +100,7 @@ impl RateLimiter {
 
     /// Get current rate limit details
     pub async fn get_status(&self, client_id: &str) -> Result<RateLimitDetails> {
-        let clients = self.clients.lock().await;
+        let clients = self.clients.lock().unwrap();
         let now = Instant::now();
 
         if let Some(client_info) = clients.get(client_id) {
@@ -130,14 +129,14 @@ impl RateLimiter {
 
     /// Reset rate limit for a client
     pub async fn reset_client(&self, client_id: &str) -> Result<()> {
-        let mut clients = self.clients.lock().await;
+        let mut clients = self.clients.lock().unwrap();
         clients.remove(client_id);
         Ok(())
     }
 
     /// Get statistics
     pub async fn get_stats(&self) -> Result<RateLimitStats> {
-        let clients = self.clients.lock().await;
+        let clients = self.clients.lock().unwrap();
         let now = Instant::now();
 
         let total_clients = clients.len();

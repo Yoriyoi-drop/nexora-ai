@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc as StdArc;
 use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -65,6 +66,8 @@ pub struct AgentManager {
     memory_store: StdArc<nexora_memory::MemoryLayers>,
     /// Health check loop cancellation flag
     is_running: StdArc<AtomicBool>,
+    /// Tracked background task handles for cleanup
+    background_handles: StdArc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -127,6 +130,7 @@ impl AgentManager {
             message_bus: StdArc::new(MessageBus::new()),
             state: StdArc::new(AgentState::new()),
             config,
+            background_handles: StdArc::new(std::sync::Mutex::new(Vec::new())),
             command_rx: StdArc::new(RwLock::new(Some(command_rx))),
             command_tx: StdArc::new(command_tx),
             memory_store: StdArc::new(nexora_memory::MemoryLayers::new()),
@@ -145,22 +149,28 @@ impl AgentManager {
 
         // Start background tasks
         let manager = self.clone();
-        tokio::spawn(async move {
+        let handle1 = tokio::spawn(async move {
             let fut = std::panic::AssertUnwindSafe(manager.run_command_loop());
             if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
                 error!("AgentManager command loop panicked: {:?}", e);
             }
         });
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(handle1);
+        }
 
         // Start health check loop
         if self.config.health_check_interval_seconds > 0 {
             let manager = self.clone();
-            tokio::spawn(async move {
+            let handle2 = tokio::spawn(async move {
                 let fut = std::panic::AssertUnwindSafe(manager.run_health_check_loop());
                 if let Err(e) = futures::future::FutureExt::catch_unwind(fut).await {
                     error!("AgentManager health check loop panicked: {:?}", e);
                 }
             });
+            if let Ok(mut handles) = self.background_handles.lock() {
+                handles.push(handle2);
+            }
         }
 
         info!("AgentManager started successfully");
@@ -539,6 +549,7 @@ impl Clone for AgentManager {
             command_tx: StdArc::clone(&self.command_tx),
             memory_store: StdArc::clone(&self.memory_store),
             is_running: StdArc::clone(&self.is_running),
+            background_handles: StdArc::clone(&self.background_handles),
         }
     }
 }

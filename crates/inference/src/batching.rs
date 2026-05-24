@@ -155,6 +155,11 @@ impl BatchCollector {
     pub fn batch_count(&self) -> usize {
         self.pending.len()
     }
+
+    /// Check if a batch with the given ID exists in the collector.
+    pub fn contains_batch(&self, batch_id: uuid::Uuid) -> bool {
+        self.pending.values().any(|b| b.batch_id == batch_id)
+    }
 }
 
 #[cfg(test)]

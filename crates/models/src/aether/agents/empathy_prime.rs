@@ -62,16 +62,10 @@ pub enum EmpathyDepth {
 pub enum EmpathyStrategy {
     /// Perspective taking
     PerspectiveTaking,
-    /// Emotional mirroring
-    EmotionalMirroring,
-    /// Active listening
-    ActiveListening,
     /// Validation
     Validation,
     /// Supportive response
     SupportiveResponse,
-    /// Cultural adaptation
-    CulturalAdaptation,
 }
 
 /// Empathy Capabilities

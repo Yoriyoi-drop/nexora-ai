@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
@@ -116,7 +116,7 @@ impl Filter for SemanticDedupFilter {
 
     async fn evaluate(&self, sample: &DataSample) -> FilterResult {
         let sig = self.minhash_signature(&sample.text);
-        let mut signatures = self.signatures.lock().await;
+        let mut signatures = self.signatures.lock().unwrap();
 
         for stored in signatures.iter() {
             let similarity = Self::jaccard_similarity(&sig, stored);

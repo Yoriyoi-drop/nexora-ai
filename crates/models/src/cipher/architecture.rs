@@ -42,15 +42,6 @@ pub enum AdversarialTrainingMethod {
     FGSM,
     /// PGD (Projected Gradient Descent)
     PGD,
-    /// CW (Carlini-Wagner)
-    CW,
-    /// DeepFool
-    DeepFool,
-    /// Custom method
-    Custom {
-        name: String,
-        parameters: HashMap<String, f32>,
-    },
 }
 
 /// Attack Generation
@@ -58,10 +49,6 @@ pub enum AdversarialTrainingMethod {
 pub struct AttackGeneration {
     /// Attack types
     pub attack_types: Vec<AttackType>,
-    /// Attack intensity
-    pub attack_intensity: AttackIntensity,
-    /// Attack diversity
-    pub attack_diversity: AttackDiversity,
 }
 
 /// Attack Type
@@ -71,36 +58,6 @@ pub enum AttackType {
     Evasion,
     /// Poisoning attack
     Poisoning,
-    /// Model inversion
-    ModelInversion,
-    /// Membership inference
-    MembershipInference,
-    /// Extraction attack
-    Extraction,
-}
-
-/// Attack Intensity
-#[derive(Debug, Clone)]
-pub enum AttackIntensity {
-    /// Low intensity
-    Low,
-    /// Medium intensity
-    Medium,
-    /// High intensity
-    High,
-    /// Maximum intensity
-    Maximum,
-}
-
-/// Attack Diversity
-#[derive(Debug, Clone)]
-pub enum AttackDiversity {
-    /// Single attack type
-    Single,
-    /// Multiple attack types
-    Multiple,
-    /// Hybrid attacks
-    Hybrid,
 }
 
 /// Defense Mechanism
@@ -108,23 +65,8 @@ pub enum AttackDiversity {
 pub struct DefenseMechanism {
     /// Mechanism name
     pub name: String,
-    /// Mechanism type
-    pub mechanism_type: DefenseMechanismType,
     /// Effectiveness score
     pub effectiveness: f32,
-}
-
-/// Defense Mechanism Type
-#[derive(Debug, Clone)]
-pub enum DefenseMechanismType {
-    /// Adversarial training
-    AdversarialTraining,
-    /// Input preprocessing
-    InputPreprocessing,
-    /// Gradient masking
-    GradientMasking,
-    /// Ensemble methods
-    EnsembleMethods,
 }
 
 /// Training Data
@@ -193,12 +135,6 @@ pub struct VulnerabilityPrediction {
 pub enum PredictionAlgorithm {
     /// Machine learning
     MachineLearning,
-    /// Pattern matching
-    PatternMatching,
-    /// Statistical analysis
-    StatisticalAnalysis,
-    /// Hybrid approach
-    Hybrid,
 }
 
 /// Feature Extraction
@@ -217,10 +153,6 @@ pub enum FeatureType {
     CodeFeatures,
     /// Network features
     NetworkFeatures,
-    /// System features
-    SystemFeatures,
-    /// Behavioral features
-    BehavioralFeatures,
 }
 
 /// Exploit Generation
@@ -263,10 +195,6 @@ pub struct SafetyConstraints {
 pub enum DataAccessLimits {
     /// No data access
     NoAccess,
-    /// Read-only access
-    ReadOnly,
-    /// Limited write access
-    LimitedWrite,
 }
 
 /// SystemImpactLimits
@@ -283,18 +211,10 @@ pub struct SystemImpactLimits {
 /// Sandbox Environment
 #[derive(Debug, Clone)]
 pub struct SandboxEnvironment {
-    /// Isolation level
-    pub isolation_level: IsolationLevel,
     /// Resource limits
     pub resource_limits: ResourceLimits,
     /// Monitoring enabled
     pub monitoring_enabled: bool,
-}
-
-/// Isolation Level
-#[derive(Debug, Clone)]
-pub enum IsolationLevel {
-    Complete,
 }
 
 /// Resource Limits
@@ -355,10 +275,6 @@ pub struct ImpactScoring {
 pub enum ScoringMethodology {
     /// CVSS scoring
     CVSS,
-    /// Custom scoring
-    Custom,
-    /// Hybrid scoring
-    Hybrid,
 }
 
 /// ScoreRanges
@@ -397,10 +313,6 @@ pub struct RiskFactor {
 pub enum RiskAggregation {
     /// Maximum aggregation
     Maximum,
-    /// Weighted sum
-    WeightedSum,
-    /// Multiplicative
-    Multiplicative,
 }
 
 /// Update Frequency
@@ -410,8 +322,6 @@ pub enum UpdateFrequency {
     Hourly,
     Daily,
     Weekly,
-    Monthly,
-    Manual,
 }
 
 /// Vulnerability Database
@@ -449,27 +359,13 @@ pub struct VulnerabilityEntry {
 /// Vulnerability Type
 #[derive(Debug, Clone)]
 pub enum VulnerabilityType {
-    /// Buffer overflow
-    BufferOverflow,
     /// SQL injection
     SQLInjection,
-    /// XSS
-    XSS,
-    /// CSRF
-    CSRF,
-    /// Authentication bypass
-    AuthBypass,
-    /// Privilege escalation
-    PrivilegeEscalation,
-    /// Zero-day
-    ZeroDay,
 }
 
 /// Severity
 #[derive(Debug, Clone)]
 pub enum Severity {
-    /// Low severity
-    Low,
     /// Medium severity
     Medium,
     /// High severity
@@ -485,8 +381,6 @@ pub enum DatabaseSource {
     NVD,
     /// ExploitDB
     ExploitDB,
-    /// Custom source
-    Custom { url: String },
 }
 
 /// Threat Intelligence Network
@@ -639,10 +533,6 @@ pub struct TrendAnalysis {
 /// TrendDirection
 #[derive(Debug, Clone)]
 pub enum TrendDirection {
-    /// Increasing
-    Increasing,
-    /// Decreasing
-    Decreasing,
     /// Stable
     Stable,
 }
@@ -689,10 +579,6 @@ pub enum DetectionMethod {
     PatternMatching,
     /// Anomaly detection
     AnomalyDetection,
-    /// Machine learning
-    MachineLearning,
-    /// Hybrid detection
-    Hybrid,
 }
 
 /// ComplianceChecking
@@ -709,14 +595,8 @@ pub struct ComplianceChecking {
 pub enum ComplianceFramework {
     /// PCI DSS
     PCIDSS,
-    /// HIPAA
-    HIPAA,
     /// GDPR
     GDPR,
-    /// SOC 2
-    SOC2,
-    /// Custom framework
-    Custom { name: String },
 }
 
 /// RuleEngine
@@ -746,10 +626,6 @@ pub struct ComplianceRule {
 pub enum RuleExecution {
     /// Sequential execution
     Sequential,
-    /// Parallel execution
-    Parallel,
-    /// Priority-based execution
-    PriorityBased,
 }
 
 /// BestPracticesAnalysis
@@ -815,10 +691,6 @@ pub struct GapDetection {
 pub enum GapDetectionAlgorithm {
     /// Rule-based detection
     RuleBased,
-    /// Statistical detection
-    Statistical,
-    /// Machine learning detection
-    MachineLearning,
 }
 
 /// RecommendationEngine
@@ -833,12 +705,8 @@ pub struct RecommendationEngine {
 /// RecommendationAlgorithm
 #[derive(Debug, Clone)]
 pub enum RecommendationAlgorithm {
-    /// Rule-based recommendation
-    RuleBased,
     /// Risk-based recommendation
     RiskBased,
-    /// Cost-benefit recommendation
-    CostBenefit,
 }
 
 /// PrioritizationMethod
@@ -846,10 +714,6 @@ pub enum RecommendationAlgorithm {
 pub enum PrioritizationMethod {
     /// Risk-based prioritization
     RiskBased,
-    /// Impact-based prioritization
-    ImpactBased,
-    /// Effort-based prioritization
-    EffortBased,
 }
 
 impl CipherArchitecture {
@@ -869,7 +733,6 @@ impl CipherArchitecture {
                 },
                 defense_mechanisms: vec![DefenseMechanism {
                     name: "adversarial_training".to_string(),
-                    mechanism_type: DefenseMechanismType::AdversarialTraining,
                     effectiveness: 0.85,
                 }],
                 training_data: TrainingData {
@@ -931,7 +794,6 @@ impl CipherArchitecture {
                         },
                     },
                     sandbox_environment: SandboxEnvironment {
-                        isolation_level: IsolationLevel::Complete,
                         resource_limits: ResourceLimits {
                             cpu_limit: 1.0,
                             memory_limit_mb: 4096,

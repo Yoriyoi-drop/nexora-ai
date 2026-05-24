@@ -43,33 +43,7 @@ impl TrainingScheduler {
 
     /// Get current learning rate
     pub fn get_learning_rate(&self) -> f32 {
-        match &self.config.lr_scheduler {
-            LRSchedulerType::Constant => self.config.initial_lr,
-            LRSchedulerType::Step { step_size, gamma } => {
-                let decay_steps = self.current_step / step_size;
-                self.config.initial_lr * gamma.powi(decay_steps as i32)
-            }
-            LRSchedulerType::Exponential { gamma } => {
-                self.config.initial_lr * gamma.powi(self.current_step as i32)
-            }
-            LRSchedulerType::Cosine { t_max, eta_min } => {
-                let progress = (self.current_step % t_max) as f32 / *t_max as f32;
-                eta_min
-                    + (self.config.initial_lr - eta_min)
-                        * (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
-            }
-            LRSchedulerType::Warmup {
-                warmup_steps,
-                scheduler: _,
-            } => {
-                if self.current_step < *warmup_steps {
-                    self.config.initial_lr * (self.current_step as f32 / *warmup_steps as f32)
-                } else {
-                    // Use underlying scheduler after warmup
-                    self.config.initial_lr // Simplified
-                }
-            }
-        }
+        self.config.lr_scheduler.get_learning_rate_at(self.current_step, self.config.initial_lr)
     }
 
     /// Get current epoch
@@ -133,6 +107,37 @@ pub enum LRSchedulerType {
         warmup_steps: usize,
         scheduler: Box<LRSchedulerType>,
     },
+}
+
+impl LRSchedulerType {
+    pub fn get_learning_rate_at(&self, step: usize, initial_lr: f32) -> f32 {
+        match self {
+            LRSchedulerType::Constant => initial_lr,
+            LRSchedulerType::Step { step_size, gamma } => {
+                let decay_steps = step / step_size;
+                initial_lr * gamma.powi(decay_steps as i32)
+            }
+            LRSchedulerType::Exponential { gamma } => {
+                initial_lr * gamma.powi(step as i32)
+            }
+            LRSchedulerType::Cosine { t_max, eta_min } => {
+                let progress = (step % t_max) as f32 / *t_max as f32;
+                eta_min
+                    + (initial_lr - eta_min)
+                        * (0.5 * (1.0 + (std::f32::consts::PI * progress).cos()))
+            }
+            LRSchedulerType::Warmup {
+                warmup_steps,
+                scheduler,
+            } => {
+                if step < *warmup_steps {
+                    initial_lr * (step as f32 / *warmup_steps as f32)
+                } else {
+                    scheduler.get_learning_rate_at(step - warmup_steps, initial_lr)
+                }
+            }
+        }
+    }
 }
 
 impl Default for SchedulerConfig {

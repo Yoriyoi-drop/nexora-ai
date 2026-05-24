@@ -8,6 +8,7 @@ use sqlx::{postgres::PgPoolOptions, Column, PgPool, Row};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinHandle;
 use serde_json;
 
 mod serde_timestamp {
@@ -101,6 +102,8 @@ pub struct DatabasePool {
     slow_query_logger: Arc<Mutex<Vec<SlowQueryRecord>>>,
     /// Health checker
     health_checker: Arc<HealthChecker>,
+    /// Tracked background task handles for supervision
+    background_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Pool statistics
@@ -182,23 +185,8 @@ impl DatabasePool {
             config.max_connections
         );
 
-        // Create SQLx pool
-        let pool = PgPoolOptions::new()
-            .max_connections(config.max_connections)
-            .min_connections(config.min_connections)
-            .acquire_timeout(config.connect_timeout)
-            .idle_timeout(config.idle_timeout)
-            .max_lifetime(config.max_lifetime)
-            .test_before_acquire(true)
-            .after_connect(|conn, _meta| {
-                Box::pin(async move {
-                    // Run test query to verify connection
-                    sqlx::query("SELECT 1").execute(conn).await?;
-                    Ok(())
-                })
-            })
-            .connect(&config.database_url)
-            .await?;
+        // Create SQLx pool with retry
+        let pool = retry_connect(&config, 3).await?;
 
         // Initialize components
         let stats = Arc::new(RwLock::new(PoolStatistics::default()));
@@ -219,6 +207,7 @@ impl DatabasePool {
             query_cache,
             slow_query_logger,
             health_checker,
+            background_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
 
         // Start background tasks
@@ -521,7 +510,7 @@ impl DatabasePool {
         let pool = self.pool.clone();
         let test_query = self.config.test_query.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let fut = std::panic::AssertUnwindSafe(async move {
                 let mut interval = tokio::time::interval(health_checker.interval);
 
@@ -553,10 +542,13 @@ impl DatabasePool {
                 error!("Database health check loop panicked: {:?}", e);
             }
         });
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(handle);
+        }
 
         // Start statistics reset
         let stats = self.stats.clone();
-        tokio::spawn(async move {
+        let handle2 = tokio::spawn(async move {
             let fut = std::panic::AssertUnwindSafe(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(60));
 
@@ -571,6 +563,9 @@ impl DatabasePool {
                 error!("Database stats reset loop panicked: {:?}", e);
             }
         });
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(handle2);
+        }
 
         Ok(())
     }
@@ -768,6 +763,38 @@ impl HealthChecker {
         sqlx::query(&self._test_query).fetch_one(pool).await.is_ok()
             && start.elapsed() < Duration::from_secs(5)
     }
+}
+
+async fn retry_connect(config: &PoolConfig, max_retries: u32) -> Result<PgPool> {
+    let mut last_err = anyhow::anyhow!("Connection failed after {} retries", max_retries);
+    for attempt in 1..=max_retries {
+        match PgPoolOptions::new()
+            .max_connections(config.max_connections)
+            .min_connections(config.min_connections)
+            .acquire_timeout(config.connect_timeout)
+            .idle_timeout(config.idle_timeout)
+            .max_lifetime(config.max_lifetime)
+            .test_before_acquire(true)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("SELECT 1").execute(conn).await?;
+                    Ok(())
+                })
+            })
+            .connect(&config.database_url)
+            .await
+        {
+            Ok(pool) => return Ok(pool),
+            Err(e) => {
+                tracing::warn!("DB connection attempt {}/{} failed: {}", attempt, max_retries, e);
+                last_err = e.into();
+                if attempt < max_retries {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100 * 2u64.pow(attempt - 1))).await;
+                }
+            }
+        }
+    }
+    Err(last_err)
 }
 
 #[cfg(test)]

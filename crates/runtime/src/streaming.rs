@@ -5,6 +5,7 @@
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -485,10 +486,10 @@ impl StreamingEngine {
             }
         }
 
-        // Cancel tracked background tasks
+        // Cancel tracked background tasks — graceful shutdown with timeout
         if let Ok(mut tasks) = self.background_tasks.lock() {
             for h in tasks.drain(..) {
-                h.abort();
+                let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
             }
         }
 
@@ -640,15 +641,35 @@ impl Default for StreamingEngine {
     }
 }
 
+/// Wrapper that aborts background processing task on drop
+pub struct ManagedReceiver<T> {
+    pub rx: mpsc::Receiver<T>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl<T> ManagedReceiver<T> {
+    pub fn new(rx: mpsc::Receiver<T>, handle: JoinHandle<()>) -> Self {
+        Self { rx, handle: Some(handle) }
+    }
+}
+
+impl<T> Drop for ManagedReceiver<T> {
+    fn drop(&mut self) {
+        if let Some(h) = self.handle.take() {
+            h.abort();
+        }
+    }
+}
+
 /// Utility functions for stream processing
 pub mod utils {
     use super::*;
 
     /// Convert token stream to text stream
-    pub async fn tokens_to_text(mut token_stream: TokenStream) -> Result<mpsc::Receiver<String>> {
+    pub async fn tokens_to_text(mut token_stream: TokenStream) -> Result<ManagedReceiver<String>> {
         let (text_tx, text_rx) = mpsc::channel(64);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let timeout = tokio::time::Duration::from_secs(300);
             let start = std::time::Instant::now();
             let mut accumulated_text = String::new();
@@ -670,7 +691,7 @@ pub mod utils {
             }
         });
 
-        Ok(text_rx)
+        Ok(ManagedReceiver::new(text_rx, handle))
     }
 
     /// Buffer tokens for batch sending
@@ -678,10 +699,10 @@ pub mod utils {
         mut token_stream: TokenStream,
         buffer_size: usize,
         flush_interval_ms: u64,
-    ) -> Result<mpsc::Receiver<Vec<GeneratedToken>>> {
+    ) -> Result<ManagedReceiver<Vec<GeneratedToken>>> {
         let (buffered_tx, buffered_rx) = mpsc::channel(64);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let timeout = tokio::time::Duration::from_secs(300);
             let start = std::time::Instant::now();
             let mut buffer = Vec::new();
@@ -712,7 +733,7 @@ pub mod utils {
             }
         });
 
-        Ok(buffered_rx)
+        Ok(ManagedReceiver::new(buffered_rx, handle))
     }
 }
 

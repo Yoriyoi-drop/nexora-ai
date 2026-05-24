@@ -147,16 +147,16 @@ impl MemoryManager {
 
     /// Get memory statistics
     pub async fn get_stats(&self) -> Result<MemoryStats> {
-        let layers = self.layers.read().await;
-        let episodic = self.episodic.read().await;
-        let cache = self.cache.read().await;
-        let compressor = self.compressor.read().await;
+        let layer_stats = self.layers.read().await.get_stats().await?;
+        let episodic_count = self.episodic.read().await.count().await;
+        let cache_size = self.cache.read().await.len();
+        let compressor_ratio = self.compressor.read().await.get_compression_ratio();
 
         Ok(MemoryStats {
-            layer_stats: layers.get_stats().await?,
-            episodic_count: episodic.count().await,
-            cache_size: cache.len(),
-            compression_ratio: compressor.get_compression_ratio(),
+            layer_stats,
+            episodic_count,
+            cache_size,
+            compression_ratio: compressor_ratio,
         })
     }
 

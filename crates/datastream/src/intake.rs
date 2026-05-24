@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
+use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
@@ -9,6 +10,17 @@ use uuid::Uuid;
 pub struct StreamIntakeEngine {
     pub batch_config: BatchConfig,
     semaphore: Arc<Semaphore>,
+    background_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
+}
+
+impl Drop for StreamIntakeEngine {
+    fn drop(&mut self) {
+        if let Ok(mut handles) = self.background_handles.lock() {
+            for h in handles.drain(..) {
+                h.abort();
+            }
+        }
+    }
 }
 
 impl Default for StreamIntakeEngine {
@@ -22,6 +34,7 @@ impl StreamIntakeEngine {
         Self {
             semaphore: Arc::new(Semaphore::new(batch_config.prefetch_count)),
             batch_config,
+            background_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -35,8 +48,9 @@ impl StreamIntakeEngine {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
         let path = path.to_string();
         let semaphore = self.semaphore.clone();
+        let handles = self.background_handles.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let read_result = tokio::time::timeout(
                 Duration::from_secs(60),
                 tokio::fs::read_to_string(&path),
@@ -82,6 +96,9 @@ impl StreamIntakeEngine {
                 debug!("Ingest channel closed for {}", path);
             }
         });
+        if let Ok(mut h) = handles.lock() {
+            h.push(handle);
+        }
 
         rx
     }
@@ -93,8 +110,9 @@ impl StreamIntakeEngine {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
         let semaphore = self.semaphore.clone();
         let batch_cfg = self.batch_config.clone();
+        let handles = self.background_handles.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let ingest_timeout = Duration::from_secs(300);
             let start = std::time::Instant::now();
 
@@ -148,6 +166,9 @@ impl StreamIntakeEngine {
                 }
             }
         });
+        if let Ok(mut h) = handles.lock() {
+            h.push(handle);
+        }
 
         rx
     }
@@ -163,8 +184,9 @@ impl StreamIntakeEngine {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
         let semaphore = self.semaphore.clone();
         let batch_cfg = self.batch_config.clone();
+        let handles = self.background_handles.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let ingest_timeout = Duration::from_secs(300);
             let start = std::time::Instant::now();
 
@@ -203,6 +225,9 @@ impl StreamIntakeEngine {
                 }
             }
         });
+        if let Ok(mut h) = handles.lock() {
+            h.push(handle);
+        }
 
         rx
     }
@@ -224,13 +249,33 @@ impl StreamIntakeEngine {
     }
 }
 
+/// Wrapper that aborts the background batch processing task on drop
+pub struct BatchedReceiver {
+    pub rx: mpsc::Receiver<Vec<DataSample>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl BatchedReceiver {
+    pub fn new(rx: mpsc::Receiver<Vec<DataSample>>, handle: JoinHandle<()>) -> Self {
+        Self { rx, handle: Some(handle) }
+    }
+}
+
+impl Drop for BatchedReceiver {
+    fn drop(&mut self) {
+        if let Some(h) = self.handle.take() {
+            h.abort();
+        }
+    }
+}
+
 pub async fn dynamic_batcher(
     mut rx: mpsc::Receiver<DataSample>,
     batch_config: BatchConfig,
-) -> mpsc::Receiver<Vec<DataSample>> {
+) -> BatchedReceiver {
     let (batch_tx, batch_rx) = mpsc::channel(16);
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let total_timeout = Duration::from_secs(600);
         let start = std::time::Instant::now();
 
@@ -279,5 +324,5 @@ pub async fn dynamic_batcher(
         }
     });
 
-    batch_rx
+    BatchedReceiver::new(batch_rx, handle)
 }

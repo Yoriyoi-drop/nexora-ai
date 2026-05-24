@@ -99,14 +99,6 @@ pub struct SparseRouter {
 pub enum RoutingStrategy {
     /// Top-k routing
     TopK,
-    /// Noisy top-k routing
-    NoisyTopK { noise_std: f32 },
-    /// Learned routing
-    Learned,
-    /// Adaptive routing
-    Adaptive,
-    /// Load-balanced routing
-    LoadBalanced,
 }
 
 /// Code Tokenizer
@@ -125,12 +117,6 @@ pub struct CodeTokenizer {
 /// Tokenization Method
 #[derive(Debug, Clone)]
 pub enum TokenizationMethod {
-    /// Byte-level tokenization
-    ByteLevel,
-    /// Subword tokenization
-    Subword,
-    /// AST-based tokenization
-    ASTBased,
     /// Hybrid tokenization
     Hybrid {
         byte_weight: f32,

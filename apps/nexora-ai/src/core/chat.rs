@@ -11,8 +11,7 @@ use nexora_foundation::shared::{
     model_registry::NxrModelRegistry,
 };
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -219,7 +218,7 @@ impl ChatEngine {
         &self,
         conversation_id: &str,
     ) -> NexoraResult<ConversationContext> {
-        let convs = self.conversations.lock().await;
+        let convs = self.conversations.lock().unwrap();
         match convs.get(conversation_id) {
             Some(ctx) => Ok(ctx.clone()),
             None => Ok(ConversationContext {
@@ -239,7 +238,7 @@ impl ChatEngine {
         user_message: &str,
         _ai_response: &str,
     ) -> NexoraResult<()> {
-        let mut convs = self.conversations.lock().await;
+        let mut convs = self.conversations.lock().unwrap();
         let ctx = convs.entry(conversation_id.to_string()).or_insert_with(|| {
             ConversationContext {
                 conversation_id: conversation_id.to_string(),

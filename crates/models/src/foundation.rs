@@ -317,9 +317,10 @@ macro_rules! define_foundation_model {
             }
 
             async fn state(&self) -> Result<Self::State, NxrModelError> {
-                let guard = self.model.lock().map_err(|e| {
-                    NxrModelError::Internal(format!("mutex poisoned: {}", e))
-                })?;
+                let guard = self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!("mutex was poisoned, recovering");
+                    e.into_inner()
+                });
                 Ok(serde_json::json!({
                     "status": if guard.is_some() { "ready" } else { "uninitialized" },
                     "model": stringify!($id),
@@ -333,9 +334,10 @@ macro_rules! define_foundation_model {
             }
 
             async fn reset(&self) -> Result<(), NxrModelError> {
-                let mut guard = self.model.lock().map_err(|e| {
-                    NxrModelError::Internal(format!("mutex poisoned: {}", e))
-                })?;
+                let mut guard = self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!("mutex was poisoned, recovering");
+                    e.into_inner()
+                });
                 *guard = None;
                 self.inference_count.store(0, Ordering::Relaxed);
                 self.total_generated.store(0, Ordering::Relaxed);

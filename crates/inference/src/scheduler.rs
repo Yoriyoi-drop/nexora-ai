@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{watch, Notify, RwLock};
+use tokio::sync::{watch, Mutex, Notify, RwLock};
 use tokio::task::JoinHandle;
 use tracing::debug;
 use uuid::Uuid;
@@ -58,7 +58,7 @@ pub struct RequestScheduler {
     notify: Arc<Notify>,
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
-    background_handles: Mutex<Vec<JoinHandle<()>>>,
+    background_handles: tokio::sync::Mutex<Vec<JoinHandle<()>>>,
     engine_handler: Option<BatchHandler>,
     total_queue_time_ms: RwLock<f64>,
     total_processing_time_ms: RwLock<f64>,
@@ -80,7 +80,7 @@ impl RequestScheduler {
             notify: Arc::new(Notify::new()),
             shutdown_tx,
             shutdown_rx,
-            background_handles: Mutex::new(Vec::new()),
+            background_handles: tokio::sync::Mutex::new(Vec::new()),
             engine_handler: None,
             total_queue_time_ms: RwLock::new(0.0),
             total_processing_time_ms: RwLock::new(0.0),
@@ -147,10 +147,21 @@ impl RequestScheduler {
                 let s = this.read().await;
                 s.shutdown_rx.clone()
             };
+            let mut last_watchdog = Instant::now();
             loop {
                 if this.read().await.shutdown.load(Ordering::Relaxed) {
                     break;
                 }
+
+                // Periodic timeout sweep for queued requests (every pop)
+                this.read().await.drain_timed_out_requests().await;
+
+                // Periodic watchdog for in-flight requests (every 1s)
+                if last_watchdog.elapsed() >= Duration::from_secs(1) {
+                    this.read().await.watchdog_check().await;
+                    last_watchdog = Instant::now();
+                }
+
                 while let Some(batch) = this.read().await.pop_batch().await {
                     debug!("background worker popped ready batch {}", batch.batch_id);
                     let req_ids: Vec<Uuid> = batch.requests.iter().map(|r| r.request_id).collect();
@@ -211,7 +222,10 @@ impl RequestScheduler {
                 }
                 tokio::select! {
                     biased;
-                    _ = shutdown_rx.changed() => {},
+                    _ = shutdown_rx.changed() => {
+                        tracing::debug!("background worker received shutdown signal");
+                        break;
+                    }
                     _ = notify.notified() => {},
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                 }
@@ -266,6 +280,60 @@ impl RequestScheduler {
         );
         queue.push_back(request.request_id);
         Ok(key)
+    }
+
+    /// Check all queued requests for timeouts, not just those at the front.
+    /// Scans the full queue and times out any request that has exceeded max_queue_time_ms.
+    async fn drain_timed_out_requests(&self) {
+        let guard = self.requests.read().await;
+        let timed_out_ids: Vec<Uuid> = guard
+            .iter()
+            .filter(|(_, s)| matches!(s.status, RequestStatus::Queued))
+            .filter(|(_, s)| s.queued_at.elapsed().as_millis() as u64 > self.max_queue_time_ms)
+            .map(|(id, _)| *id)
+            .collect();
+        drop(guard);
+
+        for req_id in timed_out_ids {
+            self.update_status(req_id, RequestStatus::Timeout).await;
+            let mut resp = crate::InferenceResponse::new(req_id);
+            resp.finish_reason = crate::FinishReason::Timeout;
+            let guard = self.requests.read().await;
+            if let Some(tx) = guard.get(&req_id).map(|r| r.response_tx.clone()) {
+                drop(guard);
+                let _ = tx.send(resp).await;
+            }
+        }
+    }
+
+    /// Watchdog that checks for timed-out in-flight requests.
+    /// Runs as a background task, checking every second.
+    async fn watchdog_check(&self) {
+        let guard = self.requests.read().await;
+        let timed_out: Vec<Uuid> = guard
+            .iter()
+            .filter(|(_, s)| matches!(s.status, RequestStatus::Processing))
+            .filter(|(_, s)| {
+                if let Some(started) = s.processing_started_at {
+                    started.elapsed().as_millis() as u64 > self.max_queue_time_ms
+                } else {
+                    s.queued_at.elapsed().as_millis() as u64 > self.max_queue_time_ms
+                }
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        drop(guard);
+
+        for req_id in timed_out {
+            let mut resp = crate::InferenceResponse::new(req_id);
+            resp.finish_reason = crate::FinishReason::Timeout;
+            let guard = self.requests.read().await;
+            if let Some(tx) = guard.get(&req_id).map(|r| r.response_tx.clone()) {
+                drop(guard);
+                let _ = tx.send(resp).await;
+            }
+            let _ = self.complete_request(req_id).await;
+        }
     }
 
     /// Pop the next ready batch from the collector.
@@ -399,18 +467,16 @@ impl RequestScheduler {
     }
 
     /// Register a background handle for tracking (called from start() result).
-    pub fn register_background_handle(&self, handle: JoinHandle<()>) {
-        if let Ok(mut handles) = self.background_handles.lock() {
-            handles.push(handle);
-        }
+    pub async fn register_background_handle(&self, handle: JoinHandle<()>) {
+        let mut handles = self.background_handles.lock().await;
+        handles.push(handle);
     }
 
     /// Cancel all tracked background handles with graceful shutdown.
     pub async fn cancel_background_handles(&self) {
-        let handles = if let Ok(mut h) = self.background_handles.lock() {
+        let handles = {
+            let mut h = self.background_handles.lock().await;
             h.drain(..).collect::<Vec<_>>()
-        } else {
-            Vec::new()
         };
         for h in handles {
             let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
@@ -541,8 +607,19 @@ impl RequestScheduler {
     }
 
     /// Complete a batch by batch ID without requiring the full Batch struct.
-    /// Releases the concurrent slot for the batch.
-    pub async fn complete_batch_id(&self, _batch_id: uuid::Uuid) -> Result<(), anyhow::Error> {
+    /// Verifies the batch exists in the collector before releasing the concurrent slot.
+    pub async fn complete_batch_id(&self, batch_id: uuid::Uuid) -> Result<(), anyhow::Error> {
+        // Verify the batch exists by checking batch collector state
+        let collector = self.batch_collector.read().await;
+        if !collector.contains_batch(batch_id) {
+            tracing::warn!(
+                "complete_batch_id: batch {} not found in collector, slot may already be released",
+                batch_id
+            );
+            // Don't error — idempotent release is safer than double-counting
+        }
+        drop(collector);
+
         let mut active = self.active_count.write().await;
         if *active > 0 {
             *active -= 1;
@@ -559,7 +636,7 @@ impl nexora_runtime::Scheduler for RequestScheduler {
         response_tx: tokio::sync::mpsc::Sender<nexora_runtime::InferenceResponse>,
     ) -> anyhow::Result<()> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::InferenceResponse>(16);
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             while let Some(resp) = rx.recv().await {
                 let runtime_resp = nexora_runtime::InferenceResponse {
                     request_id: Some(resp.request_id.to_string()),
@@ -573,6 +650,8 @@ impl nexora_runtime::Scheduler for RequestScheduler {
                 }
             }
         });
+        let mut handles = self.background_handles.lock().await;
+        handles.push(handle);
         self.submit_request(request_id, tx)
             .await
             .map_err(|e| anyhow::anyhow!("{}", e))

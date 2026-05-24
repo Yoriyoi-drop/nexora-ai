@@ -652,9 +652,15 @@ fn poll_async_loss(ctx: &GpuContext, rb: &AsyncReadback<Vec<f32>>) -> f32 {
     if let Some(v) = rb.try_recv() {
         return v[0];
     }
-    // Final fallback: blocking wait
+    // Non-blocking spin loop
     ctx.wait_device();
-    rb.recv()[0]
+    for _ in 0..100 {
+        ctx.poll_timeout(100_000);
+        if let Some(v) = rb.try_recv() {
+            return v[0];
+        }
+    }
+    rb.try_recv().map_or(0.0, |v| v[0])
 }
 
 #[cfg(feature = "gpu")]

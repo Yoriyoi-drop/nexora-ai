@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
@@ -91,7 +90,9 @@ impl DedupFilter {
     }
 
     pub fn reset(&mut self) {
-        self.seen_hashes.blocking_lock().clear();
+        if let Ok(mut hashes) = self.seen_hashes.lock() {
+            hashes.clear();
+        }
     }
 }
 
@@ -124,7 +125,7 @@ impl Filter for DedupFilter {
         let fingerprints = self.fingerprint(&sample.text);
         let total_hashes = fingerprints.len();
 
-        let mut hashes = self.seen_hashes.lock().await;
+        let mut hashes = self.seen_hashes.lock().unwrap();
         if hashes.len() >= self.max_seen {
             return FilterResult {
                 passed: true,

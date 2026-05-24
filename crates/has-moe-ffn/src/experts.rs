@@ -75,8 +75,12 @@ impl Expert {
     /// Forward pass through expert
     pub fn forward(&self, input: &[f32]) -> Vec<f32> {
         #[cfg(feature = "gpu")]
-        if let Some(result) = self.forward_gpu(input) {
-            return result;
+        {
+            let gpu_result = self.forward_gpu(input);
+            if let Some(result) = gpu_result {
+                return result;
+            }
+            tracing::warn!("MoE expert GPU forward failed, falling back to CPU");
         }
 
         // First linear layer + activation

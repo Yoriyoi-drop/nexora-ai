@@ -7,7 +7,7 @@
 //! - Thread-safe operations
 
 use crate::{DLResult, DeepLearningError};
-use ndarray::{s, Array1, Array2, ArrayD};
+use ndarray::{Array1, Array2, ArrayD};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -74,9 +74,10 @@ impl TensorPool {
         // Find appropriate size category
         let category_idx = self.find_1d_category(size)?;
 
-        if let Some(tensor) = pool[category_idx].pop() {
+        if let Some(mut tensor) = pool[category_idx].pop() {
             if tensor.len() >= size {
-                return Ok(tensor.slice(s![0..size]).to_owned());
+                tensor.fill(0.0);
+                return Ok(tensor);
             }
         }
 
@@ -104,9 +105,10 @@ impl TensorPool {
         // Find appropriate size category
         let category_idx = self.find_2d_category(rows, cols)?;
 
-        if let Some(tensor) = pool[category_idx].pop() {
+        if let Some(mut tensor) = pool[category_idx].pop() {
             if tensor.nrows() >= rows && tensor.ncols() >= cols {
-                return Ok(tensor.slice(s![0..rows, 0..cols]).to_owned());
+                tensor.fill(0.0);
+                return Ok(tensor);
             }
         }
 
@@ -134,7 +136,7 @@ impl TensorPool {
         // Find appropriate size category
         let category_idx = self.find_dyn_category(shape)?;
 
-        if let Some(tensor) = pool[category_idx].pop() {
+        if let Some(mut tensor) = pool[category_idx].pop() {
             if tensor
                 .shape()
                 .iter()
@@ -142,7 +144,8 @@ impl TensorPool {
                 .all(|(&t, &s)| t >= s)
             {
                 // tensor shape >= requested shape; return as-is (caller uses excess capacity)
-                return Ok(tensor.to_owned());
+                tensor.fill(0.0);
+                return Ok(tensor);
             }
         }
 
@@ -317,7 +320,8 @@ impl PooledTensor1D {
 impl Drop for PooledTensor1D {
     fn drop(&mut self) {
         if !self.returned {
-            let _ = global_pool().return_1d(self.tensor.clone());
+            let tensor = std::mem::take(&mut self.tensor);
+            let _ = global_pool().return_1d(tensor);
         }
     }
 }
@@ -354,7 +358,8 @@ impl PooledTensor2D {
 impl Drop for PooledTensor2D {
     fn drop(&mut self) {
         if !self.returned {
-            let _ = global_pool().return_2d(self.tensor.clone());
+            let tensor = std::mem::take(&mut self.tensor);
+            let _ = global_pool().return_2d(tensor);
         }
     }
 }
@@ -391,7 +396,8 @@ impl PooledTensorDyn {
 impl Drop for PooledTensorDyn {
     fn drop(&mut self) {
         if !self.returned {
-            let _ = global_pool().return_dyn(self.tensor.clone());
+            let tensor = std::mem::take(&mut self.tensor);
+            let _ = global_pool().return_dyn(tensor);
         }
     }
 }

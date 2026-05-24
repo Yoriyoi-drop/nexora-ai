@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 use tower::Service;
 use tracing::{error, info};
 
@@ -39,7 +40,7 @@ pub async fn start_tls_server(
                     let tls_acceptor = tls_acceptor.clone();
                     let app = app.clone();
 
-                    tokio::spawn(async move {
+                    let handle: JoinHandle<()> = tokio::spawn(async move {
                         match tls_acceptor.accept(stream).await {
                             Ok(tls_stream) => {
                                 if let Err(e) = handle_tls_stream(tls_stream, app).await {
@@ -51,6 +52,8 @@ pub async fn start_tls_server(
                             }
                         }
                     });
+                    // Handle is intentionally detached — connection-scoped task
+                    drop(handle);
                 }
                 Err(e) => {
                     error!("Failed to accept connection: {}", e);

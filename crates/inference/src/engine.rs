@@ -714,7 +714,11 @@ impl InferenceEngine {
         });
 
         // Track the main request loop handle for graceful shutdown
-        active_handle.write().await.insert(Uuid::nil(), handle);
+        {
+            let mut ah = active_handle.write().await;
+            ah.retain(|_, h| !h.is_finished());
+            ah.insert(Uuid::nil(), handle);
+        }
 
         Ok(())
     }

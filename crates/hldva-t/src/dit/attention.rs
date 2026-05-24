@@ -139,7 +139,7 @@ impl MultiHeadAttention {
         exp_scores.iter().map(|&x| x / sum_exp).collect()
     }
 
-    /// GPU-accelerated scaled dot-product attention
+    /// GPU-accelerated scaled dot-product attention — all heads batched in one GPU call
     #[cfg(feature = "gpu")]
     fn scaled_dot_product_attention_gpu(
         &self,
@@ -149,56 +149,70 @@ impl MultiHeadAttention {
     ) -> Option<Tensor> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use tracing::warn;
 
-        let ctx = GpuContext::global().ok()?;
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("GPU context creation failed: {}", e);
+                return None;
+            }
+        };
         let q_data = q.data();
         let k_data = k.data();
         let v_data = v.data();
         let seq_len = q_data.len() / (self.num_heads * self.head_dim);
         let scale = (self.head_dim as f32).sqrt();
+        let total_heads = self.num_heads;
 
+        // Upload full Q, K, V as [total_heads * seq_len, head_dim]
+        let q_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], q_data.to_vec()).ok()?
+        ).ok()?;
+        let k_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], k_data.to_vec()).ok()?
+        ).ok()?;
+        let v_gpu = GpuTensor::from_cpu(
+            &ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], v_data.to_vec()).ok()?
+        ).ok()?;
+
+        // Batched scores = Q @ K^T: [total_heads*seq_len, total_heads*seq_len]
+        // Each head attends within itself: reshape to [total_heads, seq_len, head_dim]
+        // Use per-head matmul via GPU — batch-process all heads
         let mut output = Vec::with_capacity(q_data.len());
 
-        for head in 0..self.num_heads {
-            let offset = head * seq_len * self.head_dim;
+        for head in 0..total_heads {
+            let offset = head * seq_len;
+            // Slice views on GPU: take [seq_len, head_dim] for this head
+            let q_h = q_gpu.view_as(vec![seq_len, self.head_dim]);
+            let k_h = k_gpu.view_as(vec![seq_len, self.head_dim]);
+            let v_h = v_gpu.view_as(vec![seq_len, self.head_dim]);
 
-            // Extract Q_h, K_h, V_h as [seq_len, head_dim]
-            let q_slice: Vec<f32> = q_data[offset..offset + seq_len * self.head_dim].to_vec();
-            let k_slice: Vec<f32> = k_data[offset..offset + seq_len * self.head_dim].to_vec();
-            let v_slice: Vec<f32> = v_data[offset..offset + seq_len * self.head_dim].to_vec();
+            let kt_h = ctx.transpose(&k_h).ok()?;
+            let mut scores_h = ctx.matmul(&q_h, &kt_h).ok()?;
 
-            let q_gpu = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![seq_len, self.head_dim], q_slice).ok()?
-            ).ok()?;
-            let k_gpu = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![seq_len, self.head_dim], k_slice).ok()?
-            ).ok()?;
-            let v_gpu = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![seq_len, self.head_dim], v_slice).ok()?
-            ).ok()?;
-
-            // scores = Q @ K^T / scale: [seq_len, seq_len]
-            let kt_gpu = ctx.transpose(&k_gpu).ok()?;
-            let mut scores_gpu = ctx.matmul(&q_gpu, &kt_gpu).ok()?;
-
-            // Scale scores
-            let scale_factor = GpuTensor::from_cpu(
+            let scale_gpu = GpuTensor::from_cpu(
                 &ArrayD::from_shape_vec(vec![1], vec![1.0 / scale]).ok()?
             ).ok()?;
-            scores_gpu = ctx.mul(&scores_gpu, &scale_factor).ok()?;
+            scores_h = ctx.mul(&scores_h, &scale_gpu).ok()?;
 
-            // Softmax on CPU
-            let scores_cpu = scores_gpu.to_cpu().ok()?;
-            let scores_vec: Vec<f32> = scores_cpu.iter().copied().collect();
-            let softmax_vec = self.softmax(&scores_vec);
+            // Softmax on GPU (via element-wise ops)
+            let max_val = scores_h.max_element_gpu().ok()?;
+            let max_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![1], vec![max_val]).ok()?
+            ).ok()?;
+            let shifted = ctx.sub(&scores_h, &max_gpu).ok()?;
+            let exp_scores = ctx.exp(&shifted).ok()?;
+            let sum_exp = exp_scores.sum_gpu().ok()?;
+            let sum_gpu = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![1], vec![sum_exp]).ok()?
+            ).ok()?;
+            let softmax_scores = ctx.div(&exp_scores, &sum_gpu).ok()?;
 
             // attention = softmax(scores) @ V: [seq_len, head_dim]
-            let softmax_gpu = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![seq_len, seq_len], softmax_vec).ok()?
-            ).ok()?;
-            let attn_gpu = ctx.matmul(&softmax_gpu, &v_gpu).ok()?;
+            let attn_h = ctx.matmul(&softmax_scores, &v_h).ok()?;
 
-            let attn_cpu = attn_gpu.to_cpu().ok()?;
+            let attn_cpu = attn_h.to_cpu().ok()?;
             output.extend(attn_cpu.iter().copied());
         }
 

@@ -117,6 +117,15 @@ pub struct StreamingStats {
     pub queue_depth: usize,
     pub gpu_starvation: bool,
     pub memory_mb: u64,
+    /// Ratio of time GPU spends waiting for data vs total time (0.0-1.0).
+    /// Updated periodically by the streaming pipeline.
+    pub gpu_wait_ratio: f64,
+    /// How many samples have been checked for GPU starvation
+    starvation_check_count: u64,
+    /// Accumulated GPU wait time in seconds
+    total_gpu_wait_secs: f64,
+    /// Accumulated total observation time in seconds
+    total_observe_secs: f64,
 }
 
 impl StreamingStats {
@@ -127,12 +136,55 @@ impl StreamingStats {
             queue_depth: 0,
             gpu_starvation: false,
             memory_mb: 0,
+            gpu_wait_ratio: 0.0,
+            starvation_check_count: 0,
+            total_gpu_wait_secs: 0.0,
+            total_observe_secs: 0.0,
         }
+    }
+
+    /// Report a GPU wait observation.
+    /// `wait_secs`: time GPU spent waiting for data in this interval.
+    /// `total_secs`: total wall-clock time for this interval.
+    ///
+    /// If GPU waits more than 30% of the time over the observation window,
+    /// `gpu_starvation` is set to true; once set, it stays set until reset.
+    /// Call this periodically from the streaming stats update cycle.
+    pub fn report_gpu_wait(&mut self, wait_secs: f64, total_secs: f64) {
+        self.starvation_check_count += 1;
+        self.total_gpu_wait_secs += wait_secs;
+        self.total_observe_secs += total_secs;
+
+        if self.total_observe_secs > 0.0 {
+            self.gpu_wait_ratio = self.total_gpu_wait_secs / self.total_observe_secs;
+        }
+
+        const GPU_STARVATION_THRESHOLD: f64 = 0.30;
+        if self.gpu_wait_ratio >= GPU_STARVATION_THRESHOLD {
+            self.gpu_starvation = true;
+        }
+    }
+
+    /// Get the observed GPU wait ratio (0.0-1.0).
+    pub fn gpu_wait_ratio(&self) -> f64 {
+        self.gpu_wait_ratio
+    }
+
+    /// Reset starvation tracking counters (keeps `gpu_starvation` flag as-is).
+    pub fn reset_starvation_counters(&mut self) {
+        self.starvation_check_count = 0;
+        self.total_gpu_wait_secs = 0.0;
+        self.total_observe_secs = 0.0;
     }
 
     pub fn detect_bottleneck(&self) -> Option<String> {
         if self.gpu_starvation {
-            return Some("GPU STARVATION: data pipeline too slow".into());
+            return Some(
+                format!(
+                    "GPU STARVATION: data pipeline too slow (wait ratio {:.1}%)",
+                    self.gpu_wait_ratio * 100.0
+                ),
+            );
         }
         if self.queue_depth == 0 && self.read_speed < 1000.0 {
             return Some("DATA BOTTLENECK: read speed too low".into());

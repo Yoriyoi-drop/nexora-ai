@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 
 use crate::{DatabaseConnection, PoolStatus};
 
@@ -42,6 +42,7 @@ pub struct GenericConnectionPool<T> {
     statistics: Arc<RwLock<PoolStatistics>>,
     connection_factory: Arc<dyn ConnectionFactory<T>>,
     waiting_requests: Arc<RwLock<usize>>, // Track number of waiting requests
+    semaphore: Arc<Semaphore>,
 }
 
 /// Pooled connection wrapper
@@ -130,12 +131,14 @@ impl<T: Clone> GenericConnectionPool<T> {
             stats.idle_connections = connections.read().await.len();
         }
 
+        let max_connections = config.max_connections;
         Ok(Self {
             connections,
             config,
             statistics,
             connection_factory,
             waiting_requests,
+            semaphore: Arc::new(Semaphore::new(max_connections)),
         })
     }
 
@@ -145,6 +148,18 @@ impl<T: Clone> GenericConnectionPool<T> {
 
         // Increment waiting requests counter
         *self.waiting_requests.write().await += 1;
+
+        // Acquire semaphore permit (with timeout)
+        let permit = tokio::time::timeout(
+            self.config.connection_timeout,
+            self.semaphore.acquire(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!(
+            "Connection pool timeout after {:?}",
+            start_time.elapsed()
+        ))?
+        .map_err(|_| anyhow::anyhow!("Semaphore closed"))?;
 
         // Try to get existing connection
         {
@@ -183,6 +198,7 @@ impl<T: Clone> GenericConnectionPool<T> {
                         0.0
                     };
 
+                    drop(permit);
                     return Ok(ConnectionTicket {
                         connection: pooled.connection,
                         created_at,
@@ -205,73 +221,56 @@ impl<T: Clone> GenericConnectionPool<T> {
             }
         }
 
-        // Create new connection if under max
+        // Create new connection
         {
-            let connections = self.connections.read().await;
-            if connections.len() < self.config.max_connections {
-                drop(connections);
+            match self.connection_factory.create_connection().await {
+                Ok(connection) => {
+                    let created_at = Instant::now();
+                    let pooled = PooledConnection {
+                        connection,
+                        created_at,
+                        last_used: Instant::now(),
+                        is_active: true,
+                        usage_count: 1,
+                    };
 
-                match self.connection_factory.create_connection().await {
-                    Ok(connection) => {
-                        let created_at = Instant::now();
-                        let pooled = PooledConnection {
-                            connection,
-                            created_at,
-                            last_used: Instant::now(),
-                            is_active: true,
-                            usage_count: 1,
-                        };
+                    let mut connections = self.connections.write().await;
+                    connections.push(pooled);
 
-                        let mut connections = self.connections.write().await;
-                        connections.push(pooled);
+                    // Update statistics
+                    let mut stats = self.statistics.write().await;
+                    stats.total_connections += 1;
+                    stats.created_connections += 1;
+                    stats.active_connections += 1;
 
-                        // Update statistics
-                        let mut stats = self.statistics.write().await;
-                        stats.total_connections += 1;
-                        stats.created_connections += 1;
-                        stats.active_connections += 1;
+                    let wait_time = start_time.elapsed();
+                    stats.total_wait_time_ms += wait_time.as_millis() as u64;
+                    stats.average_wait_time_ms = if stats.total_connections > 0 {
+                        stats.total_wait_time_ms as f64 / stats.total_connections as f64
+                    } else {
+                        0.0
+                    };
 
-                        let wait_time = start_time.elapsed();
-                        stats.total_wait_time_ms += wait_time.as_millis() as u64;
-                        stats.average_wait_time_ms = if stats.total_connections > 0 {
-                            stats.total_wait_time_ms as f64 / stats.total_connections as f64
-                        } else {
-                            0.0
-                        };
+                    // Decrement waiting requests counter
+                    *self.waiting_requests.write().await -= 1;
 
-                        // Decrement waiting requests counter
-                        *self.waiting_requests.write().await -= 1;
-
-                        let last = connections.last_mut().expect("connection was just added");
-                        let conn_clone = last.connection.clone();
-                        return Ok(ConnectionTicket {
-                            connection: conn_clone,
-                            created_at: last.created_at,
-                            usage_count: last.usage_count,
-                        });
-                    }
-                    Err(e) => {
-                        let mut stats = self.statistics.write().await;
-                        stats.connection_errors += 1;
-                        return Err(anyhow::anyhow!("Failed to create connection: {}", e));
-                    }
+                    let last = connections.last_mut().expect("connection was just added");
+                    let conn_clone = last.connection.clone();
+                    drop(permit);
+                    return Ok(ConnectionTicket {
+                        connection: conn_clone,
+                        created_at: last.created_at,
+                        usage_count: last.usage_count,
+                    });
+                }
+                Err(e) => {
+                    let mut stats = self.statistics.write().await;
+                    stats.connection_errors += 1;
+                    drop(permit);
+                    return Err(anyhow::anyhow!("Failed to create connection: {}", e));
                 }
             }
         }
-
-        // Wait for available connection (with timeout)
-        let timeout = self.config.connection_timeout;
-        let elapsed = start_time.elapsed();
-
-        if elapsed < timeout {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            return self.get_connection().await;
-        }
-
-        Err(anyhow::anyhow!(
-            "Connection pool timeout after {:?}",
-            elapsed
-        ))
     }
 
     /// Return connection to pool with preserved creation time

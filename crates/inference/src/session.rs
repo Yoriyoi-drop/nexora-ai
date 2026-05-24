@@ -263,6 +263,18 @@ impl InferenceSession {
         Ok(())
     }
 
+    /// Record a cache hit in session statistics
+    pub async fn record_cache_hit(&self) {
+        let mut stats = self.stats.write().await;
+        stats.cache_hits += 1;
+    }
+
+    /// Record a cache miss in session statistics
+    pub async fn record_cache_miss(&self) {
+        let mut stats = self.stats.write().await;
+        stats.cache_misses += 1;
+    }
+
     /// Get session history
     pub async fn get_history(&self, limit: Option<usize>) -> Vec<SessionEntry> {
         let history = self.history.read().await;

@@ -5,7 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::task::JoinHandle;
 use tokio::time::{interval, sleep};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -17,6 +19,19 @@ pub struct MultiClusterSystem {
     pub regions: HashMap<String, RegionalCluster>,
     pub global_config: GlobalMultiClusterConfig,
     pub sync_status: ClusterSyncStatus,
+    #[serde(skip)]
+    pub background_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
+}
+
+impl MultiClusterSystem {
+    fn new_internal(regions: HashMap<String, RegionalCluster>, global_config: GlobalMultiClusterConfig, sync_status: ClusterSyncStatus) -> Self {
+        Self {
+            regions,
+            global_config,
+            sync_status,
+            background_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +194,7 @@ impl MultiClusterSystem {
                 pending_sync: Vec::new(),
                 sync_errors: Vec::new(),
             },
+            background_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -524,7 +540,7 @@ impl MultiClusterSystem {
         // Spawn health check task
         let health_check_interval = Duration::from_secs(30);
         let hc_regions = region_names.clone();
-        tokio::spawn(async move {
+        let hc_handle = tokio::spawn(async move {
             let mut interval = interval(health_check_interval);
             loop {
                 interval.tick().await;
@@ -537,12 +553,15 @@ impl MultiClusterSystem {
                 info!("Periodic health check completed for {} regions", hc_regions.len());
             }
         });
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(hc_handle);
+        }
 
         // Spawn sync task if enabled
         if config.cross_region_sync {
             let sync_interval = Duration::from_secs(config.sync_interval_seconds);
             let sync_regions = region_names.clone();
-            tokio::spawn(async move {
+            let sync_handle = tokio::spawn(async move {
                 let mut interval = interval(sync_interval);
                 loop {
                     interval.tick().await;
@@ -556,6 +575,9 @@ impl MultiClusterSystem {
                     info!("Periodic cross-region sync triggered for {} regions", sync_regions.len());
                 }
             });
+            if let Ok(mut handles) = self.background_handles.lock() {
+                handles.push(sync_handle);
+            }
         }
 
         info!("Multi-cluster orchestration started ({} regions)", region_names.len());

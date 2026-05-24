@@ -229,14 +229,8 @@ pub enum ExploitationDepth {
 /// Data Access Limits
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DataAccessLimits {
-    /// No data access
-    NoAccess,
-    /// Public data only
-    PublicOnly,
     /// Non-sensitive data
     NonSensitive,
-    /// Full data access
-    FullAccess,
 }
 
 /// Reporting Format

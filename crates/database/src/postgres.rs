@@ -235,12 +235,6 @@ impl Database for PostgreSQLDatabase {
     async fn connect(&self) -> Result<()> {
         let client = self.create_client().await?;
 
-        // Test the connection
-        let _version = client.query_one("SELECT version()", &[]).await?;
-
-        // Store the client
-        *self.client.write().await = Some(Arc::new(client));
-
         let mut info = self.connection_info.write().await;
         info.is_connected = true;
         info.last_activity = Instant::now();

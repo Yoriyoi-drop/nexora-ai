@@ -700,10 +700,9 @@ impl CausalLM {
 
         h = self.norm.forward_gpu(&h)?;
 
-        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
+        let logits = ctx.matmul(&h, &gw.lm_head_t)?;
 
-        let logits_cpu = logits_gpu.to_cpu()?;
-        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+        let logits_flat: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
 
@@ -775,10 +774,9 @@ impl CausalLM {
 
         h = self.norm.forward_gpu(&h)?;
 
-        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
+        let logits = ctx.matmul(&h, &gw.lm_head_t)?;
 
-        let logits_cpu = logits_gpu.to_cpu()?;
-        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+        let logits_flat: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
 
@@ -1112,11 +1110,10 @@ impl CausalLM {
 
         // 5. LM head: matmul(h, lm_head^T) on GPU with pre-transposed weight.
         //    No lazy init — lm_head_t is pre-uploaded once.
-        let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
+        let logits = ctx.matmul(&h, &gw.lm_head_t)?;
 
-        // 6. Download logits to CPU
-        let logits_cpu = logits_gpu.to_cpu()?;
-        let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+        // 6. Download logits to CPU (only at final return point)
+        let logits_flat: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
 
@@ -1227,10 +1224,9 @@ impl CausalLM {
 
             h = self.norm.forward_gpu(&h)?;
 
-            let logits_gpu = ctx.matmul(&h, &gw.lm_head_t)?;
+            let logits = ctx.matmul(&h, &gw.lm_head_t)?;
 
-            let logits_cpu = logits_gpu.to_cpu()?;
-            let logits_flat: Vec<f32> = logits_cpu.iter().copied().collect();
+            let logits_flat: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
             all_logits.push(Array1::from_vec(logits_flat));
         }
 

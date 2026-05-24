@@ -111,6 +111,16 @@ impl PhysicalBlock {
     fn is_free(&self) -> bool {
         self.ref_count == 0
     }
+
+    /// Copy-on-write: returns a cloned block with ref_count=1
+    fn deep_copy(&self) -> Self {
+        Self {
+            k: self.k.clone(),
+            v: self.v.clone(),
+            filled: self.filled,
+            ref_count: 1,
+        }
+    }
 }
 
 // ─── Sequence Block Table ────────────────────────────────────────────────────
@@ -287,6 +297,21 @@ impl PagedKVCache {
 
     /// Allocate a new physical block from the free list or create one
     fn alloc_block(&mut self, layer: usize) -> Option<usize> {
+        // Check max_blocks BEFORE push
+        if self.blocks[layer].len() >= self.config.max_blocks {
+            if let Some(free_idx) = self.free_lists[layer].pop() {
+                self.blocks[layer][free_idx].filled = 0;
+                self.blocks[layer][free_idx].ref_count = 1;
+                self.num_allocated += 1;
+                return Some(free_idx);
+            }
+            warn!(
+                "PagedKVCache: max_blocks ({}) reached, cannot allocate",
+                self.config.max_blocks
+            );
+            return None;
+        }
+
         if let Some(free_idx) = self.free_lists[layer].pop() {
             self.blocks[layer][free_idx].filled = 0;
             self.blocks[layer][free_idx].ref_count = 1;
@@ -295,13 +320,6 @@ impl PagedKVCache {
         }
 
         let idx = self.blocks[layer].len();
-        if idx >= self.config.max_blocks {
-            warn!(
-                "PagedKVCache: max_blocks ({}) reached, cannot allocate",
-                self.config.max_blocks
-            );
-            return None;
-        }
         self.blocks[layer].push(PhysicalBlock::new(&self.config));
         self.num_allocated += 1;
         Some(idx)
@@ -345,12 +363,31 @@ impl PagedKVCache {
             None => return None,
         };
 
+        // Step 2b: copy-on-write — if the allocated block is shared, deep-copy it
+        let cow_phys = {
+            let block = &self.blocks[layer][phys];
+            if block.ref_count > 1 {
+                Some(block.deep_copy())
+            } else {
+                None
+            }
+        };
+        let effective_phys = if let Some(copy) = cow_phys {
+            self.blocks[layer][phys].ref_count -= 1;
+            let new_idx = self.blocks[layer].len();
+            self.blocks[layer].push(copy);
+            self.num_allocated += 1;
+            new_idx
+        } else {
+            phys
+        };
+
         // Step 3: update block table (separate borrow again)
         if let Some(table) = self.sequences.get_mut(&seq_id) {
             if logical < table.layers[layer].len() {
-                table.layers[layer][logical] = Some(phys);
+                table.layers[layer][logical] = Some(effective_phys);
             }
-            Some(phys)
+            Some(effective_phys)
         } else {
             // Sequence was removed between steps — free the block
             self.free_block(layer, phys);
@@ -516,11 +553,13 @@ impl PagedKVCache {
         self.free_lists.iter_mut().for_each(|f| f.clear());
     }
 
-    /// Memory usage estimate in bytes
+    /// Memory usage estimate in bytes — subtracts freed blocks
     pub fn memory_usage_bytes(&self) -> usize {
         let per_block =
             self.config.block_size * self.config.num_kv_heads * self.config.head_dim * 4 * 2;
-        self.total_blocks() * per_block
+        let total = self.total_blocks();
+        let freed: usize = self.free_lists.iter().map(|f| f.len()).sum();
+        total.saturating_sub(freed) * per_block
     }
 }
 

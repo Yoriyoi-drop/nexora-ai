@@ -51,6 +51,46 @@ pub struct CacheEngine {
     pub max_cache_size_bytes: usize,
     pub hit_count: u64,
     pub miss_count: u64,
+    pub eviction_count: u64,
+}
+
+impl CacheEngine {
+    fn entry_size(entry: &CacheEntry) -> usize {
+        entry.key.len()
+            + entry.value.len() * std::mem::size_of::<f32>()
+            + entry.embedding.len() * std::mem::size_of::<f32>()
+            + std::mem::size_of::<CacheEntry>()
+    }
+
+    pub fn insert(&mut self, key: String, entry: CacheEntry) {
+        let new_size = Self::entry_size(&entry);
+
+        // If key exists, subtract old entry size first
+        if let Some(old) = self.cache_storage.get(&key) {
+            self.cache_size_bytes = self.cache_size_bytes.saturating_sub(Self::entry_size(old));
+        }
+
+        // Evict until there's enough space
+        while self.cache_size_bytes + new_size > self.max_cache_size_bytes
+            && !self.cache_storage.is_empty()
+        {
+            let lru_key = self.cache_storage.iter()
+                .min_by_key(|(_, e)| e.last_accessed)
+                .map(|(k, _)| k.clone());
+            match lru_key {
+                Some(k) => {
+                    if let Some(removed) = self.cache_storage.remove(&k) {
+                        self.cache_size_bytes = self.cache_size_bytes.saturating_sub(Self::entry_size(&removed));
+                        self.eviction_count += 1;
+                    }
+                }
+                None => break,
+            }
+        }
+
+        self.cache_size_bytes += new_size;
+        self.cache_storage.insert(key, entry);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +232,7 @@ impl Default for CacheEngine {
             max_cache_size_bytes: 256 * 1024 * 1024, // 256 MB
             hit_count: 0,
             miss_count: 0,
+            eviction_count: 0,
         }
     }
 }
@@ -250,6 +291,33 @@ impl BaseAgent for FastCacheAgent {
             Some(ref embedding) => embedding.clone(),
             None => self.generate_embedding(&input.query).await?,
         };
+
+        // Force refresh: skip cache lookup, treat as miss
+        if input.force_refresh {
+            let suggested_key = self.generate_cache_key(&input.query);
+            let cache_result = CacheResult::Miss {
+                reason: MissReason::Evicted,
+                suggested_cache_key: suggested_key,
+            };
+            let similarity_analysis = SimilarityAnalysis {
+                total_entries_compared: 0,
+                best_match_score: 0.0,
+                average_similarity: 0.0,
+                similarity_distribution: HashMap::new(),
+                processing_time_ms: 0.0,
+            };
+            let performance_metrics = self.calculate_cache_metrics().await?;
+            let cache_recommendations = self
+                .generate_cache_recommendations(&cache_result, &similarity_analysis)
+                .await?;
+
+            return Ok(FastCacheTaskOutput {
+                cache_result,
+                similarity_analysis,
+                performance_metrics,
+                cache_recommendations,
+            });
+        }
 
         // Search cache for similar entries
         let cache_result = self.search_cache(&query_embedding, &input).await?;
@@ -528,7 +596,7 @@ impl FastCacheAgent {
             total_queries,
             cache_size_mb,
             avg_lookup_time_ms,
-            eviction_count: 0, // Track evictions in real implementation
+            eviction_count: self.cache_engine.eviction_count,
         })
     }
 

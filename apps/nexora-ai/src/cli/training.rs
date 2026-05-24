@@ -821,7 +821,7 @@ impl crate::cli::commands::Cli {
 
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop_flag_c = stop_flag.clone();
-        tokio::spawn(async move {
+        let ctrlc_handle = tokio::spawn(async move {
             signal::ctrl_c().await.ok();
             info!("  Sinyal stop diterima! Menyelesaikan batch terakhir...");
             stop_flag_c.store(true, Ordering::SeqCst);
@@ -1034,6 +1034,7 @@ impl crate::cli::commands::Cli {
             info!("  Dihentikan lebih awal oleh pengguna");
         }
 
+        ctrlc_handle.abort();
         Ok(())
     }
 
@@ -1266,7 +1267,7 @@ impl crate::cli::commands::Cli {
 
         let stop_flag = trainer.stop_signal();
         let stop_flag_c = stop_flag.clone();
-        tokio::spawn(async move {
+        let ctrlc_handle = tokio::spawn(async move {
             signal::ctrl_c().await.ok();
             info!("  Sinyal stop diterima! Menyelesaikan batch terakhir...");
             stop_flag_c.store(true, Ordering::SeqCst);
@@ -1590,6 +1591,7 @@ impl crate::cli::commands::Cli {
         info!("  Waktu: {:.2}s", total_time.as_secs_f64());
         info!("  Report: {}", report_path.display());
 
+        ctrlc_handle.abort();
         Ok(())
     }
 

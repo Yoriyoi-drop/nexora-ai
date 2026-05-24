@@ -127,12 +127,14 @@ impl PipelineBuilder {
 
     pub fn build(mut self) -> Pipeline {
         self.graph.finalize();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
         Pipeline {
             graph: self.graph,
             intake: self.intake,
             intelligence: self.intelligence,
             delivery: self.delivery,
-            cancel_tx: None,
+            cancel_tx,
+            cancel_rx,
         }
     }
 }
@@ -142,7 +144,8 @@ pub struct Pipeline {
     pub intake: StreamIntakeEngine,
     pub intelligence: DatasetIntelligenceCore,
     pub delivery: TrainingDeliveryLayer,
-    cancel_tx: Option<tokio::sync::watch::Sender<bool>>,
+    cancel_tx: tokio::sync::watch::Sender<bool>,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl Pipeline {
@@ -154,29 +157,25 @@ impl Pipeline {
         Self::builder().build()
     }
 
+    pub fn cancel(&self) {
+        let _ = self.cancel_tx.send(true);
+    }
+
     pub async fn run(
         &mut self,
         samples: Vec<DataSample>,
-        (cancel_tx, cancel_rx): (
-            tokio::sync::watch::Sender<bool>,
-            tokio::sync::watch::Receiver<bool>,
-        ),
     ) -> Vec<graph::ExecutionResult> {
-        self.cancel_tx = Some(cancel_tx);
         let mut results = Vec::with_capacity(samples.len());
 
-        // Phase 1: Intake - ingest and validate samples
         let ingested = self.intake.prepare_samples(samples);
 
         for sample in ingested {
-            if *cancel_rx.borrow() {
+            if *self.cancel_rx.borrow() {
                 break;
             }
 
-            // Phase 2: Filter DAG processing
-            let result = self.graph.execute(sample, cancel_rx.clone()).await;
+            let result = self.graph.execute(sample, self.cancel_rx.clone()).await;
 
-            // Phase 3: Intelligence - score and update quality
             if let graph::ExecutionResult::Accepted { ref sample, .. } = result {
                 let score = self.intelligence.score_sample(sample);
                 self.intelligence.update_quality_distribution(score);
@@ -185,7 +184,6 @@ impl Pipeline {
             results.push(result);
         }
 
-        // Phase 4: Delivery - deliver processed results
         let accepted: Vec<_> = results
             .iter()
             .filter_map(|r| {

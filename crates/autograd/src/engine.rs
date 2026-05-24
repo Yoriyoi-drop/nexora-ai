@@ -160,25 +160,44 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                 let g = grad_inputs[i].clone();
                                 if let Some(existing) = grads.get_mut(&inp.id()) {
                                     match existing {
-        Storage::Cpu(ref mut e)
-            if e.shape() == g.shape() =>
-        {
-            *Arc::make_mut(e) += &g;
-        }
-        Storage::Cpu(ref mut e) => *e = Arc::new(g),
+                                        Storage::Cpu(ref mut e) if e.shape() == g.shape() => {
+                                            *Arc::make_mut(e) += &g;
+                                        }
+                                        Storage::Cpu(ref mut e) => *e = Arc::new(g),
                                         #[cfg(feature = "gpu")]
-                                        Storage::Gpu(_) => {
-                                            match existing.to_cpu() {
-                                                Ok(mut e_cpu) => {
-                                                    e_cpu += &g;
-                                                    *existing = Storage::Cpu(Arc::new(e_cpu));
+                                        Storage::Gpu(ref mut gpu_grad) => {
+                                            match crate::gpu::GpuContext::global() {
+                                                Ok(ctx) => {
+                                                    let g_gpu = match crate::gpu::GpuTensor::from_cpu(&g) {
+                                                        Ok(t) => t,
+                                                        Err(e) => {
+                                                            tracing::warn!("Backward GPU: from_cpu failed: {e}");
+                                                            let mut e_cpu = gpu_grad.to_cpu().unwrap_or_else(|_| ndarray::ArrayD::zeros(gpu_grad.shape()));
+                                                            e_cpu += &g;
+                                                            *existing = Storage::Cpu(Arc::new(e_cpu));
+                                                            continue;
+                                                        }
+                                                    };
+                                                    match ctx.add_inplace(gpu_grad, &g_gpu) {
+                                                        Ok(()) => {},
+                                                        Err(e) => tracing::warn!("Backward GPU add_inplace failed: {e}"),
+                                                    }
                                                 }
-                                                Err(e) => tracing::warn!("Backward CPU fallback: Storage::to_cpu failed: {e}"),
+                                                Err(e) => tracing::warn!("Backward GPU context lost: {e}"),
                                             }
                                         }
                                     }
                                 } else {
-                                    grads.insert(inp.id(), Storage::Cpu(Arc::new(g)));
+                                    let storage = match crate::gpu::GpuContext::global() {
+                                        Ok(ctx) => {
+                                            match crate::gpu::GpuTensor::from_cpu(&g) {
+                                                Ok(g_gpu) => Storage::Gpu(g_gpu),
+                                                Err(_) => Storage::Cpu(Arc::new(g)),
+                                            }
+                                        }
+                                        Err(_) => Storage::Cpu(Arc::new(g)),
+                                    };
+                                    grads.insert(inp.id(), storage);
                                 }
                             }
                         }

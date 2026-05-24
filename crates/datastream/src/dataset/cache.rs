@@ -11,7 +11,9 @@ use crate::types::DataSample;
 pub struct DatasetCache {
     token_cache: Arc<RwLock<TokenizerCache>>,
     mmap_registry: Arc<RwLock<HashMap<String, MmapEntry>>>,
+    mmap_order: Arc<std::sync::Mutex<VecDeque<String>>>,
     cache_dir: PathBuf,
+    max_entries: usize,
 }
 
 struct MmapEntry {
@@ -27,7 +29,9 @@ impl DatasetCache {
         Self {
             token_cache: Arc::new(RwLock::new(TokenizerCache::new(cache_dir.join("tokens")))),
             mmap_registry: Arc::new(RwLock::new(HashMap::new())),
+            mmap_order: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             cache_dir,
+            max_entries: 10_000,
         }
     }
 
@@ -36,9 +40,21 @@ impl DatasetCache {
     }
 
     pub fn register_mmap(&self, shard: &ShardPath) {
+        let key = shard.path.to_string_lossy().to_string();
         let mut reg = self.mmap_registry.write();
+        let mut order = self.mmap_order.lock().unwrap();
+
+        if !reg.contains_key(&key) {
+            order.push_back(key.clone());
+            while reg.len() >= self.max_entries {
+                if let Some(oldest) = order.pop_front() {
+                    reg.remove(&oldest);
+                }
+            }
+        }
+
         reg.insert(
-            shard.path.to_string_lossy().to_string(),
+            key,
             MmapEntry {
                 path: shard.path.clone(),
                 size: shard.size_bytes,

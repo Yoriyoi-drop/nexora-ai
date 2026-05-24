@@ -40,6 +40,76 @@ pub struct Claim {
     pub source: Option<String>,
 }
 
+impl Claim {
+    pub fn new(text: String, specificity: f32, source: Option<String>) -> Self {
+        let claim_type = Self::classify(&text);
+        Self {
+            text,
+            claim_type,
+            specificity,
+            is_verified: None,
+            source,
+        }
+    }
+
+    pub fn with_verification(mut self, verified: bool) -> Self {
+        self.is_verified = Some(verified);
+        self
+    }
+
+    fn classify(text: &str) -> ClaimType {
+        let lower = text.to_lowercase();
+
+        if (text.contains('\'') || text.contains('"'))
+            && (lower.contains("said") || lower.contains("stated") || lower.contains("wrote") || lower.contains("according"))
+        {
+            return ClaimType::Quote;
+        }
+
+        if lower.contains("probably") || lower.contains("maybe") || lower.contains("might")
+            || lower.contains("could") || lower.contains("uncertain") || lower.contains("unclear")
+        {
+            return ClaimType::Uncertainty;
+        }
+
+        if lower.contains("think") || lower.contains("believe") || lower.contains("feel")
+            || lower.contains("opinion") || lower.contains("in my view")
+        {
+            return ClaimType::Opinion;
+        }
+
+        if lower.contains("according to") || lower.contains("source") || lower.contains("reference")
+            || lower.contains("cited") || lower.contains("reported by")
+        {
+            return ClaimType::Reference;
+        }
+
+        if text.chars().any(|c| c.is_ascii_digit())
+            && (text.contains('%') || text.contains("percent") || text.chars().filter(|c| c.is_ascii_digit()).count() >= 3)
+        {
+            return ClaimType::Number;
+        }
+
+        let month_names = [
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+        ];
+        if month_names.iter().any(|m| lower.contains(m))
+            || text.chars().filter(|&c| c == '/').count() >= 2
+        {
+            return ClaimType::Date;
+        }
+
+        if text.split_whitespace().any(|w| {
+            w.len() >= 2 && w.chars().all(|c| c.is_ascii_uppercase() && c.is_ascii_alphabetic())
+        }) {
+            return ClaimType::Name;
+        }
+
+        ClaimType::Fact
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreGenCheckResult {
     pub can_proceed: bool,

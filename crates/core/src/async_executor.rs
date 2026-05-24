@@ -4,11 +4,10 @@
 
 use crate::error::{CoreError, CoreResult};
 use crate::types::ModelId;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::task::JoinHandle;
@@ -255,7 +254,7 @@ impl AsyncTaskExecutor {
 
         // Check queue size limit
         {
-            let queue = self.task_queue.lock();
+            let queue = self.task_queue.lock().unwrap();
             if queue.len() >= self.config.max_queue_size {
                 return Err(CoreError::TaskExecution("Task queue is full".to_string()));
             }
@@ -288,7 +287,7 @@ impl AsyncTaskExecutor {
 
         // Add task to queue
         {
-            let mut queue = self.task_queue.lock();
+            let mut queue = self.task_queue.lock().unwrap();
             queue.push(task);
         }
 
@@ -309,7 +308,7 @@ impl AsyncTaskExecutor {
     pub async fn cancel_task(&self, task_id: &str) -> CoreResult<()> {
         // Try to remove from queue
         {
-            let mut queue = self.task_queue.lock();
+            let mut queue = self.task_queue.lock().unwrap();
             queue.retain(|task| task.id != task_id);
         }
 
@@ -358,7 +357,7 @@ impl AsyncTaskExecutor {
 
         // Cancel all pending tasks
         {
-            let mut queue = self.task_queue.lock();
+            let mut queue = self.task_queue.lock().unwrap();
             let pending_count = queue.len();
             queue.clear();
 
@@ -413,7 +412,7 @@ impl AsyncTaskExecutor {
 
     /// Get next task from priority queue
     async fn get_next_task(&self) -> Option<AsyncTask> {
-        let mut queue = self.task_queue.lock();
+        let mut queue = self.task_queue.lock().unwrap();
         queue.pop()
     }
 
@@ -517,9 +516,11 @@ impl AsyncTaskExecutor {
             task.id, retry_count, task.max_retries
         );
 
-        // Wait before retry (exponential backoff)
-        let delay_ms = 1000 * (1 << retry_count.min(5));
-        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        // Wait before retry (exponential backoff with jitter)
+        use rand::Rng;
+        let base_ms = 1000 * (1 << retry_count.min(5));
+        let jitter = rand::thread_rng().gen_range(0..=base_ms / 2);
+        tokio::time::sleep(Duration::from_millis(base_ms + jitter)).await;
 
         // Execute retry
         let mut retry_result = self.execute_task_internal(task).await;

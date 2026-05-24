@@ -148,9 +148,10 @@ impl CrossModalAttention {
             )?;
         }
 
-        // Return buffer to pool when done (in practice, we'd need RAII for this)
-        // For now, we'll return the buffer directly
-        Ok(attended_features)
+        // Clone result and return buffer to pool to prevent memory leak
+        let result = attended_features.clone();
+        self.memory_pool.return_buffer(attended_features);
+        Ok(result)
     }
 
     /// Optimized head attention computation with SIMD-like operations

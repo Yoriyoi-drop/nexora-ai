@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -26,6 +26,11 @@ struct CacheEntry {
     last_access: AtomicU64,
 }
 
+struct CacheStore {
+    entries: HashMap<u64, CacheEntry>,
+    lru_order: BTreeSet<(u64, u64)>, // (last_access_nanos, hash)
+}
+
 fn timestamp_nanos() -> u64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos() as u64,
@@ -37,7 +42,7 @@ fn timestamp_nanos() -> u64 {
 }
 
 pub struct KVCache {
-    entries: RwLock<HashMap<u64, CacheEntry>>,
+    store: RwLock<CacheStore>,
     ttl: Duration,
     max_entries: usize,
     max_entry_bytes: usize,
@@ -55,7 +60,10 @@ pub struct KVCache {
 impl KVCache {
     pub fn new() -> Self {
         Self {
-            entries: RwLock::new(HashMap::new()),
+            store: RwLock::new(CacheStore {
+                entries: HashMap::new(),
+                lru_order: BTreeSet::new(),
+            }),
             ttl: Duration::from_secs(3600),
             max_entries: 10_000,
             max_entry_bytes: 8_388_608,
@@ -100,25 +108,26 @@ impl KVCache {
     pub async fn get(&self, key: &[u8]) -> Option<Vec<f32>> {
         let hash = self.hash_key(key);
         {
-            let entries = self.entries.read().await;
-            if let Some(entry) = entries.get(&hash) {
+            let mut store = self.store.write().await;
+            if let Some(entry) = store.entries.get(&hash) {
                 if entry.key == key {
                     if entry.created_at.elapsed() > self.ttl {
                         self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
                         self.stats_misses.fetch_add(1, Ordering::Relaxed);
                         return None;
                     }
+                    let now = timestamp_nanos();
+                    let old_ts = entry.last_access.swap(now, Ordering::Relaxed);
                     entry.access_count.fetch_add(1, Ordering::Relaxed);
-                    entry
-                        .last_access
-                        .store(timestamp_nanos(), Ordering::Relaxed);
+                    let value = entry.value.as_ref().clone();
+                    // Update LRU order
+                    store.lru_order.remove(&(old_ts, hash));
+                    store.lru_order.insert((now, hash));
                     self.stats_hits.fetch_add(1, Ordering::Relaxed);
-                    // Arc clone is O(1) — avoids full Vec copy on every cache hit
-                    return Some(entry.value.as_ref().clone());
+                    return Some(value);
                 }
             }
         }
-        // On miss, promote to write lock for eviction path (rare)
         self.stats_misses.fetch_add(1, Ordering::Relaxed);
         None
     }
@@ -133,18 +142,26 @@ impl KVCache {
         }
 
         let hash = self.hash_key(&key);
-        let mut entries = self.entries.write().await;
+        let mut store = self.store.write().await;
 
-        while entries.len() >= self.max_entries
+        // If key already exists, remove old entry's size first
+        if let Some(old) = store.entries.get(&hash) {
+            if old.key == key {
+                let freed = old.value.len() * std::mem::size_of::<f32>() + old.key.len();
+                self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+                self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
+                self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+
+        while store.entries.len() >= self.max_entries
             || (self.total_memory_used.load(Ordering::Relaxed) + entry_size) > self.max_memory_bytes
         {
-            let lru_key = entries
-                .iter()
-                .min_by_key(|(_, e)| e.last_access.load(Ordering::Relaxed))
-                .map(|(k, _)| *k);
+            let lru_key = store.lru_order.iter().next().copied().map(|(_, h)| h);
             match lru_key {
                 Some(k) => {
-                    if let Some(removed) = entries.remove(&k) {
+                    if let Some(removed) = store.entries.remove(&k) {
+                        store.lru_order.remove(&(removed.last_access.load(Ordering::Relaxed), k));
                         let freed =
                             removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                         self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
@@ -157,43 +174,47 @@ impl KVCache {
             }
         }
 
-        entries.insert(
+        let now = timestamp_nanos();
+        store.lru_order.insert((now, hash));
+        store.entries.insert(
             hash,
             CacheEntry {
                 key,
                 value,
                 access_count: AtomicUsize::new(0),
                 created_at: Instant::now(),
-                last_access: AtomicU64::new(timestamp_nanos()),
+                last_access: AtomicU64::new(now),
             },
         );
         self.cache_size_count.fetch_add(1, Ordering::Relaxed);
         self.total_memory_used.fetch_add(entry_size, Ordering::Relaxed);
         self.estimated_memory.fetch_add(entry_size, Ordering::Relaxed);
 
-        drop(entries);
+        drop(store);
         self.maybe_cleanup().await;
     }
 
     pub async fn contains(&self, key: &[u8]) -> bool {
         let hash = self.hash_key(key);
-        let entries = self.entries.read().await;
-        entries.get(&hash).map_or(false, |e| {
+        let store = self.store.read().await;
+        store.entries.get(&hash).map_or(false, |e| {
             e.key == key && e.created_at.elapsed() <= self.ttl
         })
     }
 
     pub async fn clear(&self) {
-        let mut entries = self.entries.write().await;
-        entries.clear();
+        let mut store = self.store.write().await;
+        store.entries.clear();
+        store.lru_order.clear();
         self.cache_size_count.store(0, Ordering::Relaxed);
         self.estimated_memory.store(0, Ordering::Relaxed);
     }
 
     pub async fn remove(&self, key: &[u8]) -> bool {
         let hash = self.hash_key(key);
-        let mut entries = self.entries.write().await;
-        if let Some(removed) = entries.remove(&hash) {
+        let mut store = self.store.write().await;
+        if let Some(removed) = store.entries.remove(&hash) {
+            store.lru_order.remove(&(removed.last_access.load(Ordering::Relaxed), hash));
             let freed =
                 removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
             self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
@@ -206,15 +227,16 @@ impl KVCache {
     }
 
     pub async fn evict_expired(&self) -> usize {
-        let mut entries = self.entries.write().await;
-        let before = entries.len();
-        let evicted_entries: Vec<u64> = entries
+        let mut store = self.store.write().await;
+        let before = store.entries.len();
+        let evicted_entries: Vec<u64> = store.entries
             .iter()
             .filter(|(_, e)| e.created_at.elapsed() > self.ttl)
             .map(|(k, _)| *k)
             .collect();
         for k in &evicted_entries {
-            if let Some(removed) = entries.remove(k) {
+            if let Some(removed) = store.entries.remove(k) {
+                store.lru_order.remove(&(removed.last_access.load(Ordering::Relaxed), *k));
                 let freed =
                     removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                 self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
@@ -257,7 +279,7 @@ impl KVCache {
     }
 
     async fn maybe_cleanup(&self) {
-        // Lock ordering: last_cleanup → entries (dropped before evict_expired acquires entries)
+        // Lock ordering: last_cleanup → store (dropped before evict_expired acquires store)
         let mut last = self.last_cleanup.write().await;
         if last.elapsed() > Duration::from_secs(300) {
             *last = Instant::now();
@@ -306,7 +328,7 @@ mod tests {
         cache.insert(b"k1".to_vec(), vec![1.0]).await;
         cache.insert(b"k2".to_vec(), vec![2.0]).await;
         cache.insert(b"k3".to_vec(), vec![3.0]).await;
-        assert!(cache.entries.read().await.len() <= 2);
+        assert!(cache.store.read().await.entries.len() <= 2);
     }
 
     #[tokio::test]
@@ -339,7 +361,7 @@ mod tests {
         cache.insert(b"k1".to_vec(), vec![1.0]).await;
         cache.insert(b"k2".to_vec(), vec![2.0]).await;
         cache.clear().await;
-        assert_eq!(cache.entries.read().await.len(), 0);
+        assert_eq!(cache.store.read().await.entries.len(), 0);
     }
 
     #[tokio::test]
@@ -359,7 +381,7 @@ mod tests {
         for h in handles {
             h.await.unwrap();
         }
-        assert_eq!(cache.entries.read().await.len(), 100);
+        assert_eq!(cache.store.read().await.entries.len(), 100);
     }
 
     #[test]

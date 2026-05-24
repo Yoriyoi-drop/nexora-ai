@@ -20,22 +20,187 @@ pub trait CodeVerifier: Send + Sync {
     // Optional methods for specific verifiers
     fn check_language_specific_security(
         &self,
-        _code: &str,
+        code: &str,
         _language: &str,
     ) -> Result<Vec<CodeIssue>> {
-        Ok(Vec::new())
+        let mut issues = Vec::new();
+        let lines: Vec<&str> = code.lines().collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            let ln = i + 1;
+            let lower = line.to_lowercase();
+
+            if line.to_uppercase().contains("SELECT") && line.contains('+') && line.to_uppercase().contains("FROM") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Critical,
+                    category: "sql_injection".into(),
+                    message: "SQL injection risk: string concatenation in SQL query. Use parameterized queries.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "SEC-SQL-001".into(),
+                });
+            }
+
+            if lower.contains("<script") || lower.contains("onerror=") || lower.contains("onclick=") || lower.contains("onload=") || lower.contains("onmouseover=") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::High,
+                    category: "xss".into(),
+                    message: "Cross-site scripting (XSS) vulnerability: inline script or event handler detected.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "SEC-XSS-001".into(),
+                });
+            }
+
+            if lower.contains("system(") || lower.contains("exec(") || lower.contains("shell_exec(") || lower.contains("os.system") || lower.contains("subprocess.call") || lower.contains("popen(") || lower.contains("process::new") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Critical,
+                    category: "command_injection".into(),
+                    message: "Command injection risk: dangerous system command execution. Sanitize all inputs.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "SEC-CMD-001".into(),
+                });
+            }
+
+            if line.contains('=') || line.contains(':') {
+                let trimmed = line.trim();
+                if !trimmed.starts_with("//") && !trimmed.starts_with('#') && !trimmed.starts_with("/*") {
+                    if (lower.contains("password") || lower.contains("secret_key") || lower.contains("api_key") || lower.contains("apikey") || lower.contains("auth_token")) && !lower.contains("env(") && !lower.contains("getenv") && !lower.contains("config") {
+                        issues.push(CodeIssue {
+                            severity: IssueSeverity::High,
+                            category: "hardcoded_secret".into(),
+                            message: "Hardcoded secret detected. Store in environment variables or a secrets manager.".into(),
+                            line_number: Some(ln),
+                            column_number: None,
+                            rule_id: "SEC-SECRET-001".into(),
+                        });
+                    }
+                }
+            }
+
+            if lower.contains("eval(") || (lower.contains("exec(") && !lower.contains("exec_")) {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Critical,
+                    category: "unsafe_eval".into(),
+                    message: "Unsafe eval() or exec() call — allows arbitrary code execution. Use safe parsers instead.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "SEC-EVAL-001".into(),
+                });
+            }
+
+            if lower.contains("strcpy(") || lower.contains("strcat(") || lower.contains("sprintf(") || lower.contains("gets(") || lower.contains("scanf(") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::High,
+                    category: "buffer_overflow".into(),
+                    message: "Buffer overflow risk: unsafe C string function. Prefer strncpy/strncat/snprintf/fgets.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "SEC-BUF-001".into(),
+                });
+            }
+        }
+
+        Ok(issues)
     }
 
-    fn generate_security_suggestions(&self, _issues: &[CodeIssue]) -> Vec<String> {
-        Vec::new()
+    fn generate_security_suggestions(&self, issues: &[CodeIssue]) -> Vec<String> {
+        let mut suggestions = Vec::new();
+        let mut seen_categories = std::collections::HashSet::new();
+
+        for issue in issues {
+            if seen_categories.insert(&issue.category) {
+                match issue.category.as_str() {
+                    "sql_injection" => suggestions.push(
+                        "Use parameterized queries or prepared statements instead of string concatenation in SQL queries.".to_string()
+                    ),
+                    "xss" => suggestions.push(
+                        "Sanitize user input with a context-aware encoder. Use Content-Security-Policy headers and avoid innerHTML.".to_string()
+                    ),
+                    "command_injection" => suggestions.push(
+                        "Avoid shell commands with user input. Use library APIs instead of system()/exec(). If necessary, validate against a whitelist.".to_string()
+                    ),
+                    "hardcoded_secret" => suggestions.push(
+                        "Move secrets to environment variables or a secure vault. Never commit secrets to version control.".to_string()
+                    ),
+                    "unsafe_eval" => suggestions.push(
+                        "Replace eval() with a proper parser (e.g., serde_json, nom, pest). Eval is a code injection vector.".to_string()
+                    ),
+                    "buffer_overflow" => suggestions.push(
+                        "Replace unsafe C string functions with bounded alternatives: strncpy, strncat, snprintf, fgets.".to_string()
+                    ),
+                    _ => {}
+                }
+            }
+        }
+
+        if suggestions.is_empty() {
+            suggestions.push("Run a dependency vulnerability scanner (e.g., cargo audit, npm audit, pip audit).".to_string());
+        }
+
+        suggestions
     }
 
     fn check_language_specific_performance(
         &self,
-        _code: &str,
+        code: &str,
         _language: &str,
     ) -> Result<Vec<CodeIssue>> {
-        Ok(Vec::new())
+        let mut issues = Vec::new();
+        let lines: Vec<&str> = code.lines().collect();
+        let code_str = code.to_string();
+
+        for (i, line) in lines.iter().enumerate() {
+            let ln = i + 1;
+
+            if line.contains("for ") && line.contains("for ") && i + 1 < lines.len() && lines[i + 1].contains("for ") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Warning,
+                    category: "nested_loop".into(),
+                    message: "O(n²) complexity: nested loop detected. Consider flattening or using a hash map.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "PERF-NEST-001".into(),
+                });
+            }
+
+            if line.contains(".clone()") && line.contains("for ") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Warning,
+                    category: "redundant_clone".into(),
+                    message: "Unnecessary .clone() inside loop — causes repeated allocation. Use references instead.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "PERF-CLONE-001".into(),
+                });
+            }
+
+            if (line.contains("+=") || line.contains("push_str")) && line.contains("for ") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Info,
+                    category: "string_allocation".into(),
+                    message: "String concatenation inside loop causes O(n²) allocations. Prefer collecting into a Vec and joining.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "PERF-STR-001".into(),
+                });
+            }
+        }
+
+        if code_str.matches(".to_string()").count() >= 5 {
+            let count = code_str.matches(".to_string()").count();
+            issues.push(CodeIssue {
+                severity: IssueSeverity::Info,
+                category: "excessive_to_string".into(),
+                message: format!("{} calls to .to_string() detected. Reuse owned strings or use Cow<str>.", count),
+                line_number: None,
+                column_number: None,
+                rule_id: "PERF-TOSTR-001".into(),
+            });
+        }
+
+        Ok(issues)
     }
 
     fn calculate_complexity(&self, code: &str) -> f32 {
@@ -61,32 +226,248 @@ pub trait CodeVerifier: Send + Sync {
         raw.min(50.0).max(1.0)
     }
 
-    fn generate_performance_suggestions(&self, _issues: &[CodeIssue]) -> Vec<String> {
-        Vec::new()
+    fn generate_performance_suggestions(&self, issues: &[CodeIssue]) -> Vec<String> {
+        let mut suggestions = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for issue in issues {
+            if seen.insert(&issue.category) {
+                match issue.category.as_str() {
+                    "nested_loop" => suggestions.push(
+                        "Extract nested loops into a flat structure using hash maps or sorting for O(n log n) instead of O(n²).".to_string()
+                    ),
+                    "redundant_clone" => suggestions.push(
+                        "Remove unnecessary .clone() calls inside loops. Use &T references instead of owned T.".to_string()
+                    ),
+                    "string_allocation" => suggestions.push(
+                        "Replace string concatenation in loops with a Vec<String> and .join() for O(n) allocation.".to_string()
+                    ),
+                    "excessive_to_string" => suggestions.push(
+                        "Cache .to_string() results and reuse. Consider using Cow<str> or &str where possible.".to_string()
+                    ),
+                    _ => {}
+                }
+            }
+        }
+
+        if suggestions.is_empty() {
+            suggestions.push("Profile the hot path before optimizing. Premature optimization is the root of all evil.".to_string());
+        }
+
+        suggestions
     }
 
     fn check_language_specific_correctness(
         &self,
-        _code: &str,
+        code: &str,
         _language: &str,
     ) -> Result<Vec<CodeIssue>> {
-        Ok(Vec::new())
+        let mut issues = Vec::new();
+        let lines: Vec<&str> = code.lines().collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            let ln = i + 1;
+
+            if line.contains(".unwrap()") && !line.trim_start().starts_with("//") && !line.trim_start().starts_with('#') {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Error,
+                    category: "null_pointer_risk".into(),
+                    message: "Unwrap without safety check — will panic on None/Err. Use pattern matching or ? operator.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "CORR-UNWRAP-001".into(),
+                });
+            }
+
+            if line.contains(" as ") && (line.contains(" as u") || line.contains(" as i") || line.contains(" as f")) && !line.contains("as usize") && !line.contains("as isize") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Warning,
+                    category: "type_confusion".into(),
+                    message: "Numeric cast may truncate or overflow. Use try_from() for safe conversions.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "CORR-CAST-001".into(),
+                });
+            }
+
+            if line.contains("<= ") && lines.len() > i + 1 {
+                let next_line = lines[i + 1];
+                if next_line.contains('[') || next_line.contains("get(") {
+                    issues.push(CodeIssue {
+                        severity: IssueSeverity::Warning,
+                        category: "off_by_one".into(),
+                        message: "Loop with <= bound followed by index access — potential off-by-one error.".into(),
+                        line_number: Some(ln),
+                        column_number: None,
+                        rule_id: "CORR-OFFBYONE-001".into(),
+                    });
+                }
+            }
+
+            if (line.contains("let ") && line.contains(": ") && !line.contains("= ")) && !line.contains("fn ") {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Warning,
+                    category: "uninitialized_variable".into(),
+                    message: "Variable declared without initialization — may be used uninitialized.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "CORR-UNINIT-001".into(),
+                });
+            }
+        }
+
+        Ok(issues)
     }
 
-    fn generate_correctness_suggestions(&self, _issues: &[CodeIssue]) -> Vec<String> {
-        Vec::new()
+    fn generate_correctness_suggestions(&self, issues: &[CodeIssue]) -> Vec<String> {
+        let mut suggestions = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for issue in issues {
+            if seen.insert(&issue.category) {
+                match issue.category.as_str() {
+                    "null_pointer_risk" => suggestions.push(
+                        "Replace .unwrap() with match, if let, or the ? operator to handle None/Err gracefully.".to_string()
+                    ),
+                    "type_confusion" => suggestions.push(
+                        "Use TryFrom/Into for numeric conversions that can fail, instead of 'as' casts.".to_string()
+                    ),
+                    "off_by_one" => suggestions.push(
+                        "Use '<' instead of '<=' for zero-indexed collections, or subtract 1 from the bound.".to_string()
+                    ),
+                    "uninitialized_variable" => suggestions.push(
+                        "Initialize variables at declaration with a default value, or use Option.".to_string()
+                    ),
+                    _ => {}
+                }
+            }
+        }
+
+        if suggestions.is_empty() {
+            suggestions.push("Add property-based tests (e.g., proptest, quickcheck) to catch edge cases.".to_string());
+        }
+
+        suggestions
     }
 
     fn check_language_specific_style(
         &self,
-        _code: &str,
+        code: &str,
         _language: &str,
     ) -> Result<Vec<CodeIssue>> {
-        Ok(Vec::new())
+        let mut issues = Vec::new();
+        let lines: Vec<&str> = code.lines().collect();
+        let mut indent_size: Option<usize> = None;
+
+        for (i, line) in lines.iter().enumerate() {
+            let ln = i + 1;
+
+            if line.len() > 100 {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Style,
+                    category: "long_line".into(),
+                    message: format!("Line exceeds 100 characters ({} chars). Break into multiple lines.", line.len()),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "STYLE-LINE-001".into(),
+                });
+            }
+
+            if line.len() > line.trim_end().len() {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Style,
+                    category: "trailing_whitespace".into(),
+                    message: "Trailing whitespace detected. Remove trailing spaces.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "STYLE-TRAIL-001".into(),
+                });
+            }
+
+            if !line.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
+                continue;
+            }
+
+            let leading_spaces = line.chars().take_while(|c| *c == ' ').count();
+            let leading_tabs = line.chars().take_while(|c| *c == '\t').count();
+
+            if leading_spaces > 0 {
+                if let Some(expected) = indent_size {
+                    if leading_spaces % expected != 0 {
+                        issues.push(CodeIssue {
+                            severity: IssueSeverity::Style,
+                            category: "inconsistent_indentation".into(),
+                            message: format!("Inconsistent indentation: {} spaces, expected multiple of {}.", leading_spaces, expected),
+                            line_number: Some(ln),
+                            column_number: None,
+                            rule_id: "STYLE-INDENT-001".into(),
+                        });
+                    }
+                } else if leading_spaces > 0 {
+                    indent_size = Some(leading_spaces);
+                }
+            }
+
+            if leading_tabs > 0 && leading_spaces > 0 {
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Style,
+                    category: "mixed_indentation".into(),
+                    message: "Mixed tabs and spaces in indentation. Pick one style.".into(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "STYLE-INDENT-002".into(),
+                });
+            }
+        }
+
+        let has_snake = lines.iter().any(|l| l.contains('_') && l.chars().any(|c| c.is_ascii_lowercase()));
+        let has_camel = lines.iter().any(|l| {
+            l.chars().any(|c| c.is_ascii_uppercase()) && !l.contains('_')
+        });
+
+        if has_snake && has_camel {
+            issues.push(CodeIssue {
+                severity: IssueSeverity::Style,
+                category: "naming_inconsistency".into(),
+                message: "Mixed snake_case and camelCase naming detected. Adopt a single convention.".into(),
+                line_number: None,
+                column_number: None,
+                rule_id: "STYLE-NAMING-001".into(),
+            });
+        }
+
+        Ok(issues)
     }
 
-    fn generate_style_suggestions(&self, _issues: &[CodeIssue]) -> Vec<String> {
-        Vec::new()
+    fn generate_style_suggestions(&self, issues: &[CodeIssue]) -> Vec<String> {
+        let mut suggestions = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for issue in issues {
+            if seen.insert(&issue.category) {
+                match issue.category.as_str() {
+                    "long_line" => suggestions.push(
+                        "Break long lines at 100 characters. Use early returns or extract helper functions.".to_string()
+                    ),
+                    "trailing_whitespace" => suggestions.push(
+                        "Remove trailing whitespace. Configure your editor to strip it on save.".to_string()
+                    ),
+                    "inconsistent_indentation" | "mixed_indentation" => suggestions.push(
+                        "Use a formatter (rustfmt, black, prettier) to enforce consistent indentation.".to_string()
+                    ),
+                    "naming_inconsistency" => suggestions.push(
+                        "Use snake_case for variables/functions, CamelCase for types, SCREAMING_SNAKE for constants.".to_string()
+                    ),
+                    _ => {}
+                }
+            }
+        }
+
+        if suggestions.is_empty() {
+            suggestions.push("Run an auto-formatter to enforce a consistent style.".to_string());
+        }
+
+        suggestions
     }
 
     // Performance analysis methods with default implementations

@@ -49,12 +49,6 @@ pub enum EmotionNetworkType {
     Complex,
     /// Social emotion recognition
     Social,
-    /// Cultural emotion recognition
-    Cultural,
-    /// Psychological emotion recognition
-    Psychological,
-    /// Developmental emotion recognition
-    Developmental,
 }
 
 /// Input Modality
@@ -66,10 +60,6 @@ pub enum InputModality {
     Audio,
     /// Visual input
     Visual,
-    /// Multimodal input
-    Multimodal,
-    /// Physiological input
-    Physiological,
     /// Behavioral input
     Behavioral,
 }
@@ -203,10 +193,6 @@ pub struct PsychologicalModel {
 pub enum PsychologicalModelType {
     /// Neural network model
     NeuralNetwork,
-    /// Rule-based model
-    RuleBased,
-    /// Statistical model
-    Statistical,
     /// Hybrid model
     Hybrid {
         neural_weight: f32,
@@ -222,14 +208,6 @@ pub enum PsychologicalDomain {
     Cognitive,
     /// Emotional domain
     Emotional,
-    /// Social domain
-    Social,
-    /// Behavioral domain
-    Behavioral,
-    /// Developmental domain
-    Developmental,
-    /// Clinical domain
-    Clinical,
 }
 
 /// Model Parameters
@@ -248,14 +226,8 @@ pub struct ModelParameters {
 /// Validation Status
 #[derive(Debug, Clone)]
 pub enum ValidationStatus {
-    /// Not validated
-    NotValidated,
-    /// In validation
-    InValidation,
     /// Validated
     Validated,
-    /// Failed validation
-    FailedValidation,
 }
 
 /// Analysis Cache
@@ -273,8 +245,29 @@ impl AnalysisCache {
     /// Insert entry with eviction when cache exceeds size limit.
     pub fn insert(&mut self, key: String, entry: CacheEntry) {
         if self.entries.len() >= self.size_limit && !self.entries.contains_key(&key) {
-            if let Some(oldest) = self.entries.keys().next().cloned() {
-                self.entries.remove(&oldest);
+            match self.policy {
+                CachePolicy::LRU => {
+                    let lru_key = self.entries.iter()
+                        .min_by_key(|(_, e)| e.last_access)
+                        .map(|(k, _)| k.clone());
+                    if let Some(k) = lru_key {
+                        self.entries.remove(&k);
+                    }
+                }
+                CachePolicy::TimeBased { ttl_seconds } => {
+                    let now = chrono::Utc::now();
+                    self.entries.retain(|_, e| {
+                        (now - e.timestamp).num_seconds() < ttl_seconds as i64
+                    });
+                    if self.entries.len() >= self.size_limit {
+                        let lru_key = self.entries.iter()
+                            .min_by_key(|(_, e)| e.last_access)
+                            .map(|(k, _)| k.clone());
+                        if let Some(k) = lru_key {
+                            self.entries.remove(&k);
+                        }
+                    }
+                }
             }
         }
         self.entries.insert(key, entry);
@@ -301,12 +294,8 @@ pub struct CacheEntry {
 pub enum CachePolicy {
     /// Least recently used
     LRU,
-    /// Least frequently used
-    LFU,
     /// Time-based expiration
     TimeBased { ttl_seconds: u64 },
-    /// Size-based eviction
-    SizeBased,
 }
 
 /// Empathy Synthesis System
@@ -443,10 +432,6 @@ pub struct EmpathyModel {
 pub enum EmpathyModelType {
     /// Transformer model
     Transformer,
-    /// LSTM model
-    LSTM,
-    /// CNN model
-    CNN,
     /// Hybrid model
     Hybrid,
 }
@@ -677,8 +662,29 @@ impl ContextCache {
     /// Insert entry with eviction when cache exceeds size limit.
     pub fn insert(&mut self, key: String, entry: ContextCacheEntry) {
         if self.entries.len() >= self.size_limit && !self.entries.contains_key(&key) {
-            if let Some(oldest) = self.entries.keys().next().cloned() {
-                self.entries.remove(&oldest);
+            match self.policy {
+                CachePolicy::LRU => {
+                    let lru_key = self.entries.iter()
+                        .min_by_key(|(_, e)| e.last_access)
+                        .map(|(k, _)| k.clone());
+                    if let Some(k) = lru_key {
+                        self.entries.remove(&k);
+                    }
+                }
+                CachePolicy::TimeBased { ttl_seconds } => {
+                    let now = chrono::Utc::now();
+                    self.entries.retain(|_, e| {
+                        (now - e.timestamp).num_seconds() < ttl_seconds as i64
+                    });
+                    if self.entries.len() >= self.size_limit {
+                        let lru_key = self.entries.iter()
+                            .min_by_key(|(_, e)| e.last_access)
+                            .map(|(k, _)| k.clone());
+                        if let Some(k) = lru_key {
+                            self.entries.remove(&k);
+                        }
+                    }
+                }
             }
         }
         self.entries.insert(key, entry);
@@ -827,16 +833,8 @@ pub enum BehavioralPatternType {
 /// Developmental Stage
 #[derive(Debug, Clone)]
 pub enum DevelopmentalStage {
-    /// Childhood
-    Childhood,
-    /// Adolescence
-    Adolescence,
     /// Early adulthood
     EarlyAdulthood,
-    /// Middle adulthood
-    MiddleAdulthood,
-    /// Late adulthood
-    LateAdulthood,
 }
 
 /// Assessment Result

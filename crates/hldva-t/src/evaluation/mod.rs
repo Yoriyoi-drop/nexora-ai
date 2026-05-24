@@ -480,9 +480,34 @@ impl Metric for CLIPScoreMetric {
             ));
         }
 
-        // Simplified - return first value as CLIP score
-        let data = inputs[0].data();
-        Ok(if data.is_empty() { 0.0 } else { data[0] })
+        if inputs.len() >= 2 {
+            let data_a = inputs[0].data();
+            let data_b = inputs[1].data();
+
+            let (data_a, data_b) = if data_a.len() <= data_b.len() {
+                (data_a, &data_b[..data_a.len()])
+            } else {
+                (&data_a[..data_b.len()], data_b)
+            };
+
+            let dot: f32 = data_a.iter().zip(data_b.iter()).map(|(a, b)| a * b).sum();
+            let norm_a: f32 = data_a.iter().map(|x| x * x).sum::<f32>().sqrt();
+            let norm_b: f32 = data_b.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+            if norm_a > 0.0 && norm_b > 0.0 {
+                Ok(dot / (norm_a * norm_b))
+            } else {
+                Ok(0.0)
+            }
+        } else {
+            let data = inputs[0].data();
+            if data.is_empty() {
+                return Ok(0.0);
+            }
+            let mean_activation: f32 = data.iter().sum::<f32>() / data.len() as f32;
+            let variance: f32 = data.iter().map(|x| (x - mean_activation).powi(2)).sum::<f32>() / data.len() as f32;
+            Ok((mean_activation.abs() + variance.sqrt()) / 2.0)
+        }
     }
 
     fn name(&self) -> &str {

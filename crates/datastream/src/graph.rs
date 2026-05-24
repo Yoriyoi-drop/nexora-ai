@@ -253,8 +253,8 @@ impl ExecutionGraph {
             let mut filter_results: Vec<(String, FilterResult)> =
                 Vec::with_capacity(level_nodes.len());
 
+            let mut handles = Vec::with_capacity(level_nodes.len());
             if level_nodes.len() > 1 {
-                let mut handles = Vec::with_capacity(level_nodes.len());
                 for node_id in &level_nodes {
                     let filter = self.nodes[node_id].filter.clone();
                     let sample = sample_arc.clone();
@@ -265,8 +265,7 @@ impl ExecutionGraph {
                                 let filter = filter.clone();
                                 let sample = sample.clone();
                                 async move {
-                                    tokio::spawn(async move { filter.filter(&*sample).await })
-                                        .await
+                                    filter.filter(&*sample).await
                                         .map_err(|e| format!("Filter panicked: {:?}", e))
                                 }
                             })
@@ -284,36 +283,39 @@ impl ExecutionGraph {
                         (node_id, result)
                     }));
                 }
-                for handle in handles {
-                    match handle.await {
-                        Ok(result) => filter_results.push(result),
-                        Err(e) => {
-                            warn!("Filter task join error: {:?}, cancelling execution", e);
-                            return ExecutionResult::Cancelled;
-                        }
+            } else {
+                let node_id = level_nodes[0].clone();
+                let filter = self.nodes[&node_id].filter.clone();
+                let sample = sample_arc.clone();
+                handles.push(tokio::spawn(async move {
+                    let result = RetryConfig::default()
+                        .retry(|| {
+                            let filter = filter.clone();
+                            let sample = sample.clone();
+                            async move { Ok::<_, String>(filter.filter(&*sample).await) }
+                        })
+                        .await
+                        .unwrap_or_else(|e| {
+                            warn!("Filter '{}' failed after retries: {}", node_id, e);
+                            FilterResult {
+                                passed: false,
+                                sample_id: sample.id,
+                                filter_name: filter.name().to_string(),
+                                reason: Some(e),
+                                score_delta: 0.0,
+                            }
+                        });
+                    (node_id, result)
+                }));
+            }
+            for handle in handles {
+                match handle.await {
+                    Ok(result) => filter_results.push(result),
+                    Err(e) => {
+                        warn!("Filter task join error: {:?}, cancelling execution", e);
+                        return ExecutionResult::Cancelled;
                     }
                 }
-            } else {
-                let node_id = &level_nodes[0];
-                let node = &self.nodes[node_id];
-                let filter_result = RetryConfig::default()
-                    .retry(|| {
-                        let filter = node.filter.clone();
-                        let sample = sample_arc.clone();
-                        async move { Ok::<_, String>(filter.filter(&*sample).await) }
-                    })
-                    .await
-                    .unwrap_or_else(|e| {
-                        warn!("Filter '{}' failed after retries: {}", node_id, e);
-                        FilterResult {
-                            passed: false,
-                            sample_id: sample_arc.id,
-                            filter_name: node.filter.name().to_string(),
-                            reason: Some(e),
-                            score_delta: 0.0,
-                        }
-                    });
-                filter_results.push((node_id.clone(), filter_result));
             }
 
             sample =
@@ -393,26 +395,28 @@ impl ExecutionGraph {
     pub async fn execute_parallel(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {
         use futures::future::join_all;
 
-        let (cancel_tx, _) = tokio::sync::watch::channel(false);
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
         let tasks: Vec<_> = samples
             .into_iter()
             .map(|sample| {
-                let cancel = cancel_tx.subscribe();
+                let cancel = cancel_rx.clone();
                 async move { self.execute(sample, cancel).await }
             })
             .collect();
 
-        let results = join_all(tasks).await;
+        let results = futures::future::join_all(tasks).await;
         for result in &results {
             if matches!(result, ExecutionResult::Cancelled) {
                 tracing::error!("Pipeline task was cancelled");
+                let _ = cancel_tx.send(true);
+                break;
             }
         }
         results
     }
 
-    pub async fn run_rayon(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {
+    pub async fn run_parallel(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {
         let (cancel_tx, _) = tokio::sync::watch::channel(false);
         let handles: Vec<_> = samples.into_iter().map(|sample| {
             let cancel = cancel_tx.subscribe();

@@ -36,6 +36,8 @@ pub struct InterAgentMessage {
     pub reply_to: Option<Uuid>,
     /// TTL (time to live) dalam hops
     pub ttl: Option<u32>,
+    /// Routing strategy
+    pub routing_strategy: RoutingStrategy,
 }
 
 /// Message routing strategy
@@ -221,21 +223,43 @@ impl MessageBus {
     pub async fn send_message(&self, message: InterAgentMessage) -> Result<()> {
         let message = Arc::new(message);
         debug!(
-            "Sending message {} from {} to {:?}",
-            message.message_id, message.source_agent_id, message.destination_agent_id
+            "Sending message {} from {} with strategy {:?}",
+            message.message_id, message.source_agent_id, message.routing_strategy
         );
 
         // Track message
         self.track_message((*message).clone()).await?;
 
-        // Route message based on destination
-        match message.destination_agent_id {
-            Some(dest_id) => {
-                self.send_to_agent(dest_id, message).await?;
+        // Route message berdasarkan strategy
+        match &message.routing_strategy {
+            RoutingStrategy::Direct => {
+                if let Some(dest_id) = message.destination_agent_id {
+                    self.send_to_agent(dest_id, message).await?;
+                }
             }
-            None => {
-                // Broadcast atau topic-based
+            RoutingStrategy::Broadcast => {
                 self.route_message(message).await?;
+            }
+            RoutingStrategy::Topic(topic) => {
+                let subscribers = self.topic_subscribers.read().await;
+                if let Some(agents) = subscribers.get(topic) {
+                    for &agent_id in agents.iter() {
+                        self.send_to_agent(agent_id, message.clone()).await?;
+                    }
+                }
+            }
+            RoutingStrategy::Role(role) => {
+                let subscribers = self.role_subscribers.read().await;
+                if let Some(agents) = subscribers.get(role) {
+                    for &agent_id in agents.iter() {
+                        self.send_to_agent(agent_id, message.clone()).await?;
+                    }
+                }
+            }
+            RoutingStrategy::LoadBalanced(role) => {
+                if let Some(agent_id) = self.pick_least_loaded_agent(role).await {
+                    self.send_to_agent(agent_id, message).await?;
+                }
             }
         }
 
@@ -407,6 +431,32 @@ impl MessageBus {
         Ok(())
     }
 
+    /// Pick the least-loaded agent for a given role
+    async fn pick_least_loaded_agent(&self, role: &str) -> Option<Uuid> {
+        let role_subscribers = self.role_subscribers.read().await;
+        let candidates = role_subscribers.get(role).cloned().unwrap_or_default();
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let candidates_clone = candidates.clone();
+        drop(role_subscribers);
+
+        let queue = self.message_queue.read().await;
+        candidates_clone
+            .into_iter()
+            .map(|id| {
+                let load = queue
+                    .iter()
+                    .filter(|m| m.destination_agent_id == Some(id) || m.destination_agent_id.is_none())
+                    .count();
+                (id, load)
+            })
+            .min_by_key(|&(_, load)| load)
+            .map(|(id, _)| id)
+    }
+
     /// Queue message untuk nanti
     async fn queue_message(&self, message: Arc<InterAgentMessage>) -> Result<()> {
         let mut queue = self.message_queue.write().await;
@@ -486,6 +536,7 @@ impl InterAgentMessage {
             priority: MessagePriority::Normal,
             reply_to: None,
             ttl: Some(10), // Default TTL 10 hops
+            routing_strategy: RoutingStrategy::Broadcast,
         }
     }
 
@@ -510,6 +561,12 @@ impl InterAgentMessage {
     /// Add metadata
     pub fn with_metadata(mut self, key: String, value: serde_json::Value) -> Self {
         self.metadata.insert(key, value);
+        self
+    }
+
+    /// Set routing strategy
+    pub fn with_routing_strategy(mut self, strategy: RoutingStrategy) -> Self {
+        self.routing_strategy = strategy;
         self
     }
 
