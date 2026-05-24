@@ -3732,6 +3732,7 @@ dependencies = [
  "nexora-core",
  "nexora-foundation",
  "nexora-intelligence",
+ "nexora-runtime",
  "nexora-tokenizer",
  "nexora-transformer",
  "num_cpus",

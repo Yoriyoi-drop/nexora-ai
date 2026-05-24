@@ -40,23 +40,35 @@ fn sample_token_gpu(logits: &Array1<f32>, temperature: f32, top_k: usize, top_p:
     let fallback = || sample_token(logits, temperature, top_k);
     let ctx = match GpuContext::global() {
         Ok(c) => c,
-        Err(_) => return fallback(),
+        Err(e) => {
+            tracing::warn!("GPU context unavailable, falling back to CPU: {}", e);
+            return fallback();
+        }
     };
     let shape = vec![1, logits.len()];
     let cpu = match ndarray::ArrayD::from_shape_vec(shape.clone(), logits.to_vec()) {
         Ok(c) => c,
-        Err(_) => return fallback(),
+        Err(e) => {
+            tracing::warn!("Failed to upload tensor to GPU: {}", e);
+            return fallback();
+        }
     };
     let gpu = match GpuTensor::from_cpu(&cpu) {
         Ok(g) => g,
-        Err(_) => return fallback(),
+        Err(e) => {
+            tracing::warn!("Failed to upload tensor to GPU: {}", e);
+            return fallback();
+        }
     };
     match ctx.gpu_sample(&gpu, temperature, u32::try_from(top_k).unwrap_or(u32::MAX), top_p, seed) {
         Ok(result) => {
             let raw = result.to_cpu_raw_bytes();
             u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]])
         }
-        Err(_) => fallback(),
+        Err(e) => {
+            tracing::warn!("GPU sampling failed: {}", e);
+            fallback()
+        }
     }
 }
 

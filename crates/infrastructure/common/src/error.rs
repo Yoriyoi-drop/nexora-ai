@@ -747,7 +747,36 @@ impl ErrorRecoveryManager {
                         _ => {}
                     }
                 }
-                _ => {}
+                RecoveryAction::NoAction => {
+                    tracing::debug!(
+                        "No recovery action needed for component '{}'",
+                        component
+                    );
+                }
+                RecoveryAction::CircuitBreakerOpen => {
+                    tracing::warn!(
+                        "Circuit breaker is open for component '{}' — not attempting recovery",
+                        component
+                    );
+                    circuit_breaker.failure_count += 1;
+                    circuit_breaker.last_failure = Instant::now();
+                }
+                RecoveryAction::Degraded(_) => {
+                    tracing::warn!(
+                        "Recovery in degraded mode for component '{}'",
+                        component
+                    );
+                    circuit_breaker.failure_count += 1;
+                    circuit_breaker.last_failure = Instant::now();
+                }
+                RecoveryAction::EmergencyShutdown => {
+                    tracing::error!(
+                        "Emergency shutdown recovery for component '{}'",
+                        component
+                    );
+                    circuit_breaker.failure_count += 1;
+                    circuit_breaker.last_failure = Instant::now();
+                }
             }
         }
     }

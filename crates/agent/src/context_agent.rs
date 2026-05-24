@@ -367,7 +367,7 @@ impl ContextAgent {
             })
             .await
             .map_err(|e| {
-                AgentError::ProcessingError(format!("Wikipedia context fetch failed: {}", e))
+                AgentError::ProcessingError { operation: "fetch_wikipedia".to_string(), reason: format!("Wikipedia context fetch failed: {}", e) }
             })?;
 
         let data: Value = response.json().await?;
@@ -390,9 +390,7 @@ impl ContextAgent {
         debug!("Fetching news context via NewsAPI");
 
         let api_key = std::env::var("NEWSAPI_KEY").map_err(|_| {
-            AgentError::ProcessingError(
-                "External source news requires NEWSAPI_KEY environment variable".to_string(),
-            )
+            AgentError::ProcessingError { operation: "fetch_news".to_string(), reason: "External source news requires NEWSAPI_KEY environment variable".to_string() }
         })?;
 
         let api_key_clone = api_key.clone();
@@ -418,7 +416,7 @@ impl ContextAgent {
             })
             .await
             .map_err(|e| {
-                AgentError::ProcessingError(format!("News context fetch failed: {}", e))
+                AgentError::ProcessingError { operation: "fetch_news".to_string(), reason: format!("News context fetch failed: {}", e) }
             })?;
 
         let data: Value = response.json().await?;
@@ -454,20 +452,25 @@ impl ContextAgent {
     async fn fetch_weather_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching weather context via Open-Meteo API");
 
-        let response = reqwest::get(
-            "https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current_weather=true"
-        )
+        let response = RetryConfig::new(3, 500)
+            .retry(|| async {
+                reqwest::get(
+                    "https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current_weather=true"
+                )
+                    .await
+                    .map_err(|e| format!("Request failed: {}", e))
+                    .and_then(|r| {
+                        if r.status().is_success() {
+                            Ok(r)
+                        } else {
+                            Err(format!("Weather API returned status: {}", r.status()))
+                        }
+                    })
+            })
             .await
-            .map_err(|e| AgentError::ProcessingError(
-                format!("External source weather requires reqwest dependency: {}", e)
-            ))?;
-
-        if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(format!(
-                "Weather API returned status: {}",
-                response.status()
-            )));
-        }
+            .map_err(|e| {
+                AgentError::ProcessingError { operation: "fetch_weather".to_string(), reason: format!("Weather context fetch failed: {}", e) }
+            })?;
 
         let data: Value = response.json().await?;
         let current = &data["current_weather"];
@@ -492,30 +495,34 @@ impl ContextAgent {
         debug!("Fetching stock context via Finnhub API");
 
         let api_key = std::env::var("FINNHUB_API_KEY").map_err(|_| {
-            AgentError::ProcessingError(
-                "External source stock requires FINNHUB_API_KEY environment variable".to_string(),
-            )
+            AgentError::ProcessingError { operation: "fetch_stock".to_string(), reason: "External source stock requires FINNHUB_API_KEY environment variable".to_string() }
         })?;
 
-        let response = reqwest::Client::new()
-            .get("https://finnhub.io/api/v1/quote")
-            .query(&[("symbol", "SPY")])
-            .header("X-Finnhub-Token", &api_key)
-            .send()
+        let api_key_clone = api_key.clone();
+        let response = RetryConfig::new(3, 500)
+            .retry(move || {
+                let ak = api_key_clone.clone();
+                async move {
+                    reqwest::Client::new()
+                        .get("https://finnhub.io/api/v1/quote")
+                        .query(&[("symbol", "SPY")])
+                        .header("X-Finnhub-Token", &ak)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Request failed: {}", e))
+                        .and_then(|r| {
+                            if r.status().is_success() {
+                                Ok(r)
+                            } else {
+                                Err(format!("Stock API returned status: {}", r.status()))
+                            }
+                        })
+                }
+            })
             .await
             .map_err(|e| {
-                AgentError::ProcessingError(format!(
-                    "External source stock requires reqwest dependency: {}",
-                    e
-                ))
+                AgentError::ProcessingError { operation: "fetch_stock".to_string(), reason: format!("Stock context fetch failed: {}", e) }
             })?;
-
-        if !response.status().is_success() {
-            return Err(AgentError::ProcessingError(format!(
-                "Stock API returned status: {}",
-                response.status()
-            )));
-        }
 
         let data: Value = response.json().await?;
 
@@ -543,18 +550,12 @@ impl ContextAgent {
 
     /// Fetch user profile context from database
     async fn fetch_user_profile_context(&self) -> Result<(Value, usize)> {
-        Err(AgentError::ProcessingError(
-            "External source user_profile requires a configured user profile database service"
-                .to_string(),
-        ))
+        Err(AgentError::ProcessingError { operation: "fetch_user_profile".to_string(), reason: "External source user_profile requires a configured user profile database service".to_string() })
     }
 
     /// Fetch context from knowledge base
     async fn fetch_knowledge_base_context(&self) -> Result<(Value, usize)> {
-        Err(AgentError::ProcessingError(
-            "External source knowledge_base requires a configured knowledge base service"
-                .to_string(),
-        ))
+        Err(AgentError::ProcessingError { operation: "fetch_knowledge_base".to_string(), reason: "External source knowledge_base requires a configured knowledge base service".to_string() })
     }
 
     /// Fetch context from document storage via filesystem
@@ -563,14 +564,11 @@ impl ContextAgent {
 
         let docs_dir = std::path::Path::new("documents");
         if !docs_dir.exists() {
-            return Err(AgentError::ProcessingError(
-                "External source documents requires a 'documents/' directory with indexed files"
-                    .to_string(),
-            ));
+            return Err(AgentError::ProcessingError { operation: "fetch_documents".to_string(), reason: "External source documents requires a 'documents/' directory with indexed files".to_string() });
         }
 
         let entries = std::fs::read_dir(docs_dir).map_err(|e| {
-            AgentError::ProcessingError(format!("Failed to read documents directory: {}", e))
+            AgentError::ProcessingError { operation: "fetch_documents".to_string(), reason: format!("Failed to read documents directory: {}", e) }
         })?;
 
         let mut recent_files = Vec::with_capacity(10);
@@ -578,7 +576,7 @@ impl ContextAgent {
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                AgentError::ProcessingError(format!("Failed to read document entry: {}", e))
+                AgentError::ProcessingError { operation: "fetch_documents".to_string(), reason: format!("Failed to read document entry: {}", e) }
             })?;
             if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 total_files += 1;
@@ -608,14 +606,11 @@ impl ContextAgent {
 
         let log_dir = std::path::Path::new("logs");
         if !log_dir.exists() {
-            return Err(AgentError::ProcessingError(
-                "External source logs requires a 'logs/' directory with application logs"
-                    .to_string(),
-            ));
+            return Err(AgentError::ProcessingError { operation: "fetch_logs".to_string(), reason: "External source logs requires a 'logs/' directory with application logs".to_string() });
         }
 
         let entries = std::fs::read_dir(log_dir).map_err(|e| {
-            AgentError::ProcessingError(format!("Failed to read logs directory: {}", e))
+            AgentError::ProcessingError { operation: "fetch_logs".to_string(), reason: format!("Failed to read logs directory: {}", e) }
         })?;
 
         let mut recent_errors = Vec::with_capacity(10);
@@ -624,7 +619,7 @@ impl ContextAgent {
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                AgentError::ProcessingError(format!("Failed to read log entry: {}", e))
+                AgentError::ProcessingError { operation: "fetch_logs".to_string(), reason: format!("Failed to read log entry: {}", e) }
             })?;
 
             if let Ok(meta) = entry.metadata() {

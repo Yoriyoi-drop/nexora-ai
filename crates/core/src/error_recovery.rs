@@ -460,20 +460,12 @@ impl ErrorRecoveryManager {
         // Initialize strategies using a simple approach without blocking
         let strategies = self.recovery_strategies.clone();
 
-        // Use std::thread::spawn to avoid blocking in async context
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(e) => {
-                    warn!("Failed to create tokio runtime for strategy init: {}", e);
-                    return;
-                }
-            };
-            rt.block_on(async move {
-                let mut strategies_guard = strategies.write().await;
+        // Use tokio::spawn instead of creating a nested runtime
+        tokio::spawn(async move {
+            let mut strategies_guard = strategies.write().await;
 
-                // Network errors - aggressive retry with circuit breaker
-                strategies_guard.insert(
+            // Network errors - aggressive retry with circuit breaker
+            strategies_guard.insert(
                     ErrorCategory::Network,
                     RecoveryStrategy::new(ErrorCategory::Network)
                         .with_auto_retry(true)
@@ -487,56 +479,55 @@ impl ErrorRecoveryManager {
                         .with_fallback(true),
                 );
 
-                // Database errors - moderate retry with connection pool reset
-                strategies_guard.insert(
-                    ErrorCategory::Database,
-                    RecoveryStrategy::new(ErrorCategory::Database)
-                        .with_auto_retry(true)
-                        .with_retry_policy(RetryPolicy {
-                            max_attempts: 3,
-                            base_delay_ms: 1000,
-                            max_delay_ms: 5000,
-                            backoff_multiplier: 2.0,
-                            jitter: true,
-                        })
-                        .with_fallback(true),
-                );
+            // Database errors - moderate retry with connection pool reset
+            strategies_guard.insert(
+                ErrorCategory::Database,
+                RecoveryStrategy::new(ErrorCategory::Database)
+                    .with_auto_retry(true)
+                    .with_retry_policy(RetryPolicy {
+                        max_attempts: 3,
+                        base_delay_ms: 1000,
+                        max_delay_ms: 5000,
+                        backoff_multiplier: 2.0,
+                        jitter: true,
+                    })
+                    .with_fallback(true),
+            );
 
-                // Validation errors - no retry, immediate fallback
-                strategies_guard.insert(
-                    ErrorCategory::Validation,
-                    RecoveryStrategy::new(ErrorCategory::Validation)
-                        .with_auto_retry(false)
-                        .with_fallback(true),
-                );
+            // Validation errors - no retry, immediate fallback
+            strategies_guard.insert(
+                ErrorCategory::Validation,
+                RecoveryStrategy::new(ErrorCategory::Validation)
+                    .with_auto_retry(false)
+                    .with_fallback(true),
+            );
 
-                // Model errors - limited retry with fallback
-                strategies_guard.insert(
-                    ErrorCategory::Model,
-                    RecoveryStrategy::new(ErrorCategory::Model)
-                        .with_auto_retry(true)
-                        .with_fallback(true)
-                        .with_retry_policy(RetryPolicy {
-                            max_attempts: 2,
-                            base_delay_ms: 200,
-                            max_delay_ms: 1000,
-                            backoff_multiplier: 1.5,
-                            jitter: false,
-                        }),
-                );
+            // Model errors - limited retry with fallback
+            strategies_guard.insert(
+                ErrorCategory::Model,
+                RecoveryStrategy::new(ErrorCategory::Model)
+                    .with_auto_retry(true)
+                    .with_fallback(true)
+                    .with_retry_policy(RetryPolicy {
+                        max_attempts: 2,
+                        base_delay_ms: 200,
+                        max_delay_ms: 1000,
+                        backoff_multiplier: 1.5,
+                        jitter: false,
+                    }),
+            );
 
-                // Timeout errors - no retry
-                strategies_guard.insert(
-                    ErrorCategory::Timeout,
-                    RecoveryStrategy::new(ErrorCategory::Timeout).with_auto_retry(false),
-                );
+            // Timeout errors - no retry
+            strategies_guard.insert(
+                ErrorCategory::Timeout,
+                RecoveryStrategy::new(ErrorCategory::Timeout).with_auto_retry(false),
+            );
 
-                // Resource errors - no retry, escalate
-                strategies_guard.insert(
-                    ErrorCategory::Resource,
-                    RecoveryStrategy::new(ErrorCategory::Resource).with_auto_retry(false),
-                );
-            });
+            // Resource errors - no retry, escalate
+            strategies_guard.insert(
+                ErrorCategory::Resource,
+                RecoveryStrategy::new(ErrorCategory::Resource).with_auto_retry(false),
+            );
         });
     }
 

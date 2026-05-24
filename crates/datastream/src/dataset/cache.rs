@@ -1,5 +1,6 @@
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -154,6 +155,7 @@ pub struct TokenizerCache {
     cache_dir: PathBuf,
     memory_cache: HashMap<String, Vec<u32>>,
     max_memory_entries: usize,
+    access_order: RefCell<VecDeque<String>>,
 }
 
 impl TokenizerCache {
@@ -169,17 +171,28 @@ impl TokenizerCache {
             cache_dir,
             memory_cache: HashMap::new(),
             max_memory_entries: 100_000,
+            access_order: RefCell::new(VecDeque::new()),
         }
     }
 
     pub fn get(&self, text: &str) -> Option<&Vec<u32>> {
+        if self.memory_cache.contains_key(text) {
+            let mut order = self.access_order.borrow_mut();
+            order.retain(|k| k != text);
+            order.push_back(text.to_string());
+        }
         self.memory_cache.get(text)
     }
 
     pub fn insert(&mut self, text: String, tokens: Vec<u32>) {
-        if self.memory_cache.len() >= self.max_memory_entries {
-            self.memory_cache.clear();
+        if self.memory_cache.contains_key(&text) {
+            self.access_order.borrow_mut().retain(|k| k != &text);
+        } else if self.memory_cache.len() >= self.max_memory_entries {
+            if let Some(lru_key) = self.access_order.borrow_mut().pop_front() {
+                self.memory_cache.remove(&lru_key);
+            }
         }
+        self.access_order.borrow_mut().push_back(text.clone());
         self.memory_cache.insert(text, tokens);
     }
 

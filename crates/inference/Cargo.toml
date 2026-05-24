@@ -29,6 +29,7 @@ nexora-transformer = { path = "../transformer" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-blaa = { path = "../blaa" }
 nexora-tokenizer = { path = "../tokenizer" }
+nexora-runtime = { path = "../runtime" }
 
 # For streaming
 futures = "0.3"

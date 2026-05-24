@@ -140,10 +140,13 @@ impl InferenceAgent {
         {
             let sessions = self.active_sessions.lock().await;
             if sessions.len() >= self.config.max_concurrent_sessions {
-                return Err(AgentError::ProcessingError(format!(
-                    "Maximum concurrent sessions ({}) reached",
-                    self.config.max_concurrent_sessions
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "start_session".to_string(),
+                    reason: format!(
+                        "Maximum concurrent sessions ({}) reached",
+                        self.config.max_concurrent_sessions
+                    ),
+                });
             }
         }
 
@@ -186,9 +189,10 @@ impl InferenceAgent {
                 }
             }
         } else {
-            Err(AgentError::ProcessingError(
-                "No inference engine configured".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "start_session".to_string(),
+                reason: "No inference engine configured".to_string(),
+            })
         }
     }
 
@@ -208,16 +212,19 @@ impl InferenceAgent {
                 if session.status != InferenceSessionStatus::Ready
                     && session.status != InferenceSessionStatus::Running
                 {
-                    return Err(AgentError::ProcessingError(format!(
-                        "Session {} is not ready for generation (status: {:?})",
-                        session_id, session.status
-                    )));
+                    return Err(AgentError::ProcessingError {
+                        operation: "generate".to_string(),
+                        reason: format!(
+                            "Session {} is not ready for generation (status: {:?})",
+                            session_id, session.status
+                        ),
+                    });
                 }
             } else {
-                return Err(AgentError::ProcessingError(format!(
-                    "Session {} not found",
-                    session_id
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "generate".to_string(),
+                    reason: format!("Session {} not found", session_id),
+                });
             }
         }
 
@@ -231,9 +238,10 @@ impl InferenceAgent {
         let result = if let Some(engine) = &self.inference_engine {
             engine.generate_tokens(session_id, prompt, max_tokens).await
         } else {
-            Err(AgentError::ProcessingError(
-                "No inference engine configured".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "generate".to_string(),
+                reason: "No inference engine configured".to_string(),
+            })
         };
 
         let processing_time = start_time.elapsed().as_millis() as u64;
@@ -275,9 +283,10 @@ impl InferenceAgent {
         debug!("Starting text stream for session: {}", session_id);
 
         if !self.config.enable_streaming {
-            return Err(AgentError::ProcessingError(
-                "Streaming is disabled".to_string(),
-            ));
+            return Err(AgentError::ProcessingError {
+                operation: "stream".to_string(),
+                reason: "Streaming is disabled".to_string(),
+            });
         }
 
         // Check session exists and is ready
@@ -287,16 +296,16 @@ impl InferenceAgent {
                 if session.status != InferenceSessionStatus::Ready
                     && session.status != InferenceSessionStatus::Running
                 {
-                    return Err(AgentError::ProcessingError(format!(
-                        "Session {} is not ready for streaming",
-                        session_id
-                    )));
+                    return Err(AgentError::ProcessingError {
+                        operation: "stream".to_string(),
+                        reason: format!("Session {} is not ready for streaming", session_id),
+                    });
                 }
             } else {
-                return Err(AgentError::ProcessingError(format!(
-                    "Session {} not found",
-                    session_id
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "stream".to_string(),
+                    reason: format!("Session {} not found", session_id),
+                });
             }
         }
 
@@ -308,9 +317,10 @@ impl InferenceAgent {
         if let Some(engine) = &self.inference_engine {
             engine.stream_tokens(session_id, prompt, max_tokens).await
         } else {
-            Err(AgentError::ProcessingError(
-                "No inference engine configured".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "stream".to_string(),
+                reason: "No inference engine configured".to_string(),
+            })
         }
     }
 
@@ -408,10 +418,10 @@ impl InferenceAgent {
             session.last_activity = chrono::Utc::now();
             Ok(())
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Session {} not found",
-                session_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "update_session_status".to_string(),
+                reason: format!("Session {} not found", session_id),
+            })
         }
     }
 
@@ -429,10 +439,10 @@ impl InferenceAgent {
             session.last_activity = chrono::Utc::now();
             Ok(())
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Session {} not found",
-                session_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "update_session_stats".to_string(),
+                reason: format!("Session {} not found", session_id),
+            })
         }
     }
 
@@ -518,7 +528,7 @@ impl Agent for InferenceAgent {
                     .parameters
                     .get("model_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("model_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "model_id required".to_string() })?;
 
                 let config = context
                     .parameters
@@ -542,18 +552,16 @@ impl Agent for InferenceAgent {
                     .parameters
                     .get("session_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError("session_id required".to_string())
-                    })?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "session_id required".to_string() })?;
 
                 let session_id = Uuid::parse_str(session_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid session_id".to_string()))?;
+                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid session_id".to_string() })?;
 
                 let prompt = context
                     .parameters
                     .get("prompt")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("prompt required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "prompt required".to_string() })?;
 
                 let max_tokens = context
                     .parameters
@@ -577,12 +585,10 @@ impl Agent for InferenceAgent {
                     .parameters
                     .get("session_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError("session_id required".to_string())
-                    })?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "session_id required".to_string() })?;
 
                 let session_id = Uuid::parse_str(session_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid session_id".to_string()))?;
+                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid session_id".to_string() })?;
 
                 self.stop_inference_session(session_id).await?;
 
@@ -625,10 +631,10 @@ impl Agent for InferenceAgent {
             }
 
             _ => {
-                return Err(AgentError::ProcessingError(format!(
-                    "Unknown action: {}",
-                    action
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "execute_action".to_string(),
+                    reason: format!("Unknown action: {}", action),
+                });
             }
         };
 
@@ -676,9 +682,10 @@ impl Agent for InferenceAgent {
         if let Some(engine) = &self.inference_engine {
             engine.health_check().await
         } else {
-            Err(AgentError::ProcessingError(
-                "No inference engine configured".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "health_check".to_string(),
+                reason: "No inference engine configured".to_string(),
+            })
         }
     }
 

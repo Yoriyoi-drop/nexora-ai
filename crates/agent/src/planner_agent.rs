@@ -183,10 +183,13 @@ impl PlannerAgent {
         {
             let plans = self.active_plans.lock().await;
             if plans.len() >= self.config.max_concurrent_plans {
-                return Err(AgentError::ProcessingError(format!(
-                    "Maximum concurrent plans ({}) reached",
-                    self.config.max_concurrent_plans
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "create_plan".to_string(),
+                    reason: format!(
+                        "Maximum concurrent plans ({}) reached",
+                        self.config.max_concurrent_plans
+                    ),
+                });
             }
         }
 
@@ -204,11 +207,14 @@ impl PlannerAgent {
 
         // Validate plan complexity
         if plan.steps.len() > self.config.max_plan_complexity as usize {
-            return Err(AgentError::ProcessingError(format!(
-                "Plan complexity ({}) exceeds maximum ({})",
-                plan.steps.len(),
-                self.config.max_plan_complexity
-            )));
+            return Err(AgentError::ProcessingError {
+                operation: "validate".to_string(),
+                reason: format!(
+                    "Plan complexity ({}) exceeds maximum ({})",
+                    plan.steps.len(),
+                    self.config.max_plan_complexity
+                ),
+            });
         }
 
         // Add to active plans
@@ -249,10 +255,10 @@ impl PlannerAgent {
                 Ok(None)
             }
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Plan {} not found",
-                plan_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "execute_step".to_string(),
+                reason: format!("Plan {} not found", plan_id),
+            })
         }
     }
 
@@ -271,16 +277,16 @@ impl PlannerAgent {
                 info!("Step {} completed for plan {}", step_id, plan_id);
                 Ok(())
             } else {
-                Err(AgentError::ProcessingError(format!(
-                    "Step {} not found in plan {}",
-                    step_id, plan_id
-                )))
+                Err(AgentError::ProcessingError {
+                    operation: "complete_step".to_string(),
+                    reason: format!("Step {} not found in plan {}", step_id, plan_id),
+                })
             }
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Plan {} not found",
-                plan_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "complete_step".to_string(),
+                reason: format!("Plan {} not found", plan_id),
+            })
         }
     }
 
@@ -302,16 +308,16 @@ impl PlannerAgent {
                 warn!("Step {} failed for plan {}: {}", step_id, plan_id, error);
                 Ok(())
             } else {
-                Err(AgentError::ProcessingError(format!(
-                    "Step {} not found in plan {}",
-                    step_id, plan_id
-                )))
+                Err(AgentError::ProcessingError {
+                    operation: "fail_step".to_string(),
+                    reason: format!("Step {} not found in plan {}", step_id, plan_id),
+                })
             }
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Plan {} not found",
-                plan_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "fail_step".to_string(),
+                reason: format!("Plan {} not found", plan_id),
+            })
         }
     }
 
@@ -332,9 +338,10 @@ impl PlannerAgent {
         debug!("Adapting plan {} based on feedback", plan_id);
 
         if !self.config.enable_adaptive_planning {
-            return Err(AgentError::ProcessingError(
-                "Adaptive planning is disabled".to_string(),
-            ));
+            return Err(AgentError::ProcessingError {
+                operation: "adapt_plan".to_string(),
+                reason: "Adaptive planning is disabled".to_string(),
+            });
         }
 
         let strategy = self.find_strategy_for_adaptation(feedback).await?;
@@ -347,10 +354,10 @@ impl PlannerAgent {
             info!("Plan {} adapted successfully", plan_id);
             Ok(())
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Plan {} not found",
-                plan_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "adapt_plan".to_string(),
+                reason: format!("Plan {} not found", plan_id),
+            })
         }
     }
 
@@ -366,10 +373,10 @@ impl PlannerAgent {
             info!("Plan {} cancelled", plan_id);
             Ok(())
         } else {
-            Err(AgentError::ProcessingError(format!(
-                "Plan {} not found",
-                plan_id
-            )))
+            Err(AgentError::ProcessingError {
+                operation: "cancel_plan".to_string(),
+                reason: format!("Plan {} not found", plan_id),
+            })
         }
     }
 
@@ -381,10 +388,10 @@ impl PlannerAgent {
             }
         }
 
-        Err(AgentError::ProcessingError(format!(
-            "No strategy found for task: {}",
-            task
-        )))
+        Err(AgentError::ProcessingError {
+            operation: "find_strategy".to_string(),
+            reason: format!("No strategy found for task: {}", task),
+        })
     }
 
     /// Find strategy for adaptation
@@ -396,9 +403,10 @@ impl PlannerAgent {
         if let Some(strategy) = self.strategies.first() {
             Ok(strategy.as_ref())
         } else {
-            Err(AgentError::ProcessingError(
-                "No strategies available for adaptation".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "find_strategy_for_adaptation".to_string(),
+                reason: "No strategies available for adaptation".to_string(),
+            })
         }
     }
 
@@ -512,7 +520,10 @@ impl Agent for PlannerAgent {
                     .parameters
                     .get("task")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("task required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "task required".to_string(),
+                    })?;
 
                 let task_context = context
                     .parameters
@@ -534,10 +545,15 @@ impl Agent for PlannerAgent {
                     .parameters
                     .get("plan_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("plan_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "plan_id required".to_string(),
+                    })?;
 
-                let plan_id = Uuid::parse_str(plan_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid plan_id".to_string()))?;
+                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                    operation: "parse".to_string(),
+                    reason: "Invalid plan_id".to_string(),
+                })?;
 
                 let step = self.execute_next_step(plan_id).await?;
 
@@ -566,13 +582,19 @@ impl Agent for PlannerAgent {
                     .parameters
                     .get("plan_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("plan_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "plan_id required".to_string(),
+                    })?;
 
                 let step_id_str = context
                     .parameters
                     .get("step_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("step_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "step_id required".to_string(),
+                    })?;
 
                 let result = context
                     .parameters
@@ -580,11 +602,15 @@ impl Agent for PlannerAgent {
                     .cloned()
                     .unwrap_or(Value::Null);
 
-                let plan_id = Uuid::parse_str(plan_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid plan_id".to_string()))?;
+                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                    operation: "parse".to_string(),
+                    reason: "Invalid plan_id".to_string(),
+                })?;
 
-                let step_id = Uuid::parse_str(step_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid step_id".to_string()))?;
+                let step_id = Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
+                    operation: "parse".to_string(),
+                    reason: "Invalid step_id".to_string(),
+                })?;
 
                 self.complete_step(plan_id, step_id, result).await?;
 
@@ -601,10 +627,15 @@ impl Agent for PlannerAgent {
                     .parameters
                     .get("plan_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("plan_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "plan_id required".to_string(),
+                    })?;
 
-                let plan_id = Uuid::parse_str(plan_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid plan_id".to_string()))?;
+                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                    operation: "parse".to_string(),
+                    reason: "Invalid plan_id".to_string(),
+                })?;
 
                 let plan = self.get_plan(plan_id).await?;
 
@@ -663,10 +694,10 @@ impl Agent for PlannerAgent {
             }
 
             _ => {
-                return Err(AgentError::ProcessingError(format!(
-                    "Unknown action: {}",
-                    action
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "execute_action".to_string(),
+                    reason: format!("Unknown action: {}", action),
+                });
             }
         };
 

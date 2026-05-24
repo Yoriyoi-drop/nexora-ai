@@ -158,9 +158,7 @@ pub trait Agent: Send + Sync {
 
     /// Reset agent state (jika supported)
     async fn reset(&mut self) -> Result<()> {
-        Err(AgentError::ProcessingError(
-            "Reset not supported for this agent".to_string(),
-        ))
+        Err(AgentError::ProcessingError { operation: "reset".to_string(), reason: "Reset not supported for this agent".to_string() })
     }
 }
 

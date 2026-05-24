@@ -80,6 +80,7 @@ pub mod kv_cache;
 pub mod monitoring;
 pub mod resource;
 pub mod scheduler;
+pub mod scheduler_trait;
 pub mod streaming;
 
 // Re-export main components
@@ -89,4 +90,5 @@ pub use kv_cache::*;
 pub use monitoring::*;
 pub use resource::*;
 pub use scheduler::*;
+pub use scheduler_trait::Scheduler;
 pub use streaming::*;

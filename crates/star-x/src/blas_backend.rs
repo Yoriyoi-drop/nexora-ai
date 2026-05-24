@@ -6,12 +6,15 @@
 //! fallback.
 //!
 //! Detection uses `libloading::Library::new()` to verify library presence at
-//! runtime. Execution always goes through ndarray's `general_mat_mul`.
-//! To enable C BLAS: add `features = ["blas"]` to ndarray in Cargo.toml
-//! and link `blas-src` + a provider (`openblas-src`, `intel-mkl-src`).
+//! runtime. When a BLAS library is detected, `cblas_sgemm` is loaded
+//! dynamically and called for GEMM operations. Falls back to ndarray's
+//! `general_mat_mul` if the FFI call fails.
+//! To enable C BLAS with link-time: add `features = ["blas"]` to ndarray in
+//! Cargo.toml and link `blas-src` + a provider (`openblas-src`, `intel-mkl-src`).
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use libloading::{Library, Symbol};
 use tracing::warn;
 use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
 use ndarray::linalg::general_mat_mul;
@@ -26,24 +29,32 @@ pub enum BlasBackend {
     CustomSIMD,
 }
 
+/// CBLAS row-major / transpose constants (from cblas.h)
+const CBLAS_ROWMajor: i32 = 101;
+const CBLAS_NoTrans: i32 = 111;
+
 /// High-performance BLAS operations abstraction
 #[derive(Debug)]
 pub struct BlasOperations {
     backend: BlasBackend,
     available_features: BlasFeatures,
+    /// Loaded BLAS library handle (MKL, OpenBLAS, Accelerate).
+    /// `None` if the library could not be loaded at startup; GEMM will fall
+    /// back to ndarray's `general_mat_mul` (which itself uses BLAS if
+    /// compiled with the `blas` feature).
+    lib_handle: Option<Library>,
 }
 
 impl Clone for BlasOperations {
     fn clone(&self) -> Self {
-        // Clone always succeeds since with_backend only errors on detection failure,
-        // and the original instance already has a valid backend. If it does fail,
-        // fall back to CustomSIMD which is infallible.
+        // Library handles cannot be cloned. The clone starts with `lib_handle:
+        // None`; the next GEMM call will re-initialise it on demand via
+        // `try_load_blas_library`.
         Self::with_backend(self.backend).unwrap_or_else(|e| {
             warn!(
                 "Failed to clone BLAS operations with backend {:?}: {}. Falling back to CustomSIMD.",
                 self.backend, e
             );
-            // CustomSIMD is always available (no external deps)
             Self::with_backend(BlasBackend::CustomSIMD)
                 .expect("CustomSIMD backend should never fail")
         })
@@ -66,19 +77,22 @@ impl BlasOperations {
     pub fn auto_detect() -> DLResult<Self> {
         let backend = Self::detect_optimal_backend()?;
         let features = Self::detect_features(backend)?;
-
+        let lib_handle = Self::try_load_blas_library(backend);
         Ok(Self {
             backend,
             available_features: features,
+            lib_handle,
         })
     }
 
     /// Force specific backend (untuk testing)
     pub fn with_backend(backend: BlasBackend) -> DLResult<Self> {
         let features = Self::detect_features(backend)?;
+        let lib_handle = Self::try_load_blas_library(backend);
         Ok(Self {
             backend,
             available_features: features,
+            lib_handle,
         })
     }
 
@@ -104,6 +118,30 @@ impl BlasOperations {
 
         // Fallback to custom SIMD implementation
         Ok(BlasBackend::CustomSIMD)
+    }
+
+    /// Try to load the BLAS shared library for the given backend.
+    fn try_load_blas_library(backend: BlasBackend) -> Option<Library> {
+        let lib_name = match backend {
+            BlasBackend::IntelMKL => "libmkl_rt.so",
+            BlasBackend::OpenBLAS => "libopenblas.so",
+            BlasBackend::Accelerate => "libAccelerate.dylib",
+            BlasBackend::CustomSIMD => return None,
+        };
+        // SAFETY: We only load the library to call cblas_sgemm, which has a
+        // stable ABI. The library handle is kept alive for the lifetime of
+        // BlasOperations. If loading fails we return None and fall back to
+        // ndarray's general_mat_mul.
+        match unsafe { Library::new(lib_name) } {
+            Ok(lib) => {
+                tracing::debug!("Loaded BLAS library: {}", lib_name);
+                Some(lib)
+            }
+            Err(e) => {
+                tracing::debug!("Could not load BLAS library '{}': {}", lib_name, e);
+                None
+            }
+        }
     }
 
     /// Detect available features for backend
@@ -199,9 +237,9 @@ impl BlasOperations {
             }
         }
         match self.backend {
-            BlasBackend::IntelMKL => self.gemm_mkl(alpha, a, b, beta, c),
-            BlasBackend::OpenBLAS => self.gemm_openblas(alpha, a, b, beta, c),
-            BlasBackend::Accelerate => self.gemm_accelerate(alpha, a, b, beta, c),
+            BlasBackend::IntelMKL => self.gemm_cblas_ffi(alpha, a, b, beta, c),
+            BlasBackend::OpenBLAS => self.gemm_cblas_ffi(alpha, a, b, beta, c),
+            BlasBackend::Accelerate => self.gemm_cblas_ffi(alpha, a, b, beta, c),
             BlasBackend::CustomSIMD => self.gemm_simd(alpha, a, b, beta, c),
         }
     }
@@ -324,10 +362,122 @@ impl BlasOperations {
     }
 
     // ── "BLAS backend" implementations ──────────────────────────────────────────
-    // WARNING: Every method below is a pure-Rust ndarray fallback, NOT a real BLAS
-    // call. The MKL/OpenBLAS/Accelerate enum tags are cosmetic — detection may load
-    // the real library via libloading but execution still goes through ndarray.
-    // To wire up real BLAS, replace the body with `cblas_sgemm` FFI calls.
+
+    /// GEMM via CBLAS FFI (`cblas_sgemm`) when a BLAS library is loaded.
+    /// Falls back to ndarray's `general_mat_mul` if the FFI call fails or
+    /// no library handle is available.
+    fn gemm_cblas_ffi(
+        &self,
+        alpha: f32,
+        a: ArrayView<f32, ndarray::Ix2>,
+        b: ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        mut c: ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
+        let (m, k) = a.dim();
+        let (k2, n) = b.dim();
+        if k != k2 {
+            return Err(DeepLearningError::ShapeMismatch { expected: vec![k], actual: vec![k2] });
+        }
+
+        let (m2, n2) = c.dim();
+        if m != m2 || n != n2 {
+            return Err(DeepLearningError::ShapeMismatch {
+                expected: vec![m, n],
+                actual: vec![m2, n2],
+            });
+        }
+
+        // Try CBLAS FFI first if we have a library handle
+        if let Some(ref lib) = self.lib_handle {
+            if self.call_cblas_sgemm(lib, alpha, &a, &b, beta, &mut c).is_ok() {
+                return Ok(());
+            }
+        }
+
+        // Fallback to ndarray's general_mat_mul (uses BLAS at link time if
+        // compiled with the `blas` feature, pure Rust otherwise).
+        general_mat_mul(alpha, &a, &b, beta, &mut c);
+        Ok(())
+    }
+
+    /// Call `cblas_sgemm` dynamically via libloading.
+    ///
+    /// # Safety
+    ///
+    /// The `lib` parameter must be a valid handle to a BLAS shared library
+    /// that exports `cblas_sgemm` with the standard CBLAS ABI (row-major,
+    /// single-precision). This is guaranteed by construction:
+    /// - `lib` comes from `try_load_blas_library` which only loads known BLAS
+    ///   libraries (libmkl_rt.so, libopenblas.so, libAccelerate.dylib).
+    /// - The function pointer is immediately cast from `*mut c_void` using
+    ///   libloading's `Symbol::get`, which is safe per libloading's docs as
+    ///   long as the library exports the symbol.
+    /// - Buffer pointers (`a_slice_ptr`, `b_slice_ptr`, `c_slice_ptr_mut`)
+    ///   must point to contiguous row-major f32 arrays whose dimensions match
+    ///   (m, n, k). The caller (`gemm_cblas_ffi`) verifies shape compatibility
+    ///   before calling this method.
+    /// - The mutable slice `c_slice_mut` must not alias `a_slice` or `b_slice`;
+    ///   ndarray's API ensures this because `c` is a `ArrayViewMut` that
+    ///   borrows uniquely.
+    fn call_cblas_sgemm(
+        &self,
+        lib: &Library,
+        alpha: f32,
+        a: &ArrayView<f32, ndarray::Ix2>,
+        b: &ArrayView<f32, ndarray::Ix2>,
+        beta: f32,
+        c: &mut ArrayViewMut<f32, ndarray::Ix2>,
+    ) -> DLResult<()> {
+        let (m, k) = a.dim();
+        let (_k2, n) = b.dim();
+        let lda = k as i32;
+        let ldb = n as i32;
+        let ldc = n as i32;
+
+        // SAFETY: Symbol::get returns a pointer to the exported function. It
+        // is safe because libloading ensures the library outlives the symbol,
+        // and we're casting to the known cblas_sgemm signature.
+        let func: Symbol<unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32)> =
+            unsafe { lib.get(b"cblas_sgemm\0").map_err(|e| {
+                DeepLearningError::Computation {
+                    reason: format!("Failed to load cblas_sgemm symbol: {}", e),
+                }
+            })? };
+
+        let a_slice = a.as_slice().ok_or_else(|| DeepLearningError::Computation {
+            reason: "Matrix A not contiguous for CBLAS FFI call".into(),
+        })?;
+        let b_slice = b.as_slice().ok_or_else(|| DeepLearningError::Computation {
+            reason: "Matrix B not contiguous for CBLAS FFI call".into(),
+        })?;
+        let c_slice_mut = c.as_slice_mut().ok_or_else(|| DeepLearningError::Computation {
+            reason: "Matrix C not contiguous for CBLAS FFI call".into(),
+        })?;
+
+        // SAFETY: We pass valid, non-aliased row-major f32 buffers with
+        // dimensions verified by the caller (gemm_cblas_ffi).
+        unsafe {
+            func(
+                CBLAS_ROWMajor,
+                CBLAS_NoTrans,
+                CBLAS_NoTrans,
+                m as i32,
+                n as i32,
+                k as i32,
+                alpha,
+                a_slice.as_ptr(),
+                lda,
+                b_slice.as_ptr(),
+                ldb,
+                beta,
+                c_slice_mut.as_mut_ptr(),
+                ldc,
+            );
+        }
+
+        Ok(())
+    }
 
     /// GEMM via ndarray::linalg::general_mat_mul.
     /// Uses C BLAS when ndarray is compiled with the `blas` feature,
@@ -371,7 +521,7 @@ impl BlasOperations {
         beta: f32,
         c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
-        self.gemm_ndarray_fallback(alpha, a, b, beta, c) // ndarray fallback — not actual MKL
+        self.gemm_cblas_ffi(alpha, a, b, beta, c)
     }
 
     fn gemm_openblas(
@@ -382,7 +532,7 @@ impl BlasOperations {
         beta: f32,
         c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
-        self.gemm_ndarray_fallback(alpha, a, b, beta, c) // ndarray fallback — not actual OpenBLAS
+        self.gemm_cblas_ffi(alpha, a, b, beta, c)
     }
 
     fn gemm_accelerate(
@@ -393,7 +543,7 @@ impl BlasOperations {
         beta: f32,
         c: ArrayViewMut<f32, ndarray::Ix2>,
     ) -> DLResult<()> {
-        self.gemm_ndarray_fallback(alpha, a, b, beta, c) // ndarray fallback — not actual Accelerate
+        self.gemm_cblas_ffi(alpha, a, b, beta, c)
     }
 
     fn gemm_simd(

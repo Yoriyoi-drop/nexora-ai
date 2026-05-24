@@ -46,6 +46,7 @@ pub use sequence_state::{SeqState, Sequence};
 pub use session::{InferenceSession, SessionConfig, SessionState};
 pub use stop_conditions::{StopCondition, StopConditions};
 pub use token_loop::{TokenLoop, TokenLoopConfig};
+pub use nexora_runtime::Scheduler;
 
 /// Versi inference engine
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

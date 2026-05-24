@@ -363,7 +363,13 @@ impl ExecutionGraph {
             })
             .collect();
 
-        join_all(tasks).await
+        let results = join_all(tasks).await;
+        for result in &results {
+            if matches!(result, ExecutionResult::Cancelled) {
+                tracing::error!("Pipeline task was cancelled");
+            }
+        }
+        results
     }
 
     pub async fn run_rayon(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult>

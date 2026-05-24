@@ -1,12 +1,16 @@
+use std::path::PathBuf;
+
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, info};
 
 use crate::types::{BatchConfig, DataSample};
+use nexora_common::retry::RetryConfig;
 
 pub struct TrainingDeliveryLayer {
     pub batch_config: BatchConfig,
     pub output_format: OutputFormat,
+    pub output_dir: PathBuf,
 }
 
 /// Output format for training data delivery.
@@ -28,6 +32,7 @@ impl Default for TrainingDeliveryLayer {
         Self {
             batch_config: BatchConfig::default(),
             output_format: OutputFormat::JsonLines,
+            output_dir: PathBuf::from("output"),
         }
     }
 }
@@ -39,6 +44,11 @@ impl TrainingDeliveryLayer {
 
     pub fn with_format(mut self, format: OutputFormat) -> Self {
         self.output_format = format;
+        self
+    }
+
+    pub fn with_output_dir(mut self, dir: PathBuf) -> Self {
+        self.output_dir = dir;
         self
     }
 
@@ -259,10 +269,30 @@ impl TrainingDeliveryLayer {
         buffer
     }
 
-    /// Deliver a batch of accepted samples in-memory (used by Pipeline::run)
-    pub fn deliver_batch(&self, samples: &[DataSample]) -> Result<u64, anyhow::Error> {
+    /// Deliver a batch of accepted samples to disk (used by Pipeline::run)
+    pub async fn deliver_batch(&self, samples: &[DataSample]) -> Result<u64, anyhow::Error> {
         let count = samples.len() as u64;
-        debug!("Delivering batch of {} accepted samples", count);
+        if samples.is_empty() {
+            return Ok(0);
+        }
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let filename = format!("data_{}.json", timestamp);
+        tokio::fs::create_dir_all(&self.output_dir).await?;
+        let path = self.output_dir.join(&filename);
+
+        let mut content = String::with_capacity(samples.len() * 1024);
+        for sample in samples {
+            if let Ok(line) = serde_json::to_string(sample) {
+                content.push_str(&line);
+                content.push('\n');
+            }
+        }
+        tokio::fs::write(&path, content.as_bytes()).await?;
+
+        info!("Delivered batch of {} samples to {}", count, path.display());
         Ok(count)
     }
 
@@ -272,27 +302,41 @@ impl TrainingDeliveryLayer {
         endpoints: Vec<String>,
     ) -> Result<u64, anyhow::Error> {
         let mut total = 0u64;
-        let client = reqwest::Client::new();
+        let retry_config = RetryConfig::new(3, 500);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
 
         while let Some(batch) = rx.recv().await {
             let payload = self.zero_copy_batch(&batch);
             for endpoint in &endpoints {
-                match client
-                    .post(endpoint)
-                    .header("content-type", "application/octet-stream")
-                    .body(payload.clone())
-                    .send()
-                    .await
-                {
-                    Ok(resp) => {
-                        if !resp.status().is_success() {
-                            debug!("Push to {} returned status {}", endpoint, resp.status());
+                let ep = endpoint.clone();
+                let payload = payload.clone();
+                let client = client.clone();
+                let _ = retry_config
+                    .retry(|| {
+                        let ep = ep.clone();
+                        let payload = payload.clone();
+                        let client = client.clone();
+                        async move {
+                            let resp = client
+                                .post(&ep)
+                                .header("content-type", "application/octet-stream")
+                                .body(payload)
+                                .send()
+                                .await
+                                .map_err(|e| format!("request failed: {}", e))?;
+                            if !resp.status().is_success() {
+                                return Err(format!(
+                                    "push to {} returned status {}",
+                                    ep,
+                                    resp.status()
+                                ));
+                            }
+                            Ok::<_, String>(())
                         }
-                    }
-                    Err(e) => {
-                        debug!("Failed to push to {}: {}", endpoint, e);
-                    }
-                }
+                    })
+                    .await;
             }
             total += 1;
             if total % 100 == 0 {

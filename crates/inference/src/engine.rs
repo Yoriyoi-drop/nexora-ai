@@ -590,11 +590,10 @@ impl InferenceEngine {
         info!("Shutting down inference engine");
         *self.state.write().await = EngineState::ShuttingDown;
 
-        let ids: Vec<Uuid> = self.active_requests.read().await.keys().copied().collect();
-        for id in ids {
-            if let Err(e) = self.cancel_request(id).await {
-                warn!("Failed to cancel request {} during shutdown: {}", id, e);
-            }
+        // Drain and await all active handles with a timeout
+        let handles: Vec<_> = self.active_requests.write().await.drain().map(|(_, h)| h).collect();
+        for h in handles {
+            let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
         }
         self.scheduler.write().await.shutdown().await?;
         if let Some(se) = &self.streaming_engine {
@@ -633,6 +632,7 @@ impl InferenceEngine {
         let state = self.state.clone();
         let scheduler = self.scheduler.clone();
         let active_requests = self.active_requests.clone();
+        let active_handle = self.active_requests.clone();
         let session_manager = self.session_manager.clone();
 
         let engine = InferenceEngineHandle {
@@ -645,7 +645,7 @@ impl InferenceEngine {
             use_gpu_cache: self.config.use_gpu_cache,
         };
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut last_cleanup = std::time::Instant::now();
 
             loop {
@@ -656,7 +656,7 @@ impl InferenceEngine {
                     break;
                 }
 
-                if last_cleanup.elapsed() >= Duration::from_secs(300) {
+                if last_cleanup.elapsed() >= Duration::from_secs(30) {
                     // Evict stale sessions
                     {
                         let mut sessions = session_manager.write().await;
@@ -712,6 +712,9 @@ impl InferenceEngine {
 
             info!("Request processing loop ended");
         });
+
+        // Track the main request loop handle for graceful shutdown
+        active_handle.write().await.insert(Uuid::nil(), handle);
 
         Ok(())
     }

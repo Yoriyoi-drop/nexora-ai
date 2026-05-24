@@ -35,49 +35,61 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Error types untuk agent layer
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
-    #[error("Agent not found: {0}")]
-    AgentNotFound(String),
+    #[error("Agent not found: {agent_id}")]
+    AgentNotFound { agent_id: String },
 
-    #[error("Agent already exists: {0}")]
-    AgentAlreadyExists(String),
+    #[error("Agent already exists: {agent_id}")]
+    AgentAlreadyExists { agent_id: String },
 
-    #[error("Invalid agent configuration: {0}")]
-    InvalidConfiguration(String),
+    #[error("Invalid agent configuration: {field}: {reason}")]
+    InvalidConfiguration { field: String, reason: String },
 
-    #[error("Communication error: {0}")]
-    CommunicationError(String),
+    #[error("Communication error with {target}: {reason}")]
+    CommunicationError { target: String, reason: String },
 
-    #[error("Lifecycle error: {0}")]
-    LifecycleError(String),
+    #[error("Lifecycle error: {reason}")]
+    LifecycleError { reason: String },
 
-    #[error("Processing error: {0}")]
-    ProcessingError(String),
+    #[error("Processing error in {operation}: {reason}")]
+    ProcessingError { operation: String, reason: String },
 
-    #[error("State error: {0}")]
-    StateError(String),
+    #[error("State error: {reason}")]
+    StateError { reason: String },
 }
 
 impl From<serde_json::Error> for AgentError {
     fn from(err: serde_json::Error) -> Self {
-        AgentError::ProcessingError(format!("JSON error: {}", err))
+        AgentError::ProcessingError {
+            operation: "serde_json".to_string(),
+            reason: err.to_string(),
+        }
     }
 }
 
 impl From<anyhow::Error> for AgentError {
     fn from(err: anyhow::Error) -> Self {
-        AgentError::ProcessingError(format!("Processing error: {}", err))
+        AgentError::ProcessingError {
+            operation: "anyhow".to_string(),
+            reason: err.to_string(),
+        }
     }
 }
 
 impl From<reqwest::Error> for AgentError {
     fn from(err: reqwest::Error) -> Self {
-        AgentError::ProcessingError(format!("HTTP request error: {}", err))
+        AgentError::ProcessingError {
+            operation: "reqwest".to_string(),
+            reason: err.to_string(),
+        }
     }
 }
 
 impl From<std::io::Error> for AgentError {
     fn from(err: std::io::Error) -> Self {
-        AgentError::ProcessingError(format!("I/O error: {}", err))
+        AgentError::ProcessingError {
+            operation: "io".to_string(),
+            reason: err.to_string(),
+        }
     }
 }
 
@@ -90,7 +102,9 @@ mod tests {
 
     #[test]
     fn test_agent_error_display() {
-        let err = AgentError::AgentNotFound("test-agent".into());
+        let err = AgentError::AgentNotFound {
+            agent_id: "test-agent".into(),
+        };
         assert_eq!(format!("{}", err), "Agent not found: test-agent");
     }
 
@@ -98,14 +112,14 @@ mod tests {
     fn test_agent_error_from_serde() {
         let invalid = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
         let err: AgentError = invalid.into();
-        assert!(matches!(err, AgentError::ProcessingError(_)));
+        assert!(matches!(err, AgentError::ProcessingError { .. }));
     }
 
     #[test]
     fn test_agent_error_from_io() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err: AgentError = io_err.into();
-        assert!(matches!(err, AgentError::ProcessingError(_)));
+        assert!(matches!(err, AgentError::ProcessingError { .. }));
     }
 
     #[test]

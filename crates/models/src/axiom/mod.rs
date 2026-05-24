@@ -35,8 +35,7 @@ pub struct NxrAxiomModel {
     base: nexora_shared::base_model::BaseNxrModel<AxiomConfig, AxiomMetrics, AxiomState>,
     identity: AxiomIdentity,
     architecture: AxiomArchitecture,
-    #[allow(dead_code)]
-    _agents: AxiomAgents,
+    agents: AxiomAgents,
     capabilities: AxiomCapabilities,
     components: FoundationComponents,
     config: AxiomConfig,
@@ -142,7 +141,7 @@ impl NxrAxiomModel {
             ),
             identity,
             architecture: AxiomArchitecture::new(&config),
-            _agents: AxiomAgents::new(&config),
+            agents: AxiomAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
             config,
@@ -247,6 +246,11 @@ impl NxrAxiomModel {
     #[cfg(feature = "hallucination")]
     pub fn disable_hallucination_guard(&mut self) {
         self.hallucination = None;
+    }
+
+    /// Access the Axiom agents subsystem.
+    pub fn agents(&self) -> &AxiomAgents {
+        &self.agents
     }
 
     #[cfg(feature = "hallucination")]

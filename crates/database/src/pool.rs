@@ -4,7 +4,7 @@
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use sqlx::{postgres::PgPoolOptions, Column, PgPool, Row};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
@@ -268,7 +268,7 @@ impl DatabasePool {
                     let cols: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
                     let mut map = serde_json::Map::new();
                     for col in cols {
-                        let val: serde_json::Value = row.try_get(&col).unwrap_or(serde_json::Value::Null);
+                        let val: serde_json::Value = row.try_get(col.as_str()).unwrap_or(serde_json::Value::Null);
                         map.insert(col, val);
                     }
                     serde_json::Value::Object(map)
@@ -434,7 +434,7 @@ impl DatabasePool {
             let cols: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
             let mut map = serde_json::Map::new();
             for col in cols {
-                let val: serde_json::Value = row.try_get(&col).unwrap_or(serde_json::Value::Null);
+                let val: serde_json::Value = row.try_get(col.as_str()).unwrap_or(serde_json::Value::Null);
                 map.insert(col, val);
             }
             serde_json::Value::Object(map)

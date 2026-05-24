@@ -466,7 +466,12 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("content required".to_string()))?;
+                    .ok_or_else(|| {
+                        AgentError::ProcessingError {
+                            operation: "validate".to_string(),
+                            reason: "content required".to_string(),
+                        }
+                    })?;
 
                 let content_type = context
                     .parameters
@@ -500,7 +505,12 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("content required".to_string()))?;
+                    .ok_or_else(|| {
+                        AgentError::ProcessingError {
+                            operation: "validate".to_string(),
+                            reason: "content required".to_string(),
+                        }
+                    })?;
 
                 let is_valid = self.quick_validate(content).await?;
 
@@ -515,7 +525,12 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("content required".to_string()))?;
+                    .ok_or_else(|| {
+                        AgentError::ProcessingError {
+                            operation: "validate".to_string(),
+                            reason: "content required".to_string(),
+                        }
+                    })?;
 
                 let metadata_value = serde_json::to_value(&context.metadata)?;
                 let issues = self.detect_hallucinations(content, &metadata_value).await?;
@@ -538,7 +553,12 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("content required".to_string()))?;
+                    .ok_or_else(|| {
+                        AgentError::ProcessingError {
+                            operation: "validate".to_string(),
+                            reason: "content required".to_string(),
+                        }
+                    })?;
 
                 let issues = self.check_content_appropriateness(content).await?;
 
@@ -560,7 +580,12 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("content required".to_string()))?;
+                    .ok_or_else(|| {
+                        AgentError::ProcessingError {
+                            operation: "validate".to_string(),
+                            reason: "content required".to_string(),
+                        }
+                    })?;
 
                 let issues = self.check_coherence(content).await?;
 
@@ -586,10 +611,10 @@ impl Agent for ValidationAgent {
             }
 
             _ => {
-                return Err(AgentError::ProcessingError(format!(
-                    "Unknown action: {}",
-                    action
-                )));
+                return Err(AgentError::ProcessingError {
+                    operation: "execute_action".to_string(),
+                    reason: format!("Unknown action: {}", action),
+                });
             }
         };
 

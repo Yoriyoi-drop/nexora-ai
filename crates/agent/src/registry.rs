@@ -81,7 +81,7 @@ impl AgentRegistry {
         {
             let agents = self.agents.read().await;
             if agents.contains_key(&agent_id) {
-                return Err(AgentError::AgentAlreadyExists(agent_id.to_string()));
+                return Err(AgentError::AgentAlreadyExists { agent_id: agent_id.to_string() });
             }
         }
 
@@ -159,7 +159,7 @@ impl AgentRegistry {
 
             Ok(())
         } else {
-            Err(AgentError::AgentNotFound(agent_id.to_string()))
+            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
         }
     }
 
@@ -170,7 +170,7 @@ impl AgentRegistry {
             .await
             .get(&agent_id)
             .cloned()
-            .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))
+            .ok_or_else(|| AgentError::AgentNotFound { agent_id: agent_id.to_string() })
     }
 
     /// Get agent info
@@ -187,7 +187,7 @@ impl AgentRegistry {
             info.last_updated = Utc::now();
             Ok(())
         } else {
-            Err(AgentError::AgentNotFound(agent_id.to_string()))
+            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
         }
     }
 
@@ -229,9 +229,7 @@ impl AgentRegistry {
             mappings.remove(index);
             Ok(())
         } else {
-            Err(AgentError::ProcessingError(
-                "Invalid mapping index".to_string(),
-            ))
+            Err(AgentError::ProcessingError { operation: "remove_intent_mapping".to_string(), reason: "Invalid mapping index".to_string() })
         }
     }
 
@@ -316,7 +314,7 @@ impl AgentRegistry {
             info.last_updated = Utc::now();
             Ok(info.restart_attempts)
         } else {
-            Err(AgentError::AgentNotFound(agent_id.to_string()))
+            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
         }
     }
 
@@ -328,7 +326,7 @@ impl AgentRegistry {
             info.last_updated = Utc::now();
             Ok(())
         } else {
-            Err(AgentError::AgentNotFound(agent_id.to_string()))
+            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
         }
     }
 

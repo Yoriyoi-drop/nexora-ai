@@ -333,6 +333,7 @@ pub struct PatternCache {
     cluster_cache: HashMap<PatternCluster, GatePattern>,
     context_cache: HashMap<ContextHash, Array1<f32>>,
     _similarity_threshold: f32,
+    max_cache_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -357,8 +358,11 @@ impl PatternCache {
             cluster_cache: HashMap::new(),
             context_cache: HashMap::new(),
             _similarity_threshold: similarity_threshold,
+            max_cache_size: 10_000,
         }
     }
+
+
 
     /// Find pattern cluster untuk context
     pub fn find_cluster(
@@ -493,6 +497,16 @@ impl PatternCache {
         context_hash: ContextHash,
         gates: GatePattern,
     ) {
+        if self.cluster_cache.len() >= self.max_cache_size {
+            if let Some(oldest) = self.cluster_cache.keys().next().cloned() {
+                self.cluster_cache.remove(&oldest);
+            }
+        }
+        if self.context_cache.len() >= self.max_cache_size {
+            if let Some(oldest) = self.context_cache.keys().next().cloned() {
+                self.context_cache.remove(&oldest);
+            }
+        }
         self.pattern_clusters
             .entry(cluster.clone())
             .or_insert_with(Vec::new)

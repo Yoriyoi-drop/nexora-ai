@@ -8,6 +8,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::batching::{Batch, BatchCollector, BatchKey};
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RequestStatus {
@@ -151,7 +152,9 @@ impl RequestScheduler {
                                             requests.get(req_id).map(|r| r.response_tx.clone())
                                         };
                                         if let Some(tx) = tx {
-                                            let _ = tx.send(resp).await;
+                                            if let Err(e) = tx.send(resp).await {
+                                                tracing::warn!("Failed to send response for request {:?}: {}", req_id, e);
+                                            }
                                         }
                                         if let Err(e) = this.read().await.complete_request(*req_id).await {
                                             tracing::warn!("failed to complete errored request: {}", e);
@@ -171,7 +174,9 @@ impl RequestScheduler {
                                     requests.get(req_id).map(|r| r.response_tx.clone())
                                 };
                                 if let Some(tx) = tx {
-                                    let _ = tx.send(resp).await;
+                                    if let Err(e) = tx.send(resp).await {
+                                        tracing::warn!("Failed to send response for request {:?}: {}", req_id, e);
+                                    }
                                 }
                                 if let Err(e) = this.read().await.complete_request(*req_id).await {
                                     tracing::warn!("background worker: failed to complete request {}: {}", req_id, e);
@@ -290,7 +295,9 @@ impl RequestScheduler {
             let guard = self.requests.read().await;
             if let Some(tx) = guard.get(req_id).map(|r| r.response_tx.clone()) {
                 drop(guard);
-                let _ = tx.send(resp).await;
+                if let Err(e) = tx.send(resp).await {
+                    tracing::warn!("Failed to send response for request {:?}: {}", req_id, e);
+                }
             }
         }
 
@@ -361,10 +368,13 @@ impl RequestScheduler {
 
     /// Cancel all tracked background handles with graceful shutdown.
     pub async fn cancel_background_handles(&self) {
-        if let Ok(mut handles) = self.background_handles.lock() {
-            for h in handles.drain(..) {
-                let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
-            }
+        let handles = if let Ok(mut h) = self.background_handles.lock() {
+            h.drain(..).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        for h in handles {
+            let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
         }
     }
 
@@ -473,6 +483,81 @@ impl RequestScheduler {
             *active -= 1;
         }
         Ok(())
+    }
+}
+
+#[async_trait]
+impl nexora_runtime::Scheduler for RequestScheduler {
+    async fn submit(
+        &self,
+        request_id: Uuid,
+        response_tx: tokio::sync::mpsc::Sender<nexora_runtime::InferenceResponse>,
+    ) -> anyhow::Result<()> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::InferenceResponse>(16);
+        tokio::spawn(async move {
+            while let Some(resp) = rx.recv().await {
+                let runtime_resp = nexora_runtime::InferenceResponse {
+                    request_id: Some(resp.request_id.to_string()),
+                    model_id: String::new(),
+                    outputs: Vec::new(),
+                    metadata: resp.metadata,
+                    processing_time_ms: resp.inference_time_ms,
+                };
+                if response_tx.send(runtime_resp).await.is_err() {
+                    break;
+                }
+            }
+        });
+        self.submit_request(request_id, tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))
+    }
+
+    async fn cancel(&self, request_id: Uuid) -> anyhow::Result<bool> {
+        self.cancel_request(request_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))
+    }
+
+    async fn status(
+        &self,
+        request_id: Uuid,
+    ) -> anyhow::Result<Option<nexora_runtime::RequestStatus>> {
+        let status = self
+            .get_request_status(request_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        Ok(status.map(|s| match s {
+            RequestStatus::Queued => nexora_runtime::RequestStatus::Queued,
+            RequestStatus::Processing => nexora_runtime::RequestStatus::Processing,
+            RequestStatus::Completed => nexora_runtime::RequestStatus::Completed,
+            RequestStatus::Failed(msg) => nexora_runtime::RequestStatus::Failed(msg),
+            RequestStatus::Cancelled => nexora_runtime::RequestStatus::Cancelled,
+            RequestStatus::Timeout => nexora_runtime::RequestStatus::Timeout,
+        }))
+    }
+
+    async fn stats(&self) -> nexora_runtime::SchedulerStats {
+        let s = self.get_stats().await;
+        nexora_runtime::SchedulerStats {
+            total_requests: s.total_requests as u64,
+            queued_requests: s.queued_requests as u64,
+            processed_requests: s.completed_requests as u64,
+            failed_requests: s.failed_requests as u64,
+            cancelled_requests: 0,
+            current_queue_length: s.queued_requests,
+            current_active_requests: s.active_requests,
+            avg_queue_time_ms: 0.0,
+            avg_processing_time_ms: 0.0,
+            throughput_rps: 0.0,
+            last_updated: chrono::Utc::now(),
+        }
+    }
+
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        RequestScheduler::shutdown(self)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 }
 

@@ -268,10 +268,10 @@ impl MessageBus {
 
             self.send_message(reply).await
         } else {
-            Err(AgentError::CommunicationError(format!(
-                "Original message {} not found",
-                original_message_id
-            )))
+            Err(AgentError::CommunicationError {
+                target: "reply".to_string(),
+                reason: format!("Original message {} not found", original_message_id),
+            })
         }
     }
 

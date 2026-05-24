@@ -42,6 +42,7 @@ pub struct Sampler {
     rng: Option<rand::rngs::StdRng>,
     use_gpu: bool,
     gpu_fallback_count: AtomicU64,
+    gpu_attempts: AtomicU64,
     allow_gpu_fallback: bool,
 }
 
@@ -57,6 +58,7 @@ impl Sampler {
             rng,
             use_gpu,
             gpu_fallback_count: AtomicU64::new(0),
+            gpu_attempts: AtomicU64::new(0),
             allow_gpu_fallback: true, // Default to true for backward compatibility
         }
     }
@@ -72,6 +74,7 @@ impl Sampler {
             #[cfg(not(feature = "gpu"))]
             use_gpu: false,
             gpu_fallback_count: AtomicU64::new(0),
+            gpu_attempts: AtomicU64::new(0),
             allow_gpu_fallback: true,
         }
     }
@@ -89,6 +92,16 @@ impl Sampler {
     /// Get the number of GPU fallbacks that have occurred.
     pub fn gpu_fallback_count(&self) -> u64 {
         self.gpu_fallback_count.load(Ordering::Relaxed)
+    }
+
+    /// Ratio of GPU attempts that fell back to CPU (0.0 – 1.0).
+    pub fn gpu_fallback_ratio(&self) -> f64 {
+        let total = self.gpu_attempts.load(Ordering::Relaxed);
+        if total == 0 {
+            0.0
+        } else {
+            self.gpu_fallback_count.load(Ordering::Relaxed) as f64 / total as f64
+        }
     }
 
     pub fn reset_seed(&mut self, seed: u64) {
@@ -122,16 +135,24 @@ impl Sampler {
 
     #[cfg(feature = "gpu")]
     pub fn sample_gpu(&mut self, logits: &[f32]) -> Result<usize> {
+        self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
         match self.sample_gpu_impl(logits) {
             Ok(token) => Ok(token),
             Err(e) => {
+                self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
                 if self.allow_gpu_fallback {
+                    let ratio = self.gpu_fallback_ratio();
+                    if ratio > 0.5 {
+                        warn!(
+                            "GPU fallback ratio is {:.1}% — consider disabling GPU acceleration",
+                            ratio * 100.0
+                        );
+                    }
                     warn!(
                         "GPU sampling failed: {}, falling back to CPU (fallback count: {})",
                         e,
-                        self.gpu_fallback_count.load(Ordering::Relaxed) + 1
+                        self.gpu_fallback_count.load(Ordering::Relaxed)
                     );
-                    self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
                     self.sample_cpu(logits)
                 } else {
                     error!(
@@ -155,16 +176,24 @@ impl Sampler {
             return Ok(Vec::new());
         }
         let vocab = batch_logits[0].len();
+        self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
         let ctx = match GpuContext::global() {
             Ok(c) => c,
             Err(e) => {
+                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
                 if self.allow_gpu_fallback {
+                    let ratio = self.gpu_fallback_ratio();
+                    if ratio > 0.5 {
+                        warn!(
+                            "GPU fallback ratio is {:.1}% — consider disabling GPU acceleration",
+                            ratio * 100.0
+                        );
+                    }
                     warn!(
                         "GPU sampling batched failed: {}, falling back to per-sequence (fallback count: {})",
                         e,
-                        self.gpu_fallback_count.load(Ordering::Relaxed) + batch as u64
+                        self.gpu_fallback_count.load(Ordering::Relaxed)
                     );
-                    self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
                     return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
                 } else {
                     error!(
@@ -192,13 +221,20 @@ impl Sampler {
         let out = match ctx.gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed) {
             Ok(o) => o,
             Err(e) => {
+                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
                 if self.allow_gpu_fallback {
+                    let ratio = self.gpu_fallback_ratio();
+                    if ratio > 0.5 {
+                        warn!(
+                            "GPU fallback ratio is {:.1}% — consider disabling GPU acceleration",
+                            ratio * 100.0
+                        );
+                    }
                     warn!(
                         "GPU sampling batched call failed: {}, falling back to per-sequence (fallback count: {})",
                         e,
-                        self.gpu_fallback_count.load(Ordering::Relaxed) + batch as u64
+                        self.gpu_fallback_count.load(Ordering::Relaxed)
                     );
-                    self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
                     return batch_logits.iter().map(|l| self.sample_cpu(l)).collect();
                 } else {
                     error!(

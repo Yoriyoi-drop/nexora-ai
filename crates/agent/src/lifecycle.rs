@@ -201,10 +201,10 @@ impl LifecycleManager {
             let agent_status = self.agent_status.read().await;
             if let Some(status) = agent_status.get(&agent_id) {
                 if status.restart_count >= self.config.max_restart_attempts {
-                    return Err(AgentError::LifecycleError(format!(
+                    return Err(AgentError::LifecycleError { reason: format!(
                         "Agent {} exceeded maximum restart attempts ({})",
                         agent_id, self.config.max_restart_attempts
-                    )));
+                    ) });
                 }
             }
         }

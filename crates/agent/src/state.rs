@@ -266,7 +266,7 @@ impl AgentState {
         let (old_data, new_data) = {
             let mut session_states = self.session_states.write().await;
             let session_state = session_states.get_mut(&session_id).ok_or_else(|| {
-                AgentError::StateError(format!("Session {} not found", session_id))
+                AgentError::StateError { reason: format!("Session {} not found", session_id) }
             })?;
             let old_data = session_state.data.clone();
             updater(session_state);
@@ -364,7 +364,7 @@ impl AgentState {
         let (old_shared_data, new_shared_data) = {
             let mut agent_states = self.agent_states.write().await;
             let agent_state = agent_states.get_mut(&agent_id).ok_or_else(|| {
-                AgentError::StateError(format!("Agent {} not found", agent_id))
+                AgentError::StateError { reason: format!("Agent {} not found", agent_id) }
             })?;
             let old_shared_data = agent_state.shared_data.clone();
             updater(agent_state);

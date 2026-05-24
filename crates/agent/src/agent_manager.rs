@@ -287,10 +287,13 @@ impl AgentManager {
 
         // Check concurrent agent limit
         if self.registry.agent_count().await >= self.config.max_concurrent_agents {
-            return Err(AgentError::ProcessingError(format!(
-                "Maximum concurrent agents ({}) reached",
-                self.config.max_concurrent_agents
-            )));
+            return Err(AgentError::ProcessingError {
+                operation: "spawn_agent".to_string(),
+                reason: format!(
+                    "Maximum concurrent agents ({}) reached",
+                    self.config.max_concurrent_agents
+                ),
+            });
         }
 
         // Create agent instance based on type
@@ -338,7 +341,7 @@ impl AgentManager {
             .registry
             .get_agent_info(agent_id)
             .await?
-            .ok_or_else(|| AgentError::AgentNotFound(agent_id.to_string()))?;
+            .ok_or_else(|| AgentError::AgentNotFound { agent_id: agent_id.to_string() })?;
 
         // Stop agent
         self.stop_agent_internal(agent_id).await?;
@@ -511,10 +514,10 @@ impl AgentManager {
                 let agent = crate::validation_agent::ValidationAgent::new(config);
                 Ok(Box::new(agent))
             }
-            _ => Err(AgentError::ProcessingError(format!(
-                "Unknown agent type: {}",
-                agent_type
-            ))),
+            _ => Err(AgentError::ProcessingError {
+                operation: "create_agent".to_string(),
+                reason: format!("Unknown agent type: {}", agent_type),
+            }),
         }
     }
 

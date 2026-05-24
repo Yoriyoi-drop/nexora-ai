@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -5,7 +6,7 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::{InferenceError, InferenceRequest, InferenceResponse, Result};
+use crate::{InferenceError, InferenceRequest, InferenceResponse, Result, Scheduler};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SchedulingStrategy {
@@ -38,6 +39,7 @@ pub enum RequestStatus {
 
 pub struct RequestScheduler {
     max_concurrent_requests: usize,
+    max_queue_time_ms: u64,
     strategy: SchedulingStrategy,
     request_queue: Arc<RwLock<VecDeque<QueuedRequest>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, RequestInfo>>>,
@@ -85,6 +87,7 @@ impl RequestScheduler {
     pub fn new(max_concurrent_requests: usize) -> Self {
         Self {
             max_concurrent_requests,
+            max_queue_time_ms: 30000,
             strategy: SchedulingStrategy::Priority,
             request_queue: Arc::new(RwLock::new(VecDeque::new())),
             active_requests: Arc::new(RwLock::new(HashMap::new())),
@@ -93,6 +96,11 @@ impl RequestScheduler {
             stats: Arc::new(RwLock::new(SchedulerStats::default())),
             state: Arc::new(RwLock::new(SchedulerState::Uninitialized)),
         }
+    }
+
+    pub fn with_max_queue_time(mut self, ms: u64) -> Self {
+        self.max_queue_time_ms = ms;
+        self
     }
 
     pub fn with_strategy(mut self, strategy: SchedulingStrategy) -> Self {
@@ -187,6 +195,32 @@ impl RequestScheduler {
         }
 
         let mut queue = self.request_queue.write().await;
+        if queue.is_empty() {
+            return Ok(None);
+        }
+
+        // Check for timed-out requests at the front of the queue
+        let now = Utc::now();
+        while let Some(front) = queue.front() {
+            let elapsed_ms = (now - front.queued_at).num_milliseconds().max(0) as u64;
+            if elapsed_ms > self.max_queue_time_ms {
+                let timed_out = queue.pop_front().unwrap();
+                let rid = timed_out
+                    .request
+                    .request_id
+                    .as_ref()
+                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .unwrap_or_else(Uuid::new_v4);
+                self.request_status
+                    .write()
+                    .await
+                    .insert(rid, RequestStatus::Timeout);
+                tracing::warn!("Request {} timed out after {}ms", rid, elapsed_ms);
+            } else {
+                break;
+            }
+        }
+
         if queue.is_empty() {
             return Ok(None);
         }
@@ -535,6 +569,43 @@ impl RequestScheduler {
             .unwrap_or(0.7) as f32;
         let temperature_factor = if temperature > 0.0 { 1.5 } else { 1.0 };
         (max_tokens * base_time_per_token * temperature_factor as u64).max(100)
+    }
+}
+
+#[async_trait]
+impl Scheduler for RequestScheduler {
+    async fn submit(
+        &self,
+        request_id: Uuid,
+        response_tx: mpsc::Sender<crate::InferenceResponse>,
+    ) -> crate::Result<()> {
+        let request = InferenceRequest {
+            model_id: String::new(),
+            inputs: vec![],
+            parameters: HashMap::new(),
+            request_id: Some(request_id.to_string()),
+            input_tokens: vec![],
+            target_tokens: None,
+            priority: 50,
+            metadata: HashMap::new(),
+        };
+        self.submit_request(request, response_tx).await
+    }
+
+    async fn cancel(&self, request_id: Uuid) -> crate::Result<bool> {
+        self.cancel_request(request_id).await
+    }
+
+    async fn status(&self, request_id: Uuid) -> crate::Result<Option<crate::RequestStatus>> {
+        self.get_request_status(request_id).await
+    }
+
+    async fn stats(&self) -> crate::SchedulerStats {
+        self.get_stats().await
+    }
+
+    async fn shutdown(&self) -> crate::Result<()> {
+        RequestScheduler::shutdown(self).await
     }
 }
 

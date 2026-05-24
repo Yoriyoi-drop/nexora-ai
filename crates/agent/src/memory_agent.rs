@@ -258,7 +258,7 @@ impl MemoryAgent {
 
         // Get existing memory first
         let mut memory_result = self.get_memory(memory_id).await?.ok_or_else(|| {
-            AgentError::ProcessingError(format!("Memory {} not found", memory_id))
+            AgentError::ProcessingError { operation: "get_memory".to_string(), reason: format!("Memory {} not found", memory_id) }
         })?;
 
         // Update fields
@@ -588,7 +588,7 @@ impl Agent for MemoryAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("content required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "content required".to_string() })?;
 
                 let memory_type_str = context
                     .parameters
@@ -602,10 +602,7 @@ impl Agent for MemoryAgent {
                     "working" => MemoryType::Working,
                     "user" => MemoryType::User,
                     _ => {
-                        return Err(AgentError::ProcessingError(format!(
-                            "Invalid memory_type: {}",
-                            memory_type_str
-                        )))
+                        return Err(AgentError::ProcessingError { operation: "validate_memory_type".to_string(), reason: format!("Invalid memory_type: {}", memory_type_str) })
                     }
                 };
 
@@ -694,10 +691,10 @@ impl Agent for MemoryAgent {
                     .parameters
                     .get("memory_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("memory_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "memory_id required".to_string() })?;
 
                 let memory_id = Uuid::parse_str(memory_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid memory_id".to_string()))?;
+                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid memory_id".to_string() })?;
 
                 let memory = self.get_memory(memory_id).await?;
 
@@ -729,10 +726,10 @@ impl Agent for MemoryAgent {
                     .parameters
                     .get("memory_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("memory_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "memory_id required".to_string() })?;
 
                 let memory_id = Uuid::parse_str(memory_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid memory_id".to_string()))?;
+                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid memory_id".to_string() })?;
 
                 let content = context
                     .parameters
@@ -760,10 +757,10 @@ impl Agent for MemoryAgent {
                     .parameters
                     .get("memory_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError("memory_id required".to_string()))?;
+                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "memory_id required".to_string() })?;
 
                 let memory_id = Uuid::parse_str(memory_id_str)
-                    .map_err(|_| AgentError::ProcessingError("Invalid memory_id".to_string()))?;
+                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid memory_id".to_string() })?;
 
                 let success = self.delete_memory(memory_id).await?;
 
@@ -780,7 +777,7 @@ impl Agent for MemoryAgent {
                     .get("search_term")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        AgentError::ProcessingError("search_term required".to_string())
+                        AgentError::ProcessingError { operation: "validate".to_string(), reason: "search_term required".to_string() }
                     })?;
 
                 let memory_type_str = context
@@ -795,10 +792,7 @@ impl Agent for MemoryAgent {
                         "working" => MemoryType::Working,
                         "user" => MemoryType::User,
                         _ => {
-                            return Err(AgentError::ProcessingError(format!(
-                                "Invalid memory_type: {}",
-                                t
-                            )))
+                            return Err(AgentError::ProcessingError { operation: "validate_memory_type".to_string(), reason: format!("Invalid memory_type: {}", t) })
                         }
                     }),
                     None => None,
@@ -862,10 +856,7 @@ impl Agent for MemoryAgent {
             }
 
             _ => {
-                return Err(AgentError::ProcessingError(format!(
-                    "Unknown action: {}",
-                    action
-                )));
+                return Err(AgentError::ProcessingError { operation: "execute_action".to_string(), reason: format!("Unknown action: {}", action) });
             }
         };
 

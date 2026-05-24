@@ -269,6 +269,18 @@ pub struct AnalysisCache {
     pub policy: CachePolicy,
 }
 
+impl AnalysisCache {
+    /// Insert entry with eviction when cache exceeds size limit.
+    pub fn insert(&mut self, key: String, entry: CacheEntry) {
+        if self.entries.len() >= self.size_limit && !self.entries.contains_key(&key) {
+            if let Some(oldest) = self.entries.keys().next().cloned() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key, entry);
+    }
+}
+
 /// Cache Entry
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
@@ -659,6 +671,18 @@ pub struct ContextCache {
     pub size_limit: usize,
     /// Cache policy
     pub policy: CachePolicy,
+}
+
+impl ContextCache {
+    /// Insert entry with eviction when cache exceeds size limit.
+    pub fn insert(&mut self, key: String, entry: ContextCacheEntry) {
+        if self.entries.len() >= self.size_limit && !self.entries.contains_key(&key) {
+            if let Some(oldest) = self.entries.keys().next().cloned() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key, entry);
+    }
 }
 
 /// Context Cache Entry

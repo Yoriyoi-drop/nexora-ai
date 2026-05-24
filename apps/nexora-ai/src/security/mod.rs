@@ -6,40 +6,74 @@ use std::collections::HashSet;
 use tracing::warn;
 
 static MALICIOUS_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    vec![
-        // safe because: compile-time known regex literal
-        Regex::new(r"<script[^>]*>.*?</script>").unwrap(),
-        Regex::new(r"javascript:").unwrap(),
-        Regex::new(r"eval\s*\(").unwrap(),
-        Regex::new(r"exec\s*\(").unwrap(),
-        Regex::new(r"system\s*\(").unwrap(),
-        Regex::new(r"__import__").unwrap(),
-        Regex::new(r"subprocess\.").unwrap(),
-        Regex::new(r"os\.").unwrap(),
-        Regex::new(r"require\s*\(").unwrap(),
-        Regex::new(r"import\s+.*from").unwrap(),
-    ]
+    let patterns: &[(&str, &str)] = &[
+        (r"<script[^>]*>.*?</script>", "script tag"),
+        (r"javascript:", "javascript: protocol"),
+        (r"eval\s*\(", "eval() call"),
+        (r"exec\s*\(", "exec() call"),
+        (r"system\s*\(", "system() call"),
+        (r"__import__", "__import__ statement"),
+        (r"subprocess\.", "subprocess module"),
+        (r"os\.", "os module access"),
+        (r"require\s*\(", "require() call"),
+        (r"import\s+.*from", "import-from statement"),
+    ];
+    patterns
+        .iter()
+        .filter_map(|(pattern, name)| {
+            match Regex::new(pattern) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    tracing::error!("Failed to compile regex '{}': {}", name, e);
+                    // Return a regex that never matches as fallback
+                    Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
+                }
+            }
+        })
+        .collect()
 });
 
 static PATH_TRAVERSAL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    vec![
-        // safe because: compile-time known regex literal
-        Regex::new(r"\.\.[/\\]").unwrap(),
-        Regex::new(r"[/\\]\.\.[/\\]").unwrap(),
-        Regex::new(r"%2e%2f").unwrap(),
-        Regex::new(r"%2e%5c").unwrap(),
-    ]
+    let patterns: &[(&str, &str)] = &[
+        (r"\.\.[/\\]", "parent directory traversal"),
+        (r"[/\\]\.\.[/\\]", "path-embedded parent dir"),
+        (r"%2e%2f", "URL-encoded ../ (%2e%2f)"),
+        (r"%2e%5c", "URL-encoded ..\\ (%2e%5c)"),
+    ];
+    patterns
+        .iter()
+        .filter_map(|(pattern, name)| {
+            match Regex::new(pattern) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    tracing::error!("Failed to compile regex '{}': {}", name, e);
+                    Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
+                }
+            }
+        })
+        .collect()
 });
 
 static COMMAND_INJECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    vec![
-        // safe because: compile-time known regex literal
-        Regex::new(r"[;&|`$()]").unwrap(),
-        Regex::new(r"(rm|del|format|shutdown|reboot)").unwrap(),
-        Regex::new(r"(sudo|su|doas)").unwrap(),
-        Regex::new(r"(curl|wget|nc|netcat)").unwrap(),
-        Regex::new(r"(chmod|chown|chgrp)").unwrap(),
-    ]
+    let patterns: &[(&str, &str)] = &[
+        (r"[;&|`$()]", "shell metacharacters"),
+        (r"(rm|del|format|shutdown|reboot)", "destructive commands"),
+        (r"(sudo|su|doas)", "privilege escalation commands"),
+        (r"(curl|wget|nc|netcat)", "network tool commands"),
+        (r"(chmod|chown|chgrp)", "file permission commands"),
+    ];
+    patterns
+        .iter()
+        .filter_map(|(pattern, name)| {
+            match Regex::new(pattern) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    tracing::error!("Failed to compile regex '{}': {}", name, e);
+                    Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
+                }
+            }
+        })
+        .collect()
 });
 
 /// Security configuration and validation

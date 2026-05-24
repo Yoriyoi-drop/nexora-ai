@@ -181,9 +181,10 @@ impl RoutingAgent {
             warn!("No routing rule matched, using fallback");
             self.fallback_routing().await
         } else {
-            Err(AgentError::ProcessingError(
-                "No routing rule matched and fallback disabled".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "route".to_string(),
+                reason: "No routing rule matched and fallback disabled".to_string(),
+            })
         }
     }
 
@@ -285,10 +286,10 @@ impl RoutingAgent {
                         metadata: HashMap::new(),
                     })
                 } else {
-                    Err(AgentError::ProcessingError(format!(
-                        "Specialist {} not found",
-                        specialist_id
-                    )))
+                    Err(AgentError::ProcessingError {
+                        operation: "get_specialist".to_string(),
+                        reason: format!("Specialist {} not found", specialist_id),
+                    })
                 }
             }
 
@@ -319,10 +320,10 @@ impl RoutingAgent {
                         metadata: HashMap::new(),
                     })
                 } else {
-                    Err(AgentError::ProcessingError(format!(
-                        "No specialists of type {:?}",
-                        specialist_type
-                    )))
+                    Err(AgentError::ProcessingError {
+                        operation: "route_to_type".to_string(),
+                        reason: format!("No specialists of type {:?}", specialist_type),
+                    })
                 }
             }
 
@@ -346,9 +347,10 @@ impl RoutingAgent {
                         metadata: HashMap::new(),
                     })
                 } else {
-                    Err(AgentError::ProcessingError(
-                        "No available specialists for load balancing".to_string(),
-                    ))
+                    Err(AgentError::ProcessingError {
+                        operation: "load_balance".to_string(),
+                        reason: "No available specialists for load balancing".to_string(),
+                    })
                 }
             }
 
@@ -362,10 +364,10 @@ impl RoutingAgent {
                 })
             }
 
-            RoutingAction::Reject(reason) => Err(AgentError::ProcessingError(format!(
-                "Request rejected: {}",
-                reason
-            ))),
+            RoutingAction::Reject(reason) => Err(AgentError::ProcessingError {
+                operation: "reject".to_string(),
+                reason: format!("Request rejected: {}", reason),
+            }),
         }
     }
 
@@ -381,9 +383,10 @@ impl RoutingAgent {
                 metadata: HashMap::new(),
             })
         } else {
-            Err(AgentError::ProcessingError(
-                "No specialists available for fallback routing".to_string(),
-            ))
+            Err(AgentError::ProcessingError {
+                operation: "fallback".to_string(),
+                reason: "No specialists available for fallback routing".to_string(),
+            })
         }
     }
 

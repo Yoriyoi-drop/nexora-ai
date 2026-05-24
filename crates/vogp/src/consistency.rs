@@ -6,7 +6,6 @@
 use ndarray::{s, Array1, Array2, ArrayView1};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Consistency Learning Component
 ///
@@ -20,8 +19,6 @@ pub struct ConsistencyLearning {
     config: ConsistencyConfig,
     /// Statistik untuk monitoring
     statistics: ConsistencyStatistics,
-    /// Cache untuk augmentasi yang mahal
-    _augmentation_cache: HashMap<u64, Array2<f32>>,
 }
 
 /// Konfigurasi untuk consistency learning
@@ -87,7 +84,6 @@ impl ConsistencyLearning {
                 avg_augmentation_similarity: 0.0,
                 expansion_factor: 1.0,
             },
-            _augmentation_cache: HashMap::new(),
         }
     }
 
