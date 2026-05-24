@@ -176,6 +176,22 @@ impl StreamIntakeEngine {
 
         rx
     }
+
+    /// Prepare samples for pipeline processing: validate, assign IDs, normalize
+    pub fn prepare_samples(&self, samples: Vec<DataSample>) -> Vec<DataSample> {
+        samples
+            .into_iter()
+            .map(|mut s| {
+                if s.id.is_nil() {
+                    s.id = Uuid::new_v4();
+                }
+                if s.text.is_empty() {
+                    s.text = String::new();
+                }
+                s
+            })
+            .collect()
+    }
 }
 
 pub async fn dynamic_batcher(

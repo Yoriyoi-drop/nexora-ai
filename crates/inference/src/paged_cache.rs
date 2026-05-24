@@ -8,9 +8,15 @@
 
 use ndarray::{s, Array2};
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use nexora_transformer::KVCacheEntry;
 use tracing::warn;
+
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu::GpuContext;
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu_kv_cache::GpuPageTable;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -19,6 +25,12 @@ pub const DEFAULT_BLOCK_SIZE: usize = 16;
 
 /// Default max number of blocks to allocate
 pub const DEFAULT_MAX_BLOCKS: usize = 65536;
+
+// ─── Global Singleton ─────────────────────────────────────────────────────────
+
+/// Global paged KV cache singleton accessible by the inference engine.
+/// Initialized via [`init_global_paged_cache`] or `PagedKVCache::new_for_engine`.
+pub static GLOBAL_PAGED_CACHE: OnceLock<Mutex<PagedKVCache>> = OnceLock::new();
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -168,6 +180,9 @@ pub struct PagedKVCache {
     pub num_allocated: usize,
     pub num_freed: usize,
     pub max_used: usize,
+    /// GPU page table bridge (enabled with `gpu` feature)
+    #[cfg(feature = "gpu")]
+    pub gpu_page_table: Option<GpuPageTable>,
 }
 
 impl PagedKVCache {
@@ -191,7 +206,59 @@ impl PagedKVCache {
             num_allocated: 0,
             num_freed: 0,
             max_used: 0,
+            #[cfg(feature = "gpu")]
+            gpu_page_table: None,
         }
+    }
+
+    /// Create a paged cache pre-configured with engine params.
+    ///
+    /// Shorthand for creating a `PagedCacheConfig` with the given
+    /// dimensions and constructing a `PagedKVCache` from it.
+    pub fn new_for_engine(
+        num_layers: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        max_seq_len: usize,
+    ) -> Self {
+        let config = PagedCacheConfig {
+            num_layers,
+            num_kv_heads,
+            head_dim,
+            max_seq_len,
+            ..Default::default()
+        };
+        Self::new(config)
+    }
+
+    /// Initialize the GPU page table bridge for this cache.
+    ///
+    /// Creates a [`GpuPageTable`] with dimensions matching this cache's config
+    /// and stores it for GPU-side paged attention operations.
+    #[cfg(feature = "gpu")]
+    pub fn init_gpu_page_table(&mut self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        let ctx = GpuContext::global()?;
+        let page_table = GpuPageTable::new(
+            ctx,
+            self.config.max_blocks,
+            self.config.block_size,
+            self.config.num_kv_heads,
+            self.config.head_dim,
+        )?;
+        self.gpu_page_table = Some(page_table);
+        Ok(())
+    }
+
+    /// Return a reference to the GPU page table, if initialized.
+    #[cfg(feature = "gpu")]
+    pub fn gpu_page_table(&self) -> Option<&GpuPageTable> {
+        self.gpu_page_table.as_ref()
+    }
+
+    /// Return a mutable reference to the GPU page table, if initialized.
+    #[cfg(feature = "gpu")]
+    pub fn gpu_page_table_mut(&mut self) -> Option<&mut GpuPageTable> {
+        self.gpu_page_table.as_mut()
     }
 
     /// Register a new sequence and return its block table
@@ -504,6 +571,32 @@ impl PagedKVCache {
             total_tokens,
         }
     }
+}
+
+// ─── Global Initializer ──────────────────────────────────────────────────────
+
+/// Initialize [`GLOBAL_PAGED_CACHE`] with engine parameters.
+///
+/// Creates a `PagedKVCache` via [`PagedKVCache::new_for_engine`] and stores it
+/// in the global singleton. When the `gpu` feature is enabled, also attempts
+/// to initialize the GPU page table bridge.
+///
+/// Returns a reference to the initialized global mutex. Safe to call multiple
+/// times — subsequent calls return the existing instance.
+pub fn init_global_paged_cache(
+    num_layers: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    max_seq_len: usize,
+) -> &'static Mutex<PagedKVCache> {
+    GLOBAL_PAGED_CACHE.get_or_init(|| {
+        let mut cache = PagedKVCache::new_for_engine(num_layers, num_kv_heads, head_dim, max_seq_len);
+        #[cfg(feature = "gpu")]
+        if let Err(e) = cache.init_gpu_page_table() {
+            tracing::warn!("Failed to init GPU page table for global paged cache: {e}");
+        }
+        Mutex::new(cache)
+    })
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

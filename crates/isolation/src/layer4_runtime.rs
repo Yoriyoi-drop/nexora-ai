@@ -65,15 +65,6 @@ pub struct ResourceLimits {
     pub io_write_bps_max: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum IsolationLevel {
-    Pod,
-    MicroVM,
-    Container,
-    Process,
-    Thread,
-}
-
 pub type RuntimeProfile = RuntimeIsolationSpec;
 
 impl RuntimeIsolationSpec {

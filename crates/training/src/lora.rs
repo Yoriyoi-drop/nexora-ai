@@ -78,21 +78,16 @@ impl LoRALayer {
         }
     }
 
-    pub fn forward(&self, x: &Tensor) -> Tensor {
-        if self.dropout_enabled(0.0) {
-            let hidden = x.matmul(&self.lora_a.transpose());
-            let dropped = hidden.dropout(0.1, false);
+    pub fn forward(&self, x: &Tensor, dropout_rate: f32) -> Tensor {
+        let hidden = x.matmul(&self.lora_a.transpose());
+        if dropout_rate > 0.0 {
+            let dropped = hidden.dropout(dropout_rate, false);
             let out = dropped.matmul(&self.lora_b.transpose());
             out.mul(&Tensor::from_slice(&[self.scaling], &[1]))
         } else {
-            let hidden = x.matmul(&self.lora_a.transpose());
             let out = hidden.matmul(&self.lora_b.transpose());
             out.mul(&Tensor::from_slice(&[self.scaling], &[1]))
         }
-    }
-
-    fn dropout_enabled(&self, _p: f32) -> bool {
-        false
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {

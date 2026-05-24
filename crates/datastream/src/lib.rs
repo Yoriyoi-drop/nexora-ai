@@ -163,22 +163,41 @@ impl Pipeline {
         ),
     ) -> Vec<graph::ExecutionResult> {
         self.cancel_tx = Some(cancel_tx);
-        // Graph is already finalized by PipelineBuilder::build()
         let mut results = Vec::with_capacity(samples.len());
 
-        for sample in samples {
+        // Phase 1: Intake - ingest and validate samples
+        let ingested = self.intake.prepare_samples(samples);
+
+        for sample in ingested {
             if *cancel_rx.borrow() {
                 break;
             }
 
+            // Phase 2: Filter DAG processing
             let result = self.graph.execute(sample, cancel_rx.clone()).await;
 
+            // Phase 3: Intelligence - score and update quality
             if let graph::ExecutionResult::Accepted { ref sample, .. } = result {
                 let score = self.intelligence.score_sample(sample);
                 self.intelligence.update_quality_distribution(score);
             }
 
             results.push(result);
+        }
+
+        // Phase 4: Delivery - deliver processed results
+        let accepted: Vec<_> = results
+            .iter()
+            .filter_map(|r| {
+                if let graph::ExecutionResult::Accepted { ref sample, .. } = r {
+                    Some(sample.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !accepted.is_empty() {
+            let _ = self.delivery.deliver_batch(&accepted);
         }
 
         results

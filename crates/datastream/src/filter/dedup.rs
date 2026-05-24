@@ -124,6 +124,9 @@ impl Filter for DedupFilter {
         let fingerprints = self.fingerprint(&sample.text);
         let total_hashes = fingerprints.len();
 
+        // SAFETY: parking_lot::Mutex::lock() is used in an async fn, but no
+        // .await calls are made while the guard is held — all operations below
+        // (contains, insert, len) are synchronous hash-set operations.
         let mut hashes = self.seen_hashes.lock();
         if hashes.len() >= self.max_seen {
             return FilterResult {

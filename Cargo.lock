@@ -3377,6 +3377,7 @@ name = "nexora-autograd"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "chrono",
  "half",
  "ndarray 0.15.6",
  "num_cpus",

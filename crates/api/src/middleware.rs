@@ -381,9 +381,9 @@ impl RateLimitingMiddleware {
         Ok(counter)
     }
 
-    /// Reset rate limit for a client
-    pub async fn reset_rate_limit(&self, _client_key: &str) -> Result<()> {
-        // Sliding window counter tidak perlu reset — window akan bergerak sendiri
+    /// Reset rate limit for a client — clears the current window counters
+    pub async fn reset_rate_limit(&self, client_key: &str) -> Result<()> {
+        self.rate_limiter.reset_client(client_key).await;
         Ok(())
     }
 
@@ -407,8 +407,10 @@ impl RateLimitingMiddleware {
         })
     }
 
-    /// Clear rate limit data for a client
-    pub async fn clear_client_data(&self, _client_key: &str) -> Result<()> {
+    /// Clear all rate limit data for a client (limits and counters)
+    pub async fn clear_client_data(&self, client_key: &str) -> Result<()> {
+        self.rate_limiter.reset_client(client_key).await;
+        self.rate_limiter.remove_limit(client_key).await;
         Ok(())
     }
 }

@@ -165,22 +165,14 @@ pub enum RuntimeEventType {
     Started,
     /// Runtime stopped
     Stopped,
-    /// Runtime error
-    Error,
     /// Resource warning
     ResourceWarning,
     /// Resource critical
     ResourceCritical,
     /// Performance degradation
     PerformanceDegradation,
-    /// Model loaded
-    ModelLoaded,
-    /// Model unloaded
-    ModelUnloaded,
     /// Configuration changed
     ConfigurationChanged,
-    /// Custom event
-    Custom(String),
 }
 
 impl InferenceRuntime {

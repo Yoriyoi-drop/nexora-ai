@@ -38,6 +38,9 @@ struct ScheduledRequest {
     batch_key: Option<BatchKey>,
 }
 
+/// Handler type for processing batches through the inference engine
+pub type BatchHandler = Arc<dyn Fn(Batch) -> crate::Result<()> + Send + Sync>;
+
 pub struct RequestScheduler {
     queue: RwLock<VecDeque<Uuid>>,
     requests: RwLock<HashMap<Uuid, ScheduledRequest>>,
@@ -51,6 +54,7 @@ pub struct RequestScheduler {
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
     background_handles: Mutex<Vec<JoinHandle<()>>>,
+    engine_handler: Option<BatchHandler>,
 }
 
 impl RequestScheduler {
@@ -69,7 +73,19 @@ impl RequestScheduler {
             shutdown_tx,
             shutdown_rx,
             background_handles: Mutex::new(Vec::new()),
+            engine_handler: None,
         }
+    }
+
+    /// Set the engine handler for batch processing
+    pub fn with_engine_handler(mut self, handler: BatchHandler) -> Self {
+        self.engine_handler = Some(handler);
+        self
+    }
+
+    /// Set the engine handler after construction
+    pub fn set_engine_handler(&mut self, handler: BatchHandler) {
+        self.engine_handler = Some(handler);
     }
 
     pub fn with_max_concurrent(mut self, max: usize) -> Self {
@@ -92,10 +108,9 @@ impl RequestScheduler {
         Ok(())
     }
 
-    /// Spawn a background worker that periodically polls for ready batches
-    /// and processes them by fanning out responses to request channels.
-    /// This ensures timed-out batches are drained even when the engine's
-    /// request loop is busy elsewhere.
+    /// Spawn a background worker that periodically polls for ready batches,
+    /// dispatches them to the inference engine, and fans out responses.
+    /// This ensures both timed-out and ready batches are drained.
     /// Returns the JoinHandle so callers can await/cancel the background worker.
     pub fn start(this: Arc<RwLock<Self>>) -> JoinHandle<()> {
         tokio::spawn(async move {
@@ -113,19 +128,54 @@ impl RequestScheduler {
                 }
                 while let Some(batch) = this.read().await.pop_batch().await {
                     debug!("background worker popped ready batch {}", batch.batch_id);
-                    // Process each request in the batch by sending a timeout response
-                    // so callers don't hang indefinitely.
-                    for breq in &batch.requests {
-                        this.read().await.update_status(breq.request_id, RequestStatus::Timeout).await;
-                        let mut resp = crate::InferenceResponse::new(breq.request_id);
-                        resp.finish_reason = crate::FinishReason::Timeout;
-                        let guard = this.read().await;
-                        let requests = guard.requests.read().await;
-                        if let Some(tx) = requests.get(&breq.request_id).map(|r| r.response_tx.clone()) {
-                            let _ = tx.send(resp).await;
+                    let handler = this.read().await.engine_handler.clone();
+                    match handler {
+                        Some(engine_fn) => {
+                            // Dispatch batch to inference engine
+                            match engine_fn(batch.clone()) {
+                                Ok(_) => {
+                                    // Mark all requests in batch as completed
+                                    for breq in &batch.requests {
+                                        if let Err(e) = this.read().await.complete_request(breq.request_id).await {
+                                            tracing::warn!("failed to complete request {}: {}", breq.request_id, e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    // Engine processing failed - send error responses
+                                    for breq in &batch.requests {
+                                        this.read().await.update_status(breq.request_id, RequestStatus::Failed(e.to_string())).await;
+                                        let mut resp = crate::InferenceResponse::new(breq.request_id);
+                                        resp.finish_reason = crate::FinishReason::Error(e.to_string());
+                                        let guard = this.read().await;
+                                        let requests = guard.requests.read().await;
+                                        if let Some(tx) = requests.get(&breq.request_id).map(|r| r.response_tx.clone()) {
+                                            drop(guard);
+                                            let _ = tx.send(resp).await;
+                                        }
+                                        if let Err(e) = this.read().await.complete_request(breq.request_id).await {
+                                            tracing::warn!("failed to complete errored request: {}", e);
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        if let Err(e) = this.read().await.complete_request(breq.request_id).await {
-                            tracing::warn!("background worker: failed to complete request {}: {}", breq.request_id, e);
+                        None => {
+                            // No engine handler - send timeout responses so callers don't hang
+                            for breq in &batch.requests {
+                                this.read().await.update_status(breq.request_id, RequestStatus::Timeout).await;
+                                let mut resp = crate::InferenceResponse::new(breq.request_id);
+                                resp.finish_reason = crate::FinishReason::Timeout;
+                                let guard = this.read().await;
+                                let requests = guard.requests.read().await;
+                                if let Some(tx) = requests.get(&breq.request_id).map(|r| r.response_tx.clone()) {
+                                    drop(guard);
+                                    let _ = tx.send(resp).await;
+                                }
+                                if let Err(e) = this.read().await.complete_request(breq.request_id).await {
+                                    tracing::warn!("background worker: failed to complete request {}: {}", breq.request_id, e);
+                                }
+                            }
                         }
                     }
                 }

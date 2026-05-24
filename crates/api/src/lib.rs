@@ -300,6 +300,18 @@ impl RateLimiter {
         Ok(true)
     }
 
+    /// Reset rate limit counter untuk client
+    pub async fn reset_client(&self, key: &str) {
+        let mut counters = self.counters.write().await;
+        let _ = counters.remove(key);
+    }
+
+    /// Remove a rate limit definition
+    pub async fn remove_limit(&self, key: &str) {
+        let mut limits = self.limits.write().await;
+        let _ = limits.remove(key);
+    }
+
     /// Dapatkan jumlah request dalam window saat ini untuk client
     pub async fn window_count(&self, key: &str) -> Option<usize> {
         let counters = self.counters.read().await;

@@ -6,6 +6,7 @@ pub mod config;
 pub mod error;
 pub mod logging;
 pub mod query_utils;
+pub mod retry;
 pub mod task_types;
 
 pub use config::*;

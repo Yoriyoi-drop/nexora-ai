@@ -196,10 +196,16 @@ impl PrefixCache {
 
         let cached_value = if last_cached_id != self.root_id {
             self.hits.fetch_add(1, Ordering::Relaxed);
-            nodes
-                .get(&last_cached_id)
-                .and_then(|n| n.value.clone())
-                .unwrap_or_default()
+            match nodes.get(&last_cached_id) {
+                Some(n) => n.value.clone().unwrap_or_else(|| {
+                    warn!("prefix_cache: hit node {} has no cached value", last_cached_id);
+                    Vec::new()
+                }),
+                None => {
+                    warn!("prefix_cache: hit node {} not found in cache", last_cached_id);
+                    Vec::new()
+                }
+            }
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
             Vec::new()

@@ -21,6 +21,10 @@ pub struct DataRef<'a> {
 impl<'a> Deref for DataRef<'a> {
     type Target = ArrayD<f32>;
     fn deref(&self) -> &ArrayD<f32> {
+        // SAFETY: `self.data` is a raw pointer to the ArrayD<f32> inside the
+        // `TensorInner` that `self._guard` (RwLockReadGuard) protects. The
+        // guard ensures no mutable access to the TensorInner exists for the
+        // lifetime of this DataRef, making the dereference safe.
         unsafe { &*self.data }
     }
 }

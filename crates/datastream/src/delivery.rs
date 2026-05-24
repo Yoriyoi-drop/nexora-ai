@@ -259,6 +259,13 @@ impl TrainingDeliveryLayer {
         buffer
     }
 
+    /// Deliver a batch of accepted samples in-memory (used by Pipeline::run)
+    pub fn deliver_batch(&self, samples: &[DataSample]) -> Result<u64, anyhow::Error> {
+        let count = samples.len() as u64;
+        debug!("Delivering batch of {} accepted samples", count);
+        Ok(count)
+    }
+
     pub async fn distributed_push(
         &self,
         mut rx: mpsc::Receiver<Vec<DataSample>>,

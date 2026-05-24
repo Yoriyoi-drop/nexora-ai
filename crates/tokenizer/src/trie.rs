@@ -307,13 +307,35 @@ impl Trie {
         Ok(removed)
     }
 
-    /// Clean up empty nodes after removal
-    /// The recursive removal in `remove_recursive` already prunes empty non-leaf children
-    /// during the post-recursion unwind. Additional cleanup is only needed if the trie
-    /// structure requires deeper compaction (e.g., merging single-child chains).
-    fn cleanup_after_removal(&mut self, _token_ids: &[u32]) {
-        // `remove_recursive` handles all leaf-to-root pruning of empty non-leaf nodes.
-        // No additional cleanup is required for the current trie implementation.
+    /// Compact the trie after removal by merging single-child chains
+    fn cleanup_after_removal(&mut self, token_ids: &[u32]) {
+        // Compaction: walk from root along the given path and merge
+        // single-child non-leaf nodes into their parent to reduce depth.
+        let mut current = &mut self.root;
+        let mut path_indices: Vec<usize> = Vec::new();
+
+        // Record the path of child indices
+        for &token_id in token_ids {
+            if let Some(pos) = current.children.iter().position(|(k, _)| *k == token_id) {
+                path_indices.push(pos);
+                current = current.children[pos].1.as_mut();
+            } else {
+                return;
+            }
+        }
+
+        // Now compact leaf-to-root: if a node has exactly one child
+        // and is not a leaf itself, merge the child up
+        if let Some((_, last_child)) = current.children.iter_mut().next() {
+            if current.children.len() == 1 && !current.is_leaf {
+                // Promote child's children and leaf status up
+                let child_data = std::mem::take(last_child);
+                current.children = child_data.children;
+                current.is_leaf = child_data.is_leaf;
+                current.result_id = child_data.result_id;
+                self.size -= 1; // one fewer node after merge
+            }
+        }
     }
 
     /// Clear the trie

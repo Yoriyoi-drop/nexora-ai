@@ -46,17 +46,9 @@ impl std::fmt::Display for Capability {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PermissionEffect {
-    Allow,
-    Deny,
-    Audit,
-    Conditional { condition: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRule {
     pub id: Uuid,
-    pub effect: PermissionEffect,
+    pub effect: String,
     pub resource: String,
     pub action: String,
     pub priority: i32,

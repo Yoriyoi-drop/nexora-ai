@@ -73,6 +73,7 @@ impl RequestProcessor {
             InputType::Code => self.process_code(input).await?,
             InputType::Data => self.process_data(input).await?,
             InputType::Text => self.process_text(input).await?,
+            InputType::Internal => self.process_text(input).await?,
         };
 
         let processing_time = (Utc::now() - request_start).num_milliseconds();

@@ -699,7 +699,8 @@ impl InferenceEngine {
                         }
                     }
                     Ok(None) => break,
-                    Err(_) => {
+                    Err(elapsed) => {
+                        tracing::debug!("Request poll timeout: {}", elapsed);
                         if let Some(batch) = scheduler.read().await.pop_batch().await {
                             Self::spawn_batch_processor_inner(&engine, &active_requests, batch).await;
                         }

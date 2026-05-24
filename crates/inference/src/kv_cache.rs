@@ -27,10 +27,13 @@ struct CacheEntry {
 }
 
 fn timestamp_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos() as u64,
+        Err(e) => {
+            warn!("System time before UNIX_EPOCH: {}", e);
+            0
+        }
+    }
 }
 
 pub struct KVCache {

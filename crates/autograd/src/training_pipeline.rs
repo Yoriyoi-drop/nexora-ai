@@ -492,8 +492,26 @@ impl TrainingLoop {
             if let Some(ref dir) = self.config.checkpoint_dir {
                 let path = dir.join(format!("checkpoint-{}.json", self.step));
                 tracing::info!("  Saving checkpoint to {:?}", path);
-                // Note: actual save needs model params + optimizer reference
-                // which are passed separately
+                // Checkpoint save requires external params/optimizer reference.
+                // The caller must pass these when they exist.
+                // Writing a metadata-only checkpoint for resume support:
+                let meta_ckpt = serde_json::json!({
+                    "step": self.step,
+                    "epoch": self.epoch,
+                    "best_val_loss": self.best_val_loss,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "type": "metadata-checkpoint",
+                    "note": "full checkpoint requires model params + optimizer state"
+                });
+                if let Ok(json) = serde_json::to_string_pretty(&meta_ckpt) {
+                    if let Err(e) = std::fs::create_dir_all(dir) {
+                        tracing::warn!("  Failed to create checkpoint dir: {}", e);
+                    } else if let Err(e) = std::fs::write(&path, &json) {
+                        tracing::warn!("  Failed to save checkpoint: {}", e);
+                    } else {
+                        tracing::info!("  Checkpoint metadata saved to {:?}", path);
+                    }
+                }
             }
         }
 

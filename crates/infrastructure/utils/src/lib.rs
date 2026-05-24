@@ -96,28 +96,19 @@ impl UtilsManager {
     }
 
     /// Get system info
-    pub fn get_system_info(&self) -> Result<SystemInfo> {
-        let memory_usage = crate::performance::PerformanceMonitor::get_memory_usage();
-        let cpu_usage = crate::performance::PerformanceMonitor::get_cpu_usage();
-
-        // Use tokio::task::block_in_place for async calls in sync context
-        let (memory_usage, cpu_usage) = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::try_current()
-                .map(|handle| {
-                    handle.block_on(async {
-                        let memory = memory_usage.await.unwrap_or_else(|e| {
-                            debug!("Failed to get memory usage: {}", e);
-                            0.0
-                        });
-                        let cpu = cpu_usage.await.unwrap_or_else(|e| {
-                            debug!("Failed to get CPU usage: {}", e);
-                            0.0
-                        });
-                        (memory, cpu)
-                    })
-                })
-                .unwrap_or_else(|_| (0.0, 0.0))
-        });
+    pub async fn get_system_info(&self) -> Result<SystemInfo> {
+        let memory_usage = crate::performance::PerformanceMonitor::get_memory_usage()
+            .await
+            .unwrap_or_else(|e| {
+                debug!("Failed to get memory usage: {}", e);
+                0.0
+            });
+        let cpu_usage = crate::performance::PerformanceMonitor::get_cpu_usage()
+            .await
+            .unwrap_or_else(|e| {
+                debug!("Failed to get CPU usage: {}", e);
+                0.0
+            });
 
         Ok(SystemInfo {
             timestamp: TimeUtils::current_timestamp(),

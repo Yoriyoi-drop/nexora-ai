@@ -35,7 +35,10 @@ pub use engine::{InferenceConfig, InferenceEngine as InferenceEngineStruct};
 pub use inference_trait::InferenceEngine;
 pub use latency::{LatencyStats, LatencyTracker};
 pub use metrics::{InferenceMetrics, MetricsCollector};
-pub use paged_cache::{BlockTable, PagedCacheConfig, PagedCacheStats, PagedKVCache};
+pub use paged_cache::{
+    init_global_paged_cache, BlockTable, PagedCacheConfig, PagedCacheStats, PagedKVCache,
+    GLOBAL_PAGED_CACHE,
+};
 pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
 pub use runtime::{InferenceRuntime, RuntimeState};
 pub use sampler::{Sampler, SamplingConfig, SamplingMethod};

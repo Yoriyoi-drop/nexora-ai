@@ -39,12 +39,8 @@ impl ExecutionBackend {
     }
 }
 
-/// Mode eksekusi
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExecutionMode {
-    Eager,
-    Compiled,
-}
+// Hybrid execution (eager/compiled) is planned but not yet implemented.
+// The ExecutionMode enum was removed; add it back when the backend is wired.
 
 #[cfg(test)]
 mod tests {

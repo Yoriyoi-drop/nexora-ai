@@ -161,13 +161,19 @@ impl StreamingEngine {
             stream_id,
             token_count: s.token_count,
             is_active: true,
-            created_at: chrono::DateTime::from(
-                std::time::SystemTime::now()
-                    - std::time::SystemTime::UNIX_EPOCH
-                        .elapsed()
-                        .unwrap_or_default()
-                        .saturating_sub(s.created_at.elapsed()),
-            ),
+            created_at: {
+                let epoch_elapsed = match std::time::SystemTime::UNIX_EPOCH.elapsed() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::warn!("System time before UNIX_EPOCH: {}", e);
+                        std::time::Duration::ZERO
+                    }
+                };
+                chrono::DateTime::from(
+                    std::time::SystemTime::now()
+                        - epoch_elapsed.saturating_sub(s.created_at.elapsed()),
+                )
+            },
         })
     }
 

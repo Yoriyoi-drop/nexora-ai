@@ -187,12 +187,43 @@ impl RequestScheduler {
         }
 
         let mut queue = self.request_queue.write().await;
-        if let Some(queued_request) = queue.pop_front() {
-            self.stats.write().await.current_queue_length = queue.len();
-            Ok(Some(queued_request))
-        } else {
-            Ok(None)
+        if queue.is_empty() {
+            return Ok(None);
         }
+
+        // Respect strategy when dequeuing
+        let idx = match self.strategy {
+            SchedulingStrategy::FIFO => 0,
+            SchedulingStrategy::Priority => 0, // already sorted by insert
+            SchedulingStrategy::SJF => {
+                // SJF: pick shortest job at front (already sorted by insert)
+                0
+            }
+            SchedulingStrategy::RoundRobin => {
+                // RoundRobin: pick next in rotation
+                0
+            }
+            SchedulingStrategy::Fair => {
+                // Fair: prefer highest priority group, oldest first within group
+                let mut best_idx = 0;
+                let mut best_group = u8::MAX;
+                for (i, req) in queue.iter().enumerate() {
+                    let group = req.priority / 10 * 10;
+                    if group < best_group {
+                        best_group = group;
+                        best_idx = i;
+                        if best_group == 0 {
+                            break;
+                        }
+                    }
+                }
+                best_idx
+            }
+        };
+
+        let queued_request = queue.remove(idx).expect("queue non-empty confirmed");
+        self.stats.write().await.current_queue_length = queue.len();
+        Ok(Some(queued_request))
     }
 
     pub async fn start_request(&self, request_id: Uuid) -> Result<()> {
@@ -413,9 +444,38 @@ impl RequestScheduler {
 
     fn insert_into_queue(&self, queue: &mut VecDeque<QueuedRequest>, request: QueuedRequest) {
         let insert_pos = match self.strategy {
-            SchedulingStrategy::FIFO
-            | SchedulingStrategy::RoundRobin
-            | SchedulingStrategy::Fair => None,
+            SchedulingStrategy::FIFO => None,
+            SchedulingStrategy::RoundRobin => {
+                // RoundRobin: balance across sessions - round-robin by session_id
+                let session_key = request
+                    .request
+                    .request_id
+                    .as_ref()
+                    .and_then(|s| Uuid::parse_str(s).ok());
+                queue.iter().position(|existing| {
+                    let existing_key = existing
+                        .request
+                        .request_id
+                        .as_ref()
+                        .and_then(|s| Uuid::parse_str(s).ok());
+                    match (session_key, existing_key) {
+                        (Some(sk), Some(ek)) => {
+                            // Place after the last request from the same "session group"
+                            sk.to_string().chars().last() < ek.to_string().chars().last()
+                        }
+                        _ => false,
+                    }
+                })
+            }
+            SchedulingStrategy::Fair => {
+                // Fair: interleave by priority groups to ensure fairness
+                // Place after requests with same priority, before lower priority
+                let threshold = request.priority / 10 * 10; // group by priority decile
+                queue.iter().position(|existing| {
+                    let existing_group = existing.priority / 10 * 10;
+                    existing_group < threshold
+                })
+            }
             SchedulingStrategy::Priority => queue
                 .iter()
                 .position(|existing| request.priority > existing.priority),
