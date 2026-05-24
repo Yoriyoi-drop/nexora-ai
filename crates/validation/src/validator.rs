@@ -108,6 +108,33 @@ pub(crate) struct EnvironmentRule {
     description: String,
 }
 
+/// Config field validator — validates a single config field with a closure.
+struct ConfigFieldValidator {
+    field_path: String,
+    validate: Box<dyn Fn(&Value) -> Vec<ValidationError> + Send + Sync>,
+}
+
+impl SecurityValidator for ConfigFieldValidator {
+    fn validate(&self, config: &Value) -> Result<Vec<ValidationError>> {
+        let mut errors = vec![];
+        // Walk the field path (e.g. "server.port")
+        let parts: Vec<&str> = self.field_path.split('.').collect();
+        let mut current = config;
+        for part in &parts {
+            match current.get(*part) {
+                Some(val) => current = val,
+                None => return Ok(vec![]), // field not present — skip
+            }
+        }
+        errors.extend((self.validate)(current));
+        Ok(errors)
+    }
+
+    fn name(&self) -> &str {
+        "ConfigFieldValidator"
+    }
+}
+
 impl ConfigValidator {
     /// Create new configuration validator
     pub fn new() -> Self {
@@ -393,8 +420,130 @@ impl ConfigValidator {
     
     /// Add default security rules
     fn add_default_security_rules(&mut self) {
-        // This will be implemented in the security module
-        info!("Default security rules loaded");
+        self.security_rules.push(SecurityRule {
+            name: "rate_limiting".to_string(),
+            description: "Validate rate limiting configuration".to_string(),
+            validator: Box::new(ConfigFieldValidator {
+                field_path: "server.rate_limit".to_string(),
+                validate: Box::new(|value: &Value| {
+                    if let Some(rl) = value.as_u64() {
+                        if rl == 0 {
+                            return vec![ValidationError {
+                                field: "server.rate_limit".to_string(),
+                                message: "Rate limiting is disabled (set to 0)".to_string(),
+                                code: "RATE_LIMIT_DISABLED".to_string(),
+                                severity: ErrorSeverity::Warning,
+                            }];
+                        }
+                    }
+                    vec![]
+                }),
+            }),
+            severity: ErrorSeverity::Warning,
+        });
+
+        self.security_rules.push(SecurityRule {
+            name: "cors_settings".to_string(),
+            description: "Validate CORS configuration".to_string(),
+            validator: Box::new(ConfigFieldValidator {
+                field_path: "server.cors".to_string(),
+                validate: Box::new(|value: &Value| {
+                    let mut errors = vec![];
+                    if let Some(cors) = value.as_object() {
+                        if let Some(origins) = cors.get("allowed_origins") {
+                            if let Some(arr) = origins.as_array() {
+                                if arr.iter().any(|o| o.as_str() == Some("*")) {
+                                    errors.push(ValidationError {
+                                        field: "server.cors.allowed_origins".to_string(),
+                                        message: "Wildcard CORS origin (*) is insecure for production".to_string(),
+                                        code: "CORS_WILDCARD".to_string(),
+                                        severity: ErrorSeverity::Error,
+                                    });
+                                }
+                            }
+                        }
+                        if let Some(credentials) = cors.get("allow_credentials") {
+                            if credentials.as_bool() == Some(true) {
+                                if let Some(origins) = cors.get("allowed_origins") {
+                                    if let Some(arr) = origins.as_array() {
+                                        if arr.iter().any(|o| o.as_str() == Some("*")) {
+                                            errors.push(ValidationError {
+                                                field: "server.cors.allow_credentials".to_string(),
+                                                message: "Credentials should not be allowed with wildcard origin".to_string(),
+                                                code: "CORS_CREDENTIALS_WILDCARD".to_string(),
+                                                severity: ErrorSeverity::Error,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    errors
+                }),
+            }),
+            severity: ErrorSeverity::Error,
+        });
+
+        self.security_rules.push(SecurityRule {
+            name: "log_sensitivity".to_string(),
+            description: "Validate logging does not expose sensitive data".to_string(),
+            validator: Box::new(ConfigFieldValidator {
+                field_path: "logging".to_string(),
+                validate: Box::new(|value: &Value| {
+                    let mut errors = vec![];
+                    if let Some(logging) = value.as_object() {
+                        if let Some(level) = logging.get("level") {
+                            if let Some(lvl) = level.as_str() {
+                                if lvl.eq_ignore_ascii_case("debug") || lvl.eq_ignore_ascii_case("trace") {
+                                    errors.push(ValidationError {
+                                        field: "logging.level".to_string(),
+                                        message: format!("Verbose logging level '{}' may expose sensitive data in production", lvl),
+                                        code: "VERBOSE_LOGGING".to_string(),
+                                        severity: ErrorSeverity::Warning,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    errors
+                }),
+            }),
+            severity: ErrorSeverity::Warning,
+        });
+
+        self.security_rules.push(SecurityRule {
+            name: "port_security".to_string(),
+            description: "Validate server port configuration".to_string(),
+            validator: Box::new(ConfigFieldValidator {
+                field_path: "server.port".to_string(),
+                validate: Box::new(|value: &Value| {
+                    let mut errors = vec![];
+                    if let Some(port) = value.as_u64() {
+                        if port < 1024 && port != 80 && port != 443 {
+                            errors.push(ValidationError {
+                                field: "server.port".to_string(),
+                                message: format!("Port {} requires elevated privileges (use >1024 in production)", port),
+                                code: "PRIVILEGED_PORT".to_string(),
+                                severity: ErrorSeverity::Warning,
+                            });
+                        }
+                        if port > 65535 {
+                            errors.push(ValidationError {
+                                field: "server.port".to_string(),
+                                message: format!("Port {} is outside valid range (1-65535)", port),
+                                code: "INVALID_PORT".to_string(),
+                                severity: ErrorSeverity::Error,
+                            });
+                        }
+                    }
+                    errors
+                }),
+            }),
+            severity: ErrorSeverity::Warning,
+        });
+
+        info!("Default security rules loaded: rate_limiting, cors_settings, log_sensitivity, port_security");
     }
 }
 

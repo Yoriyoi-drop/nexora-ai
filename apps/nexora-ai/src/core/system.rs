@@ -307,43 +307,56 @@ impl SystemMonitor {
     }
 
     async fn get_active_connections_with_system(&self, _system: &System) -> Option<u64> {
-        let mut count = 0u64;
-        for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                for line in content.lines().skip(1) {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 4 && parts[3] != "0A" {
-                        count += 1;
+        tokio::task::spawn_blocking(|| {
+            let mut count = 0u64;
+            for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    for line in content.lines().skip(1) {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 4 && parts[3] != "0A" {
+                            count += 1;
+                        }
                     }
                 }
             }
-        }
-        if count > 0 {
-            return Some(count);
-        }
-        if let Ok(output) = std::process::Command::new("ss")
-            .args(["-tun", "-H", "state", "established"])
-            .output()
-        {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-                return Some(lines.len() as u64);
+            if count > 0 {
+                return Some(count);
             }
-        }
-        None
+            if let Ok(output) = std::process::Command::new("ss")
+                .args(["-tun", "-H", "state", "established"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+                    return Some(lines.len() as u64);
+                }
+            }
+            None
+        })
+        .await
+        .unwrap_or(None)
     }
 
     /// Get system load average (1, 5, 15 min), or `None` if unavailable
     async fn get_load_average(&self) -> Option<(f64, f64, f64)> {
-        if let Ok(load_str) = std::fs::read_to_string("/proc/loadavg") {
-            let parts: Vec<&str> = load_str.split_whitespace().collect();
-            if parts.len() >= 3 {
-                let load1: f64 = parts[0].parse().unwrap_or(0.0);
-                let load5: f64 = parts[1].parse().unwrap_or(0.0);
-                let load15: f64 = parts[2].parse().unwrap_or(0.0);
-                return Some((load1, load5, load15));
-            }
+        if let Some(load) = tokio::task::spawn_blocking(|| {
+            std::fs::read_to_string("/proc/loadavg").ok().and_then(|load_str| {
+                let parts: Vec<&str> = load_str.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let load1: f64 = parts[0].parse().ok()?;
+                    let load5: f64 = parts[1].parse().ok()?;
+                    let load15: f64 = parts[2].parse().ok()?;
+                    Some((load1, load5, load15))
+                } else {
+                    None
+                }
+            })
+        })
+        .await
+        .unwrap_or(None)
+        {
+            return Some(load);
         }
 
         let cpu_sample = {

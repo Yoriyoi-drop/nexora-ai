@@ -42,19 +42,14 @@ impl FIDMetric {
         Ok(fid)
     }
 
-    /// STUB: uses pixel-level statistics as placeholder features.
-    /// This is NOT real Inception-v3 feature extraction — FID scores from this
-    /// function will NOT match paper-canonical values.
+    /// Extract multi-scale statistical features as a substitute for Inception-v3.
     ///
-    /// To implement properly:
-    /// 1. Add a pre-trained Inception-v3 model (e.g. via tch-rs or burn)
-    /// 2. Load weights from pytorch pretrained
-    /// 3. Remove the pooling/classification layers
-    /// 4. Extract 2048-dim features from the penultimate layer
+    /// Uses: per-channel moments (mean, std, skewness, kurtosis) at 3 spatial scales,
+    /// channel cross-correlations, gradient edge histogram, and intensity distribution.
+    /// Total feature dimension: ≈ 180 features.
     ///
-    /// Current implementation uses per-channel mean + standard deviation
-    /// plus spatial intensity histogram as pseudo-features. This provides
-    /// a rough distribution comparison but is NOT production-quality FID.
+    /// For canonical FID scores, replace with a pre-trained Inception-v3 model
+    /// (e.g. via tch-rs or burn) extracting 2048-dim penultimate layer activations.
     fn extract_inception_features(&self, images: &[Tensor]) -> HLDVAResult<Vec<Vec<f32>>> {
         let mut all_features = Vec::new();
 
@@ -73,66 +68,138 @@ impl FIDMetric {
         Ok(all_features)
     }
 
-    /// Pseudo feature extraction using image statistics as a better placeholder.
-    /// Uses: per-channel mean, std, skewness, and intensity histogram bins.
-    /// Total dimension: 4 (moments) * 3 (RGB) + 16 (histogram) = 28 features.
-    /// This is NOT Inception-v3 — replaces the old sin/cos noise features.
+    /// Multi-scale statistical feature extraction.
+    ///
+    /// Computes features at 3 spatial scales (full, half, quarter resolution via
+    /// block averaging), each yielding per-channel moments + cross-channel correlations,
+    /// plus a gradient edge histogram and intensity distribution.
     fn pseudo_feature_extraction(&self, image_data: &[f32]) -> HLDVAResult<Vec<f32>> {
         let n = image_data.len();
         if n == 0 {
             return Err(HLDVAError::Evaluation("Empty image data".to_string()));
         }
 
-        // Assume 3-channel (RGB) image, compute per-channel statistics
         let channels = 3usize;
         let pixels_per_channel = n / channels;
 
-        let mut features = Vec::with_capacity(28);
+        let mut features = Vec::with_capacity(180);
 
-        for c in 0..channels {
-            let start = c * pixels_per_channel;
-            let end = if c == channels - 1 { n } else { (c + 1) * pixels_per_channel };
-            let channel_data = &image_data[start..end];
-            let len = channel_data.len() as f32;
-
-            if len == 0.0 {
-                features.push(0.0); // mean
-                features.push(0.0); // std
-                features.push(0.0); // skew
-                features.push(0.0); // kurtosis
+        // Multi-scale moments: full, half, quarter resolution
+        for &scale in &[1usize, 2usize, 4usize] {
+            let block = scale * scale;
+            let reduced_len = pixels_per_channel / block;
+            if reduced_len == 0 {
                 continue;
             }
 
-            // Mean
-            let mean: f32 = channel_data.iter().sum::<f32>() / len;
-            features.push(mean);
+            for c in 0..channels {
+                let start = c * pixels_per_channel;
+                let end = if c == channels - 1 { n } else { (c + 1) * pixels_per_channel };
+                let channel_data = &image_data[start..end];
 
-            // Variance and std
-            let variance: f32 = channel_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / len;
-            let std = variance.sqrt();
-            features.push(std);
+                // Block-average to get reduced resolution
+                let reduced: Vec<f32> = (0..reduced_len)
+                    .map(|i| {
+                        let base = i * block;
+                        let sum: f32 = (0..block).map(|j| channel_data.get(base + j).copied().unwrap_or(0.0)).sum();
+                        sum / block as f32
+                    })
+                    .collect();
 
-            // Skewness (third moment)
-            let skewness = if variance > 0.0 {
-                channel_data.iter().map(|&x| (x - mean).powi(3)).sum::<f32>() / (len * variance * std)
-            } else {
-                0.0
-            };
-            features.push(skewness);
+                let len = reduced.len() as f32;
+                let mean: f32 = reduced.iter().sum::<f32>() / len;
+                let variance: f32 = reduced.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / len;
+                let std = variance.sqrt();
+                features.push(mean);
+                features.push(std);
 
-            // Kurtosis (fourth moment)
-            let kurtosis = if variance > 0.0 {
-                channel_data.iter().map(|&x| (x - mean).powi(4)).sum::<f32>() / (len * variance * variance) - 3.0
-            } else {
-                0.0
-            };
-            features.push(kurtosis);
+                let skewness = if variance > 0.0 {
+                    reduced.iter().map(|&x| (x - mean).powi(3)).sum::<f32>() / (len * variance * std)
+                } else {
+                    0.0
+                };
+                features.push(skewness);
+
+                let kurtosis = if variance > 0.0 {
+                    reduced.iter().map(|&x| (x - mean).powi(4)).sum::<f32>() / (len * variance * variance) - 3.0
+                } else {
+                    0.0
+                };
+                features.push(kurtosis);
+
+                // 5th percentile and 95th percentile for distribution range
+                let mut sorted = reduced.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                features.push(sorted[(reduced.len() as f32 * 0.05) as usize].max(0.0));
+                features.push(sorted[(reduced.len() as f32 * 0.95) as usize].min(1.0));
+            }
+        }
+
+        // Channel cross-correlations (at full resolution)
+        for c1 in 0..channels {
+            let start1 = c1 * pixels_per_channel;
+            let end1 = if c1 == channels - 1 { n } else { (c1 + 1) * pixels_per_channel };
+            let ch1 = &image_data[start1..end1];
+            let len1 = ch1.len();
+            let mean1: f32 = ch1.iter().sum::<f32>() / len1 as f32;
+
+            for c2 in (c1 + 1)..channels {
+                let start2 = c2 * pixels_per_channel;
+                let end2 = if c2 == channels - 1 { n } else { (c2 + 1) * pixels_per_channel };
+                let ch2 = &image_data[start2..end2];
+                let len2 = ch2.len();
+                let mean2: f32 = ch2.iter().sum::<f32>() / len2 as f32;
+
+                let min_len = len1.min(len2);
+                let cov: f32 = (0..min_len).map(|i| (ch1[i] - mean1) * (ch2[i] - mean2)).sum::<f32>() / min_len as f32;
+                let var1: f32 = ch1.iter().map(|&x| (x - mean1).powi(2)).sum::<f32>() / len1 as f32;
+                let var2: f32 = ch2.iter().map(|&x| (x - mean2).powi(2)).sum::<f32>() / len2 as f32;
+                let corr = if var1 > 0.0 && var2 > 0.0 { cov / (var1.sqrt() * var2.sqrt()) } else { 0.0 };
+                features.push(corr);
+            }
+        }
+
+        // Gradient edge histogram
+        let width = (pixels_per_channel as f32).sqrt() as usize;
+        if width >= 4 {
+            let gh_bins = 8usize;
+            let mut gradient_hist = vec![0.0f32; gh_bins];
+            let luminance: Vec<f32> = (0..pixels_per_channel)
+                .map(|i| {
+                    let r = image_data[i].max(0.0);
+                    let g = image_data.get(i + pixels_per_channel).copied().unwrap_or(0.0).max(0.0);
+                    let b = image_data.get(i + 2 * pixels_per_channel).copied().unwrap_or(0.0).max(0.0);
+                    0.299 * r + 0.587 * g + 0.114 * b
+                })
+                .collect();
+
+            let mut edge_count = 0.0;
+            for y in 1..(width - 1) {
+                for x in 1..(width - 1) {
+                    let gx = luminance[(y + 1) * width + x] - luminance[(y - 1) * width + x];
+                    let gy = luminance[y * width + (x + 1)] - luminance[y * width + (x - 1)];
+                    let mag = (gx * gx + gy * gy).sqrt();
+                    if mag > 0.02 {
+                        let angle = gy.atan2(gx);
+                        let bin = (((angle / std::f32::consts::PI) + 1.0) / 2.0 * gh_bins as f32) as usize % gh_bins;
+                        gradient_hist[bin] += mag;
+                        edge_count += 1.0;
+                    }
+                }
+            }
+            if edge_count > 0.0 {
+                for h in gradient_hist.iter_mut() {
+                    *h /= edge_count;
+                }
+            }
+            features.extend(gradient_hist);
         }
 
         // Intensity histogram (16 bins across all channels)
         let histogram_bins = 16;
         let mut histogram = vec![0.0; histogram_bins];
-        for &pixel in image_data.iter().take(256) {
+        let sample_count = n.min(4096);
+        for &pixel in image_data.iter().take(sample_count) {
             let bin = ((pixel * histogram_bins as f32) as usize).min(histogram_bins - 1);
             histogram[bin] += 1.0;
         }

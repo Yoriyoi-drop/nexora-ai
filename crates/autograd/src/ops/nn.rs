@@ -1203,24 +1203,53 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
     let k_data = k.data();
     let v_data = v.data();
 
-    assert_eq!(
-        q_data.ndim(),
-        3,
-        "causal_attention: q must be [batch, heads, dim]"
+    assert!(
+        q_data.ndim() == 4,
+        "causal_attention: q must be [batch, heads, seq, dim], got {:?}",
+        q_data.shape()
     );
     let batch = q_data.shape()[0];
     let heads = q_data.shape()[1];
-    let dim = q_data.shape()[2];
-    let seq = heads;
-
-    let output_data = v_data.clone();
+    let seq = q_data.shape()[2];
+    let dim = q_data.shape()[3];
 
     let requires_grad = q.requires_grad() || k.requires_grad() || v.requires_grad();
 
-    let result = output_data.clone();
+    let mut output_data = ArrayD::<f32>::zeros(vec![batch, heads, seq, dim]);
+    for b in 0..batch {
+        for h in 0..heads {
+            let q_slice = q_data.slice(s![b, h, .., ..]);
+            let k_slice = k_data.slice(s![b, h, .., ..]);
+            let v_slice = v_data.slice(s![b, h, .., ..]);
+
+            let scores = q_slice.dot(&k_slice.t()) / scale;
+
+            let mut p = ndarray::Array2::<f32>::zeros((seq, seq));
+            for i in 0..seq {
+                let mut max_val = f32::NEG_INFINITY;
+                for j in 0..=i {
+                    max_val = max_val.max(scores[[i, j]]);
+                }
+                let mut sum_exp = 0.0;
+                for j in 0..=i {
+                    let e = (scores[[i, j]] - max_val).exp();
+                    p[[i, j]] = e;
+                    sum_exp += e;
+                }
+                if sum_exp > 0.0 {
+                    for j in 0..=i {
+                        p[[i, j]] /= sum_exp;
+                    }
+                }
+            }
+
+            let out = p.dot(&v_slice);
+            output_data.slice_mut(s![b, h, .., ..]).assign(&out);
+        }
+    }
 
     if !requires_grad {
-        return Tensor::new(result);
+        return Tensor::new(output_data);
     }
 
     let saved = vec![
@@ -1231,7 +1260,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
     ];
 
     Tensor::with_grad_fn(
-        result,
+        output_data,
         vec![q.clone(), k.clone(), v.clone()],
         saved,
         Box::new(move |grad, saved| {
@@ -1240,36 +1269,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
             let v_saved = &saved[2];
             let s = saved[3].iter().copied().next().unwrap_or(1.0);
 
-            let grad_4d = match grad.to_shape(vec![batch, heads, seq, dim]) {
-                Ok(v) => v.to_owned().into_dyn(),
-                Err(e) => {
-                    debug!("attention backward reshape failed: {e}");
-                    return vec![ArrayD::zeros(vec![0]); 3];
-                }
-            };
-            let q_4d = match q_saved.to_shape(vec![batch, heads, seq, dim]) {
-                Ok(v) => v.to_owned().into_dyn(),
-                Err(e) => {
-                    debug!("attention backward reshape failed: {e}");
-                    return vec![ArrayD::zeros(vec![0]); 3];
-                }
-            };
-            let k_4d = match k_saved.to_shape(vec![batch, heads, seq, dim]) {
-                Ok(v) => v.to_owned().into_dyn(),
-                Err(e) => {
-                    debug!("attention backward reshape failed: {e}");
-                    return vec![ArrayD::zeros(vec![0]); 3];
-                }
-            };
-            let v_4d = match v_saved.to_shape(vec![batch, heads, seq, dim]) {
-                Ok(v) => v.to_owned().into_dyn(),
-                Err(e) => {
-                    debug!("attention backward reshape failed: {e}");
-                    return vec![ArrayD::zeros(vec![0]); 3];
-                }
-            };
-
-            attention_backward_cpu(&grad_4d, &q_4d, &k_4d, &v_4d, s)
+            attention_backward_cpu(grad, q_saved, k_saved, v_saved, s)
         }),
     )
 }

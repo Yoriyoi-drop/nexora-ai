@@ -2065,14 +2065,32 @@ pub enum BugType {
     DivisionByZero,
     /// Index out of bounds
     IndexOutOfBounds,
-    /// Type error
+    /// TypeError
     TypeError,
-    /// Logic error
+    /// LogicError
     LogicError,
     /// Performance issue
     PerformanceIssue,
     /// Security vulnerability
     SecurityVulnerability,
+}
+
+impl std::fmt::Display for BugType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BugType::NullPointer => write!(f, "NullPointer"),
+            BugType::BufferOverflow => write!(f, "BufferOverflow"),
+            BugType::MemoryLeak => write!(f, "MemoryLeak"),
+            BugType::RaceCondition => write!(f, "RaceCondition"),
+            BugType::Deadlock => write!(f, "Deadlock"),
+            BugType::DivisionByZero => write!(f, "DivisionByZero"),
+            BugType::IndexOutOfBounds => write!(f, "IndexOutOfBounds"),
+            BugType::TypeError => write!(f, "TypeError"),
+            BugType::LogicError => write!(f, "LogicError"),
+            BugType::PerformanceIssue => write!(f, "PerformanceIssue"),
+            BugType::SecurityVulnerability => write!(f, "SecurityVulnerability"),
+        }
+    }
 }
 
 /// FalsePositive

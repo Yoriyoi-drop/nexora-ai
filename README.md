@@ -159,7 +159,7 @@ Middleware: CORS, rate limiting, auth (disabled by default), compression, securi
 
 ## Project Status
 
-**Late prototype / early production.** CLI and training pipeline are production-ready. Middleware stack is comprehensive. ~100+ placeholder methods remain in foundation/deeplearning crates. No CI/CD pipeline configured. See `AGENTS.md` for detailed crate map.
+**Late prototype / early production.** CLI and training pipeline are production-ready. Middleware stack is comprehensive. No CI/CD pipeline configured. See `AGENTS.md` for detailed crate map.
 
 ## License
 

@@ -597,19 +597,53 @@ impl CompressionEngine {
         Ok(ndarray::ArrayD::from_shape_vec(shape, data)?)
     }
 
-    /// Compress tensor using adaptive rank selection
-    /// NOTE: True tensor compression requires SVD, Tucker, or TT decomposition.
-    /// Simple truncation (dropping elements) is data loss, not compression.
+    /// Compress tensor using adaptive rank selection.
+    /// Uses truncated SVD for 2D tensors, Tucker decomposition for 3D+,
+    /// with ranks selected adaptively based on tensor sensitivity.
     fn compress_tensor(
         &self,
-        _tensor: &ndarray::ArrayD<f32>,
+        tensor: &ndarray::ArrayD<f32>,
     ) -> crate::ATQSResult<ndarray::ArrayD<f32>> {
-        let _rank = self.adaptive_rank_selector.select_rank(_tensor);
-        Err(crate::ATQSError::CompressionError(
-            "Tensor compression via SVD/Tucker decomposition not implemented; \
-             use TensorCompressor with Tucker or TT method instead"
-                .to_string(),
-        ))
+        let rank = self.adaptive_rank_selector.select_rank(tensor);
+        let ndim = tensor.ndim();
+
+        match ndim {
+            1 => {
+                // 1D: truncated SVD on the vector as a matrix, or just return as-is
+                Ok(tensor.clone())
+            }
+            2 => {
+                // 2D: truncated SVD
+                let shape = tensor.shape();
+                let m = shape[0];
+                let n = shape[1];
+                let actual_rank = rank.min(m.min(n));
+                if actual_rank == 0 {
+                    return Ok(ndarray::ArrayD::zeros(vec![m, n]));
+                }
+                let view2 = tensor.view().into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| crate::ATQSError::CompressionError(
+                        "Expected 2D tensor for SVD compression".to_string()
+                    ))?;
+                let (u, s, vt) = crate::core::tensor_ops::compute_svd_truncated(&view2, actual_rank)?;
+                let s_mat = {
+                    let mut diag = ndarray::Array2::<f32>::zeros((actual_rank, actual_rank));
+                    for i in 0..actual_rank {
+                        diag[[i, i]] = s[i];
+                    }
+                    diag
+                };
+                let compressed = u.dot(&s_mat).dot(&vt);
+                Ok(compressed.into_dyn())
+            }
+            _ => {
+                // 3D+: Tucker decomposition
+                let mut ranks = vec![rank; ndim];
+                let decomp = crate::core::tensor_ops::tucker_decompose(tensor, &ranks)?;
+                let reconstructed = crate::core::tensor_ops::tucker_reconstruct(&decomp)?;
+                Ok(reconstructed)
+            }
+        }
     }
 
     /// Convert tensor back to string representation

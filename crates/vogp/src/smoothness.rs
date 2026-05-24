@@ -405,8 +405,9 @@ mod tests {
     fn test_stochastic_approximation() {
         let approximator = StochasticGradientApproximator::new(10, 42);
 
-        // Dummy gradient function
-        let gradient_fn = |noise: &ArrayD<f32>| noise.clone();
+        // Gradient of f(x) = ||x||², i.e. ∇f(x) = 2x
+        // Using stochastic Hutchinson trace estimator to approximate ||∇f||
+        let gradient_fn = |noise: &ArrayD<f32>| noise.mapv(|x| 2.0 * x);
 
         let norm = approximator.approximate_norm(gradient_fn, &[10]);
         assert!(norm >= 0.0);

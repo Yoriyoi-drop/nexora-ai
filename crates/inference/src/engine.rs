@@ -436,7 +436,7 @@ impl InferenceEngine {
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let prompt_ids_for_loop = prompt_ids.clone();
-        let (tokens, timed_out) = tokio::task::spawn_blocking(move || {
+        let (tokens, last_logits, timed_out) = tokio::task::spawn_blocking(move || {
             run_generation_loop(
                 &model,
                 &prompt_ids_for_loop,
@@ -449,7 +449,7 @@ impl InferenceEngine {
         .await
         .unwrap_or_else(|e| {
             tracing::error!("Generation loop panicked: {:?}", e);
-            (Vec::new(), true)
+            (Vec::<GeneratedToken>::new(), Vec::<f32>::new(), true)
         });
 
         for token in tokens {
@@ -463,13 +463,12 @@ impl InferenceEngine {
         }
         response.inference_time_ms = start.elapsed().as_millis() as u64;
 
-        // Insert generated sequence into prefix cache for future reuse
-        let all_ids = prompt_ids.iter().copied().chain(response.tokens.iter().map(|t| t.token_id)).collect::<Vec<_>>();
-        if all_ids.len() > 1 {
-            let last_logits = Array1::zeros(self.model.config.vocab_size);
-            self.prefix_cache
-                .insert(&all_ids, last_logits.into_raw_vec())
-                .await;
+        // Cache generated sequence + last logits for future prefix reuse
+        let generated_ids: Vec<u32> = response.tokens.iter().map(|t| t.token_id).collect();
+        let mut full_seq = prompt_ids.clone();
+        full_seq.extend(&generated_ids);
+        if !full_seq.is_empty() && !last_logits.is_empty() {
+            self.prefix_cache.insert(&full_seq, last_logits).await;
         }
 
         debug!(
@@ -746,10 +745,11 @@ fn run_generation_loop(
     sampler: &mut crate::sampler::Sampler,
     kv_state: &mut dyn KVCacheProvider,
     tokenizer: Option<&Arc<parking_lot::RwLock<BpeTokenizer>>>,
-) -> (Vec<GeneratedToken>, bool) {
+) -> (Vec<GeneratedToken>, Vec<f32>, bool) {
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
     let mut tokens = Vec::with_capacity(max_gen);
+    let mut last_logits = Vec::new();
 
     for pos in 0..max_gen {
         let input: &[u32] = if pos == 0 {
@@ -760,6 +760,7 @@ fn run_generation_loop(
 
         let logits = ModelForward::forward(model, input, kv_state);
         let logits_slice = logits.as_slice().unwrap_or(&[]);
+        last_logits = logits_slice.to_vec();
 
         let token_id = match sampler.sample(logits_slice) {
             Ok(idx) => idx as u32,
@@ -789,11 +790,11 @@ fn run_generation_loop(
 
         if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
             let timed_out = start.elapsed() > Duration::from_secs(60);
-            return (tokens, timed_out);
+            return (tokens, last_logits, timed_out);
         }
     }
 
-    (tokens, false)
+    (tokens, last_logits, false)
 }
 
 /// Handle used inside spawned tasks to avoid borrowing self
@@ -897,7 +898,7 @@ impl InferenceEngineHandle {
 
                 let model_c = Arc::clone(&model);
                 let prompt_ids_c = prompt_ids.clone();
-                let (tokens, timed_out) = tokio::task::spawn_blocking(move || {
+                let (tokens, _last_logits, timed_out) = tokio::task::spawn_blocking(move || {
                     run_generation_loop(
                         &model_c,
                         &prompt_ids_c,
@@ -910,7 +911,7 @@ impl InferenceEngineHandle {
                 .await
                 .unwrap_or_else(|e| {
                     tracing::error!("Batch generation loop panicked: {:?}", e);
-                    (Vec::new(), true)
+                    (Vec::<GeneratedToken>::new(), Vec::<f32>::new(), true)
                 });
 
                 for token in tokens {

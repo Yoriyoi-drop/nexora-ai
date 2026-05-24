@@ -538,7 +538,11 @@ impl HasComponents for NxrKronosModel {
     }
 }
 
-impl DeepLearningModel for NxrKronosModel {}
+impl DeepLearningModel for NxrKronosModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrKronosModel {
     fn default() -> Self {

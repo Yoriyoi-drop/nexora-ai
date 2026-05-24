@@ -445,7 +445,11 @@ impl HasComponents for NxrSwiftModel {
     }
 }
 
-impl DeepLearningModel for NxrSwiftModel {}
+impl DeepLearningModel for NxrSwiftModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrSwiftModel {
     fn default() -> Self {

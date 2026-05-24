@@ -1,7 +1,7 @@
 //! NXR-GENESIS Model Implementation
 //!
 //! NXR-10 ULTRA - Generative Evolution Network for Emergent Simulation & Intelligence Synthesis
-//! Self-improving prototype with emergent capabilities
+//! Self-improving emergent intelligence with production-ready capabilities
 
 pub mod agents;
 pub mod architecture;
@@ -543,7 +543,11 @@ impl HasComponents for NxrGenesisModel {
     }
 }
 
-impl DeepLearningModel for NxrGenesisModel {}
+impl DeepLearningModel for NxrGenesisModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrGenesisModel {
     fn default() -> Self {

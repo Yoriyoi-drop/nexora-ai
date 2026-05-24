@@ -5,11 +5,11 @@
 use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-VORTEX Identity Manager
-pub struct _VortexIdentity {
+pub struct VortexIdentity {
     meta: ModelMeta,
 }
 
-impl _VortexIdentity {
+impl VortexIdentity {
     /// Create new NXR-VORTEX identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -19,8 +19,7 @@ impl _VortexIdentity {
             "Variable Optimization Recursive Text & Expert eXchange - Code generation and software engineering specialist with advanced debugging, architecture analysis, and optimization capabilities.".to_string(),
         )
         .with_parameters(700_000_000_000) // 700B parameters
-        .with_context_window(2_000_000) // 2M context
-        .experimental();
+        .with_context_window(2_000_000) ;// 2M context
 
         Self { meta }
     }
@@ -132,7 +131,7 @@ pub struct PerformanceSpecs {
     pub specializations: Vec<String>,
 }
 
-impl Default for _VortexIdentity {
+impl Default for VortexIdentity {
     fn default() -> Self {
         Self::new()
     }

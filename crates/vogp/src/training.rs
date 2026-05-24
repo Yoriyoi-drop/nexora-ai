@@ -551,21 +551,63 @@ mod tests {
     use super::*;
     use ndarray::Array;
 
+    /// Simple linear classifier: Wx + b with fixed weights for deterministic testing
+    struct TestLinearClassifier;
+
+    impl TestLinearClassifier {
+        fn forward(input: &Array2<f32>) -> Array2<f32> {
+            let (batch_size, num_features) = input.dim();
+            let num_classes = 2;
+            // Simple projection: average of first half and second half of features
+            let half = num_features / 2;
+            let mut output = Array2::zeros((batch_size, num_classes));
+            for i in 0..batch_size {
+                let row = input.row(i);
+                let class0 = row.slice(s![..half]).mean().unwrap_or(0.0);
+                let class1 = row.slice(s![half..]).mean().unwrap_or(0.0);
+                output[[i, 0]] = class0;
+                output[[i, 1]] = class1;
+            }
+            output
+        }
+
+        fn backward(predictions: &Array2<f32>, targets: &Array1<usize>) -> Option<ArrayD<f32>> {
+            // Gradient of cross-entropy w.r.t. logits = softmax(p) - one_hot(target)
+            let (batch_size, num_classes) = predictions.dim();
+            let mut grad = ArrayD::zeros(vec![batch_size, num_classes]);
+            for i in 0..batch_size {
+                let target = targets[i];
+                // Softmax numerator & denominator
+                let max_logit = predictions.row(i).max().unwrap_or(0.0);
+                let mut denom = 0.0;
+                let mut softmax_vals = Vec::with_capacity(num_classes);
+                for j in 0..num_classes {
+                    let val = (predictions[[i, j]] - max_logit).exp();
+                    denom += val;
+                    softmax_vals.push(val);
+                }
+                for j in 0..num_classes {
+                    let softmax = softmax_vals[j] / denom;
+                    grad[[i, j]] = softmax - if j == target { 1.0 } else { 0.0 };
+                }
+            }
+            Some(grad)
+        }
+    }
+
     #[test]
     fn test_vogp_training_wrapper() {
         let config = VOGPTrainingConfig::default();
         let mut wrapper = VOGPTrainingWrapper::new(config);
-        
-        // Dummy data
+
         let data = Array::from_elem((4, 10), 0.5);
         let targets = Array::from_vec(vec![0, 1, 0, 1]);
-        
-        // Dummy model
-        let model_forward = |input: &Array2<f32>| input.clone();
-        let model_backward = |_: &Array2<f32>, _: &Array1<usize>| None;
-        
+
+        let model_forward = |input: &Array2<f32>| TestLinearClassifier::forward(input);
+        let model_backward = |pred: &Array2<f32>, tgt: &Array1<usize>| TestLinearClassifier::backward(pred, tgt);
+
         let result = wrapper.training_step(&data, &targets, model_forward, model_backward);
-        
+
         assert!(result.step > 0);
         assert!(result.loss >= 0.0);
     }
@@ -574,14 +616,14 @@ mod tests {
     fn test_vogp_validation() {
         let config = VOGPTrainingConfig::default();
         let mut wrapper = VOGPTrainingWrapper::new(config);
-        
+
         let val_data = Array::from_elem((2, 10), 0.5);
         let val_targets = Array::from_vec(vec![0, 1]);
-        
-        let model_forward = |input: &Array2<f32>| input.clone();
-        
+
+        let model_forward = |input: &Array2<f32>| TestLinearClassifier::forward(input);
+
         let result = wrapper.validation_step(&val_data, &val_targets, model_forward);
-        
+
         assert!(result.validation_loss >= 0.0);
         assert!(result.effective_variance >= 0.0);
     }

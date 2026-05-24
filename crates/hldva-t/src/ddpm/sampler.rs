@@ -107,10 +107,15 @@ impl Default for SamplerConfig {
 mod tests {
     use super::*;
 
-    struct DummyPredictor;
-    impl NoisePredictor for DummyPredictor {
-        fn predict_noise(&self, noisy: &Tensor, _timestep: usize) -> HLDVAResult<Tensor> {
-            Ok(Tensor::new(vec![0.0; noisy.data().len()], noisy.shape().to_vec()))
+    /// Linear noise predictor: predicts noise as a dampened version of the input signal.
+    /// In DDPM, ε_θ(x_t, t) ≈ x_t * α(t) where α decays with timestep.
+    struct LinearNoisePredictor;
+
+    impl NoisePredictor for LinearNoisePredictor {
+        fn predict_noise(&self, noisy: &Tensor, timestep: usize) -> HLDVAResult<Tensor> {
+            let scale = 1.0 / (timestep as f32 + 1.0).sqrt();
+            let data: Vec<f32> = noisy.data().iter().map(|&x| x * scale).collect();
+            Ok(Tensor::new(data, noisy.shape().to_vec()))
         }
     }
 
@@ -118,7 +123,7 @@ mod tests {
     fn test_ddpm_sampler_new() {
         let cfg = SamplerConfig::default();
         let mut sampler = DDPMSampler::new(cfg);
-        let result = sampler.sample(&DummyPredictor, &[4], 10);
+        let result = sampler.sample(&LinearNoisePredictor, &[4], 10);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output.shape(), &[4]);

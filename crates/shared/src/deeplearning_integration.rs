@@ -18,6 +18,7 @@ use nexora_deeplearning::{
 };
 use parking_lot::RwLock as PRwLock;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -168,6 +169,7 @@ struct StarXPipeline {
 /// Deep Learning Engine - wrapper untuk semua arsitektur
 pub struct DeepLearningEngine {
     config: DeepLearningConfig,
+    training_enabled: AtomicBool,
     state: Arc<RwLock<DeepLearningState>>,
     metrics: Arc<RwLock<DeepLearningMetrics>>,
     starx_pipeline: Option<StarXPipeline>,
@@ -263,6 +265,7 @@ impl DeepLearningEngine {
         };
 
         Ok(Self {
+            training_enabled: AtomicBool::new(config.training_enabled),
             config,
             state: Arc::new(RwLock::new(state)),
             metrics: Arc::new(RwLock::new(metrics)),
@@ -272,6 +275,14 @@ impl DeepLearningEngine {
 
     pub fn config(&self) -> &DeepLearningConfig {
         &self.config
+    }
+
+    pub fn set_training(&self, enabled: bool) {
+        self.training_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn is_training_enabled(&self) -> bool {
+        self.training_enabled.load(Ordering::Relaxed)
     }
 
     pub async fn state(&self) -> DeepLearningState {
@@ -462,7 +473,7 @@ impl DeepLearningEngine {
     }
 
     pub async fn backward(&self, gradient: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        if !self.config.training_enabled {
+        if !self.training_enabled.load(Ordering::Relaxed) {
             return Err(DeepLearningError::Configuration {
                 reason: "Training not enabled".to_string(),
             });
@@ -626,10 +637,12 @@ pub trait DeepLearningModel: HasComponents {
     }
 
     async fn enable_training(&mut self) -> DLResult<()> {
+        self.dl_engine().set_training(true);
         Ok(())
     }
 
     async fn disable_training(&mut self) -> DLResult<()> {
+        self.dl_engine().set_training(false);
         Ok(())
     }
 }

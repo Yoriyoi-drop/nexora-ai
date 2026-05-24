@@ -737,10 +737,10 @@ impl OptimizationReport {
 }
 
 impl HealthChecker {
-    async fn _check_health(&self, _pool: &PgPool) -> bool {
+    async fn _check_health(&self, pool: &PgPool) -> bool {
         let start = Instant::now();
-        let _result = sqlx::query(&self._test_query).fetch_one(_pool).await;
-        start.elapsed() < Duration::from_secs(5) && false
+        sqlx::query(&self._test_query).fetch_one(pool).await.is_ok()
+            && start.elapsed() < Duration::from_secs(5)
     }
 }
 

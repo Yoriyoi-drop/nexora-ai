@@ -308,20 +308,12 @@ impl Trie {
     }
 
     /// Clean up empty nodes after removal
+    /// The recursive removal in `remove_recursive` already prunes empty non-leaf children
+    /// during the post-recursion unwind. Additional cleanup is only needed if the trie
+    /// structure requires deeper compaction (e.g., merging single-child chains).
     fn cleanup_after_removal(&mut self, _token_ids: &[u32]) {
-        // This function can be used for additional cleanup if needed
-        // For now, the recursive removal handles cleanup
-    }
-
-    /// Clean up empty nodes after removal (simplified version)
-    fn _cleanup_empty_nodes(
-        &mut self,
-        _path: &mut Vec<(&mut TrieNode, Option<u32>)>,
-        _token_ids: &[u32],
-    ) {
-        // Simplified cleanup - the recursive removal already handles most cleanup
-        // In a more complex implementation, you would iterate through the path
-        // and remove empty nodes while preserving the trie structure
+        // `remove_recursive` handles all leaf-to-root pruning of empty non-leaf nodes.
+        // No additional cleanup is required for the current trie implementation.
     }
 
     /// Clear the trie

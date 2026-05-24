@@ -60,7 +60,6 @@ pub enum QuarantineSeverity {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum QuarantineStatus {
     Active,
-    Investigating,
     Resolved,
     Escalated,
 }

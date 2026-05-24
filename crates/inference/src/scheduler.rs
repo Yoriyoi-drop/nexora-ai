@@ -105,6 +105,7 @@ impl RequestScheduler {
                     // Process each request in the batch by sending a timeout response
                     // so callers don't hang indefinitely.
                     for breq in &batch.requests {
+                        this.read().await.update_status(breq.request_id, RequestStatus::Timeout).await;
                         let mut resp = crate::InferenceResponse::new(breq.request_id);
                         resp.finish_reason = crate::FinishReason::Timeout;
                         let guard = this.read().await;

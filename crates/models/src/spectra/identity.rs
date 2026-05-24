@@ -5,11 +5,11 @@
 use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-SPECTRA Identity Manager
-pub struct _SpectraIdentity {
+pub struct SpectraIdentity {
     meta: ModelMeta,
 }
 
-impl _SpectraIdentity {
+impl SpectraIdentity {
     /// Create new NXR-SPECTRA identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -19,8 +19,7 @@ impl _SpectraIdentity {
             "Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture - Creative multimodal synthesis specialist with advanced artistic and creative capabilities.".to_string(),
         )
         .with_parameters(300_000_000_000) // 300B parameters
-        .with_context_window(1_000_000) // 1M context
-        .experimental();
+        .with_context_window(1_000_000) ;// 1M context
 
         Self { meta }
     }
@@ -219,7 +218,7 @@ pub struct CreativeCapabilities {
     pub performance_creativity: bool,
 }
 
-impl Default for _SpectraIdentity {
+impl Default for SpectraIdentity {
     fn default() -> Self {
         Self::new()
     }

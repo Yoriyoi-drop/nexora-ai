@@ -97,7 +97,7 @@ impl CaffeineSpectraIntegration {
     ) -> std::result::Result<EnhancedMultimodalResult, Box<dyn std::error::Error>> {
         let mut result = EnhancedMultimodalResult::new();
 
-        let caffeine_inputs = self.to_caffeine_inputs(inputs);
+        let caffeine_inputs = self.to_caffeine_inputs(inputs).await;
         if let Ok(caffeine_result) = self
             .caffeine_processor
             .process_multimodal(&caffeine_inputs)
@@ -122,26 +122,36 @@ impl CaffeineSpectraIntegration {
         Ok(result)
     }
 
-    fn to_caffeine_inputs(&self, inputs: &MultimodalInputs) -> CaffeineInputs {
+    async fn to_caffeine_inputs(&self, inputs: &MultimodalInputs) -> CaffeineInputs {
+        let image = if let Some(path) = &inputs.image {
+            tokio::fs::read(path).await.ok().map(|data| ImageInput {
+                data,
+                format: ImageFormat::PNG,
+                width: 0,
+                height: 0,
+                channels: 3,
+            })
+        } else {
+            None
+        };
+        let audio = if let Some(path) = &inputs.audio {
+            tokio::fs::read(path).await.ok().map(|data| AudioInput {
+                data: data.into_iter().map(|v| v as f32).collect(),
+                sample_rate: 44100,
+                duration: 0.0,
+                channels: 1,
+            })
+        } else {
+            None
+        };
         CaffeineInputs {
             text: inputs.text.as_ref().map(|t| TextInput {
                 text: t.clone(),
                 tokens: None,
                 language: "en".to_string(),
             }),
-            image: inputs.image.as_ref().map(|path| ImageInput {
-                data: std::fs::read(path).unwrap_or_default(),
-                format: ImageFormat::PNG,
-                width: 0,
-                height: 0,
-                channels: 3,
-            }),
-            audio: inputs.audio.as_ref().map(|path| AudioInput {
-                data: std::fs::read(path).map(|b| b.into_iter().map(|v| v as f32).collect()).unwrap_or_default(),
-                sample_rate: 44100,
-                duration: 0.0,
-                channels: 1,
-            }),
+            image,
+            audio,
             video: None,
             context: None,
         }

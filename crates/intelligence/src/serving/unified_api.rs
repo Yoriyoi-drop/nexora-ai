@@ -14,9 +14,10 @@ use nexora_foundation::multimodal::caffeine::{
     Caffeine, CaffeineConfig,
 };
 
+use parking_lot::Mutex as ParkingMutex;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub type ApiResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -64,7 +65,7 @@ pub struct ExpertRouter {
     /// Gating weight matrix stored row-major: shape [hidden_size × num_experts]
     gate_weights: Vec<f32>,
     /// Running selection count per expert (for load monitoring)
-    load_counters: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
+    load_counters: std::sync::Arc<ParkingMutex<Vec<usize>>>,
 }
 
 impl ExpertRouter {
@@ -82,7 +83,7 @@ impl ExpertRouter {
         );
 
         Ok(Self {
-            load_counters: std::sync::Arc::new(std::sync::Mutex::new(
+            load_counters: std::sync::Arc::new(ParkingMutex::new(
                 vec![0usize; config.num_experts],
             )),
             gate_weights,
@@ -138,7 +139,7 @@ impl ExpertRouter {
             .collect();
 
         // Update load counters
-        let mut counters = self.load_counters.lock().unwrap();
+        let mut counters = self.load_counters.lock();
         for &idx in &expert_indices {
             counters[idx] += 1;
         }
@@ -159,7 +160,7 @@ impl ExpertRouter {
 
     /// Return a copy of the current load counter vector.
     pub fn load_stats(&self) -> Vec<usize> {
-        self.load_counters.lock().unwrap().clone()
+        self.load_counters.lock().clone()
     }
 }
 
@@ -444,7 +445,12 @@ impl UnifiedModel {
             IntegrationMode::SACAWithHasMoe => {
                 self.apply_moe_post_processing(&mut solution).await?;
             }
-            _ => {}
+            IntegrationMode::SACAWithATQS => {
+                if solution.atqs_compression_applied {
+                    solution.quality_score =
+                        (solution.quality_score + solution.compression_ratio as f32 * 0.05).min(1.0);
+                }
+            }
         }
 
         info!("Unified solution completed in {:?}", solution.execution_time);
@@ -486,8 +492,14 @@ impl UnifiedModel {
     /// Apply the real MoE FFN to the solution's multimodal feature vector.
     async fn apply_moe_post_processing(&self, solution: &mut UnifiedSolution) -> ApiResult<()> {
         if let Some(ffn_lock) = &self.moe_ffn {
-            let ffn = ffn_lock.lock().unwrap();
-            let hidden = ffn.hidden_size;
+            let ffn_guard = match ffn_lock.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("MoE FFN mutex poisoned, recovering");
+                    poisoned.into_inner()
+                }
+            };
+            let hidden = ffn_guard.hidden_size;
 
             // Use multimodal_features as the hidden state; pad or truncate to hidden_size
             let h: Vec<f32> = if solution.multimodal_features.len() >= hidden {
@@ -498,10 +510,10 @@ impl UnifiedModel {
                 padded
             };
 
-            let out = ffn.forward(&h)?;
+            let out = ffn_guard.forward(&h)?;
             // Store MoE output back as refined feature vector
             solution.multimodal_features = out;
-            solution.routing_efficiency = ffn.routing_efficiency();
+            solution.routing_efficiency = ffn_guard.routing_efficiency();
             solution.has_moe_routing_applied = true;
             solution.quality_score =
                 (solution.quality_score + solution.routing_efficiency * 0.03).min(1.0);

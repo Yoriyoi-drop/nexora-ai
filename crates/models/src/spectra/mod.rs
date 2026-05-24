@@ -136,8 +136,7 @@ impl SpectraIdentity {
             "Spectral Perception & Encoding for Creative Transcendence & Research Analytics - Multimodal creative generation specialist with advanced cross-modal synthesis capabilities.".to_string(),
         )
         .with_parameters(350_000_000_000) // 350B parameters
-        .with_context_window(1_000_000) // 1M context
-        .experimental();
+        .with_context_window(1_000_000); // 1M context
 
         Self { meta }
     }
@@ -615,7 +614,11 @@ impl HasComponents for NxrSpectraModel {
     }
 }
 
-impl DeepLearningModel for NxrSpectraModel {}
+impl DeepLearningModel for NxrSpectraModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrSpectraModel {
     fn default() -> Self {

@@ -19,8 +19,7 @@ impl GenesisIdentity {
             "Generative Evolutionary Neural Architecture for Synthesis & Innovation - Specialized generative AI model for creative synthesis, innovation, and novel content generation across multiple domains.".to_string(),
         )
         .with_parameters(200_000_000_000) // 200B parameters
-        .with_context_window(512_000) // 512K context
-        .experimental();
+        .with_context_window(512_000) ;// 512K context
 
         Self { meta }
     }

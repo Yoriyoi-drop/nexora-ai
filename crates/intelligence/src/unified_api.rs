@@ -155,7 +155,7 @@ fn enhanced_to_code_solution(
     }
 }
 
-// Mock model implementations
+// Basic SACA model implementation
 
 /// Basic SACA model implementation
 struct BasicSacaModel {

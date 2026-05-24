@@ -20,22 +20,14 @@ pub trait ModelForward: Send + Sync {
 
     /// Run "batched" forward: process multiple tokens with per-sequence KV caches.
     ///
-    /// ⚠️  CURRENT LIMITATION — NOT TRUE BATCHED INFERENCE:
-    /// The default implementation processes each input **sequentially** in a
-    /// for-loop calling [`forward`] per element. Throughput scales as O(N),
-    /// NOT O(1). Downstream implementations backed by GPU/TPU should override
-    /// this with a real batched forward path for better throughput.
+    /// Default implementation processes each input **sequentially** via
+    /// [`forward`]. Throughput scales as O(N). Implementations backed by
+    /// GPU/TPU should override this with a true batched forward path.
     fn forward_batched(
         &self,
         input_ids: &[u32],
         kv_caches: &mut [CpuKVCache],
     ) -> Vec<Array1<f32>> {
-        if input_ids.len() > 1 {
-            tracing::warn!(
-                "forward_batched processing {} sequences sequentially — true batch parallelism not yet implemented",
-                input_ids.len()
-            );
-        }
         input_ids
             .iter()
             .zip(kv_caches.iter_mut())

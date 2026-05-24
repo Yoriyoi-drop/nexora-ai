@@ -60,7 +60,7 @@ pub enum TestGenerationStrategy {
 }
 
 /// Test Type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TestType {
     /// Unit tests
     UnitTests,
@@ -2490,45 +2490,129 @@ function {}() {{
 
     /// Assess quality
     async fn assess_quality(&self, input: &TestForgeTaskInput, generated_tests: &[GeneratedTest]) -> AgentResult<QualityAssessmentResults> {
-        let overall_quality_score = 0.75; // Simplified calculation
-        
-        let quality_metrics = TestQualityMetrics {
-            test_effectiveness: 0.8,
-            test_efficiency: 0.7,
-            test_maintainability: 0.8,
-            test_reliability: 0.9,
-            test_coverage: TestCoverageMetrics {
-                line_coverage: input.test_requirements.coverage_targets.line_coverage,
-                branch_coverage: input.test_requirements.coverage_targets.branch_coverage,
-                function_coverage: input.test_requirements.coverage_targets.function_coverage,
-                statement_coverage: input.test_requirements.coverage_targets.statement_coverage,
-                condition_coverage: input.test_requirements.coverage_targets.condition_coverage,
-                path_coverage: input.test_requirements.coverage_targets.path_coverage,
-                mutation_score: 0.7,
+        let coverage_targets = &input.test_requirements.coverage_targets;
+        let n_tests = generated_tests.len();
+
+        let test_effectiveness = if n_tests == 0 {
+            0.0
+        } else {
+            let has_output_checks = generated_tests.iter()
+                .filter(|t| !t.expected_results.expected_output.is_empty())
+                .count() as f32;
+            let has_behavior = generated_tests.iter()
+                .filter(|t| !t.expected_results.expected_behavior.is_empty())
+                .count() as f32;
+            let coverage_factor = (coverage_targets.line_coverage
+                + coverage_targets.branch_coverage
+                + coverage_targets.function_coverage) / 3.0;
+            let n_factor = (n_tests as f32).min(20.0) / 20.0;
+            (has_output_checks / n_tests as f32 * 0.3
+                + has_behavior / n_tests as f32 * 0.2
+                + coverage_factor * 0.3
+                + n_factor * 0.2).clamp(0.0, 1.0)
+        };
+
+        let test_efficiency = if n_tests == 0 {
+            0.0
+        } else {
+            let has_deps = generated_tests.iter()
+                .filter(|t| !t.test_metadata.test_dependencies.is_empty())
+                .count() as f32;
+            let complexity_distribution = generated_tests.iter()
+                .filter(|t| matches!(t.test_metadata.test_complexity, TestComplexity::Medium))
+                .count() as f32;
+            let complexity_ratio = complexity_distribution / n_tests as f32;
+            (has_deps / n_tests as f32 * 0.3 + complexity_ratio * 0.3 + 0.4).clamp(0.0, 1.0)
+        };
+
+        let test_maintainability = if n_tests == 0 {
+            0.0
+        } else {
+            let has_setup = generated_tests.iter()
+                .filter(|t| !t.test_setup.setup_code.is_empty() || !t.test_setup.setup_requirements.is_empty())
+                .count() as f32;
+            let has_tags = generated_tests.iter()
+                .filter(|t| !t.test_metadata.test_tags.is_empty())
+                .count() as f32;
+            let avg_naming = generated_tests.iter()
+                .map(|t| if t.test_name.len() > 10 { 1.0 } else { 0.5 })
+                .sum::<f32>() / n_tests as f32;
+            (has_setup / n_tests as f32 * 0.3 + has_tags / n_tests as f32 * 0.2 + avg_naming * 0.5).clamp(0.0, 1.0)
+        };
+
+        let test_reliability = if n_tests == 0 {
+            0.0
+        } else {
+            let has_deps = generated_tests.iter()
+                .filter(|t| !t.test_data.input_data.is_empty() || !t.test_data.expected_outputs.is_empty())
+                .count() as f32;
+            let has_side_effects = generated_tests.iter()
+                .filter(|t| t.expected_results.expected_side_effects.is_empty())
+                .count() as f32;
+            (has_deps / n_tests as f32 * 0.5 + has_side_effects / n_tests as f32 * 0.5).clamp(0.0, 1.0)
+        };
+
+        let test_coverage = TestCoverageMetrics {
+            line_coverage: coverage_targets.line_coverage,
+            branch_coverage: coverage_targets.branch_coverage,
+            function_coverage: coverage_targets.function_coverage,
+            statement_coverage: coverage_targets.statement_coverage,
+            condition_coverage: coverage_targets.condition_coverage,
+            path_coverage: coverage_targets.path_coverage,
+            mutation_score: {
+                let avg_coverage = (coverage_targets.line_coverage
+                    + coverage_targets.branch_coverage
+                    + coverage_targets.function_coverage
+                    + coverage_targets.statement_coverage) / 4.0;
+                (avg_coverage * 0.85).min(0.95)
             },
         };
-        
-        let quality_issues = vec![
-            QualityIssue {
+
+        let overall_quality_score = (test_effectiveness * 0.25
+            + test_efficiency * 0.20
+            + test_maintainability * 0.15
+            + test_reliability * 0.15
+            + test_coverage.mutation_score * 0.25)
+            .clamp(0.0, 1.0);
+
+        let quality_issues = if n_tests == 0 {
+            vec![QualityIssue {
                 issue_id: "issue_001".to_string(),
-                issue_description: "Some tests may need additional edge cases".to_string(),
+                issue_description: "No tests were generated".to_string(),
+                issue_severity: IssueSeverity::High,
+                issue_category: IssueCategory::TestDesignIssue,
+                affected_tests: vec![],
+                recommended_actions: vec!["Review test generation input".to_string()],
+            }]
+        } else if overall_quality_score < 0.6 {
+            vec![QualityIssue {
+                issue_id: "issue_001".to_string(),
+                issue_description: "Generated tests have low quality score".to_string(),
                 issue_severity: IssueSeverity::Medium,
                 issue_category: IssueCategory::TestDesignIssue,
                 affected_tests: generated_tests.iter().map(|t| t.test_id.clone()).collect(),
-                recommended_actions: vec!["Add more test cases".to_string()],
-            },
-        ];
-        
+                recommended_actions: vec!["Improve test coverage and assertions".to_string()],
+            }]
+        } else {
+            vec![]
+        };
+
         let quality_trends = QualityTrends {
             trend_analysis_period: chrono::Duration::days(30),
             quality_trend_data: vec![],
             trend_predictions: vec![],
             trend_alerts: vec![],
         };
-        
+
         Ok(QualityAssessmentResults {
             overall_quality_score,
-            quality_metrics,
+            quality_metrics: TestQualityMetrics {
+                test_effectiveness,
+                test_efficiency,
+                test_maintainability,
+                test_reliability,
+                test_coverage,
+            },
             quality_issues,
             quality_trends,
         })

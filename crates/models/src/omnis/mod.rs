@@ -160,12 +160,6 @@ pub struct TruthClaim {
 pub enum ResolutionStatus {
     /// Pending resolution
     Pending,
-    /// In progress
-    InProgress,
-    /// Resolved
-    Resolved { resolution: String, confidence: f32 },
-    /// Contradiction detected
-    Contradiction { conflicting_claims: Vec<uuid::Uuid> },
 }
 
 /// NXR-OMNIS Model Metrics
@@ -748,7 +742,11 @@ impl HasComponents for NxrOmnisModel {
     }
 }
 
-impl DeepLearningModel for NxrOmnisModel {}
+impl DeepLearningModel for NxrOmnisModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrOmnisModel {
     fn default() -> Self {

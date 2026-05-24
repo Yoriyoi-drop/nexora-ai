@@ -56,16 +56,10 @@ pub enum RoutingStrategy {
 /// Message delivery status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DeliveryStatus {
-    /// Pending delivery
-    Pending,
     /// Successfully delivered
     Delivered,
     /// Delivery failed
     Failed(String),
-    /// Message expired
-    Expired,
-    /// Message rejected
-    Rejected,
 }
 
 /// Message tracking information

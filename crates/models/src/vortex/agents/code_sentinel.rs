@@ -612,6 +612,15 @@ pub enum OptimizationType {
     IOOptimization,
 }
 
+/// Documentation Standards
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentationStandards {
+    pub clarity_score: f32,
+    pub completeness_score: f32,
+    pub accuracy_score: f32,
+    pub consistency_score: f32,
+}
+
 /// Maintainability Standards
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaintainabilityStandards {
@@ -925,8 +934,6 @@ pub struct ReviewPolicy {
     pub policy_description: String,
     /// Policy rules
     pub policy_rules: Vec<ReviewRule>,
-    /// Enforcement level
-    pub enforcement_level: EnforcementLevel,
     /// Exceptions
     pub exceptions: Vec<PolicyException>,
 }
@@ -964,7 +971,7 @@ pub enum ReviewRuleType {
 }
 
 /// Severity Level
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SeverityLevel {
     /// Info
     Info,
@@ -974,19 +981,10 @@ pub enum SeverityLevel {
     Error,
     /// Critical
     Critical,
-}
-
-/// Enforcement Level
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EnforcementLevel {
-    /// Advisory
-    Advisory,
-    /// Warning
-    Warning,
-    /// Error
-    Error,
-    /// Blocking
-    Blocking,
+    /// High
+    High,
+    /// Medium
+    Medium,
 }
 
 /// Policy Exception
@@ -2075,7 +2073,7 @@ pub struct CodeIssue {
 }
 
 /// Issue Category
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum IssueCategory {
     /// Security issue
     Security,
@@ -2625,13 +2623,13 @@ impl BaseAgent for CodeSentinelAgent {
         let documentation_analysis = self.perform_documentation_analysis(&input).await?;
         
         // Calculate quality metrics
-        let quality_metrics = self.calculate_quality_metrics(&security_analysis, &performance_analysis, &maintainability_analysis, &architectural_analysis, &style_analysis, &documentation_analysis);
+        let quality_metrics = CodeSentinelAgent::calculate_quality_metrics(&security_analysis, &performance_analysis, &maintainability_analysis, &architectural_analysis, &style_analysis, &documentation_analysis);
         
         // Generate issues and suggestions
-        let (issues_found, suggestions) = self.generate_issues_and_suggestions(&security_analysis, &performance_analysis, &maintainability_analysis, &architectural_analysis, &style_analysis, &documentation_analysis);
+        let (issues_found, suggestions) = CodeSentinelAgent::generate_issues_and_suggestions(&security_analysis, &performance_analysis, &maintainability_analysis, &architectural_analysis, &style_analysis, &documentation_analysis);
         
         // Generate auto-fixes
-        let auto_fixes_available = self.generate_auto_fixes(&issues_found);
+        let auto_fixes_available = CodeSentinelAgent::generate_auto_fixes(&issues_found);
         
         // Build output
         let output = CodeSentinelTaskOutput {
@@ -2957,21 +2955,52 @@ impl CodeSentinelAgent {
     }
 
     /// Calculate quality metrics
-    fn calculate_quality_metrics(&security_analysis: &SecurityAnalysisResult,
+    fn calculate_quality_metrics(security_analysis: &SecurityAnalysisResult,
                                performance_analysis: &PerformanceAnalysisResult,
                                maintainability_analysis: &MaintainabilityAnalysisResult,
                                architectural_analysis: &ArchitecturalAnalysisResult,
                                style_analysis: &StyleAnalysisResult,
                                documentation_analysis: &DocumentationAnalysisResult) -> QualityMetrics {
         let security_score = security_analysis.security_score;
-        let performance_score = 0.8; // Simplified calculation
-        let maintainability_score = maintainability_analysis.test_coverage_analysis.statement_coverage;
-        let architectural_score = 0.85; // Simplified calculation
+
+        let performance_score = {
+            let complexity = &performance_analysis.complexity_analysis;
+            let base = complexity.maintainability_index.clamp(0.0, 1.0);
+            let issue_penalty = (performance_analysis.performance_issues.len() as f32 * 0.05).min(0.3);
+            let optimization_bonus = (performance_analysis.optimization_opportunities.len() as f32 * 0.02).min(0.1);
+            (base - issue_penalty + optimization_bonus).clamp(0.0, 1.0)
+        };
+
+        let maintainability_score = {
+            let base = maintainability_analysis.test_coverage_analysis.statement_coverage;
+            let smell_penalty = (maintainability_analysis.code_smells_detected.len() as f32 * 0.03).min(0.2);
+            let dup_penalty = (maintainability_analysis.duplication_analysis.duplication_percentage / 100.0 * 0.3).min(0.3);
+            (base - smell_penalty - dup_penalty).clamp(0.0, 1.0)
+        };
+
+        let architectural_score = {
+            let dep = &architectural_analysis.dependency_analysis;
+            let coupling = &architectural_analysis.coupling_analysis.coupling_metrics;
+            let node_count = dep.dependency_graph.nodes.len();
+            let avg_stability: f32 = if node_count > 0 {
+                dep.dependency_graph.nodes.iter()
+                    .map(|n| n.stability_score)
+                    .sum::<f32>() / node_count as f32
+            } else {
+                0.7
+            };
+            let cycle_penalty = (dep.circular_dependencies.len() as f32 * 0.1).min(0.3);
+            let unstable_penalty = (dep.unstable_dependencies.len() as f32 * 0.05).min(0.2);
+            let coupling_score = 1.0 - coupling.instability.clamp(0.0, 1.0);
+            let violation_penalty = (architectural_analysis.architectural_violations.len() as f32 * 0.05).min(0.2);
+            (avg_stability * 0.3 + coupling_score * 0.3 - cycle_penalty - unstable_penalty - violation_penalty + 0.2).clamp(0.0, 1.0)
+        };
+
         let style_score = style_analysis.style_compliance_score;
         let documentation_score = documentation_analysis.documentation_coverage;
-        
+
         let overall_quality_score = (security_score + performance_score + maintainability_score + architectural_score + style_score + documentation_score) / 6.0;
-        
+
         QualityMetrics {
             overall_quality_score,
             security_score,
@@ -2984,12 +3013,12 @@ impl CodeSentinelAgent {
     }
 
     /// Generate issues and suggestions
-    fn generate_issues_and_suggestions(&security_analysis: &SecurityAnalysisResult,
-                                    performance_analysis: &PerformanceAnalysisResult,
-                                    maintainability_analysis: &MaintainabilityAnalysisResult,
-                                    architectural_analysis: &ArchitecturalAnalysisResult,
-                                    style_analysis: &StyleAnalysisResult,
-                                    _documentation_analysis: &DocumentationAnalysisResult) -> (Vec<CodeIssue>, Vec<CodeSuggestion>) {
+    fn generate_issues_and_suggestions(security_analysis: &SecurityAnalysisResult,
+                                     performance_analysis: &PerformanceAnalysisResult,
+                                     maintainability_analysis: &MaintainabilityAnalysisResult,
+                                     architectural_analysis: &ArchitecturalAnalysisResult,
+                                     style_analysis: &StyleAnalysisResult,
+                                     _documentation_analysis: &DocumentationAnalysisResult) -> (Vec<CodeIssue>, Vec<CodeSuggestion>) {
         let mut issues_found = Vec::new();
         let mut suggestions = Vec::new();
         
@@ -3063,7 +3092,7 @@ impl CodeSentinelAgent {
     }
 
     /// Generate auto-fixes
-    fn generate_auto_fixes(&issues_found: &[CodeIssue]) -> Vec<AutoFix> {
+    fn generate_auto_fixes(issues_found: &[CodeIssue]) -> Vec<AutoFix> {
         let mut auto_fixes = Vec::new();
         
         for issue in issues_found {

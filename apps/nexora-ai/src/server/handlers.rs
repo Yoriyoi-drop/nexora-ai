@@ -515,7 +515,7 @@ pub async fn static_files(
         return Err(axum::http::StatusCode::FORBIDDEN);
     }
 
-    let content = match std::fs::read(&file_path) {
+    let content = match tokio::fs::read(&file_path).await {
         Ok(c) => c,
         Err(_) => return Err(axum::http::StatusCode::NOT_FOUND),
     };

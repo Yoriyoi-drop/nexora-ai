@@ -2,14 +2,14 @@
 //!
 //! Implementation of the Sparse MoE + Code-Specialized architecture
 
-use super::config::_VortexConfig;
+use super::config::VortexConfig;
 use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-VORTEX Architecture Implementation
-pub struct _VortexArchitecture {
+pub struct VortexArchitecture {
     /// Configuration
-    config: _VortexConfig,
+    config: VortexConfig,
     /// Expert networks for code analysis
     code_experts: HashMap<String, CodeExpertNetwork>,
     /// Sparse routing network
@@ -621,9 +621,9 @@ pub struct QualityThresholds {
     pub poor: f32,
 }
 
-impl _VortexArchitecture {
+impl VortexArchitecture {
     /// Create new architecture with configuration
-    pub fn new(config: &_VortexConfig) -> Self {
+    pub fn new(config: &VortexConfig) -> Self {
         let mut code_experts = HashMap::new();
 
         // Initialize code expert networks
@@ -863,7 +863,7 @@ impl _VortexArchitecture {
     }
 
     /// Initialize architecture
-    pub async fn initialize(&mut self, config: &_VortexConfig) -> NxrModelResult<()> {
+    pub async fn initialize(&mut self, config: &VortexConfig) -> NxrModelResult<()> {
         // Initialize expert networks
         for expert in self.code_experts.values_mut() {
             expert.utilization = 0.0;
@@ -1680,8 +1680,8 @@ pub enum MetricStatus {
     Poor,
 }
 
-impl Default for _VortexArchitecture {
+impl Default for VortexArchitecture {
     fn default() -> Self {
-        Self::new(&_VortexConfig::default())
+        Self::new(&VortexConfig::default())
     }
 }

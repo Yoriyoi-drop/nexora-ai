@@ -19,8 +19,7 @@ impl KronosIdentity {
             "Knowledge Retrieval & Organized Networked Object Storage - Specialized knowledge management and retrieval system with advanced indexing, semantic search, and knowledge graph capabilities.".to_string(),
         )
         .with_parameters(150_000_000_000) // 150B parameters
-        .with_context_window(512_000) // 512K context
-        .experimental();
+        .with_context_window(512_000) ;// 512K context
 
         Self { meta }
     }

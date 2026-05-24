@@ -169,10 +169,6 @@ pub struct BackpressureHandler {
 pub enum BackpressureStrategy {
     /// Rate limiting
     RateLimiting,
-    /// Load shedding
-    LoadShedding,
-    /// Queue throttling
-    QueueThrottling,
 }
 
 /// Cache Management System

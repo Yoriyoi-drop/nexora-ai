@@ -16,7 +16,7 @@
 use crate::utils::Complex;
 use crate::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
-use nexora_autograd::Tensor;
+use nexora_autograd::{Tensor, TensorOps};
 use std::f32::consts::PI;
 
 /// Spectral collapse configuration

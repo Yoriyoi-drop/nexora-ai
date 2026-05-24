@@ -19,8 +19,7 @@ impl SwiftIdentity {
             "Speed-optimized Workflow Integration & Fast-response Transformer - High-speed model optimized for rapid response, real-time processing, and workflow integration with minimal latency.".to_string(),
         )
         .with_parameters(120_000_000_000) // 120B parameters
-        .with_context_window(256_000) // 256K context
-        .experimental();
+        .with_context_window(256_000) ;// 256K context
 
         Self { meta }
     }

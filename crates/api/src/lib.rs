@@ -308,14 +308,13 @@ impl RateLimiter {
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
 
-        counters.get(key).and_then(|(window_start, count)| {
-            let limits = self.limits.blocking_read();
-            let window_duration = limits
-                .get(key)
-                .map(|l| l.window_seconds)
-                .unwrap_or(60);
+        let window_duration = self.limits.read().await
+            .get(key)
+            .map(|l| l.window_seconds)
+            .unwrap_or(60);
 
-            if now < window_start + window_duration {
+        counters.get(key).and_then(|(window_start, count)| {
+            if now < *window_start + window_duration {
                 Some(*count as usize)
             } else {
                 None

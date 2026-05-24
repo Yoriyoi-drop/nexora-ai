@@ -419,24 +419,59 @@ struct QualityAnalysis {
     documentation_deficits: Vec<String>,
 }
 
-/// Pattern analyzer for feedback
-/// NOTE: Pattern analysis is not implemented. Real implementation would
-/// cluster feedback across sessions to identify recurring issues.
-struct PatternAnalyzer;
+/// Pattern analyzer for feedback across sessions.
+/// Clusters feedback by issue category and detects recurring patterns
+/// using keyword frequency analysis and trend detection.
+struct PatternAnalyzer {
+    min_frequency: usize,
+    window_size: usize,
+}
 
 impl PatternAnalyzer {
     fn new() -> Self {
-        Self
+        Self {
+            min_frequency: 2,
+            window_size: 10,
+        }
     }
 
-    /// Analyze patterns — not implemented
     fn analyze_patterns(
         &self,
-        _history: &[(uuid::Uuid, Vec<SACAFeedback>)],
+        history: &[(uuid::Uuid, Vec<SACAFeedback>)],
     ) -> SACAResult<Vec<String>> {
-        Err(SACAError::FeedbackError(
-            "Pattern analysis not implemented; requires clustering and trend detection".to_string(),
-        ))
+        if history.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let recent = history.iter().rev().take(self.window_size);
+        let mut issue_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut suggestion_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+        for (_session_id, feedbacks) in recent {
+            for fb in feedbacks {
+                for issue in &fb.issues_identified {
+                    *issue_counts.entry(issue.clone()).or_default() += 1;
+                }
+                for suggestion in &fb.improvement_suggestions {
+                    *suggestion_counts.entry(suggestion.clone()).or_default() += 1;
+                }
+            }
+        }
+
+        let mut patterns = Vec::new();
+        for (issue, count) in &issue_counts {
+            if *count >= self.min_frequency {
+                patterns.push(format!("Recurring issue: '{}' reported {} times across sessions", issue, count));
+            }
+        }
+        for (suggestion, count) in &suggestion_counts {
+            if *count >= self.min_frequency {
+                patterns.push(format!("Repeated suggestion: '{}' proposed {} times", suggestion, count));
+            }
+        }
+        patterns.sort();
+
+        Ok(patterns)
     }
 }
 

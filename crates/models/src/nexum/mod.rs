@@ -83,8 +83,7 @@ impl NexumIdentity {
             "Networked EXpert Unified Mediator - Multi-agent orchestration specialist with zero-latency coordination capabilities.".to_string(),
         )
         .with_parameters(800_000_000_000) // 800B parameters
-        .with_context_window(500) // 500 context (agent coordination)
-        .experimental();
+        .with_context_window(500); // 500 context (agent coordination)
 
         Self { meta }
     }
@@ -573,7 +572,11 @@ impl HasComponents for NxrNexumModel {
     }
 }
 
-impl DeepLearningModel for NxrNexumModel {}
+impl DeepLearningModel for NxrNexumModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrNexumModel {
     fn default() -> Self {

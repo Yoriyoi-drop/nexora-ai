@@ -5,11 +5,11 @@
 use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-ÆTHER Identity Manager
-pub struct _AetherIdentity {
+pub struct AetherIdentity {
     meta: ModelMeta,
 }
 
-impl _AetherIdentity {
+impl AetherIdentity {
     /// Create new NXR-ÆTHER identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -19,8 +19,7 @@ impl _AetherIdentity {
             "Adaptive Emotional & Holistic Transcendent Empathy Reasoner - Emotional intelligence and psychological analysis specialist with deep empathy synthesis capabilities.".to_string(),
         )
         .with_parameters(400_000_000_000) // 400B parameters
-        .with_context_window(512_000) // 512K context
-        .experimental();
+        .with_context_window(512_000) ;// 512K context
 
         Self { meta }
     }
@@ -219,7 +218,7 @@ pub struct EmpathyCapabilities {
     pub developmental_empathy: bool,
 }
 
-impl Default for _AetherIdentity {
+impl Default for AetherIdentity {
     fn default() -> Self {
         Self::new()
     }

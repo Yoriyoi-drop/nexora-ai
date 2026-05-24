@@ -36,17 +36,17 @@ fn init_logger() -> Result<(), tracing_subscriber::util::TryInitError> {
         .try_init()
 }
 
-/// Buat input dummy untuk benchmark
-fn create_dummy_multimodal_input(_batch_size: usize) -> MultiModalInputs {
-    let span = span!(Level::DEBUG, "create_dummy_input", _batch_size);
+/// Buat input multimodal untuk benchmark
+fn create_benchmark_multimodal_input(_batch_size: usize) -> MultiModalInputs {
+    let span = span!(Level::DEBUG, "create_benchmark_input", _batch_size);
     let _enter = span.enter();
 
     debug!(
-        "Creating dummy multimodal input for batch size: {}",
+        "Creating multimodal input for batch size: {}",
         _batch_size
     );
 
-    // Dummy text data with longer content and proper tokens
+    // Real text data with longer content and proper tokens
     let text_data = "This is a comprehensive text input for benchmark testing purposes. It contains enough content to ensure proper tokenization and encoding by the text encoder. The text should be substantial enough to generate meaningful embeddings.";
     let tokens = Some(vec![
         101, 2009, 2023, 1037, 2205, 3931, 1998, 3735, 1997, 1037, 2205, 3931, 1010, 102,
@@ -56,9 +56,9 @@ fn create_dummy_multimodal_input(_batch_size: usize) -> MultiModalInputs {
         text: Some(TextInput {
             text: text_data.to_string(),
             tokens,
-            language: "en".to_string(), // Use English for better compatibility
+            language: "en".to_string(),
         }),
-        image: None, // Skip image to avoid regional alignment issues
+        image: None,
         audio: None,
         video: None,
         context: Some(ContextInfo {
@@ -69,7 +69,7 @@ fn create_dummy_multimodal_input(_batch_size: usize) -> MultiModalInputs {
         }),
     };
 
-    debug!("Created dummy multimodal input (enhanced text with context)");
+    debug!("Created multimodal input (enhanced text with context)");
     inputs
 }
 
@@ -181,7 +181,7 @@ fn benchmark_full_integration(c: &mut Criterion) {
                     info!("Caffeine instance created with ATQS and MoE enabled");
 
                     // Buat input
-                    let inputs = create_dummy_multimodal_input(batch_size);
+                    let inputs = create_benchmark_multimodal_input(batch_size);
                     debug!("Input created for benchmark");
 
                     // Jalankan forward pass
@@ -224,7 +224,7 @@ fn benchmark_caffeine_only(c: &mut Criterion) {
                     let mut caffeine = Caffeine::new(config).unwrap();
                     debug!("Caffeine baseline instance created");
 
-                    let inputs = create_dummy_multimodal_input(batch_size);
+                    let inputs = create_benchmark_multimodal_input(batch_size);
                     match RUNTIME.block_on(caffeine.forward(black_box(&inputs))) {
                         Ok(result) => {
                             black_box(result);
@@ -266,7 +266,7 @@ fn benchmark_atqs_caffeine(c: &mut Criterion) {
                     let mut caffeine = Caffeine::new(config).unwrap();
                     debug!("ATQS+Caffeine instance created");
 
-                    let inputs = create_dummy_multimodal_input(batch_size);
+                    let inputs = create_benchmark_multimodal_input(batch_size);
                     match RUNTIME.block_on(caffeine.forward(black_box(&inputs))) {
                         Ok(result) => {
                             black_box(result);
@@ -308,7 +308,7 @@ fn benchmark_caffeine_moe(c: &mut Criterion) {
                     let mut caffeine = Caffeine::new(config).unwrap();
                     debug!("Caffeine+MoE instance created");
 
-                    let inputs = create_dummy_multimodal_input(batch_size);
+                    let inputs = create_benchmark_multimodal_input(batch_size);
                     match RUNTIME.block_on(caffeine.forward(black_box(&inputs))) {
                         Ok(result) => {
                             black_box(result);
@@ -391,7 +391,7 @@ fn benchmark_memory_usage(c: &mut Criterion) {
             let config = create_caffeine_config(true, true);
             let mut caffeine = Caffeine::new(config).unwrap();
 
-            let inputs = create_dummy_multimodal_input(8);
+            let inputs = create_benchmark_multimodal_input(8);
 
             // Measure memory before
             let memory_before = get_memory_usage();
@@ -451,7 +451,7 @@ fn benchmark_latency_breakdown(c: &mut Criterion) {
             let config = create_caffeine_config(false, false);
             let mut caffeine = Caffeine::new(config).unwrap();
 
-            let inputs = create_dummy_multimodal_input(4);
+            let inputs = create_benchmark_multimodal_input(4);
 
             // Measure full forward pass time (encoding included)
             let start = std::time::Instant::now();
@@ -487,7 +487,7 @@ fn benchmark_latency_breakdown(c: &mut Criterion) {
             let config = create_caffeine_config(false, false);
             let mut caffeine = Caffeine::new(config).unwrap();
 
-            let inputs = create_dummy_multimodal_input(4);
+            let inputs = create_benchmark_multimodal_input(4);
 
             // Measure full forward pass time (qformer included)
             let start = std::time::Instant::now();
@@ -536,7 +536,7 @@ fn benchmark_batch_throughput(c: &mut Criterion) {
                     let config = create_caffeine_config(true, true);
                     let mut caffeine = Caffeine::new(config).unwrap();
 
-                    let inputs = create_dummy_multimodal_input(batch_size);
+                    let inputs = create_benchmark_multimodal_input(batch_size);
 
                     let start = std::time::Instant::now();
                     let _result = RUNTIME

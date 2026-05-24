@@ -526,18 +526,96 @@ impl ContextEngine {
         Ok(())
     }
 
-    /// Check if similar functionality already exists
+    /// Check if similar functionality already exists by searching
+    /// through the repository context's analyzed functions and patterns
     async fn check_existing_functionality(
         &self,
-        _context: &RepositoryContext,
+        context: &RepositoryContext,
         module: &Module,
     ) -> SACAResult<()> {
-        // This would analyze if similar modules/functions already exist
-        // For now, just log the analysis
-        debug!(
-            "Checking existing functionality for module: {}",
-            module.name
+        let module_lower = module.name.to_lowercase();
+        let desc_lower = module.description.to_lowercase();
+
+        // Build keyword set from module identity
+        let mut keywords: Vec<&str> = module_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| s.len() > 2)
+            .collect();
+        keywords.extend(
+            desc_lower
+                .split_whitespace()
+                .filter(|s| s.len() > 3),
         );
+
+        // Search for existing functions that overlap with this module's purpose
+        let similar_functions: Vec<String> = context
+            .coding_patterns
+            .iter()
+            .filter_map(|(pattern, _count)| {
+                let pattern_lower = pattern.to_lowercase();
+                let overlap: usize = keywords
+                    .iter()
+                    .filter(|kw| pattern_lower.contains(*kw))
+                    .count();
+                if overlap >= 2 {
+                    Some(pattern.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Check naming conventions for overlap
+        let naming_conventions = &context.naming_conventions;
+        let similar_names: Vec<String> = [
+            &naming_conventions.function_case,
+            &naming_conventions.class_case,
+            &naming_conventions.variable_case,
+            &naming_conventions.constant_case,
+        ]
+        .iter()
+        .filter_map(|convention| {
+            if keywords.iter().any(|kw| convention.contains(kw)) {
+                Some(convention.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+        if !similar_functions.is_empty() {
+            info!(
+                "Found {} similar existing patterns for module '{}': {:?}",
+                similar_functions.len(),
+                module.name,
+                similar_functions
+            );
+        }
+
+        if !similar_names.is_empty() {
+            info!(
+                "Found {} naming overlaps for module '{}': {:?}",
+                similar_names.len(),
+                module.name,
+                similar_names
+            );
+        }
+
+        // If significant overlap detected, flag as potential duplication
+        if similar_functions.len() > 2 || similar_names.len() > 1 {
+            warn!(
+                "Module '{}' may duplicate existing functionality. Consider reusing/extending rather than creating new.",
+                module.name
+            );
+        }
+
+        debug!(
+            "Functionality check for module '{}': {} pattern matches, {} naming overlaps",
+            module.name,
+            similar_functions.len(),
+            similar_names.len()
+        );
+
         Ok(())
     }
 

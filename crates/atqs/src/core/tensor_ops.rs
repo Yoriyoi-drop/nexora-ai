@@ -384,9 +384,9 @@ fn unfold_and_svd(
     Ok((core.into_dyn(), next_tensor.into_dyn()))
 }
 
-/// Contract two TT cores
-/// NOTE: True TT contraction requires generalized tensor contraction (GEMM
-/// on the shared modes). This stub returns a shape-only placeholder.
+/// Contract two TT cores via batched GEMM.
+/// core1 shape: [batch, ..., m, k]; core2 shape: [k, ..., n]
+/// Contracts over the shared axis k and produces shape [batch, ..., m, n].
 fn contract_cores(core1: &ArrayD<f32>, core2: &ArrayD<f32>) -> ATQSResult<ArrayD<f32>> {
     let shape1 = core1.shape();
     let shape2 = core2.shape();
@@ -444,7 +444,7 @@ fn contract_cores(core1: &ArrayD<f32>, core2: &ArrayD<f32>) -> ATQSResult<ArrayD
 
 /// Compute truncated SVD using power iteration method.
 /// Uses GPU acceleration when `gpu` feature is enabled and context is available.
-fn compute_svd_truncated(
+pub fn compute_svd_truncated(
     matrix: &ArrayView<f32, ndarray::Ix2>,
     rank: usize,
 ) -> Result<(Array<f32, ndarray::Ix2>, Vec<f32>, Array<f32, ndarray::Ix2>), crate::ATQSError> {

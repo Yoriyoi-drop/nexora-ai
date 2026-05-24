@@ -13,7 +13,7 @@ use nexora_shared::{
 
 /// NXR-ÆTHER Capabilities Manager
 #[derive(Clone)]
-pub struct _AetherCapabilities {
+pub struct AetherCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -41,7 +41,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl _AetherCapabilities {
+impl AetherCapabilities {
     /// Create new capabilities for NXR-ÆTHER
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -436,7 +436,7 @@ impl _AetherCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &_AetherCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &AetherCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::default();
 
         for domain in &self.vector.specializations {
@@ -510,7 +510,7 @@ impl _AetherCapabilities {
     pub fn apply_improvement(
         &self,
         improvements: &HashMap<CapabilityDomain, f32>,
-    ) -> _AetherCapabilities {
+    ) -> AetherCapabilities {
         let mut new_capabilities = self.clone();
 
         for (domain, improvement) in improvements {
@@ -529,8 +529,8 @@ impl _AetherCapabilities {
     }
 
     /// Get emotional intelligence metrics
-    pub fn get_emotional_intelligence_metrics(&self) -> _EmotionalIntelligenceMetrics {
-        _EmotionalIntelligenceMetrics {
+    pub fn get_emotional_intelligence_metrics(&self) -> EmotionalIntelligenceMetrics {
+        EmotionalIntelligenceMetrics {
             empathy_score: self.performance_metrics.empathy_accuracy,
             emotional_recognition: self.performance_metrics.emotional_recognition_accuracy,
             psychological_analysis: self.performance_metrics.psychological_analysis_accuracy,
@@ -895,7 +895,7 @@ pub enum ResourceCost {
 
 /// Emotional intelligence metrics
 #[derive(Debug, Clone)]
-pub struct _EmotionalIntelligenceMetrics {
+pub struct EmotionalIntelligenceMetrics {
     pub empathy_score: f32,
     pub emotional_recognition: f32,
     pub psychological_analysis: f32,
@@ -928,7 +928,7 @@ pub struct PsychologicalAnalysisCapabilities {
     pub analysis_depth: f32,
 }
 
-impl Default for _AetherCapabilities {
+impl Default for AetherCapabilities {
     fn default() -> Self {
         Self::new()
     }

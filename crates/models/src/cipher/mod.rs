@@ -497,7 +497,11 @@ impl HasComponents for NxrCipherModel {
     }
 }
 
-impl DeepLearningModel for NxrCipherModel {}
+impl DeepLearningModel for NxrCipherModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrCipherModel {
     fn default() -> Self {

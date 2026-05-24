@@ -713,17 +713,38 @@ impl ErrorRecoveryManager {
         if let Some(circuit_breaker) = self.circuit_breakers.get_mut(component) {
             match action {
                 RecoveryAction::RetrySuccess | RecoveryAction::FallbackUsed(_) => {
-                    // Success - reset circuit breaker
-                    circuit_breaker.state = CircuitBreakerStateType::Closed;
-                    circuit_breaker.failure_count = 0;
+                    match circuit_breaker.state {
+                        CircuitBreakerStateType::HalfOpen => {
+                            // Success on probe — reset to Closed
+                            circuit_breaker.state = CircuitBreakerStateType::Closed;
+                            circuit_breaker.failure_count = 0;
+                        }
+                        CircuitBreakerStateType::Open => {
+                            // Auto-transition to HalfOpen on success signal
+                            circuit_breaker.state = CircuitBreakerStateType::HalfOpen;
+                            circuit_breaker.failure_count = 0;
+                        }
+                        CircuitBreakerStateType::Closed => {
+                            // Already closed — just reset count
+                            circuit_breaker.failure_count = 0;
+                        }
+                    }
                 }
                 RecoveryAction::RetryExhausted | RecoveryAction::CircuitBreakerTripped => {
-                    // Failure - increment count
                     circuit_breaker.failure_count += 1;
                     circuit_breaker.last_failure = Instant::now();
 
-                    if circuit_breaker.failure_count >= circuit_breaker.failure_threshold {
-                        circuit_breaker.state = CircuitBreakerStateType::Open;
+                    match circuit_breaker.state {
+                        CircuitBreakerStateType::HalfOpen => {
+                            // Probe failed — back to Open
+                            circuit_breaker.state = CircuitBreakerStateType::Open;
+                        }
+                        CircuitBreakerStateType::Closed
+                            if circuit_breaker.failure_count >= circuit_breaker.failure_threshold =>
+                        {
+                            circuit_breaker.state = CircuitBreakerStateType::Open;
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -757,7 +778,7 @@ impl CircuitBreakerState {
             CircuitBreakerStateType::Open => {
                 Instant::now().duration_since(self.last_failure) > self.timeout
             }
-            CircuitBreakerStateType::HalfOpen => true,
+            CircuitBreakerStateType::HalfOpen => false,
             CircuitBreakerStateType::Closed => false,
         }
     }

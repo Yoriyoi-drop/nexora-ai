@@ -2,6 +2,7 @@ use crate::types::{AuditEntry, RiskLevel};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use tracing::error;
 
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
@@ -76,7 +77,13 @@ impl Monitor {
     }
 
     pub fn log_entry(&self, entry: AuditEntry) {
-        let mut log = self.audit_log.lock().unwrap();
+        let mut log = match self.audit_log.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("Audit log mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
         if log.len() >= self.config.max_audit_log {
             log.pop_front();
         }
@@ -84,6 +91,13 @@ impl Monitor {
     }
 
     pub fn get_stats(&self) -> serde_json::Value {
+        let audit_log_len = match self.audit_log.lock() {
+            Ok(guard) => guard.len(),
+            Err(poisoned) => {
+                error!("Audit log mutex poisoned in stats, recovering");
+                poisoned.into_inner().len()
+            }
+        };
         serde_json::json!({
             "total_checked": self.total_checked.load(Ordering::Relaxed),
             "total_blocked": self.total_blocked.load(Ordering::Relaxed),
@@ -93,7 +107,7 @@ impl Monitor {
                 self.total_blocked.load(Ordering::Relaxed) as f64
                     / self.total_checked.load(Ordering::Relaxed) as f64
             } else { 0.0 },
-            "audit_log_size": self.audit_log.lock().unwrap().len(),
+            "audit_log_size": audit_log_len,
         })
     }
 

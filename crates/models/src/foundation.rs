@@ -22,7 +22,7 @@ use nexora_shared::{
     base_model::{
         FinishReason, GenerationMetadata, InputData, ModelStatistics, NxrInput, NxrModel,
         NxrModelError, NxrOutput, NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage,
-        StreamChunkData, TokenOutput, ValidationResult,
+        StreamChunkData, ValidationResult,
     },
     capability_spec::CapabilityVector,
     model_identity::{ModelMeta, ModelTier, NxrModelId},
@@ -118,12 +118,11 @@ macro_rules! define_foundation_model {
     ($name:ident, $id:ident, $tier:ident) => {
         pub struct $name {
             pub tokenizer: Option<NxrTokenizerRef>,
-            /// `std::sync::Mutex` wraps `CausalLM` which does synchronous CPU-bound
-            /// inference. The async `infer` method holds this lock during the entire
-            /// `model.generate()` call — this is a design trade-off: inference is
-            /// fundamentally blocking. Callers should run model inference via
-            /// `tokio::task::spawn_blocking` if concurrent async tasks must make progress.
-            model: Mutex<Option<CausalLM>>,
+            /// `Arc<std::sync::Mutex>` wraps `CausalLM`. `infer()` moves CPU-bound
+            /// generation to `tokio::task::spawn_blocking` so the async runtime is not
+            /// blocked. `infer_stream()` still holds the lock inline — callers should
+            /// ensure streams are not interleaved with other model operations.
+            model: Arc<Mutex<Option<CausalLM>>>,
             model_config: TransformerConfig,
             inference_count: AtomicU64,
             total_generated: AtomicU64,
@@ -138,7 +137,7 @@ macro_rules! define_foundation_model {
                 let config = transformer_config_for(NxrModelId::$id);
                 Self {
                     tokenizer: None,
-                    model: Mutex::new(None),
+                    model: Arc::new(Mutex::new(None)),
                     model_config: config,
                     inference_count: AtomicU64::new(0),
                     total_generated: AtomicU64::new(0),
@@ -240,7 +239,7 @@ macro_rules! define_foundation_model {
                 match CausalLM::from_checkpoint(config.clone(), path) {
                     Ok(loaded) => Self {
                         tokenizer: None,
-                        model: Mutex::new(Some(loaded)),
+                        model: Arc::new(Mutex::new(Some(loaded))),
                         model_config: config,
                         inference_count: AtomicU64::new(0),
                         total_generated: AtomicU64::new(0),
@@ -270,7 +269,7 @@ macro_rules! define_foundation_model {
             fn clone(&self) -> Self {
                 Self {
                     tokenizer: self.tokenizer.clone(),
-                    model: Mutex::new(None),
+                    model: Arc::new(Mutex::new(None)),
                     model_config: self.model_config.clone(),
                     inference_count: AtomicU64::new(self.inference_count.load(Ordering::Relaxed)),
                     total_generated: AtomicU64::new(self.total_generated.load(Ordering::Relaxed)),
@@ -367,22 +366,28 @@ macro_rules! define_foundation_model {
                 let (max_tokens, temperature, top_k) = extract_params(input);
                 let prompt_ids = self.encode_text(&text);
 
-                let (elapsed_ms, output_text, n_tokens, memory_gb) = {
-                    let guard = self.get_or_init_model();
+                // Move CPU-bound model generation to a blocking thread
+                // so the async runtime is not blocked for potentially seconds.
+                let model_arc = self.model.clone();
+                let (elapsed_ms, output_ids, memory_gb) = tokio::task::spawn_blocking(move || {
+                    let guard = model_arc.lock().unwrap_or_else(|e| {
+                        tracing::warn!("model mutex was poisoned, recovering");
+                        e.into_inner()
+                    });
                     let model = guard.as_ref().ok_or_else(|| {
                         NxrModelError::NotInitialized("Model failed to initialize".to_string())
                     })?;
-
                     let start = Instant::now();
                     let (output_ids, _cache) = model.generate(&prompt_ids, max_tokens, temperature, top_k);
                     let elapsed_ms = start.elapsed().as_millis() as u64;
-
-                    let output_text = self.decode_ids(&output_ids);
-                    let n_tokens = output_ids.len();
                     let memory_gb = model.memory_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
+                    Ok::<_, NxrModelError>((elapsed_ms, output_ids, memory_gb))
+                })
+                .await
+                .map_err(|e| NxrModelError::Inference(format!("Blocking task failed: {e}")))??;
 
-                    (elapsed_ms, output_text, n_tokens, memory_gb)
-                };
+                let output_text = self.decode_ids(&output_ids);
+                let n_tokens = output_ids.len();
 
                 self.inference_count.fetch_add(1, Ordering::Relaxed);
                 self.total_generated.fetch_add(n_tokens as u64, Ordering::Relaxed);
@@ -428,11 +433,6 @@ macro_rules! define_foundation_model {
                 input: &NxrInput,
                 callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
             ) -> Result<(), NxrModelError> {
-                let guard = self.get_or_init_model();
-                let model = guard.as_ref().ok_or_else(|| {
-                    NxrModelError::NotInitialized("Model failed to initialize".to_string())
-                })?;
-
                 let text = match &input.data {
                     InputData::Text(t) => t.clone(),
                     InputData::Tokens(tokens) => self.decode_ids(tokens),
@@ -443,37 +443,63 @@ macro_rules! define_foundation_model {
                 let prompt_ids = self.encode_text(&text);
                 let input_id = input.id;
 
-                let mut cache = model.reset_cache();
-                for &token_id in &prompt_ids {
-                    model.forward(&[token_id], &mut cache);
-                }
+                // Ensure model is loaded before spawning
+                { self.get_or_init_model(); }
 
-                let mut last_id = *prompt_ids.last().unwrap_or(&0);
-                let mut count = 0usize;
+                let model_arc = self.model.clone();
+                let tokenizer = self.tokenizer.clone();
+                let cb = callback.clone();
 
-                for pos in 0..max_tokens {
-                    let logits = model
-                        .forward(&[last_id], &mut cache)
-                        .unwrap_or_else(|_| Array1::zeros(model.config.vocab_size));
-                    let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
-                    last_id = next_id;
-
-                    let token_text = self.decode_ids(&[next_id]);
-                    let is_final = next_id == 0 || pos == max_tokens - 1;
-
-                    callback(NxrStreamChunk {
-                        id: uuid::Uuid::new_v4(),
-                        input_id,
-                        timestamp: chrono::Utc::now(),
-                        data: StreamChunkData::TextDelta(token_text),
-                        is_final,
+                let count = tokio::task::spawn_blocking(move || {
+                    let guard = model_arc.lock().unwrap_or_else(|e| {
+                        tracing::warn!("model mutex was poisoned, recovering");
+                        e.into_inner()
                     });
+                    let model = match guard.as_ref() {
+                        Some(m) => m,
+                        None => return Ok(0usize),
+                    };
 
-                    count += 1;
-                    if next_id == 0 {
-                        break;
+                    let mut cache = model.reset_cache();
+                    for &token_id in &prompt_ids {
+                        let _ = model.forward(&[token_id], &mut cache);
                     }
-                }
+
+                    let mut last_id = *prompt_ids.last().unwrap_or(&0);
+                    let mut count = 0usize;
+
+                    for pos in 0..max_tokens {
+                        let logits = model
+                            .forward(&[last_id], &mut cache)
+                            .unwrap_or_else(|_| Array1::zeros(model.config.vocab_size));
+                        let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
+                        last_id = next_id;
+
+                        let token_text = if let Some(ref tk) = tokenizer {
+                            tk.read().decode(&[next_id])
+                        } else {
+                            byte_decode(&[next_id])
+                        };
+                        let is_final = next_id == 0 || pos == max_tokens - 1;
+
+                        cb(NxrStreamChunk {
+                            id: uuid::Uuid::new_v4(),
+                            input_id,
+                            timestamp: chrono::Utc::now(),
+                            data: StreamChunkData::TextDelta(token_text),
+                            is_final,
+                        });
+
+                        count += 1;
+                        if next_id == 0 {
+                            break;
+                        }
+                    }
+
+                    Ok::<_, NxrModelError>(count)
+                })
+                .await
+                .map_err(|e| NxrModelError::Inference(format!("Blocking task failed: {e}")))??;
 
                 self.inference_count.fetch_add(1, Ordering::Relaxed);
                 self.total_generated.fetch_add(count as u64, Ordering::Relaxed);
@@ -491,7 +517,34 @@ macro_rules! define_foundation_model {
                 Ok(())
             }
 
-            async fn update_config(&mut self, _config: Self::Config) -> Result<(), NxrModelError> {
+            async fn update_config(&mut self, config: Self::Config) -> Result<(), NxrModelError> {
+                if let Some(v) = config.get("hidden_size").and_then(|v| v.as_u64()) {
+                    self.model_config.hidden_size = v as usize;
+                }
+                if let Some(v) = config.get("num_layers").and_then(|v| v.as_u64()) {
+                    self.model_config.num_layers = v as usize;
+                }
+                if let Some(v) = config.get("num_heads").and_then(|v| v.as_u64()) {
+                    self.model_config.num_heads = v as usize;
+                }
+                if let Some(v) = config.get("num_kv_heads").and_then(|v| v.as_u64()) {
+                    self.model_config.num_kv_heads = v as usize;
+                }
+                if let Some(v) = config.get("max_seq_len").and_then(|v| v.as_u64()) {
+                    self.model_config.max_seq_len = v as usize;
+                }
+                if let Some(v) = config.get("intermediate_size").and_then(|v| v.as_u64()) {
+                    self.model_config.intermediate_size = v as usize;
+                }
+                if let Some(v) = config.get("vocab_size").and_then(|v| v.as_u64()) {
+                    self.model_config.vocab_size = v as usize;
+                }
+                if let Some(v) = config.get("rope_theta").and_then(|v| v.as_f64()) {
+                    self.model_config.rope_theta = v as f32;
+                }
+                if let Some(v) = config.get("norm_eps").and_then(|v| v.as_f64()) {
+                    self.model_config.norm_eps = v as f32;
+                }
                 Ok(())
             }
 

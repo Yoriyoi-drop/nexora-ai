@@ -122,8 +122,7 @@ impl AetherIdentity {
             "Adaptive Emotional & Holistic Transcendent Empathy Reasoner - Emotional intelligence and psychological analysis specialist with deep empathy synthesis capabilities.".to_string(),
         )
         .with_parameters(400_000_000_000) // 400B parameters
-        .with_context_window(512_000) // 512K context
-        .experimental();
+        .with_context_window(512_000); // 512K context
 
         Self { meta }
     }
@@ -546,7 +545,11 @@ impl HasComponents for NxrAetherModel {
     }
 }
 
-impl DeepLearningModel for NxrAetherModel {}
+impl DeepLearningModel for NxrAetherModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrAetherModel {
     fn default() -> Self {

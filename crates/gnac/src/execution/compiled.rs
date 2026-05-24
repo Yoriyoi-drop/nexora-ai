@@ -49,7 +49,8 @@ impl CompiledExecutor {
             ExecutionBackend::CPU => CpuBackend::execute(ir, inputs),
             _ => Err(crate::DeepLearningError::Computation {
                 reason: format!(
-                    "Backend '{:?}' not yet implemented — use CPU backend",
+                    "Backend '{:?}' not available — only CPU backend is implemented. \
+                     Other backends (CUDA, Vulkan, TPU, WebGPU) require dedicated GPU runtime crates",
                     self.backend
                 ),
             }),

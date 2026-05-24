@@ -8,15 +8,15 @@ use serde::{Deserialize, Serialize};
 
 /// NXR-VORTEX Specific Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct _VortexConfig {
+pub struct VortexConfig {
     /// Base configuration
     pub base: NxrModelConfig,
     /// Code analysis configuration
-    pub code_analysis: _CodeAnalysisConfig,
+    pub code_analysis: CodeAnalysisConfig,
     /// Debugging configuration
-    pub debugging: _DebuggingConfig,
+    pub debugging: DebuggingConfig,
     /// Architecture configuration
-    pub architecture: _ArchitectureConfig,
+    pub architecture: ArchitectureConfig,
     /// Optimization configuration
     pub optimization: OptimizationConfig,
     /// Security configuration
@@ -27,7 +27,7 @@ pub struct _VortexConfig {
 
 /// Code Analysis Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct _CodeAnalysisConfig {
+pub struct CodeAnalysisConfig {
     /// Maximum analysis depth
     pub max_analysis_depth: u8,
     /// Enable static analysis
@@ -79,9 +79,9 @@ pub struct ComplexityWeights {
 
 /// Debugging Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct _DebuggingConfig {
+pub struct DebuggingConfig {
     /// Debugging strategy
-    pub debugging_strategy: _DebuggingStrategy,
+    pub debugging_strategy: DebuggingStrategy,
     /// Maximum hypotheses
     pub max_hypotheses: usize,
     /// Enable symbolic execution
@@ -94,7 +94,7 @@ pub struct _DebuggingConfig {
 
 /// Debugging Strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum _DebuggingStrategy {
+pub enum DebuggingStrategy {
     /// Static analysis only
     StaticOnly,
     /// Dynamic analysis only
@@ -136,7 +136,7 @@ pub enum FixGenerationMode {
 
 /// Architecture Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct _ArchitectureConfig {
+pub struct ArchitectureConfig {
     /// Enable pattern detection
     pub enable_pattern_detection: bool,
     /// Maximum complexity analysis
@@ -280,13 +280,13 @@ pub enum ComplianceStandard {
     Custom { standard_name: String },
 }
 
-impl Default for _VortexConfig {
+impl Default for VortexConfig {
     fn default() -> Self {
         Self {
             base: NxrModelConfig::for_model(nexora_shared::model_identity::NxrModelId::Vortex),
-            code_analysis: _CodeAnalysisConfig::default(),
-            debugging: _DebuggingConfig::default(),
-            architecture: _ArchitectureConfig::default(),
+            code_analysis: CodeAnalysisConfig::default(),
+            debugging: DebuggingConfig::default(),
+            architecture: ArchitectureConfig::default(),
             optimization: OptimizationConfig::default(),
             security: SecurityConfig::default(),
             deep_learning: DeepLearningConfig::star_x(),
@@ -294,7 +294,7 @@ impl Default for _VortexConfig {
     }
 }
 
-impl Default for _CodeAnalysisConfig {
+impl Default for CodeAnalysisConfig {
     fn default() -> Self {
         Self {
             max_analysis_depth: 10,
@@ -313,10 +313,10 @@ impl Default for _CodeAnalysisConfig {
     }
 }
 
-impl Default for _DebuggingConfig {
+impl Default for DebuggingConfig {
     fn default() -> Self {
         Self {
-            debugging_strategy: _DebuggingStrategy::Hybrid {
+            debugging_strategy: DebuggingStrategy::Hybrid {
                 static_weight: 0.7,
                 dynamic_weight: 0.3,
             },
@@ -328,7 +328,7 @@ impl Default for _DebuggingConfig {
     }
 }
 
-impl Default for _ArchitectureConfig {
+impl Default for ArchitectureConfig {
     fn default() -> Self {
         Self {
             enable_pattern_detection: true,
@@ -375,7 +375,7 @@ impl Default for SecurityConfig {
     }
 }
 
-impl _VortexConfig {
+impl VortexConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<(), String> {
         // Validate base configuration

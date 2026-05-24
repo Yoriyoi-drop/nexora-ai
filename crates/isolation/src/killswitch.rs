@@ -54,7 +54,6 @@ pub enum KillTrigger {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum KillStatus {
     Pending,
-    InProgress,
     Completed,
     Failed(String),
 }

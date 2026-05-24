@@ -125,7 +125,8 @@ impl PipelineBuilder {
         self
     }
 
-    pub fn build(self) -> Pipeline {
+    pub fn build(mut self) -> Pipeline {
+        self.graph.finalize();
         Pipeline {
             graph: self.graph,
             intake: self.intake,

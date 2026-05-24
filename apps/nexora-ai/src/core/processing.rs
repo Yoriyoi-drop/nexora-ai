@@ -510,10 +510,100 @@ impl RequestProcessor {
         issues
     }
 
-    /// Detect design patterns
-    fn detect_patterns(&self, _code: &str) -> Vec<PatternInfo> {
-        // Simplified pattern detection
-        vec![]
+    /// Detect design patterns in code
+    fn detect_patterns(&self, code: &str) -> Vec<PatternInfo> {
+        let mut patterns = Vec::new();
+
+        // Singleton: static instance method with private constructor
+        if code.contains("fn instance(")
+            || (code.contains("static") && code.contains("OnceLock") && code.contains("new("))
+        {
+            patterns.push(PatternInfo {
+                name: "Singleton".into(),
+                confidence: 0.8,
+                description: "Static instance accessor pattern detected (OnceLock/static + constructor)".into(),
+            });
+        }
+
+        // Factory: methods returning trait objects or named *Factory
+        if code.contains("trait") && code.contains("Box<dyn")
+            || code.contains("impl") && code.contains("Factory")
+        {
+            patterns.push(PatternInfo {
+                name: "Factory".into(),
+                confidence: 0.7,
+                description: "Trait-based factory or Factory-named type detected".into(),
+            });
+        }
+
+        // Builder: methods returning Self + build/into method
+        if code.contains("fn ") && code.contains("-> Self") && code.contains("self")
+            && (code.contains("fn build(") || code.contains("fn into(") || code.contains("fn finalize("))
+        {
+            patterns.push(PatternInfo {
+                name: "Builder".into(),
+                confidence: 0.8,
+                description: "Chainable builder pattern: methods return Self with terminal build/finalize".into(),
+            });
+        }
+
+        // Observer/Event: subscribe/notify/emit pattern
+        if (code.contains("fn subscribe") || code.contains("fn notify") || code.contains("fn emit"))
+            || (code.contains("add_listener") || code.contains("on_event"))
+        {
+            patterns.push(PatternInfo {
+                name: "Observer/Event".into(),
+                confidence: 0.7,
+                description: "Subscribe/notify or event listener pattern detected".into(),
+            });
+        }
+
+        // Strategy: trait with multiple implementations or Box<dyn Fn>
+        if (code.contains("Box<dyn") && (code.contains("Fn(") || code.contains("FnMut(")))
+            || (code.contains("trait") && code.contains("impl") && code.contains("fn execute("))
+        {
+            patterns.push(PatternInfo {
+                name: "Strategy".into(),
+                confidence: 0.6,
+                description: "Trait dispatch or Box<dyn Fn> strategy pattern detected".into(),
+            });
+        }
+
+        // Adapter: wrapping foreign types
+        if (code.contains("struct") && code.contains("Wrapper"))
+            || (code.contains(".0") && code.contains("impl"))
+        {
+            patterns.push(PatternInfo {
+                name: "Adapter/Wrapper".into(),
+                confidence: 0.6,
+                description: "Wrapper/newtype or adapter pattern detected (tuple struct wrapping)".into(),
+            });
+        }
+
+        // Iterator: IntoIterator impl or next() method
+        if code.contains("impl Iterator")
+            || code.contains("impl IntoIterator")
+            || (code.contains("fn next(") && code.contains("Option<"))
+        {
+            patterns.push(PatternInfo {
+                name: "Iterator".into(),
+                confidence: 0.9,
+                description: "Iterator trait implementation or next() method detected".into(),
+            });
+        }
+
+        // Decorator: wrapping function calls or middleware
+        if code.contains("middleware")
+            || (code.contains("wrap") && code.contains("fn"))
+        {
+            patterns.push(PatternInfo {
+                name: "Decorator/Middleware".into(),
+                confidence: 0.5,
+                description: "Function wrapping or middleware pattern detected".into(),
+            });
+        }
+
+        patterns
     }
 
     /// Calculate general metrics

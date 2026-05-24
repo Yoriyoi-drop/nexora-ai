@@ -2,15 +2,14 @@
 //!
 //! Time-based orchestration and temporal coordination
 
+use std::collections::HashMap;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use nexora_shared::{
     agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
 };
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-/// Temporal Orchestrator Agent - Time-based orchestration and temporal coordination
 #[derive(Debug, Clone)]
 pub struct TemporalOrchestratorAgent {
     pub config: TemporalOrchestratorConfig,
@@ -53,7 +52,7 @@ pub struct OrchestrationCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemporalCoordination {
-    pub scheduling_algorithms: Vec<String>,
+        pub scheduling_algorithms: Vec<String>,
     pub coordination_protocols: Vec<String>,
     pub synchronization_methods: Vec<String>,
 }
@@ -227,17 +226,60 @@ impl TemporalOrchestratorAgent {
         &self,
         input: &TemporalOrchestratorTaskInput,
     ) -> AgentResult<Vec<String>> {
-        // TODO: Implement actual orchestration plan generation based on workflow analysis
-        // Current implementation is a placeholder that returns a fixed template
-        tracing::warn!(
-            "TemporalOrchestratorAgent::create_orchestration_plan called with placeholder implementation"
-        );
-        Ok(vec![
-            format!("Step 1: Initialize workflow: {}", input.workflow_definition),
-            "Step 2: Set up temporal constraints and coordination".to_string(),
-            "Step 3: Execute orchestrated tasks in temporal sequence".to_string(),
-            "Step 4: Monitor and adjust orchestration as needed".to_string(),
-        ])
+        let workflow = &input.workflow_definition;
+        let mut steps = Vec::new();
+
+        let parts: Vec<&str> = workflow
+            .split(|c: char| c == ',' || c == ';' || c == '|')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if parts.len() >= 2 {
+            for (i, part) in parts.iter().enumerate() {
+                steps.push(format!("Step {}: {}", i + 1, part));
+            }
+        } else {
+            let keywords: [(&str, &[&str]); 8] = [
+                ("Initialize", &["init", "setup", "create", "start", "bootstrap", "launch"]),
+                ("Configure", &["config", "set", "register", "define", "parameter"]),
+                ("Validate", &["validate", "check", "certify", "test", "audit", "verify"]),
+                ("Process", &["process", "run", "execute", "proceed", "perform", "handle"]),
+                ("Integrate", &["integrate", "connect", "link", "sync", "bridge", "merge"]),
+                ("Optimize", &["optimize", "tune", "refine", "improve", "enhance", "prune"]),
+                ("Monitor", &["monitor", "observe", "track", "report", "log", "alert"]),
+                ("Finalize", &["finalize", "complete", "finish", "deploy", "release", "ship"]),
+            ];
+
+            let lower = workflow.to_lowercase();
+            let mut step_number = 1;
+            for (label, triggers) in &keywords {
+                if triggers.iter().any(|t| lower.contains(t)) {
+                    steps.push(format!("Step {}: {} — {}", step_number, label, workflow));
+                    step_number += 1;
+                }
+            }
+
+            if steps.is_empty() {
+                steps.extend(vec![
+                    format!("Step 1: Analyze workflow — {}", workflow),
+                    "Step 2: Decompose into sub-tasks".to_string(),
+                    "Step 3: Allocate resources and set timelines".to_string(),
+                    "Step 4: Execute orchestrated tasks".to_string(),
+                    "Step 5: Validate output and close loop".to_string(),
+                ]);
+            }
+        }
+
+        for constraint in &input.temporal_constraints {
+            steps.push(format!("Temporal constraint: {}", constraint));
+        }
+
+        for requirement in &input.coordination_requirements {
+            steps.push(format!("Coordination requirement: {}", requirement));
+        }
+
+        Ok(steps)
     }
 
     async fn generate_temporal_schedule(
@@ -253,7 +295,6 @@ impl TemporalOrchestratorAgent {
             schedule.insert(step.clone(), scheduled_time);
         }
 
-        // Add temporal constraints
         for constraint in &input.temporal_constraints {
             let constraint_time = base_time + chrono::Duration::minutes(30);
             schedule.insert(format!("Constraint: {}", constraint), constraint_time);
@@ -289,15 +330,15 @@ impl TemporalOrchestratorAgent {
         plan: &[String],
     ) -> AgentResult<f32> {
         let plan_completeness = if plan.len() >= 4 { 0.9 } else { 0.7 };
-        let constraint_coverage = if input.temporal_constraints.len() > 0 {
-            0.85
-        } else {
+        let constraint_coverage = if input.temporal_constraints.is_empty() {
             0.6
-        };
-        let coordination_adequacy = if input.coordination_requirements.len() > 0 {
-            0.8
         } else {
+            0.85
+        };
+        let coordination_adequacy = if input.coordination_requirements.is_empty() {
             0.7
+        } else {
+            0.8
         };
 
         Ok((plan_completeness + constraint_coverage + coordination_adequacy) / 3.0)

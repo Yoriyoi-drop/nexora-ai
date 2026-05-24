@@ -529,7 +529,11 @@ impl HasComponents for NxrAxiomModel {
     }
 }
 
-impl DeepLearningModel for NxrAxiomModel {}
+impl DeepLearningModel for NxrAxiomModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrAxiomModel {
     fn default() -> Self {

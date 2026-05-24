@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -24,17 +24,21 @@ const BLAA_MAX_CONCURRENT: usize = 4;
 #[derive(Debug, Clone)]
 pub struct BlaaInferenceEngine {
     config: BlaaConfig,
+    client: Arc<Mutex<BlaaClient>>,
     default_model: String,
     max_tokens: u32,
     concurrency: Arc<Semaphore>,
 }
 
 impl BlaaInferenceEngine {
-    /// Create new BLAA inference engine
+    /// Create new BLAA inference engine with shared client
     pub async fn new(config: BlaaConfig) -> InferenceResult<Self> {
         let default_model = config.default_model.clone();
+        let client = BlaaClient::new(config.clone())
+            .map_err(|e| InferenceError::InternalError(e.to_string()))?;
         Ok(Self {
             config,
+            client: Arc::new(Mutex::new(client)),
             default_model,
             max_tokens: 4096,
             concurrency: Arc::new(Semaphore::new(BLAA_MAX_CONCURRENT)),
@@ -45,22 +49,28 @@ impl BlaaInferenceEngine {
     pub async fn from_env() -> InferenceResult<Self> {
         let config = BlaaConfig::from_env()?;
         let default_model = config.default_model.clone();
+        let client = BlaaClient::new(config.clone())
+            .map_err(|e| InferenceError::InternalError(e.to_string()))?;
         Ok(Self {
             config,
+            client: Arc::new(Mutex::new(client)),
             default_model,
             max_tokens: 4096,
             concurrency: Arc::new(Semaphore::new(BLAA_MAX_CONCURRENT)),
         })
     }
 
-    async fn acquire_client(&self) -> InferenceResult<(tokio::sync::SemaphorePermit, BlaaClient)> {
+    /// Acquire concurrency permit and lock shared client for entire request.
+    async fn acquire_client(
+        &self,
+    ) -> InferenceResult<(OwnedSemaphorePermit, tokio::sync::MutexGuard<'_, BlaaClient>)> {
         let permit = self
             .concurrency
-            .acquire()
+            .clone()
+            .acquire_owned()
             .await
             .map_err(|e| InferenceError::InternalError(format!("Semaphore closed: {}", e)))?;
-        let client = BlaaClient::new(self.config.clone())
-            .map_err(|e| InferenceError::InternalError(e.to_string()))?;
+        let client = self.client.lock().await;
         Ok((permit, client))
     }
 
@@ -168,15 +178,19 @@ impl BlaaInferenceEngine {
         if let Some(choice) = blaa_response.choices.first() {
             let content = &choice.message.content;
 
-            // Generate tokens from content (simplified - in real implementation would use tokenizer)
+            // Generate tokens from content using deterministic hash-based token IDs
+            // Note: BLAA returns text only (no per-token logprobs by default).
+            // We create one token per word with hash-based IDs for traceability,
+            // rather than char-level tokens with fake sequential IDs.
             let tokens: Vec<GeneratedToken> = content
-                .chars()
+                .split_whitespace()
                 .enumerate()
-                .map(|(i, c)| {
+                .map(|(i, word)| {
+                    let token_id = word.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
                     GeneratedToken::new(
-                        i as u32,
-                        c.to_string(),
-                        -1.0, // Default log prob
+                        token_id,
+                        word.to_string(),
+                        0.0,
                         i,
                     )
                 })
@@ -225,19 +239,15 @@ impl BlaaInferenceEngine {
             if let Some(content) = &choice.delta.content {
                 let mut response = InferenceResponse::new(request.request_id);
 
-                // Generate tokens from content chunk
-                let tokens: Vec<GeneratedToken> = content
-                    .chars()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        GeneratedToken::new(
-                            i as u32,
-                            c.to_string(),
-                            -1.0, // Default log prob
-                            i,
-                        )
-                    })
-                    .collect();
+                // For streaming chunks, content may be partial words or characters.
+                // Use hash-based token ID for traceability.
+                let token_id = content.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+                let tokens: Vec<GeneratedToken> = vec![GeneratedToken::new(
+                    token_id,
+                    content.clone(),
+                    0.0,
+                    0,
+                )];
 
                 response.text = content.clone();
                 response.tokens = tokens;
@@ -275,9 +285,7 @@ impl InferenceEngine for BlaaInferenceEngine {
             let mut stream = client
                 .create_chat_completion_stream(blaa_request)
                 .await?;
-            // Drop permit and client; stream is independent.
-            drop((_permit, client));
-
+            // Permit and client lock held until stream is fully consumed
             let mut full_response = String::new();
             let mut chunk_count = 0;
 
@@ -295,6 +303,7 @@ impl InferenceEngine for BlaaInferenceEngine {
                     }
                 }
             }
+            // Permit and client lock released here
 
             let mut final_response = InferenceResponse::new(request.request_id);
             final_response.text = full_response.clone();
@@ -313,6 +322,8 @@ impl InferenceEngine for BlaaInferenceEngine {
             let blaa_response = client
                 .create_chat_completion(blaa_request)
                 .await?;
+            // Permit released after response received
+            drop(_permit);
             self.from_blaa_response(&request, blaa_response)
         };
 
@@ -328,7 +339,7 @@ impl InferenceEngine for BlaaInferenceEngine {
         Ok(response)
     }
 
-    async fn generate_stream(
+async fn generate_stream(
         &self,
         request: InferenceRequest,
     ) -> InferenceResult<
@@ -339,6 +350,8 @@ impl InferenceEngine for BlaaInferenceEngine {
         let stream = client
             .create_chat_completion_stream(blaa_request)
             .await?;
+        // Permit held until stream is dropped (captured in the returned stream)
+        drop(client);
 
         let request_clone = request.clone();
         let stream = stream.map(move |chunk_result| match chunk_result {
@@ -354,8 +367,7 @@ impl InferenceEngine for BlaaInferenceEngine {
 
         Ok(Box::pin(stream))
     }
-
-    async fn health_check(&self) -> InferenceResult<bool> {
+            async fn health_check(&self) -> InferenceResult<bool> {
         let (_permit, mut client) = self.acquire_client().await?;
         match client.list_models().await {
             Ok(_) => Ok(true),
@@ -518,20 +530,22 @@ impl BlaaEmbeddingsEngine {
 mod tests {
     use super::*;
 
+    /// Test API key for unit tests only.
+    /// BlaaClient::new() is purely structural (validates non-empty, creates HTTP client)
+    /// — no network calls are made during construction.
+    const TEST_API_KEY: &str = "nx-test-structural-unit-key";
+
     #[tokio::test]
     async fn test_blaa_engine_creation() {
-        // This test would require actual API key
-        // For now, just test the structure
-        let config = BlaaConfig::new("placeholder-test-key-do-not-use");
+        let config = BlaaConfig::new(TEST_API_KEY);
         let result = BlaaInferenceEngine::new(config).await;
 
-        // Should succeed with test key
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Engine construction is structural (no network calls) and should succeed with a non-empty key");
     }
 
     #[tokio::test]
     async fn test_request_conversion() {
-        let config = BlaaConfig::new("placeholder-test-key-do-not-use");
+        let config = BlaaConfig::new(TEST_API_KEY);
         let engine = BlaaInferenceEngine::new(config).await.unwrap();
 
         let request = InferenceRequest::new("Hello, world!".to_string())
@@ -546,5 +560,12 @@ mod tests {
         assert_eq!(blaa_request.max_tokens, Some(100));
         assert_eq!(blaa_request.messages.len(), 1);
         assert_eq!(blaa_request.messages[0].content, "Hello, world!");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires BLAA_API_KEY environment variable pointing to a live BLAA endpoint"]
+    async fn test_from_env_integration() {
+        let result = BlaaInferenceEngine::from_env().await;
+        assert!(result.is_ok(), "Set BLAA_API_KEY in environment to run this integration test");
     }
 }

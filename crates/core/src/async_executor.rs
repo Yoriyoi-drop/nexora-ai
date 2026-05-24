@@ -518,6 +518,17 @@ impl AsyncTaskExecutor {
         // Remove from active tasks
         {
             let mut active = self.active_tasks.write().await;
+            if let Some(task_info) = active.get_mut(&result.task_id) {
+                if result.success {
+                    task_info.status = TaskStatus::Completed;
+                } else if result.error.as_deref() == Some("Task execution timed out") {
+                    task_info.status = TaskStatus::Timeout;
+                } else {
+                    task_info.status = TaskStatus::Failed(
+                        result.error.clone().unwrap_or_default(),
+                    );
+                }
+            }
             active.remove(&result.task_id);
 
             // Update metrics

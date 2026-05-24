@@ -5,11 +5,11 @@
 use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 
 /// NXR-NEXUM Identity Manager
-pub struct _NexumIdentity {
+pub struct NexumIdentity {
     meta: ModelMeta,
 }
 
-impl _NexumIdentity {
+impl NexumIdentity {
     /// Create new NXR-NEXUM identity
     pub fn new() -> Self {
         let meta = ModelMeta::new(
@@ -19,8 +19,7 @@ impl _NexumIdentity {
             "Neural EXecutive Unified Multi-agent - Multi-agent orchestration and alignment coordination specialist with advanced consensus building and conflict resolution capabilities.".to_string(),
         )
         .with_parameters(350_000_000_000) // 350B parameters
-        .with_context_window(750_000) // 750K context
-        .experimental();
+        .with_context_window(750_000) ;// 750K context
 
         Self { meta }
     }
@@ -219,7 +218,7 @@ pub struct OrchestrationCapabilities {
     pub swarm_orchestration: bool,
 }
 
-impl Default for _NexumIdentity {
+impl Default for NexumIdentity {
     fn default() -> Self {
         Self::new()
     }

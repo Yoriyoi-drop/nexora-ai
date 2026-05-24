@@ -226,6 +226,7 @@ impl BatchProcessor {
             stats.decrement_in_progress();
             stats.increment_failed();
         } else {
+            *self.state.write().await = ProcessorState::Processing;
             info!("Formed batch {} with {} items", batch_id, batch.items.len());
         }
 
@@ -278,6 +279,7 @@ impl BatchProcessor {
             stats.decrement_in_progress();
             drop(stats);
 
+            *self.state.write().await = ProcessorState::Ready;
             info!("Completed batch {} processing", batch_id);
         }
 

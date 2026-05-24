@@ -370,8 +370,33 @@ impl InferenceAgent {
         Ok(removed_count)
     }
 
+    /// Check for timed-out sessions and mark them as Timeout
+    pub async fn check_session_timeouts(&self) -> Result<usize> {
+        let now = chrono::Utc::now();
+        let mut timed_out = Vec::new();
+
+        {
+            let sessions = self.active_sessions.lock().await;
+            for (session_id, session) in sessions.iter() {
+                if session.status == InferenceSessionStatus::Running {
+                    let idle = (now - session.last_activity).num_seconds() as u64;
+                    if idle > self.config.default_timeout_seconds {
+                        timed_out.push(*session_id);
+                    }
+                }
+            }
+        }
+
+        let count = timed_out.len();
+        for session_id in timed_out {
+            self.update_session_status(session_id, InferenceSessionStatus::Timeout)
+                .await?;
+            info!("Session {} timed out due to inactivity", session_id);
+        }
+        Ok(count)
+    }
+
     /// Update session status
-    async fn update_session_status(
         &self,
         session_id: Uuid,
         status: InferenceSessionStatus,

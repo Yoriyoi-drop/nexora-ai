@@ -13,7 +13,7 @@ use nexora_shared::{
 
 /// NXR-VORTEX Capabilities Manager
 #[derive(Clone)]
-pub struct _VortexCapabilities {
+pub struct VortexCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -39,7 +39,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl _VortexCapabilities {
+impl VortexCapabilities {
     /// Create new capabilities for NXR-VORTEX
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -466,7 +466,7 @@ impl _VortexCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &_VortexCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &VortexCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::new();
 
         for domain in &self.vector.specializations {
@@ -496,13 +496,13 @@ impl _VortexCapabilities {
     }
 
     /// Get capability optimization suggestions
-    pub fn get_optimization_suggestions(&self) -> Vec<_OptimizationSuggestion> {
+    pub fn get_optimization_suggestions(&self) -> Vec<OptimizationSuggestion> {
         let mut suggestions = Vec::new();
 
         // Check for underperforming capabilities
         for (domain, capability) in &self.vector.capabilities {
             if capability.score() < 0.8 {
-                suggestions.push(_OptimizationSuggestion {
+                suggestions.push(OptimizationSuggestion {
                     domain: domain.clone(),
                     suggestion_type: SuggestionType::ImproveCapability,
                     description: format!(
@@ -523,7 +523,7 @@ impl _VortexCapabilities {
 
         // Check resource usage
         if self.performance_metrics.resource_utilization > 0.9 {
-            suggestions.push(_OptimizationSuggestion {
+            suggestions.push(OptimizationSuggestion {
                 domain: CapabilityDomain::Edge,
                 suggestion_type: SuggestionType::OptimizeResources,
                 description: "Resource utilization is too high, consider optimization".to_string(),
@@ -540,7 +540,7 @@ impl _VortexCapabilities {
     pub fn apply_improvement(
         &self,
         improvements: &HashMap<CapabilityDomain, f32>,
-    ) -> _VortexCapabilities {
+    ) -> VortexCapabilities {
         let mut new_capabilities = self.clone();
 
         for (domain, improvement) in improvements {
@@ -852,7 +852,7 @@ pub enum OpportunityPriority {
 
 /// Optimization suggestion
 #[derive(Debug, Clone)]
-pub struct _OptimizationSuggestion {
+pub struct OptimizationSuggestion {
     pub domain: CapabilityDomain,
     pub suggestion_type: SuggestionType,
     pub description: String,
@@ -887,7 +887,7 @@ pub enum ResourceCost {
     High,
 }
 
-impl Default for _VortexCapabilities {
+impl Default for VortexCapabilities {
     fn default() -> Self {
         Self::new()
     }

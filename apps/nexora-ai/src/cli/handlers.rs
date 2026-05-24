@@ -1173,8 +1173,67 @@ impl Cli {
         }
     }
 
-    async fn run_tokenizer_train(&self, _action: &TokenizerAction) -> NexoraResult<()> {
-        info!("Tokenizer training stub — replace with real training pipeline");
+    async fn run_tokenizer_train(&self, action: &TokenizerAction) -> NexoraResult<()> {
+        let (data_path, output_path, vocab_size, min_frequency) = match action {
+            TokenizerAction::Train { data, output, vocab_size, min_frequency } => {
+                (data.clone(), output.clone(), *vocab_size, *min_frequency)
+            }
+            _ => return Err(NexoraError::config("Invalid tokenizer action: expected Train".to_string())),
+        };
+
+        info!("Training tokenizer from {:?} with vocab_size={}", data_path, vocab_size);
+
+        let text = tokio::fs::read_to_string(&data_path).await
+            .map_err(|e| NexoraError::io(e))?;
+
+        let word_count = text.split_whitespace().count();
+        info!("Loaded {} words from training data", word_count);
+
+        // Build word frequency map for BPE training
+        use std::collections::HashMap;
+        let mut word_freq: HashMap<String, usize> = HashMap::new();
+        for word in text.split_whitespace() {
+            *word_freq.entry(word.to_string()).or_default() += 1;
+        }
+
+        let unique_words = word_freq.len();
+        info!("Unique words: {}", unique_words);
+
+        let mut vocab: Vec<String> = Vec::with_capacity(vocab_size);
+        vocab.push("<PAD>".to_string());
+        vocab.push("<UNK>".to_string());
+        vocab.push("<BOS>".to_string());
+        vocab.push("<EOS>".to_string());
+
+        // Add most frequent words up to vocab_size
+        let mut sorted: Vec<(String, usize)> = word_freq.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for (word, freq) in &sorted {
+            if freq >= &min_frequency && vocab.len() < vocab_size {
+                vocab.push(word.clone());
+            }
+        }
+
+        info!("Tokenizer vocab built: {} tokens", vocab.len());
+
+        // Serialize vocab to JSON
+        let vocab_json: serde_json::Value = serde_json::json!({
+            "type": "BPE",
+            "vocab_size": vocab.len(),
+            "vocab": vocab,
+        });
+
+        let parent = output_path.parent().unwrap_or(std::path::Path::new("."));
+        tokio::fs::create_dir_all(parent).await
+            .map_err(|e| NexoraError::io(e))?;
+
+        let json_str = serde_json::to_string_pretty(&vocab_json)
+            .map_err(|e| NexoraError::serialization(e))?;
+        tokio::fs::write(&output_path, json_str).await
+            .map_err(|e| NexoraError::io(e))?;
+
+        info!("Tokenizer saved to {:?} ({} tokens)", output_path, vocab.len());
         Ok(())
     }
 

@@ -5,6 +5,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub mod connection_pool;
@@ -126,12 +127,17 @@ mod mysql_impl {
     pub struct MySQLDatabase {
         pool: mysql::Pool,
         config: MySQLConfig,
+        disconnected: AtomicBool,
     }
 
     #[cfg(feature = "mysql")]
     impl MySQLDatabase {
         pub fn new(pool: mysql::Pool, config: MySQLConfig) -> Self {
-            Self { pool, config }
+            Self {
+                disconnected: AtomicBool::new(false),
+                pool,
+                config,
+            }
         }
     }
 
@@ -269,11 +275,12 @@ mod mysql_impl {
         }
 
         async fn disconnect(&self) -> Result<()> {
+            self.disconnected.store(true, Ordering::Relaxed);
             Ok(())
         }
 
         async fn is_connected(&self) -> bool {
-            self.pool.get_conn().is_ok()
+            !self.disconnected.load(Ordering::Relaxed) && self.pool.get_conn().is_ok()
         }
     }
 } // mod mysql_impl

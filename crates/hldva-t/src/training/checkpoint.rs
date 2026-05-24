@@ -318,7 +318,7 @@ pub struct CheckpointComparison {
     pub learning_rate_diff: f32,
 }
 
-// Mock traits for the checkpoint utilities
+// Abstraction traits for checkpoint model/optimizer I/O
 pub trait Model {
     fn get_parameters(&self) -> HLDVAResult<HashMap<String, Vec<f32>>>;
     fn get_parameter_shapes(&self) -> HLDVAResult<HashMap<String, Vec<usize>>>;
@@ -338,7 +338,7 @@ pub trait Optimizer {
     fn load_state(&mut self, state: &OptimizerState) -> HLDVAResult<()>;
 }
 
-// Mock model config
+// Model config for checkpoint metadata
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub num_layers: usize,

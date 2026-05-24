@@ -9,6 +9,8 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
     agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use super::code_sentinel::SeverityLevel;
+use super::debug_phantom::DetailedFinding;
 
 /// Arch Weaver Agent - Architecture analysis and design evaluation
 #[derive(Debug, Clone)]
@@ -2718,85 +2720,163 @@ impl ArchWeaverAgent {
     }
 
     /// Perform behavioral analysis
-    async fn perform_behavioral_analysis(&self, _input: &ArchWeaverTaskInput) -> AgentResult<BehavioralAnalysisResults> {
+    async fn perform_behavioral_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<BehavioralAnalysisResults> {
+        let components = &input.system_components;
+        let total_interfaces: usize = components.iter().map(|c| c.component_interfaces.len()).sum();
+        let total_deps: usize = components.iter().map(|c| c.component_dependencies.len()).sum();
+        let component_count = components.len() as f32;
+
+        let interaction_patterns: Vec<InteractionPattern> = components.iter()
+            .flat_map(|c| c.component_interfaces.iter().map(|iface| InteractionPattern {
+                pattern_id: format!("interact_{}_{}", c.component_id, iface.interface_id),
+                pattern_name: format!("{}/{}", c.component_name, iface.interface_name),
+                pattern_description: format!("Interaction via {} interface", iface.interface_name),
+                pattern_participants: vec![c.component_id.clone()],
+                pattern_sequence: vec![],
+            }))
+            .collect();
+
+        let responsiveness_score = if component_count > 0.0 {
+            (1.0 - (total_deps as f32 / (component_count * 3.0)).min(1.0) * 0.3).clamp(0.0, 1.0)
+        } else {
+            0.7
+        };
+
+        let predictability_score = ((total_interfaces as f32 / (component_count.max(1.0) * 2.0)).min(1.0) * 0.5 + 0.3).clamp(0.0, 1.0);
+        let robustness_score = if total_deps > 0 {
+            let avg_deps = total_deps as f32 / component_count.max(1.0);
+            (1.0 - (avg_deps / 5.0).min(1.0) * 0.4).clamp(0.0, 1.0)
+        } else {
+            0.9
+        };
+        let adaptability_score = ((component_count / 10.0).min(1.0) * 0.3 + 0.3).clamp(0.0, 1.0);
+        let overall_behavioral_quality_score = (responsiveness_score + predictability_score + robustness_score + adaptability_score) / 4.0;
+
         Ok(BehavioralAnalysisResults {
-            interaction_patterns: vec![],
+            interaction_patterns,
             state_machine_analysis: StateMachineAnalysis {
                 state_machines: vec![],
                 state_transitions: vec![],
                 state_machine_quality: StateMachineQuality {
-                    completeness_score: 0.7,
-                    consistency_score: 0.8,
-                    simplicity_score: 0.6,
-                    overall_quality_score: 0.7,
+                    completeness_score: responsiveness_score,
+                    consistency_score: predictability_score,
+                    simplicity_score: robustness_score,
+                    overall_quality_score: overall_behavioral_quality_score,
                 },
             },
             event_flow_analysis: EventFlowAnalysis {
                 event_flows: vec![],
                 event_sources: vec![],
                 event_processing_analysis: EventProcessingAnalysis {
-                    processing_efficiency: 0.8,
-                    event_latency: 100.0,
+                    processing_efficiency: responsiveness_score,
+                    event_latency: (100.0 / component_count.max(1.0)).min(500.0),
                     processing_bottlenecks: vec![],
                     event_ordering_requirements: vec![],
                 },
             },
             behavioral_quality_assessment: BehavioralQualityAssessment {
-                responsiveness_score: 0.8,
-                predictability_score: 0.7,
-                robustness_score: 0.6,
-                adaptability_score: 0.5,
-                overall_behavioral_quality_score: 0.65,
+                responsiveness_score,
+                predictability_score,
+                robustness_score,
+                adaptability_score,
+                overall_behavioral_quality_score,
             },
         })
     }
 
     /// Perform interface analysis
-    async fn perform_interface_analysis(&self, _input: &ArchWeaverTaskInput) -> AgentResult<InterfaceAnalysisResults> {
+    async fn perform_interface_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<InterfaceAnalysisResults> {
+        let components = &input.system_components;
+        let total_interfaces: usize = components.iter().map(|c| c.component_interfaces.len()).sum();
+        let component_count = components.len() as f32;
+
+        let naming_consistency = if total_interfaces > 0 {
+            let unique_names: std::collections::HashSet<&str> = components.iter()
+                .flat_map(|c| c.component_interfaces.iter().map(|i| i.interface_name.as_str()))
+                .collect();
+            (unique_names.len() as f32 / total_interfaces.max(1) as f32).clamp(0.0, 1.0)
+        } else {
+            0.8
+        };
+
+        let type_consistency: f32 = if total_interfaces > 0 {
+            let unique_types: std::collections::HashSet<String> = components.iter()
+                .flat_map(|c| c.component_interfaces.iter().map(|i| format!("{:?}", i.interface_type)))
+                .collect();
+            (1.0 - (unique_types.len() as f32 / total_interfaces.max(1) as f32).clamp(0.0, 1.0) * 0.5).clamp(0.0, 1.0)
+        } else {
+            0.7
+        };
+
+        let completeness_score = (total_interfaces as f32 / (component_count * 3.0).max(1.0)).min(1.0);
+
         Ok(InterfaceAnalysisResults {
             interface_consistency: InterfaceConsistency {
-                naming_consistency_score: 0.8,
-                parameter_consistency_score: 0.7,
-                return_type_consistency_score: 0.9,
-                overall_consistency_score: 0.8,
+                naming_consistency_score: naming_consistency,
+                parameter_consistency_score: (type_consistency * 0.5 + naming_consistency * 0.5).clamp(0.0, 1.0),
+                return_type_consistency_score: naming_consistency,
+                overall_consistency_score: naming_consistency * 0.7 + type_consistency * 0.3,
             },
             interface_completeness: InterfaceCompleteness {
-                required_interfaces: vec![],
+                required_interfaces: components.iter()
+                    .flat_map(|c| c.component_interfaces.iter().map(|iface| format!("{}::{}", c.component_name, iface.interface_name)))
+                    .collect(),
                 missing_interfaces: vec![],
                 redundant_interfaces: vec![],
-                completeness_score: 0.8,
+                completeness_score,
             },
             interface_quality: InterfaceQuality {
-                interface_simplicity_score: 0.7,
-                interface_granularity_score: 0.6,
-                interface_stability_score: 0.8,
-                overall_quality_score: 0.7,
+                interface_simplicity_score: (naming_consistency * 0.7 + 0.2).clamp(0.0, 1.0),
+                interface_granularity_score: completeness_score,
+                interface_stability_score: naming_consistency,
+                overall_quality_score: (completeness_score + naming_consistency) / 2.0,
             },
             interface_documentation: InterfaceDocumentation {
-                documentation_completeness_score: 0.6,
-                documentation_accuracy_score: 0.8,
-                documentation_clarity_score: 0.7,
-                overall_documentation_score: 0.7,
+                documentation_completeness_score: (completeness_score * 0.8).clamp(0.0, 1.0),
+                documentation_accuracy_score: naming_consistency,
+                documentation_clarity_score: naming_consistency,
+                overall_documentation_score: (completeness_score * 0.4 + naming_consistency * 0.3 + naming_consistency * 0.3),
             },
         })
     }
 
     /// Perform data flow analysis
-    async fn perform_data_flow_analysis(&self, _input: &ArchWeaverTaskInput) -> AgentResult<DataFlowAnalysisResults> {
+    async fn perform_data_flow_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<DataFlowAnalysisResults> {
+        let components = &input.system_components;
+        let total_deps: usize = components.iter().map(|c| c.component_dependencies.len()).sum();
+        let component_count = components.len() as f32;
+
+        let data_flow_diagrams: Vec<DataFlowDiagram> = components.iter()
+            .flat_map(|c| c.component_dependencies.iter().map(|dep| DataFlowDiagram {
+                diagram_id: format!("df_{}_{}", c.component_id, dep.dependency_target),
+                diagram_name: format!("{} -> {}", c.component_name, dep.dependency_target),
+                diagram_description: format!("Data flow from {} to {}", c.component_name, dep.dependency_target),
+                data_flow_elements: vec![],
+            }))
+            .collect();
+
+        let flow_efficiency: f32 = if total_deps > 0 {
+            (1.0 - (total_deps as f32 / (component_count * 5.0)).min(1.0) * 0.3).clamp(0.0, 1.0)
+        } else {
+            0.9
+        };
+        let flow_clarity: f32 = ((data_flow_diagrams.len() as f32 / (component_count * 2.0).max(1.0)).min(1.0) * 0.5 + 0.3).clamp(0.0, 1.0);
+        let main_score: f32 = ((component_count / 8.0).min(1.0) * 0.3 + 0.4).clamp(0.0, 1.0);
+
         Ok(DataFlowAnalysisResults {
-            data_flow_diagrams: vec![],
+            data_flow_diagrams,
             data_flow_patterns: vec![],
             data_flow_quality: DataFlowQuality {
-                flow_efficiency_score: 0.8,
-                flow_clarity_score: 0.7,
-                flow_maintainability_score: 0.6,
-                overall_quality_score: 0.7,
+                flow_efficiency_score: flow_efficiency,
+                flow_clarity_score: flow_clarity,
+                flow_maintainability_score: main_score,
+                overall_quality_score: (flow_efficiency + flow_clarity + main_score) / 3.0,
             },
             data_flow_security: DataFlowSecurity {
-                data_protection_score: 0.8,
-                access_control_score: 0.7,
-                data_integrity_score: 0.9,
-                overall_security_score: 0.8,
+                data_protection_score: (flow_efficiency * 0.5 + 0.3).clamp(0.0, 1.0),
+                access_control_score: (flow_clarity * 0.5 + 0.3).clamp(0.0, 1.0),
+                data_integrity_score: (main_score * 0.6 + 0.3).clamp(0.0, 1.0),
+                overall_security_score: (flow_efficiency + flow_clarity + main_score) / 3.0 * 0.7 + 0.2,
             },
         })
     }
@@ -2856,12 +2936,110 @@ impl ArchWeaverAgent {
     }
 
     /// Recognize patterns
-    async fn recognize_patterns(&self, _input: &ArchWeaverTaskInput) -> AgentResult<PatternRecognitionResults> {
+    async fn recognize_patterns(&self, input: &ArchWeaverTaskInput) -> AgentResult<PatternRecognitionResults> {
+        let components = &input.system_components;
+        let mut detected_patterns = Vec::new();
+        let mut recommendations = Vec::new();
+        let mut gaps = Vec::new();
+
+        let has_gateway = components.iter().any(|c| matches!(c.component_type, ComponentType::Gateway));
+        let has_lb = components.iter().any(|c| matches!(c.component_type, ComponentType::LoadBalancer));
+        let has_cache = components.iter().any(|c| matches!(c.component_type, ComponentType::Cache));
+        let has_queue = components.iter().any(|c| matches!(c.component_type, ComponentType::Queue));
+        let has_db = components.iter().any(|c| matches!(c.component_type, ComponentType::Database));
+        let service_count = components.iter()
+            .filter(|c| matches!(c.component_type, ComponentType::Service))
+            .count();
+
+        if has_gateway || has_lb {
+            detected_patterns.push(DetectedPattern {
+                pattern_id: "pattern_gateway".into(),
+                pattern_name: "Gateway/Proxy".into(),
+                pattern_type: PatternType::ArchitecturalPattern,
+                pattern_location: components.iter()
+                    .find(|c| matches!(c.component_type, ComponentType::Gateway | ComponentType::LoadBalancer))
+                    .map(|c| c.component_id.clone())
+                    .unwrap_or_default(),
+                pattern_confidence: 0.85,
+            });
+        }
+
+        if has_cache {
+            detected_patterns.push(DetectedPattern {
+                pattern_id: "pattern_cache".into(),
+                pattern_name: "Cache-Aside".into(),
+                pattern_type: PatternType::ArchitecturalPattern,
+                pattern_location: components.iter()
+                    .find(|c| matches!(c.component_type, ComponentType::Cache))
+                    .map(|c| c.component_id.clone())
+                    .unwrap_or_default(),
+                pattern_confidence: 0.8,
+            });
+        }
+
+        if service_count >= 2 && has_queue {
+            detected_patterns.push(DetectedPattern {
+                pattern_id: "pattern_event_driven".into(),
+                pattern_name: "Event-Driven Architecture".into(),
+                pattern_type: PatternType::ArchitecturalPattern,
+                pattern_location: components.iter()
+                    .find(|c| matches!(c.component_type, ComponentType::Queue))
+                    .map(|c| c.component_id.clone())
+                    .unwrap_or_default(),
+                pattern_confidence: 0.75,
+            });
+        }
+
+        if has_db {
+            detected_patterns.push(DetectedPattern {
+                pattern_id: "pattern_data_store".into(),
+                pattern_name: "Data Store".into(),
+                pattern_type: PatternType::ArchitecturalPattern,
+                pattern_location: components.iter()
+                    .find(|c| matches!(c.component_type, ComponentType::Database))
+                    .map(|c| c.component_id.clone())
+                    .unwrap_or_default(),
+                pattern_confidence: 0.9,
+            });
+        }
+
+        if service_count >= 3 && !has_cache {
+            gaps.push(PatternGap {
+                gap_id: "gap_cache".into(),
+                gap_description: "No cache layer detected despite multiple services — consider adding Cache-Aside pattern for performance".into(),
+                gap_location: "system".into(),
+                suggested_patterns: vec!["Cache-Aside".into()],
+            });
+            recommendations.push(PatternRecommendation {
+                recommendation_id: "rec_cache".into(),
+                recommendation_type: PatternRecommendationType::ApplyPattern,
+                recommended_pattern: "Cache-Aside".into(),
+                recommendation_rationale: "Multiple services would benefit from a shared cache layer to reduce latency and database load".into(),
+                implementation_guidance: "Add a Cache component (e.g. Redis) between services and database".into(),
+            });
+        }
+
+        if service_count >= 2 && !has_queue {
+            gaps.push(PatternGap {
+                gap_id: "gap_queue".into(),
+                gap_description: "No message queue detected — consider Event-Driven pattern for async communication".into(),
+                gap_location: "system".into(),
+                suggested_patterns: vec!["Event-Driven Architecture".into()],
+            });
+            recommendations.push(PatternRecommendation {
+                recommendation_id: "rec_queue".into(),
+                recommendation_type: PatternRecommendationType::ApplyPattern,
+                recommended_pattern: "Event-Driven Architecture".into(),
+                recommendation_rationale: "Multiple services should communicate asynchronously via a message queue to reduce coupling".into(),
+                implementation_guidance: "Add a Queue component (e.g. RabbitMQ, Kafka) for inter-service messaging".into(),
+            });
+        }
+
         Ok(PatternRecognitionResults {
-            detected_patterns: vec![],
+            detected_patterns,
             pattern_conflicts: vec![],
-            pattern_gaps: vec![],
-            pattern_recommendations: vec![],
+            pattern_gaps: gaps,
+            pattern_recommendations: recommendations,
         })
     }
 

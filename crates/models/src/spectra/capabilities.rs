@@ -13,7 +13,7 @@ use nexora_shared::{
 
 /// NXR-SPECTRA Capabilities Manager
 #[derive(Clone)]
-pub struct _SpectraCapabilities {
+pub struct SpectraCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -41,7 +41,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl _SpectraCapabilities {
+impl SpectraCapabilities {
     /// Create new capabilities for NXR-SPECTRA
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -416,7 +416,7 @@ impl _SpectraCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &_SpectraCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &SpectraCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::default();
 
         for domain in &self.vector.specializations {
@@ -490,7 +490,7 @@ impl _SpectraCapabilities {
     pub fn apply_improvement(
         &self,
         improvements: &HashMap<CapabilityDomain, f32>,
-    ) -> _SpectraCapabilities {
+    ) -> SpectraCapabilities {
         let mut new_capabilities = self.clone();
 
         for (domain, improvement) in improvements {
@@ -509,8 +509,8 @@ impl _SpectraCapabilities {
     }
 
     /// Get creative intelligence metrics
-    pub fn get_creative_intelligence_metrics(&self) -> _CreativeIntelligenceMetrics {
-        _CreativeIntelligenceMetrics {
+    pub fn get_creative_intelligence_metrics(&self) -> CreativeIntelligenceMetrics {
+        CreativeIntelligenceMetrics {
             creativity_score: self.performance_metrics.creative_generation_accuracy,
             style_adaptation: self.performance_metrics.style_adaptation_accuracy,
             multimodal_synthesis: self.performance_metrics.multimodal_synthesis_quality,
@@ -897,7 +897,7 @@ pub enum ResourceCost {
 
 /// Creative intelligence metrics
 #[derive(Debug, Clone)]
-pub struct _CreativeIntelligenceMetrics {
+pub struct CreativeIntelligenceMetrics {
     pub creativity_score: f32,
     pub style_adaptation: f32,
     pub multimodal_synthesis: f32,
@@ -938,7 +938,7 @@ pub struct CreativeGenerationCapabilities {
     pub creativity_score: f32,
 }
 
-impl Default for _SpectraCapabilities {
+impl Default for SpectraCapabilities {
     fn default() -> Self {
         Self::new()
     }

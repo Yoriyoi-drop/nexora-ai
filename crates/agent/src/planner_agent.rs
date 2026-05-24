@@ -113,8 +113,6 @@ pub enum StepType {
 /// Plan status
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum PlanStatus {
-    /// Plan sedang dibuat
-    Planning,
     /// Plan siap dieksekusi
     Ready,
     /// Plan sedang dieksekusi
@@ -123,8 +121,6 @@ pub enum PlanStatus {
     Completed,
     /// Plan gagal
     Failed(String),
-    /// Plan di-pause
-    Paused,
     /// Plan di-cancel
     Cancelled,
 }

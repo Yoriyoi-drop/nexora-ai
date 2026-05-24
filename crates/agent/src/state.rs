@@ -47,8 +47,6 @@ pub struct SessionState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SessionStatus {
     Active,
-    Idle,
-    Suspended,
     Closed,
 }
 

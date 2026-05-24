@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use nexora_has_moe_ffn::HasMoeFFNConfig;
 use nexora_shared::{
+    base_agent::BaseAgent,
     base_model::{
         ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput, NxrStreamChunk,
         ResourceUsage, ValidationResult,
@@ -308,8 +309,7 @@ impl VortexIdentity {
             "Variable Optimization Recursive Text & Expert eXchange - Code generation and software engineering specialist with advanced debugging and architecture analysis capabilities.".to_string(),
         )
         .with_parameters(700_000_000_000) // 700B parameters
-        .with_context_window(2_000_000) // 2M context
-        .experimental();
+        .with_context_window(2_000_000); // 2M context
 
         Self { meta }
     }
@@ -356,18 +356,14 @@ pub struct VortexAgents {
 impl VortexAgents {
     pub fn new() -> Self {
         Self {
-            code_sentinel: CodeSentinelAgent::new(),
-            debug_phantom: DebugPhantomAgent::new(),
-            arch_weaver: ArchWeaverAgent::new(),
-            test_forge: TestForgeAgent::new(),
+            code_sentinel: CodeSentinelAgent::new(Default::default()),
+            debug_phantom: DebugPhantomAgent::new(Default::default()),
+            arch_weaver: ArchWeaverAgent::new(Default::default()),
+            test_forge: TestForgeAgent::new(Default::default()),
         }
     }
 
     pub async fn initialize(&mut self) -> NxrModelResult<()> {
-        self.code_sentinel.initialize().await?;
-        self.debug_phantom.initialize().await?;
-        self.arch_weaver.initialize().await?;
-        self.test_forge.initialize().await?;
         Ok(())
     }
 
@@ -671,14 +667,34 @@ impl NxrModel for NxrVortexModel {
         let oracle_summary = String::new();
 
         // Perform code analysis
+        let task_input = code_sentinel::CodeSentinelTaskInput {
+            source_code: input_text.clone(),
+            file_path: String::new(),
+            programming_language: String::new(),
+            analysis_scope: code_sentinel::AnalysisScope {
+                include_security_analysis: true,
+                include_performance_analysis: true,
+                include_maintainability_analysis: true,
+                include_architectural_analysis: true,
+                include_style_analysis: true,
+                include_documentation_analysis: true,
+            },
+            review_policies: vec![],
+            custom_rules: vec![],
+        };
         let analysis = self
             .agents
             .code_sentinel()
-            .analyze_code(&input_text)
-            .await?;
+            .process(task_input)
+            .await
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         let result = format!(
-            "Code Analysis:\nLanguage: {}\nComplexity: {:.2}\nQuality Score: {:.2}\nORACLE: {}\nDL Processing: {}",
-            analysis.language, analysis.complexity, analysis.quality_score, oracle_summary, dl_result
+            "Code Analysis:\nQuality Score: {:.2}\nIssues: {}\nSuggestions: {}\nORACLE: {}\nDL Processing: {}",
+            analysis.quality_metrics.overall_quality_score,
+            analysis.issues_found.len(),
+            analysis.suggestions.len(),
+            oracle_summary,
+            dl_result
         );
 
         let generation_time_ms = start_time.elapsed().as_millis() as u64;
@@ -846,7 +862,11 @@ impl HasComponents for NxrVortexModel {
     }
 }
 
-impl DeepLearningModel for NxrVortexModel {}
+impl DeepLearningModel for NxrVortexModel {
+    fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
+        &self.components.dl_engine
+    }
+}
 
 impl Default for NxrVortexModel {
     fn default() -> Self {

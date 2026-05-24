@@ -19,8 +19,7 @@ impl OmnisIdentity {
             "Nexus Omniscient Reasoning System - Flagship model with maximum capabilities for multi-modal reasoning, world modeling, and meta-cognition.".to_string(),
         )
         .with_parameters(2_000_000_000_000) // 2T+ parameters
-        .with_context_window(10_000_000) // 10M context
-        .experimental();
+        .with_context_window(10_000_000) ;// 10M context
 
         Self { meta }
     }

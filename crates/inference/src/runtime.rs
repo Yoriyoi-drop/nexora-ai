@@ -672,63 +672,65 @@ impl InferenceRuntime {
     }
 
     async fn get_gpu_memory_usage(&self) -> Result<(u64, f64)> {
-        // Try to use nvml-wrapper for GPU monitoring
-        match nvml_wrapper::Nvml::init() {
-            Ok(nvml) => match nvml.device_count() {
-                Ok(count) if count > 0 => {
-                    if let Ok(device) = nvml.device_by_index(0) {
-                        if let Ok(memory_info) = device.memory_info() {
-                            let total_memory = memory_info.total;
-                            let used_memory = memory_info.used;
-                            let usage_percent = (used_memory as f64 / total_memory as f64) * 100.0;
-                            return Ok((used_memory, usage_percent));
+        tokio::task::spawn_blocking(|| {
+            match nvml_wrapper::Nvml::init() {
+                Ok(nvml) => match nvml.device_count() {
+                    Ok(count) if count > 0 => {
+                        if let Ok(device) = nvml.device_by_index(0) {
+                            if let Ok(memory_info) = device.memory_info() {
+                                let total_memory = memory_info.total;
+                                let used_memory = memory_info.used;
+                                let usage_percent =
+                                    (used_memory as f64 / total_memory as f64) * 100.0;
+                                return Ok((used_memory, usage_percent));
+                            }
                         }
                     }
+                    _ => {
+                        debug!("No NVIDIA GPU detected");
+                    }
+                },
+                Err(e) => {
+                    debug!("NVML initialization failed: {}", e);
                 }
-                _ => {
-                    debug!("No NVIDIA GPU detected");
-                }
-            },
-            Err(e) => {
-                debug!("NVML initialization failed: {}", e);
             }
-        }
-
-        // Fallback - no GPU available
-        Ok((0, 0.0))
+            Ok((0, 0.0))
+        })
+        .await
+        .map_err(|e| {
+            InferenceError::InternalError(format!("GPU memory read failed: {}", e))
+        })?
     }
 
     async fn get_active_thread_count(&self) -> Result<usize> {
-        if let Ok(process) = ProcProcess::myself() {
-            if let Ok(stat) = process.stat() {
-                Ok(stat.num_threads as usize)
-            } else {
-                Ok(1) // Fallback if stat fails
+        tokio::task::spawn_blocking(|| {
+            if let Ok(process) = ProcProcess::myself() {
+                if let Ok(stat) = process.stat() {
+                    return Ok(stat.num_threads as usize);
+                }
             }
-        } else {
-            // Fallback using sysinfo
-            let system = self.system.read().await;
-            if let Some(_process) = system.process(self.pid.into()) {
-                Ok(1) // sysinfo doesn't provide thread count, use fallback
-            } else {
-                Ok(num_cpus::get()) // Return CPU count as fallback
-            }
-        }
+            Ok(num_cpus::get())
+        })
+        .await
+        .map_err(|e| {
+            InferenceError::InternalError(format!("Thread count read failed: {}", e))
+        })?
     }
 
     async fn get_open_file_count(&self) -> Result<usize> {
-        // Use /proc/self/fd to count open file descriptors
-        match fs::read_dir("/proc/self/fd") {
-            Ok(entries) => {
-                let count = entries.count();
-                Ok(count)
+        tokio::task::spawn_blocking(|| {
+            match std::fs::read_dir("/proc/self/fd") {
+                Ok(entries) => Ok(entries.count()),
+                Err(_) => {
+                    debug!("Cannot read /proc/self/fd, using fallback");
+                    Ok(0)
+                }
             }
-            Err(_) => {
-                // Fallback for non-Linux systems
-                debug!("Cannot read /proc/self/fd, using fallback");
-                Ok(0)
-            }
-        }
+        })
+        .await
+        .map_err(|e| {
+            InferenceError::InternalError(format!("Open file count read failed: {}", e))
+        })?
     }
 
     async fn get_network_io_bytes(&self) -> Result<u64> {
@@ -760,20 +762,25 @@ impl InferenceRuntime {
     }
 
     async fn get_disk_io_bytes(&self) -> Result<u64> {
-        // Try to get disk I/O from procfs
-        match ProcProcess::myself() {
-            Ok(process) => {
-                if let Ok(io) = process.io() {
-                    Ok(io.read_bytes + io.write_bytes)
-                } else {
+        tokio::task::spawn_blocking(|| {
+            match ProcProcess::myself() {
+                Ok(process) => {
+                    if let Ok(io) = process.io() {
+                        Ok(io.read_bytes + io.write_bytes)
+                    } else {
+                        Ok(0)
+                    }
+                }
+                Err(_) => {
+                    debug!("Cannot read disk I/O stats");
                     Ok(0)
                 }
             }
-            Err(_) => {
-                debug!("Cannot read disk I/O stats");
-                Ok(0)
-            }
-        }
+        })
+        .await
+        .map_err(|e| {
+            InferenceError::InternalError(format!("Disk I/O read failed: {}", e))
+        })?
     }
 
     async fn set_cpu_affinity(&self, affinity: &[usize]) -> Result<()> {

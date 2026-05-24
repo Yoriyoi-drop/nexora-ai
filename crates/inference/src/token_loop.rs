@@ -56,22 +56,6 @@ impl Default for TokenLoopConfig {
     }
 }
 
-/// Token loop state
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenLoopState {
-    /// Loop tidak diinisialisasi
-    Uninitialized,
-    /// Loop sedang diinisialisasi
-    Initializing,
-    /// Loop sedang berjalan
-    Running,
-
-    /// Loop error
-    Error(String),
-    /// Loop di-cancel
-    Cancelled,
-}
-
 const STATE_UNINITIALIZED: u8 = 0;
 const STATE_INITIALIZING: u8 = 1;
 const STATE_RUNNING: u8 = 2;

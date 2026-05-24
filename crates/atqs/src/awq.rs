@@ -265,8 +265,12 @@ impl AWQEngine {
             .into_iter()
             .filter_map(|(name, w)| {
                 let w2 = w.into_dimensionality::<ndarray::Ix2>().ok()?;
-                let dummy_act = Array1::from_elem(w2.shape()[1], 1.0);
-                let (scales, zps) = self.find_optimal_scales(&w2, &dummy_act);
+                // Use weight column norms as activation proxy when real activations unavailable.
+                // AWQ needs activation magnitudes to identify salient channels; column norms
+                // capture which input dimensions have the largest weight magnitudes.
+                let act_proxy = w2.map_axis(ndarray::Axis(0), |col| col.iter().map(|v| v.abs()).sum::<f32>());
+                let act_proxy = act_proxy.mapv(|v| v.max(1.0));
+                let (scales, zps) = self.find_optimal_scales(&w2, &act_proxy);
                 let q = self.quantize(&w2, &scales, &zps);
                 Some((name, q))
             })

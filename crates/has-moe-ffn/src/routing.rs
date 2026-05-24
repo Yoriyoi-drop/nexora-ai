@@ -126,13 +126,12 @@ impl Router {
 
     /// Compute gating weight for a specific expert
     fn compute_gating_weight(&self, input: &[f32], expert_idx: usize) -> f32 {
-        let expert_bias = expert_idx as f32 * 0.1;
         let dot_product: f32 = input
             .iter()
             .enumerate()
             .map(|(i, &x)| x * self.router_weights[expert_idx][i])
             .sum();
-        dot_product + expert_bias
+        dot_product
     }
 
     /// Apply softmax to a row of gating weights

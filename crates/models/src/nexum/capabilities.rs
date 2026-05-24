@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 /// NXR-NEXUM Capabilities Manager
 #[derive(Clone)]
-pub struct _NexumCapabilities {
+pub struct NexumCapabilities {
     /// Capability vector
     vector: CapabilityVector,
     /// Performance metrics
@@ -42,7 +42,7 @@ pub struct CapabilityPerformanceMetrics {
     pub resource_utilization: f32,
 }
 
-impl _NexumCapabilities {
+impl NexumCapabilities {
     /// Create new capabilities for NXR-NEXUM
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
@@ -453,7 +453,7 @@ impl _NexumCapabilities {
     }
 
     /// Compare with another capability set
-    pub fn compare_with(&self, other: &_NexumCapabilities) -> CapabilityComparison {
+    pub fn compare_with(&self, other: &NexumCapabilities) -> CapabilityComparison {
         let mut comparison = CapabilityComparison::default();
 
         for domain in &self.vector.specializations {
@@ -527,7 +527,7 @@ impl _NexumCapabilities {
     pub fn apply_improvement(
         &self,
         improvements: &HashMap<CapabilityDomain, f32>,
-    ) -> _NexumCapabilities {
+    ) -> NexumCapabilities {
         let mut new_capabilities = self.clone();
 
         for (domain, improvement) in improvements {
@@ -1185,7 +1185,7 @@ pub enum MaturityLevel {
     Optimized,
 }
 
-impl Default for _NexumCapabilities {
+impl Default for NexumCapabilities {
     fn default() -> Self {
         Self::new()
     }
