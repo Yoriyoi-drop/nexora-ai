@@ -185,45 +185,84 @@ impl Trainer {
 
         #[cfg(feature = "gpu")]
         if self.config.use_gpu {
+            let mut gpu_ok = true;
             match GpuContext::global() {
                 Ok(ctx) => {
-                    // Move all parameter weights to GPU
                     for p in &params {
-                        let gpu_t = GpuTensor::from_cpu(&p.data()).expect("failed to move parameter to GPU");
-                        p.set_storage(nexora_autograd::Storage::Gpu(gpu_t));
-                        p.set_device(Device::Gpu(0));
-                    }
-                    // Create GpuAdam optimizer
-                    let owned_gpu_params: Vec<GpuTensor> = params
-                        .iter()
-                        .filter_map(|p| match p.storage() {
-                            nexora_autograd::Storage::Gpu(g) => Some(g),
-                            _ => {
-                                tracing::warn!("Non-GPU tensor in GPU training optimizer setup — skipping");
-                                None
+                        match GpuTensor::from_cpu(&p.data()) {
+                            Ok(gpu_t) => {
+                                p.set_storage(nexora_autograd::Storage::Gpu(gpu_t));
+                                p.set_device(Device::Gpu(0));
                             }
-                        })
-                        .collect();
-                    let gpu_params: Vec<&GpuTensor> = owned_gpu_params.iter().collect();
-                    let mut gpu_opt =
-                        GpuAdam::new(ctx, &gpu_params, self.config.learning_rate).expect("failed to create GpuAdam optimizer");
-                    gpu_opt.weight_decay = self.config.weight_decay;
-                    gpu_opt.max_grad_norm = self.config.max_grad_norm;
-                    self.trainable = Some(trainable);
-                    self.gpu_optimizer = Some(gpu_opt);
-                    // Enable automatic GPU tensor creation so that all intermediate
-                    // tensors (from_slice, zeros, ones, identity_selector, etc.)
-                    // are created as GPU tensors, keeping the entire pipeline on GPU.
-                    nexora_autograd::tensor::set_gpu_auto_create(true);
-
-                    // Pre-allocate GPU buffers for zero-copy data upload
-                    let batch_shape = vec![self.config.seq_length];
-                    let in_buf = GpuTensor::zeros(&batch_shape).expect("failed to create GPU input buffer");
-                    let tgt_buf = GpuTensor::zeros(&batch_shape).expect("failed to create GPU target buffer");
-                    self.gpu_input_buf = Some(in_buf);
-                    self.gpu_target_buf = Some(tgt_buf);
-                    self.gpu_staging = Some(GpuStagingPool::new(ctx, (self.config.seq_length * 4) as u64));
-                    return;
+                            Err(e) => {
+                                tracing::warn!("Failed to move parameter to GPU: {e}, falling back to CPU");
+                                gpu_ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if gpu_ok {
+                        let owned_gpu_params: Vec<GpuTensor> = params
+                            .iter()
+                            .filter_map(|p| match p.storage() {
+                                nexora_autograd::Storage::Gpu(g) => Some(g),
+                                _ => {
+                                    tracing::warn!("Non-GPU tensor in GPU training optimizer setup — skipping");
+                                    None
+                                }
+                            })
+                            .collect();
+                        let gpu_params: Vec<&GpuTensor> = owned_gpu_params.iter().collect();
+                        gpu_ok = match GpuAdam::new(ctx, &gpu_params, self.config.learning_rate) {
+                            Ok(opt) => {
+                                let mut gpu_opt = opt;
+                                gpu_opt.weight_decay = self.config.weight_decay;
+                                gpu_opt.max_grad_norm = self.config.max_grad_norm;
+                                self.gpu_optimizer = Some(gpu_opt);
+                                true
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to create GpuAdam optimizer: {e}, falling back to CPU");
+                                false
+                            }
+                        };
+                    }
+                    if gpu_ok {
+                        nexora_autograd::tensor::set_gpu_auto_create(true);
+                        let batch_shape = vec![self.config.seq_length];
+                        gpu_ok = match GpuTensor::zeros(&batch_shape) {
+                            Ok(buf) => {
+                                self.gpu_input_buf = Some(buf);
+                                true
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to create GPU input buffer: {e}, falling back to CPU");
+                                false
+                            }
+                        };
+                    }
+                    if gpu_ok {
+                        let batch_shape = vec![self.config.seq_length];
+                        gpu_ok = match GpuTensor::zeros(&batch_shape) {
+                            Ok(buf) => {
+                                self.gpu_target_buf = Some(buf);
+                                true
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to create GPU target buffer: {e}, falling back to CPU");
+                                false
+                            }
+                        };
+                    }
+                    if gpu_ok {
+                        self.gpu_staging = Some(GpuStagingPool::new(ctx, (self.config.seq_length * 4) as u64));
+                        self.trainable = Some(trainable);
+                        return;
+                    }
+                    nexora_autograd::tensor::set_gpu_auto_create(false);
+                    self.gpu_optimizer = None;
+                    self.gpu_input_buf = None;
+                    self.gpu_target_buf = None;
                 }
                 Err(e) => {
                     tracing::warn!("GPU init failed ({}), falling back to CPU", e);
@@ -231,6 +270,7 @@ impl Trainer {
             }
         }
 
+        self.trainable = Some(trainable);
         let mut optimizer = Adam::new(params, self.config.learning_rate);
         if self.config.weight_decay > 0.0 {
             optimizer.set_weight_decay(self.config.weight_decay);
@@ -238,7 +278,6 @@ impl Trainer {
         if self.config.max_grad_norm.is_some() {
             optimizer.set_max_grad_norm(self.config.max_grad_norm);
         }
-        self.trainable = Some(trainable);
         self.optimizer = Some(optimizer);
     }
 
@@ -498,9 +537,10 @@ impl Trainer {
 
         #[cfg(feature = "gpu")]
         if self.gpu_optimizer.is_some() && GpuContext::global().is_ok() {
-            let gpu_in = self.gpu_input_buf.as_ref().expect("gpu_input_buf not initialized for GPU evaluation");
-            let gpu_tgt = self.gpu_target_buf.as_ref().expect("gpu_target_buf not initialized for GPU evaluation");
-            return evaluate_loss_gpu(trainable, sequences, seq_length, gpu_in, gpu_tgt);
+            if let (Some(gpu_in), Some(gpu_tgt)) = (self.gpu_input_buf.as_ref(), self.gpu_target_buf.as_ref()) {
+                return evaluate_loss_gpu(trainable, sequences, seq_length, gpu_in, gpu_tgt);
+            }
+            tracing::warn!("GPU buffers not initialized, falling back to CPU evaluation");
         }
 
         let mut total_loss = 0.0f64;
@@ -724,19 +764,27 @@ fn train_batch_gpu(
             })
             .collect();
         let params: Vec<&GpuTensor> = owned_params.iter().collect();
-        let grad_tensors: Vec<GpuTensor> = trainable
-            .parameters()
-            .iter()
-            .map(|p| {
-                match p.grad_storage() {
-                    Some(Storage::Gpu(g)) => g,
-                    _ => {
-                        let arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
-                        GpuTensor::from_cpu(&arr).expect("failed to upload fallback gradient to GPU")
+        let mut grad_tensors = Vec::new();
+        let mut gpu_ok = true;
+        for p in trainable.parameters().iter() {
+            match p.grad_storage() {
+                Some(Storage::Gpu(g)) => grad_tensors.push(g),
+                _ => {
+                    let arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
+                    match GpuTensor::from_cpu(&arr) {
+                        Ok(g) => grad_tensors.push(g),
+                        Err(e) => {
+                            tracing::warn!("Failed to upload fallback gradient to GPU: {e}, skipping GPU step");
+                            gpu_ok = false;
+                            break;
+                        }
                     }
                 }
-            })
-            .collect();
+            }
+        }
+        if !gpu_ok {
+            return None;
+        }
         let grad_refs: Vec<&GpuTensor> = grad_tensors.iter().collect();
 
         gpu_opt.lr = Trainer::lr_at_step(
@@ -814,7 +862,13 @@ fn evaluate_loss_gpu(
     input_buffer: &GpuTensor,
     target_buffer: &GpuTensor,
 ) -> EvalMetrics {
-    let ctx = GpuContext::global().expect("GpuContext must be available");
+    let ctx = match GpuContext::global() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("GpuContext unavailable for evaluate_loss_gpu: {e}, returning zero");
+            return EvalMetrics { avg_loss: 0.0, perplexity: 0.0, total_tokens: 0 };
+        }
+    };
     let mut total_loss = 0.0f64;
     let mut total_tokens = 0usize;
 

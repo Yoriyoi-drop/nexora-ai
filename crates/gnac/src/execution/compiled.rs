@@ -1,4 +1,9 @@
+use std::collections::HashMap;
+
+use nexora_autograd::Tensor;
+
 use crate::canvas::NeuralGraph;
+use crate::execution::backend::CpuBackend;
 use crate::execution::optimizer::GraphOptimizer;
 use crate::execution::{ExecutionBackend, GraphIR};
 use crate::DLResult;
@@ -26,8 +31,12 @@ impl CompiledExecutor {
         Ok(ir)
     }
 
-    /// Jalankan compiled graph
-    pub fn execute(&self, ir: &GraphIR) -> DLResult<()> {
+    /// Jalankan compiled graph dengan input tensors
+    pub fn execute(
+        &self,
+        ir: &GraphIR,
+        inputs: HashMap<String, Tensor>,
+    ) -> DLResult<HashMap<String, Tensor>> {
         let optimized_ops = &ir.operations;
         tracing::info!(
             "Executing compiled graph '{}' on {} with {} ops",
@@ -35,7 +44,16 @@ impl CompiledExecutor {
             ir.backend.name(),
             optimized_ops.len()
         );
-        Ok(())
+
+        match self.backend {
+            ExecutionBackend::CPU => CpuBackend::execute(ir, inputs),
+            _ => Err(crate::DeepLearningError::Computation {
+                reason: format!(
+                    "Backend '{:?}' not yet implemented — use CPU backend",
+                    self.backend
+                ),
+            }),
+        }
     }
 }
 
@@ -43,6 +61,7 @@ impl CompiledExecutor {
 mod tests {
     use super::*;
     use crate::canvas::GraphNode;
+    use crate::execution::{IROpType, IRValue};
     use crate::NodeType;
 
     #[test]
@@ -66,14 +85,22 @@ mod tests {
         g.add_node(GraphNode::new(NodeType::Input, "in", 0.0, 0.0));
         g.add_node(GraphNode::new(NodeType::Output, "out", 0.0, 0.0));
         let ir = exec.compile(&g).unwrap();
-        // Input nodes are preserved; dead node elimination removes Output if no connection
         assert!(ir.operations.len() <= 2);
     }
 
     #[test]
-    fn test_execute() {
+    fn test_execute_empty() {
         let exec = CompiledExecutor::new(ExecutionBackend::CPU);
         let ir = GraphIR::new("test", ExecutionBackend::CPU);
-        assert!(exec.execute(&ir).is_ok());
+        let result = exec.execute(&ir, HashMap::new()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_cpu_backend_rejects_gpu_backend() {
+        let exec = CompiledExecutor::new(ExecutionBackend::CUDA);
+        let ir = GraphIR::new("test", ExecutionBackend::CUDA);
+        let result = exec.execute(&ir, HashMap::new());
+        assert!(result.is_err());
     }
 }

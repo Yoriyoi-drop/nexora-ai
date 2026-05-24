@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use super::device::Storage;
 use super::tape;
@@ -39,7 +40,7 @@ pub(crate) fn backward_engine(output: &Tensor) {
 
     let mut grads: HashMap<usize, Storage> = HashMap::new();
     if let Some(g) = output.grad() {
-        grads.insert(output.id(), Storage::Cpu(g));
+        grads.insert(output.id(), Storage::Cpu(Arc::new(g)));
     }
 
     #[cfg(feature = "gpu")]
@@ -82,42 +83,44 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                         )
                                     }
                                 };
-                                match grad_gpu_result {
+                                let used_gpu_inner = match grad_gpu_result {
                                     Ok(grad_gpu) => {
-                                        let grad_inputs_gpu =
-                                            backward_gpu(&saved_gpu, &grad_gpu, ctx);
-                                        for (i, inp) in inputs.iter().enumerate() {
-                                            if i < grad_inputs_gpu.len() && inp.requires_grad() {
-                                                let gpu_grad = grad_inputs_gpu[i].clone();
-                                                if let Some(existing) = grads.get_mut(&inp.id()) {
-                                                    let shape_matches = matches!(
-                                                        existing,
-                                                        Storage::Gpu(ref e)
-                                                            if e.shape() == gpu_grad.shape()
-                                                    );
-                                                    if shape_matches {
-                                                        if let Storage::Gpu(ref mut e) = existing {
-                                                            let _ = ctx.add_inplace(
-                                                                e, &gpu_grad,
+                                        match backward_gpu(&saved_gpu, &grad_gpu, ctx) {
+                                            Ok(grad_inputs_gpu) => {
+                                                for (i, inp) in inputs.iter().enumerate() {
+                                                    if i < grad_inputs_gpu.len() && inp.requires_grad() {
+                                                        let gpu_grad = grad_inputs_gpu[i].clone();
+                                                        if let Some(existing) = grads.get_mut(&inp.id()) {
+                                                            let shape_matches = matches!(
+                                                                existing,
+                                                                Storage::Gpu(ref e)
+                                                                    if e.shape() == gpu_grad.shape()
                                                             );
+                                                            if shape_matches {
+                                                                if let Storage::Gpu(ref mut e) = existing {
+                                                                    let _ = ctx.add_inplace(e, &gpu_grad);
+                                                                }
+                                                            } else {
+                                                                let mut e_cpu = existing.to_cpu();
+                                                                e_cpu += &gpu_grad.to_cpu();
+                                    *existing = Storage::Cpu(Arc::new(e_cpu));
+                                                                }
+                                                        } else {
+                                                            grads.insert(inp.id(), Storage::Gpu(gpu_grad));
                                                         }
-                                                    } else {
-                                                        let mut e_cpu = existing.to_cpu();
-                                                        e_cpu += &gpu_grad.to_cpu();
-                                                        *existing = Storage::Cpu(e_cpu);
                                                     }
-                                                } else {
-                                                    grads.insert(
-                                                        inp.id(),
-                                                        Storage::Gpu(gpu_grad),
-                                                    );
                                                 }
+                                                true
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("GPU backward failed, falling back to CPU: {e}");
+                                                false
                                             }
                                         }
-                                        true
                                     }
                                     Err(_) => false,
-                                }
+                                };
+                                used_gpu_inner
                             } else {
                                 false
                             }
@@ -141,21 +144,21 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                 let g = grad_inputs[i].clone();
                                 if let Some(existing) = grads.get_mut(&inp.id()) {
                                     match existing {
-                                        Storage::Cpu(ref mut e)
-                                            if e.shape() == g.shape() =>
-                                        {
-                                            *e += &g;
-                                        }
-                                        Storage::Cpu(ref mut e) => *e = g,
+        Storage::Cpu(ref mut e)
+            if e.shape() == g.shape() =>
+        {
+            *Arc::make_mut(e) += &g;
+        }
+        Storage::Cpu(ref mut e) => *e = Arc::new(g),
                                         #[cfg(feature = "gpu")]
                                         Storage::Gpu(_) => {
                                             let mut e_cpu = existing.to_cpu();
                                             e_cpu += &g;
-                                            *existing = Storage::Cpu(e_cpu);
+                                            *existing = Storage::Cpu(Arc::new(e_cpu));
                                         }
                                     }
                                 } else {
-                                    grads.insert(inp.id(), Storage::Cpu(g));
+                                    grads.insert(inp.id(), Storage::Cpu(Arc::new(g)));
                                 }
                             }
                         }

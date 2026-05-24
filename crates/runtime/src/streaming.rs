@@ -4,8 +4,9 @@
 
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -72,6 +73,8 @@ pub struct StreamingEngine {
     stats: Arc<RwLock<StreamingStats>>,
     /// Engine state
     state: Arc<RwLock<EngineState>>,
+    /// Tracked background task handles for panic detection
+    background_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Stream information
@@ -161,6 +164,7 @@ impl StreamingEngine {
             active_streams: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(StreamingStats::default())),
             state: Arc::new(RwLock::new(EngineState::Uninitialized)),
+            background_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -299,9 +303,12 @@ impl StreamingEngine {
 
         // Start stream processing
         let engine = self.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             engine.process_stream(stream, simple_tx).await;
         });
+        if let Ok(mut tasks) = self.background_tasks.lock() {
+            tasks.push(handle);
+        }
 
         Ok(simple_rx)
     }
@@ -514,9 +521,12 @@ impl StreamingEngine {
     /// Start cleanup loop for expired streams
     async fn start_cleanup_loop(&self) -> Result<()> {
         let engine = self.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             engine.run_cleanup_loop().await;
         });
+        if let Ok(mut tasks) = self.background_tasks.lock() {
+            tasks.push(handle);
+        }
         Ok(())
     }
 
@@ -614,6 +624,7 @@ impl Clone for StreamingEngine {
             active_streams: Arc::clone(&self.active_streams),
             stats: Arc::clone(&self.stats),
             state: Arc::clone(&self.state),
+            background_tasks: Arc::clone(&self.background_tasks),
         }
     }
 }

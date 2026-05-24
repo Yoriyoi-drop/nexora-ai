@@ -1,5 +1,5 @@
 use ndarray::ArrayD;
-use tracing;
+use tracing::warn;
 
 /// Broadcast error type
 #[derive(Debug)]
@@ -130,7 +130,10 @@ pub fn reduce_grad_for_shape(grad: &ArrayD<f32>, orig_shape: &[usize]) -> ArrayD
             if flat_len == orig_shape.iter().product::<usize>() {
                 match ArrayD::from_shape_vec(orig_shape.to_vec(), flat) {
                     Ok(r) => r,
-                    Err(e) => ArrayD::from_elem(orig_shape.to_vec(), 0.0), // fallback: flat.len() == product but shape was invalid
+                    Err(e) => {
+                        warn!("broadcast reshape fallback: {e}");
+                        ArrayD::from_elem(orig_shape.to_vec(), 0.0)
+                    }
                 }
             } else {
                 ArrayD::from_elem(orig_shape.to_vec(), flat[0])

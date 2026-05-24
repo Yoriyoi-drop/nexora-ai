@@ -13,6 +13,7 @@ serde_json = { workspace = true }
 num_cpus = "1.16"
 half = "2"
 once_cell = { workspace = true }
+parking_lot = { workspace = true }
 
 # GPU compute backend (wgpu)
 wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl", "vulkan", "gles"] }

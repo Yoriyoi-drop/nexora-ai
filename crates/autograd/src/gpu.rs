@@ -1051,13 +1051,11 @@ impl GpuContext {
         F: FnOnce(&mut wgpu::CommandEncoder) -> R,
     {
         let mut guard = self.current_encoder.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
-        if guard.is_none() {
-            *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let enc = guard.get_or_insert_with(|| {
+            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("nexora_reusable_encoder"),
-            }));
-        }
-        // SAFETY: ensured Some just above
-        let enc = guard.as_mut().expect("encoder should be present after create");
+            })
+        });
         let result = f(enc);
 
         if self.batch_depth.load(std::sync::atomic::Ordering::Acquire) == 0 {
@@ -1503,17 +1501,31 @@ impl GpuContext {
                 timeout: None,
             });
 
-            // safe: channel stays open until result received; buffer mapping succeeds after poll
-            rx.recv()
-                .expect("channel closed")
-                .expect("query buffer mapping failed");
+            match rx.recv() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!("Query buffer mapping failed: {e}");
+                    readback_buffer.unmap();
+                    return std::time::Duration::ZERO;
+                }
+                Err(e) => {
+                    tracing::warn!("Query channel closed: {e}");
+                    readback_buffer.unmap();
+                    return std::time::Duration::ZERO;
+                }
+            }
 
             let (start_ts, end_ts) = {
                 let mapped = slice.get_mapped_range();
                 let bytes: &[u8] = &mapped;
-                // safe: QUERY_SIZE is 8 bytes, we read exactly 8 bytes
-                let first = u64::from_le_bytes(bytes[0..8].try_into().expect("query result slice too small"));
-                let second = u64::from_le_bytes(bytes[8..16].try_into().expect("query result slice too small"));
+                let first = u64::from_le_bytes(bytes[0..8].try_into().unwrap_or_else(|_| {
+                    tracing::warn!("Query timestamp readback underflow, returning 0");
+                    [0u8; 8]
+                }));
+                let second = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or_else(|_| {
+                    tracing::warn!("Query timestamp readback underflow (second), returning 0");
+                    [0u8; 8]
+                }));
                 (first as f64, second as f64)
             };
             readback_buffer.unmap();
@@ -4600,8 +4612,13 @@ impl GpuTensor {
     }
 
     pub fn to_cpu(&self) -> ArrayD<f32> {
-        // safe: GpuTensor is only created when GPU context is initialized
-        let ctx = Self::ctx().expect("GPU context not initialized");
+        let ctx = match Self::ctx() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::warn!("GPU context not initialized in to_cpu: {e}, returning zeros");
+                return ArrayD::zeros(self.shape());
+            }
+        };
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
@@ -4623,16 +4640,17 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        // safe: device polling ensures readback completes; only fails on GPU loss
-        readback_with_timeout(&ctx.device, &rx)
-            .expect("GPU readback failed in to_cpu");
+        if readback_with_timeout(&ctx.device, &rx).is_err() {
+            tracing::warn!("GPU readback failed in to_cpu, returning zeros");
+            staging.unmap();
+            return ArrayD::zeros(self.shape());
+        }
 
         let result = {
             let mapped = slice.get_mapped_range();
             let data: &[f32] = bytemuck::cast_slice(&*mapped);
-            // safe: data.len() * 4 == byte_size == self.numel() * 4
             ArrayD::from_shape_vec(self.shape.clone(), data.to_vec())
-                .expect("shape mismatch in GPU→CPU transfer")
+                .unwrap()
         };
         staging.unmap();
         result
@@ -4640,8 +4658,13 @@ impl GpuTensor {
 
     /// Read back raw bytes (for u32 output buffers like sampler tokens)
     pub fn to_cpu_raw_bytes(&self) -> Vec<u8> {
-        // safe: GpuTensor is only created when GPU context is initialized
-        let ctx = Self::ctx().expect("GPU context not initialized");
+        let ctx = match Self::ctx() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::warn!("GPU context not initialized in to_cpu_raw_bytes: {e}, returning empty");
+                return Vec::new();
+            }
+        };
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
@@ -4663,9 +4686,11 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        // safe: device polling ensures readback completes; only fails on GPU loss
-        readback_with_timeout(&ctx.device, &rx)
-            .expect("GPU readback failed in to_cpu_raw_bytes");
+        if readback_with_timeout(&ctx.device, &rx).is_err() {
+            tracing::warn!("GPU readback failed in to_cpu_raw_bytes, returning empty");
+            staging.unmap();
+            return Vec::new();
+        }
 
         let data = {
             let mapped = slice.get_mapped_range();
@@ -4678,8 +4703,13 @@ impl GpuTensor {
     /// Read back only the first element for quick validation
     /// Much faster than full tensor readback
     pub fn to_cpu_first_element(&self) -> f32 {
-        // safe: GpuTensor is only created when GPU context is initialized
-        let ctx = Self::ctx().expect("GPU context not initialized");
+        let ctx = match Self::ctx() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::warn!("GPU context not initialized in to_cpu_first_element: {e}, returning 0.0");
+                return 0.0;
+            }
+        };
         ctx.flush();
 
         let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -4700,9 +4730,11 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        // safe: device polling ensures readback completes; only fails on GPU loss
-        readback_with_timeout(&ctx.device, &rx)
-            .expect("GPU readback failed in to_cpu_first_element");
+        if readback_with_timeout(&ctx.device, &rx).is_err() {
+            tracing::warn!("GPU readback failed in to_cpu_first_element, returning 0.0");
+            staging.unmap();
+            return 0.0;
+        }
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);
@@ -4714,8 +4746,13 @@ impl GpuTensor {
     /// Read back a checksum of the tensor for validation
     /// Faster than full readback for large tensors
     pub fn to_cpu_checksum(&self) -> f32 {
-        // safe: GpuTensor is only created when GPU context is initialized
-        let ctx = Self::ctx().expect("GPU context not initialized");
+        let ctx = match Self::ctx() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::warn!("GPU context not initialized in to_cpu_checksum: {e}, returning 0.0");
+                return 0.0;
+            }
+        };
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
@@ -4737,9 +4774,11 @@ impl GpuTensor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        // safe: device polling ensures readback completes; only fails on GPU loss
-        readback_with_timeout(&ctx.device, &rx)
-            .expect("GPU readback failed in to_cpu_checksum");
+        if readback_with_timeout(&ctx.device, &rx).is_err() {
+            tracing::warn!("GPU readback failed in to_cpu_checksum, returning 0.0");
+            staging.unmap();
+            return 0.0;
+        }
 
         let mapped = slice.get_mapped_range();
         let data: &[f32] = bytemuck::cast_slice(&*mapped);

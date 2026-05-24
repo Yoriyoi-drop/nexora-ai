@@ -11,7 +11,8 @@ use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock, Semaphore};
-use tracing::{debug, error, info};
+use tokio::task::JoinHandle;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Task dengan priority untuk execution
@@ -156,6 +157,7 @@ pub struct AsyncTaskExecutor {
     metrics: Arc<RwLock<ExecutorMetrics>>,
     shutdown: Arc<RwLock<bool>>,
     notifier: Arc<tokio::sync::Notify>,
+    background_tasks: Arc<parking_lot::Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Task information for tracking
@@ -209,6 +211,7 @@ impl AsyncTaskExecutor {
             metrics: Arc::new(RwLock::new(ExecutorMetrics::default())),
             shutdown: Arc::new(RwLock::new(false)),
             notifier: Arc::new(tokio::sync::Notify::new()),
+            background_tasks: Arc::new(parking_lot::Mutex::new(Vec::new())),
         }
     }
 
@@ -228,16 +231,18 @@ impl AsyncTaskExecutor {
 
         // Start main worker loop
         let executor = self.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             executor.worker_loop(receiver).await;
         });
+        self.background_tasks.lock().push(handle);
 
         // Start metrics collection if enabled
         if self.config.enable_metrics {
             let executor = self.clone();
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 executor.metrics_loop().await;
             });
+            self.background_tasks.lock().push(handle);
         }
 
         info!("Async task executor started successfully");
@@ -316,9 +321,23 @@ impl AsyncTaskExecutor {
         self.metrics.read().await.clone()
     }
 
+    /// Check background task health, removing finished handles
+    pub fn check_background_tasks(&self) {
+        let mut tasks = self.background_tasks.lock();
+        tasks.retain(|h| {
+            if h.is_finished() {
+                warn!("Background task finished (may have panicked)");
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     /// Shutdown executor
     pub async fn shutdown(&self) {
         info!("Shutting down async task executor");
+        self.check_background_tasks();
 
         *self.shutdown.write().await = true;
 
@@ -564,6 +583,7 @@ impl Clone for AsyncTaskExecutor {
             metrics: Arc::clone(&self.metrics),
             shutdown: Arc::clone(&self.shutdown),
             notifier: Arc::clone(&self.notifier),
+            background_tasks: Arc::clone(&self.background_tasks),
         }
     }
 }

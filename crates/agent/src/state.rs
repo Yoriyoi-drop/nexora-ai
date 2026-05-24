@@ -160,18 +160,18 @@ impl AgentState {
     where
         F: FnOnce(&mut GlobalState),
     {
-        let mut global_state = self.global_state.write().await;
-        updater(&mut global_state);
-        global_state.last_updated = Utc::now();
-
-        // Skip full-state clone for diff — use dirty-key tracking instead
-        let changed_keys: Vec<String> = global_state
-            .system_config
-            .keys()
-            .chain(global_state.counters.keys())
-            .chain(global_state.flags.keys())
-            .cloned()
-            .collect();
+        let changed_keys = {
+            let mut global_state = self.global_state.write().await;
+            updater(&mut global_state);
+            global_state.last_updated = Utc::now();
+            global_state
+                .system_config
+                .keys()
+                .chain(global_state.counters.keys())
+                .chain(global_state.flags.keys())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         for key in changed_keys {
             self.emit_state_change(StateChangeEvent::GlobalStateChanged {
                 key,
@@ -243,10 +243,11 @@ impl AgentState {
             status: SessionStatus::Active,
         };
 
-        let mut session_states = self.session_states.write().await;
-        session_states.insert(session_id, session_state);
+        {
+            let mut session_states = self.session_states.write().await;
+            session_states.insert(session_id, session_state);
+        }
 
-        // Emit event
         self.emit_state_change(StateChangeEvent::SessionCreated { session_id })
             .await;
 
@@ -264,25 +265,21 @@ impl AgentState {
     where
         F: FnOnce(&mut SessionState),
     {
-        let mut session_states = self.session_states.write().await;
-
-        if let Some(session_state) = session_states.get_mut(&session_id) {
+        let (old_data, new_data) = {
+            let mut session_states = self.session_states.write().await;
+            let session_state = session_states.get_mut(&session_id).ok_or_else(|| {
+                AgentError::StateError(format!("Session {} not found", session_id))
+            })?;
             let old_data = session_state.data.clone();
-
             updater(session_state);
             session_state.last_activity = Utc::now();
+            let new_data = session_state.data.clone();
+            (old_data, new_data)
+        };
 
-            // Emit changes
-            self.emit_session_state_changes(session_id, &old_data, &session_state.data)
-                .await;
+        self.emit_session_state_changes(session_id, &old_data, &new_data).await;
 
-            Ok(())
-        } else {
-            Err(AgentError::StateError(format!(
-                "Session {} not found",
-                session_id
-            )))
-        }
+        Ok(())
     }
 
     /// Set session data
@@ -331,10 +328,11 @@ impl AgentState {
             last_updated: Utc::now(),
         };
 
-        let mut agent_states = self.agent_states.write().await;
-        agent_states.insert(agent_id, agent_state);
+        {
+            let mut agent_states = self.agent_states.write().await;
+            agent_states.insert(agent_id, agent_state);
+        }
 
-        // Emit event
         self.emit_state_change(StateChangeEvent::AgentRegistered { agent_id })
             .await;
 
@@ -343,10 +341,11 @@ impl AgentState {
 
     /// Unregister agent state
     pub async fn unregister_agent(&self, agent_id: Uuid) -> Result<()> {
-        let mut agent_states = self.agent_states.write().await;
-        agent_states.remove(&agent_id);
+        {
+            let mut agent_states = self.agent_states.write().await;
+            agent_states.remove(&agent_id);
+        }
 
-        // Emit event
         self.emit_state_change(StateChangeEvent::AgentUnregistered { agent_id })
             .await;
 
@@ -364,25 +363,22 @@ impl AgentState {
     where
         F: FnOnce(&mut AgentSpecificState),
     {
-        let mut agent_states = self.agent_states.write().await;
-
-        if let Some(agent_state) = agent_states.get_mut(&agent_id) {
+        let (old_shared_data, new_shared_data) = {
+            let mut agent_states = self.agent_states.write().await;
+            let agent_state = agent_states.get_mut(&agent_id).ok_or_else(|| {
+                AgentError::StateError(format!("Agent {} not found", agent_id))
+            })?;
             let old_shared_data = agent_state.shared_data.clone();
-
             updater(agent_state);
             agent_state.last_updated = Utc::now();
+            let new_shared_data = agent_state.shared_data.clone();
+            (old_shared_data, new_shared_data)
+        };
 
-            // Emit changes
-            self.emit_agent_state_changes(agent_id, &old_shared_data, &agent_state.shared_data)
-                .await;
+        self.emit_agent_state_changes(agent_id, &old_shared_data, &new_shared_data)
+            .await;
 
-            Ok(())
-        } else {
-            Err(AgentError::StateError(format!(
-                "Agent {} not found",
-                agent_id
-            )))
-        }
+        Ok(())
     }
 
     /// Set agent private data

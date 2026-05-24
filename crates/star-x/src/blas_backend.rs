@@ -1,22 +1,20 @@
-//! Pure-Rust linear algebra for STAR-X. All "BLAS" backends (MKL, OpenBLAS,
-//! Accelerate) delegate to [`gemm_ndarray_fallback`] — a pure-Rust ndarray-based
-//! matmul. There is NO actual C BLAS library linked.
+//! Linear algebra for STAR-X with C BLAS acceleration via ndarray.
 //!
-//! Detection uses `libloading::Library::new()` which loads the real `.so`/`.dylib`
-//! at runtime (not `Path::exists`). If a real BLAS is on `LD_LIBRARY_PATH` the
-//! detection will succeed, but execution still routes through ndarray — the enum
-//! tag is cosmetic.
+//! The MKL/OpenBLAS/Accelerate backends delegate to
+//! [`ndarray::linalg::general_mat_mul`], which uses C BLAS when ndarray is
+//! compiled with the `blas` feature. Without it, ndarray provides a pure-Rust
+//! fallback.
 //!
-//| To add real BLAS acceleration:
-//! 1. Add `cblas-sys` / `accelerate` / `intel-mkl-src` as a dependency
-//! 2. Replace the body of the relevant `gemm_{mkl,openblas,accelerate}` with FFI
-//!    calls to `cblas_sgemm` etc.
-//! 3. Remove this notice.
+//! Detection uses `libloading::Library::new()` to verify library presence at
+//! runtime. Execution always goes through ndarray's `general_mat_mul`.
+//! To enable C BLAS: add `features = ["blas"]` to ndarray in Cargo.toml
+//! and link `blas-src` + a provider (`openblas-src`, `intel-mkl-src`).
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
 use tracing::warn;
 use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
+use ndarray::linalg::general_mat_mul;
 use std::arch::x86_64::*;
 
 /// BLAS Backend types untuk runtime selection
@@ -331,7 +329,9 @@ impl BlasOperations {
     // the real library via libloading but execution still goes through ndarray.
     // To wire up real BLAS, replace the body with `cblas_sgemm` FFI calls.
 
-    /// GEMM via ndarray::dot (ndarray fallback — not actual MKL/OpenBLAS/Accelerate).
+    /// GEMM via ndarray::linalg::general_mat_mul.
+    /// Uses C BLAS when ndarray is compiled with the `blas` feature,
+    /// pure-Rust ndarray arithmetic otherwise.
     fn gemm_ndarray_fallback(
         &self,
         alpha: f32,
@@ -358,12 +358,7 @@ impl BlasOperations {
             });
         }
 
-        let mut result = a.dot(&b) * alpha;
-        result = result + beta * c.to_owned();
-
-        for ((i, j), &val) in result.indexed_iter() {
-            c[[i, j]] = val;
-        }
+        general_mat_mul(alpha, &a, &b, beta, &mut c);
 
         Ok(())
     }

@@ -6,6 +6,7 @@
 //!
 //! Pipeline: User-built graph → IR → Graph Optimizer → Backend Runtime
 
+pub mod backend;
 pub mod compiled;
 pub mod eager;
 pub mod ir;

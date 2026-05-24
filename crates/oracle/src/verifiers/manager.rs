@@ -38,8 +38,27 @@ pub trait CodeVerifier: Send + Sync {
         Ok(Vec::new())
     }
 
-    fn calculate_complexity(&self, _code: &str) -> f32 {
-        1.0
+    fn calculate_complexity(&self, code: &str) -> f32 {
+        let lines = code.lines().count() as f32;
+        if lines < 1.0 {
+            return 1.0;
+        }
+        let branching_keywords = [
+            " if ", "else if", "for ", "while ", "case ", "catch ", " && ", " || ",
+            "match ", "when ",
+        ];
+        let branch_count: usize = branching_keywords
+            .iter()
+            .map(|kw| code.matches(kw).count())
+            .sum();
+        let functions = code.matches("fn ").count()
+            + code.matches("def ").count()
+            + code.matches("function ").count()
+            + code.matches("=>").count()
+            + code.matches("-> {").count();
+        let nesting = code.matches('{').count().max(code.matches('}').count());
+        let raw = 1.0 + branch_count as f32 * 0.5 + functions as f32 * 0.3 + (nesting as f32 / lines.max(1.0));
+        raw.min(50.0).max(1.0)
     }
 
     fn generate_performance_suggestions(&self, _issues: &[CodeIssue]) -> Vec<String> {

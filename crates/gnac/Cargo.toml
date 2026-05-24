@@ -14,7 +14,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-autograd = { path = "../autograd" }
 
 [features]
 default = ["std", "gpu"]

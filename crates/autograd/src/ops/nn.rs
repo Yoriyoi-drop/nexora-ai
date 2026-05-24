@@ -1,5 +1,5 @@
 use ndarray::{s, ArrayD};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::super::tensor::Tensor;
 use super::math;
@@ -52,7 +52,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                 None,
                             );
                         }
-                        Err(e) => debug!("autograd nn backward failed: {e}")
+                        Err(e) => warn!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -180,9 +180,9 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => debug!("autograd nn backward failed: {e}")
+                            Err(e) => warn!("autograd nn backward failed: {e}")
                         },
-                        Err(e) => debug!("autograd nn backward failed: {e}")
+                        Err(e) => warn!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -371,7 +371,7 @@ pub fn layer_norm_2d(
                                         None,
                                     );
                                 }
-                                Err(e) => debug!("autograd nn backward failed: {e}")
+                                Err(e) => warn!("autograd nn backward failed: {e}")
                             }
                         }
                     }
@@ -557,82 +557,47 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                 let x = &saved_gpu[0];
                                 let t = &saved_gpu[1];
                                 let shape = x.shape();
-                                let eps = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7)) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: eps from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let one_minus_eps = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7)) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: 1-eps from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let x_minus_eps = match ctx.sub(x, &eps) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: sub failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let r = match ctx.relu(&x_minus_eps) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: relu failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let p = match ctx.add(&r, &eps) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: add failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let diff = match ctx.sub(&one_minus_eps, &p) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: sub2 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let r2 = match ctx.relu(&diff) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: relu2 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let p = match ctx.sub(&one_minus_eps, &r2) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: sub3 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let p_minus_t = match ctx.sub(&p, t) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: sub4 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let num = match ctx.mul(grad_gpu, &p_minus_t) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: mul failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let ones = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0)) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: ones from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let one_minus_p = match ctx.sub(&ones, &p) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: sub5 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let denom = match ctx.mul(&p, &one_minus_p) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: mul2 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let eps2 = match crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12)) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: eps2 from_cpu failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let denom_minus_eps2 = match ctx.sub(&denom, &eps2) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: sub6 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let r3 = match ctx.relu(&denom_minus_eps2) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: relu3 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                let denom = match ctx.add(&r3, &eps2) {
-                                    Ok(v) => v,
-                                    Err(e) => { tracing::error!("BCE backward: add2 failed: {e}"); return vec![grad_gpu.clone()]; }
-                                };
-                                match ctx.div(&num, &denom) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => { tracing::error!("BCE backward: div failed: {e}"); vec![grad_gpu.clone()] }
-                                }
+                                let eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7))
+                                    .map_err(|e| format!("BCE backward: eps from_cpu failed: {e}"))?;
+                                let one_minus_eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7))
+                                    .map_err(|e| format!("BCE backward: 1-eps from_cpu failed: {e}"))?;
+                                let x_minus_eps = ctx.sub(x, &eps)
+                                    .map_err(|e| format!("BCE backward: sub failed: {e}"))?;
+                                let r = ctx.relu(&x_minus_eps)
+                                    .map_err(|e| format!("BCE backward: relu failed: {e}"))?;
+                                let p = ctx.add(&r, &eps)
+                                    .map_err(|e| format!("BCE backward: add failed: {e}"))?;
+                                let diff = ctx.sub(&one_minus_eps, &p)
+                                    .map_err(|e| format!("BCE backward: sub2 failed: {e}"))?;
+                                let r2 = ctx.relu(&diff)
+                                    .map_err(|e| format!("BCE backward: relu2 failed: {e}"))?;
+                                let p = ctx.sub(&one_minus_eps, &r2)
+                                    .map_err(|e| format!("BCE backward: sub3 failed: {e}"))?;
+                                let p_minus_t = ctx.sub(&p, t)
+                                    .map_err(|e| format!("BCE backward: sub4 failed: {e}"))?;
+                                let num = ctx.mul(grad_gpu, &p_minus_t)
+                                    .map_err(|e| format!("BCE backward: mul failed: {e}"))?;
+                                let ones = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0))
+                                    .map_err(|e| format!("BCE backward: ones from_cpu failed: {e}"))?;
+                                let one_minus_p = ctx.sub(&ones, &p)
+                                    .map_err(|e| format!("BCE backward: sub5 failed: {e}"))?;
+                                let denom = ctx.mul(&p, &one_minus_p)
+                                    .map_err(|e| format!("BCE backward: mul2 failed: {e}"))?;
+                                let eps2 = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12))
+                                    .map_err(|e| format!("BCE backward: eps2 from_cpu failed: {e}"))?;
+                                let denom_minus_eps2 = ctx.sub(&denom, &eps2)
+                                    .map_err(|e| format!("BCE backward: sub6 failed: {e}"))?;
+                                let r3 = ctx.relu(&denom_minus_eps2)
+                                    .map_err(|e| format!("BCE backward: relu3 failed: {e}"))?;
+                                let denom = ctx.add(&r3, &eps2)
+                                    .map_err(|e| format!("BCE backward: add2 failed: {e}"))?;
+                                let result = ctx.div(&num, &denom)
+                                    .map_err(|e| format!("BCE backward: div failed: {e}"))?;
+                                Ok(vec![result])
                             })),
                         );
                     }
-                    Err(e) => debug!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -745,7 +710,7 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -874,7 +839,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -997,7 +962,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}")
                 }
             }
         }
@@ -1227,7 +1192,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                 None,
                             );
                         }
-                        Err(e) => debug!("autograd nn backward failed: {e}")
+                        Err(e) => warn!("autograd nn backward failed: {e}")
                     }
                 }
             }
@@ -1354,7 +1319,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}")
                 }
             }
         }

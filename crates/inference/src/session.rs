@@ -192,8 +192,10 @@ impl InferenceSession {
 
     /// Set session state
     pub async fn set_state(&self, new_state: SessionState) {
-        let mut state = self.state.write().await;
-        *state = new_state;
+        {
+            let mut state = self.state.write().await;
+            *state = new_state;
+        }
         self.update_last_activity().await;
     }
 
@@ -204,8 +206,10 @@ impl InferenceSession {
 
     /// Set metadata value
     pub async fn set_metadata(&self, key: String, value: serde_json::Value) {
-        let mut metadata = self.metadata.write().await;
-        metadata.insert(key, value);
+        {
+            let mut metadata = self.metadata.write().await;
+            metadata.insert(key, value);
+        }
         self.update_last_activity().await;
     }
 
@@ -284,15 +288,19 @@ impl InferenceSession {
 
     /// Set context in cache
     pub async fn set_context(&self, key: String, value: serde_json::Value) {
-        let mut cache = self.context_cache.write().await;
-        cache.insert(key, value);
+        {
+            let mut cache = self.context_cache.write().await;
+            cache.insert(key, value);
+        }
         self.update_last_activity().await;
     }
 
     /// Clear context cache
     pub async fn clear_context_cache(&self) {
-        let mut cache = self.context_cache.write().await;
-        cache.clear();
+        {
+            let mut cache = self.context_cache.write().await;
+            cache.clear();
+        }
         self.update_last_activity().await;
     }
 

@@ -1,5 +1,6 @@
 use ndarray::ArrayD;
 use std::fmt;
+use std::sync::Arc;
 
 /// Physical device where tensor data resides
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -31,11 +32,21 @@ impl fmt::Display for Device {
 }
 
 /// Internal tensor storage — wraps concrete array types per device
-#[derive(Clone)]
+/// CPU storage uses Arc for O(1) clone and zero-copy data access.
 pub enum Storage {
-    Cpu(ArrayD<f32>),
+    Cpu(Arc<ArrayD<f32>>),
     #[cfg(feature = "gpu")]
     Gpu(crate::gpu::GpuTensor),
+}
+
+impl Clone for Storage {
+    fn clone(&self) -> Self {
+        match self {
+            Storage::Cpu(arr) => Storage::Cpu(Arc::clone(arr)),
+            #[cfg(feature = "gpu")]
+            Storage::Gpu(t) => Storage::Gpu(t.clone()),
+        }
+    }
 }
 
 impl Storage {
@@ -67,10 +78,10 @@ impl Storage {
         }
     }
 
-    /// Extract CPU data — panics if on GPU without conversion
+    /// Extract CPU data — clones data. For zero-copy access, use as_cpu() or data_arc().
     pub fn to_cpu(&self) -> ArrayD<f32> {
         match self {
-            Storage::Cpu(arr) => arr.clone(),
+            Storage::Cpu(arr) => arr.as_ref().clone(),
             #[cfg(feature = "gpu")]
             Storage::Gpu(t) => t.to_cpu(),
         }
@@ -79,7 +90,7 @@ impl Storage {
     /// Return CPU reference if available
     pub fn as_cpu(&self) -> Option<&ArrayD<f32>> {
         match self {
-            Storage::Cpu(arr) => Some(arr),
+            Storage::Cpu(arr) => Some(arr.as_ref()),
             #[cfg(feature = "gpu")]
             Storage::Gpu(_) => None,
         }
@@ -87,7 +98,7 @@ impl Storage {
 
     pub fn as_cpu_mut(&mut self) -> Option<&mut ArrayD<f32>> {
         match self {
-            Storage::Cpu(arr) => Some(arr),
+            Storage::Cpu(arr) => Some(Arc::make_mut(arr)),
             #[cfg(feature = "gpu")]
             Storage::Gpu(_) => None,
         }
@@ -95,16 +106,25 @@ impl Storage {
 
     pub fn into_cpu(self) -> ArrayD<f32> {
         match self {
-            Storage::Cpu(arr) => arr,
+            Storage::Cpu(arr) => Arc::unwrap_or_clone(arr),
             #[cfg(feature = "gpu")]
             Storage::Gpu(t) => t.to_cpu(),
+        }
+    }
+
+    /// Returns Arc<ArrayD<f32>> — O(1) for CPU, O(N) readback for GPU.
+    pub fn data_arc(&self) -> Arc<ArrayD<f32>> {
+        match self {
+            Storage::Cpu(arr) => Arc::clone(arr),
+            #[cfg(feature = "gpu")]
+            Storage::Gpu(t) => Arc::new(t.to_cpu()),
         }
     }
 }
 
 impl From<ArrayD<f32>> for Storage {
     fn from(arr: ArrayD<f32>) -> Self {
-        Storage::Cpu(arr)
+        Storage::Cpu(Arc::new(arr))
     }
 }
 

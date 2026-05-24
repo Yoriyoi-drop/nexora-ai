@@ -1,5 +1,5 @@
-use ndarray::ArrayD;
-use tracing::debug;
+use ndarray::{ArrayD, IxDyn};
+use tracing::{debug, warn};
 
 use super::super::broadcast;
 use super::super::tensor::Tensor;
@@ -45,7 +45,7 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                 });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
-                                    vec![],
+                                    vec![a.clone(), b.clone()],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![ga.clone(), gb.clone()],
                                     Box::new(|grad, saved| {
@@ -60,7 +60,7 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => debug!("autograd math backward failed: {e}")
+                            Err(e) => warn!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -80,7 +80,7 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![],
+        vec![a.clone(), b.clone()],
         vec![
             ArrayD::from_shape_vec(
                 vec![a_shape.len()],
@@ -148,7 +148,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                 });
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
-                                    vec![],
+                                    vec![a.clone(), b.clone()],
                                     vec![a_shape_saved, b_shape_saved],
                                     vec![ga.clone(), gb.clone()],
                                     Box::new(|grad, saved| {
@@ -163,7 +163,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => debug!("autograd math backward failed: {e}")
+                            Err(e) => warn!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -183,7 +183,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
     let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![],
+        vec![a.clone(), b.clone()],
         vec![
             ArrayD::from_shape_vec(
                 vec![a_shape.len()],
@@ -231,44 +231,21 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                     let id = next_tensor_id();
                                     return Tensor::from_gpu(gpu_result, id, false);
                                 }
-                                let a_shape = a.shape();
-                                let b_shape = b.shape();
-                                let ga_clone = ga.clone();
-                                let gb_clone = gb.clone();
-                                let a_shape_saved = ArrayD::from_shape_vec(
-                                    vec![a_shape.len()],
-                                    a_shape.iter().map(|&x| x as f32).collect(),
-                                )
-                                .unwrap_or_else(|e| {
-                                    debug!("shape encoding failed (infallible): {e}");
-                                    ArrayD::zeros(vec![0])
-                                });
-                                let b_shape_saved = ArrayD::from_shape_vec(
-                                    vec![b_shape.len()],
-                                    b_shape.iter().map(|&x| x as f32).collect(),
-                                )
-                                .unwrap_or_else(|e| {
-                                    debug!("shape encoding failed (infallible): {e}");
-                                    ArrayD::zeros(vec![0])
-                                });
+
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
+                                    vec![a.clone(), b.clone()],
                                     vec![],
-                                    vec![a_shape_saved, b_shape_saved],
-                                    vec![ga_clone, gb_clone],
-                                    Box::new(|grad, saved| {
-                                        let a_shape: Vec<usize> =
-                                            saved[0].iter().map(|&x| x as usize).collect();
-                                        let b_shape: Vec<usize> =
-                                            saved[1].iter().map(|&x| x as usize).collect();
-                                        let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
-                                        let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
-                                        vec![da, db]
+                                    vec![ga.clone(), gb.clone()],
+                                    Box::new(|grad, _saved| {
+                                        let ga = grad.clone();
+                                        let gb = grad.clone();
+                                        vec![ga, gb]
                                     }),
                                     None,
                                 );
                             }
-                            Err(e) => debug!("autograd math backward failed: {e}")
+                            Err(e) => warn!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -284,38 +261,15 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
     if !requires_grad {
         return Tensor::new(result);
     }
-    let a_shape = a_data.shape().to_vec();
-    let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
         result,
-        vec![],
-        vec![
-            a_bc.clone(),
-            b_bc.clone(),
-            ArrayD::from_shape_vec(
-                vec![a_shape.len()],
-                a_shape.iter().map(|&x| x as f32).collect(),
-            )
-            .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            }),
-            ArrayD::from_shape_vec(
-                vec![b_shape.len()],
-                b_shape.iter().map(|&x| x as f32).collect(),
-            )
-            .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            }),
-        ],
+        vec![a.clone(), b.clone()],
+        vec![a_bc.clone(), b_bc.clone()],
         Box::new(|grad, saved| {
-            let a_val = &saved[0];
-            let b_val = &saved[1];
-            let a_shape: Vec<usize> = saved[2].iter().map(|&x| x as usize).collect();
-            let b_shape: Vec<usize> = saved[3].iter().map(|&x| x as usize).collect();
-            let da = broadcast::reduce_grad_for_shape(&(grad.clone() * b_val), &a_shape);
-            let db = broadcast::reduce_grad_for_shape(&(grad.clone() * a_val), &b_shape);
+            let a_bc = &saved[0];
+            let b_bc = &saved[1];
+            let da = grad.clone() * b_bc;
+            let db = grad.clone() * a_bc;
             vec![da, db]
         }),
     )
@@ -338,44 +292,21 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     let id = next_tensor_id();
                                     return Tensor::from_gpu(gpu_result, id, false);
                                 }
-                                let a_shape = a.shape();
-                                let b_shape = b.shape();
-                                let ga_clone = ga.clone();
-                                let gb_clone = gb.clone();
-                                let a_shape_saved = ArrayD::from_shape_vec(
-                                    vec![a_shape.len()],
-                                    a_shape.iter().map(|&x| x as f32).collect(),
-                                )
-                                .unwrap_or_else(|e| {
-                                    debug!("shape encoding failed (infallible): {e}");
-                                    ArrayD::zeros(vec![0])
-                                });
-                                let b_shape_saved = ArrayD::from_shape_vec(
-                                    vec![b_shape.len()],
-                                    b_shape.iter().map(|&x| x as f32).collect(),
-                                )
-                                .unwrap_or_else(|e| {
-                                    debug!("shape encoding failed (infallible): {e}");
-                                    ArrayD::zeros(vec![0])
-                                });
+
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
+                                    vec![a.clone(), b.clone()],
                                     vec![],
-                                    vec![a_shape_saved, b_shape_saved],
-                                    vec![ga_clone, gb_clone],
-                                    Box::new(|grad, saved| {
-                                        let a_shape: Vec<usize> =
-                                            saved[0].iter().map(|&x| x as usize).collect();
-                                        let b_shape: Vec<usize> =
-                                            saved[1].iter().map(|&x| x as usize).collect();
-                                        let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
-                                        let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
-                                        vec![da, db]
+                                    vec![ga.clone(), gb.clone()],
+                                    Box::new(|grad, _saved| {
+                                        let ga = grad.clone();
+                                        let gb = -grad.clone();
+                                        vec![ga, gb]
                                     }),
                                     None,
                                 );
                             }
-                            Err(e) => debug!("autograd math backward failed: {e}")
+                            Err(e) => warn!("autograd math backward failed: {e}")
                         }
                     }
                 }
@@ -391,41 +322,20 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
     if !requires_grad {
         return Tensor::new(result);
     }
-    let a_shape = a_data.shape().to_vec();
-    let b_shape = b_data.shape().to_vec();
     Tensor::with_grad_fn(
-        result,
-        vec![],
+        result.clone(),
+        vec![a.clone(), b.clone()],
         vec![
             a_bc.clone(),
             b_bc.clone(),
-            ArrayD::from_shape_vec(
-                vec![a_shape.len()],
-                a_shape.iter().map(|&x| x as f32).collect(),
-            )
-            .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            }),
-            ArrayD::from_shape_vec(
-                vec![b_shape.len()],
-                b_shape.iter().map(|&x| x as f32).collect(),
-            )
-            .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            }),
+            result.clone(),
         ],
         Box::new(|grad, saved| {
-            let a_val = &saved[0];
-            let b_val = &saved[1];
-            let a_shape: Vec<usize> = saved[2].iter().map(|&x| x as usize).collect();
-            let b_shape: Vec<usize> = saved[3].iter().map(|&x| x as usize).collect();
-            let da = broadcast::reduce_grad_for_shape(&(grad.clone() / b_val), &a_shape);
-            let db = broadcast::reduce_grad_for_shape(
-                &(grad.clone() * (-a_val) / (b_val * b_val)),
-                &b_shape,
-            );
+            let a_bc = &saved[0];
+            let b_bc = &saved[1];
+            let result_val = &saved[2];
+            let da = grad.clone() / b_bc;
+            let db = -grad.clone() * result_val / b_bc;
             vec![da, db]
         }),
     )
@@ -434,56 +344,50 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
 pub fn exp(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        let input_storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &input_storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.exp(gpu_input) {
                     Ok(gpu_result) => {
-                        if !input.requires_grad() {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let result_cpu = gpu_result.to_cpu();
-                        let gpu_saved = gpu_result.clone();
+                        let result_cpu = input.data().mapv(|x| x.exp());
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![],
+                            vec![input.clone()],
                             vec![result_cpu],
-                            vec![gpu_saved],
+                            vec![gpu_input.clone()],
                             Box::new(|grad, saved| {
-                                let e = &saved[0];
-                                vec![grad.clone() * e]
+                                let result_val = &saved[0];
+                                let da = grad.clone() * result_val;
+                                vec![da]
                             }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let y = &saved_gpu[0];
-                                match ctx.mul(grad_gpu, y) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward exp mul failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
-                            })),
+                            None,
                         );
                     }
-                    Err(e) => debug!("autograd math backward failed: {e}")
+                    Err(e) => warn!("autograd math backward failed: {e}")
                 }
             }
         }
     }
     let data = input.data();
     let result = data.mapv(|x| x.exp());
-    if !input.requires_grad() {
+    let requires_grad = input.requires_grad();
+    if !requires_grad {
         return Tensor::new(result);
     }
-    let saved = result.clone();
+
     Tensor::with_grad_fn(
-        result,
-        vec![],
-        vec![saved],
+        result.clone(),
+        vec![input.clone()],
+        vec![result.clone()],
         Box::new(|grad, saved| {
-            let e = &saved[0];
-            vec![grad.clone() * e]
+            let result_val = &saved[0];
+            let da = grad.clone() * result_val;
+            vec![da]
         }),
     )
 }
@@ -491,57 +395,50 @@ pub fn exp(input: &Tensor) -> Tensor {
 pub fn ln(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        let input_storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &input_storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.elementwise_unary(gpu_input, ElemOp::Ln) {
                     Ok(gpu_result) => {
-                        if !input.requires_grad() {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let input_cpu = input.data();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![],
+                            vec![input.clone()],
                             vec![input_cpu],
                             vec![gpu_input.clone()],
                             Box::new(|grad, saved| {
-                                let x = &saved[0];
-                                let dx = x.mapv(|v| 1.0 / v.max(1e-38));
-                                vec![grad.clone() * dx]
+                                let input_val = &saved[0];
+                                let da = grad.clone() / input_val;
+                                vec![da]
                             }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let x = &saved_gpu[0];
-                                match ctx.div(grad_gpu, x) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward ln div failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
-                            })),
+                            None,
                         );
                     }
-                    Err(e) => debug!("autograd math backward failed: {e}")
+                    Err(e) => warn!("autograd math backward failed: {e}")
                 }
             }
         }
     }
     let data = input.data();
-    let result = data.mapv(|x| x.max(1e-38).ln());
-    if !input.requires_grad() {
+    let result = data.mapv(|x| x.ln());
+    let requires_grad = input.requires_grad();
+    if !requires_grad {
         return Tensor::new(result);
     }
-    let saved = data.clone();
+
     Tensor::with_grad_fn(
         result,
-        vec![],
-        vec![saved],
+        vec![input.clone()],
+        vec![input.data().clone()],
         Box::new(|grad, saved| {
-            let x = &saved[0];
-            let dx = x.mapv(|v| 1.0 / v.max(1e-38));
-            vec![grad.clone() * dx]
+            let input_val = &saved[0];
+            let da = grad.clone() / input_val;
+            vec![da]
         }),
     )
 }
@@ -549,91 +446,54 @@ pub fn ln(input: &Tensor) -> Tensor {
 pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
-            if let Ok(ctx) = GpuContext::global() {
-                let exp_tensor = match
-                    GpuTensor::from_cpu(&ArrayD::from_elem(vec![1], exponent))
-                {
-                    Ok(t) => t,
-                    Err(e) => {
-                        debug!("GPU powf from_cpu failed, falling back to CPU: {e}");
-                        let data = input.data();
-                        let result = data.mapv(|x| x.powf(exponent));
-                        if !input.requires_grad() {
-                            let id = crate::tensor::next_tensor_id();
-                            return Tensor::new(result);
-                        }
-                        let saved_x = data.clone();
-                        return Tensor::with_grad_fn(
-                            result,
-                            vec![],
-                            vec![saved_x],
-                            Box::new(move |grad, saved| {
-                                let x = &saved[0];
-                                let dx = x.mapv(|v| {
-                                    if v == 0.0 && exponent < 1.0 {
-                                        0.0
-                                    } else {
-                                        exponent * v.powf(exponent - 1.0)
-                                    }
-                                });
-                                vec![grad.clone() * dx]
-                            }),
-                        );
-                    }
-                };
-                match ctx.elementwise_binary(gpu_input, &exp_tensor, ElemOp::Powf) {
+        let input_storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &input_storage {
+            if let Ok(_ctx) = GpuContext::global() {
+                let result_arr = input.data().mapv(|x| x.powf(exponent));
+                match GpuTensor::from_cpu(&result_arr) {
                     Ok(gpu_result) => {
-                        if !input.requires_grad() {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let input_cpu = gpu_input.to_cpu();
+                        let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
+                        let result_cpu = result_arr;
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![],
-                            vec![input_cpu],
+                            vec![input.clone()],
+                            vec![exponent_saved, result_cpu],
                             vec![gpu_input.clone()],
-                            Box::new(move |grad, saved| {
-                                let x = &saved[0];
-                                let dx = x.mapv(|v| {
-                                    if v == 0.0 && exponent < 1.0 {
-                                        0.0
-                                    } else {
-                                        exponent * v.powf(exponent - 1.0)
-                                    }
-                                });
-                                vec![grad.clone() * dx]
+                            Box::new(|grad, saved| {
+                                let exp = saved[0][IxDyn(&[])];
+                                let result_val = &saved[1];
+                                let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                vec![da]
                             }),
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd math backward failed: {e}")
+                    Err(e) => warn!("autograd math backward failed: {e}")
                 }
             }
         }
     }
     let data = input.data();
     let result = data.mapv(|x| x.powf(exponent));
-    if !input.requires_grad() {
+    let requires_grad = input.requires_grad();
+    if !requires_grad {
         return Tensor::new(result);
     }
-    let saved_x = data.clone();
+
     Tensor::with_grad_fn(
-        result,
-        vec![],
-        vec![saved_x],
-        Box::new(move |grad, saved| {
-            let x = &saved[0];
-            let dx = x.mapv(|v| {
-                if v == 0.0 && exponent < 1.0 {
-                    0.0
-                } else {
-                    exponent * v.powf(exponent - 1.0)
-                }
-            });
-            vec![grad.clone() * dx]
+        result.clone(),
+        vec![input.clone()],
+        vec![ArrayD::from_elem(IxDyn(&[]), exponent), result.clone()],
+        Box::new(|grad, saved| {
+            let exp = saved[0][IxDyn(&[])];
+            let result_val = &saved[1];
+            let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+            vec![da]
         }),
     )
 }
@@ -641,72 +501,50 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
 pub fn sqrt(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        let input_storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &input_storage {
             if let Ok(ctx) = GpuContext::global() {
-                match ctx.elementwise_unary(gpu_input, ElemOp::Sqrt) {
+                match ctx.sqrt(gpu_input) {
                     Ok(gpu_result) => {
-                        if !input.requires_grad() {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let result_cpu = gpu_result.to_cpu();
-                        let gpu_saved = gpu_result.clone();
+                        let result_cpu = input.data().mapv(|x| x.sqrt());
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
-                            vec![],
-                            vec![result_cpu],
-                            vec![gpu_saved],
+                            vec![input.clone()],
+                            vec![result_cpu.clone()],
+                            vec![gpu_input.clone()],
                             Box::new(|grad, saved| {
-                                let s = &saved[0];
-                                let dx = s.mapv(|v| 0.5 / v.max(1e-38));
-                                vec![grad.clone() * dx]
+                                let result_val = &saved[0];
+                                let da = grad.clone() / (2.0 * result_val);
+                                vec![da]
                             }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let y = &saved_gpu[0];
-                                let half = match GpuTensor::from_cpu(&ArrayD::from_elem(y.shape(), 0.5)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sqrt from_cpu failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let inv = match ctx.div(&half, y) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sqrt div failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                match ctx.mul(grad_gpu, &inv) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sqrt mul failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
-                            })),
+                            None,
                         );
                     }
-                    Err(e) => debug!("autograd math backward failed: {e}")
+                    Err(e) => warn!("autograd math backward failed: {e}")
                 }
             }
         }
     }
     let data = input.data();
-    let result = data.mapv(|x| x.max(0.0).sqrt());
-    if !input.requires_grad() {
+    let result = data.mapv(|x| x.sqrt());
+    let requires_grad = input.requires_grad();
+    if !requires_grad {
         return Tensor::new(result);
     }
-    let saved = result.clone();
+
     Tensor::with_grad_fn(
-        result,
-        vec![],
-        vec![saved],
+        result.clone(),
+        vec![input.clone()],
+        vec![result.clone()],
         Box::new(|grad, saved| {
-            let s = &saved[0];
-            let dx = s.mapv(|v| 0.5 / v.max(1e-38));
-            vec![grad.clone() * dx]
+            let result_val = &saved[0];
+            let da = grad.clone() / (2.0 * result_val);
+            vec![da]
         }),
     )
 }
@@ -714,46 +552,41 @@ pub fn sqrt(input: &Tensor) -> Tensor {
 pub fn neg(a: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let storage = a.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        let a_storage = a.storage();
+        if let Storage::Gpu(ga) = &a_storage {
             if let Ok(ctx) = GpuContext::global() {
-                match ctx.elementwise_unary(gpu_input, ElemOp::Neg) {
+                match ctx.elementwise_unary(ga, ElemOp::Neg) {
                     Ok(gpu_result) => {
-                        if !a.requires_grad() {
+                        let requires_grad = a.requires_grad();
+                        if !requires_grad {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
+                            vec![a.clone()],
                             vec![],
-                            vec![],
-                            vec![],
-                            Box::new(|grad, _| vec![-grad.clone()]),
-                            Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                match ctx.elementwise_unary(grad_gpu, ElemOp::Neg) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward neg failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
-                            })),
+                            vec![ga.clone()],
+                            Box::new(|grad, _saved| vec![-grad.clone()]),
+                            None,
                         );
                     }
-                    Err(e) => debug!("autograd math backward failed: {e}")
+                    Err(e) => warn!("autograd math backward failed: {e}")
                 }
             }
         }
     }
-    let a_data = a.data();
-    let result = -&a_data;
-    if !a.requires_grad() {
+    let data = a.data();
+    let result = -&data;
+    let requires_grad = a.requires_grad();
+    if !requires_grad {
         return Tensor::new(result);
     }
+
     Tensor::with_grad_fn(
         result,
+        vec![a.clone()],
         vec![],
-        vec![],
-        Box::new(|grad, _| vec![-grad.clone()]),
-    )
+        Box::new(|grad, _saved| vec![-grad.clone()]),
+        )
 }

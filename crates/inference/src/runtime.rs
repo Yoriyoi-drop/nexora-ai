@@ -250,11 +250,13 @@ impl InferenceRuntime {
 
     /// Update runtime state
     pub async fn set_state(&self, new_state: RuntimeState) {
-        let mut state = self.state.write().await;
-        let old_state = state.clone();
-        *state = new_state.clone();
+        let old_state = {
+            let mut state = self.state.write().await;
+            let old_state = state.clone();
+            *state = new_state.clone();
+            old_state
+        };
 
-        // Emit state change event
         self.emit_event(
             RuntimeEventType::ConfigurationChanged,
             format!("State changed from {:?} to {:?}", old_state, new_state),
@@ -269,37 +271,36 @@ impl InferenceRuntime {
 
     /// Update resource usage
     pub async fn update_resource_usage(&self) -> Result<()> {
-        let mut usage = self.resource_usage.write().await;
+        // Collect all async data first without holding any locks
+        let cpu_usage = self.get_cpu_usage().await?;
+        let mem_bytes = self.get_memory_usage().await?;
+        let gpu_result = self.get_gpu_memory_usage().await.ok();
+        let active_threads = self.get_active_thread_count().await?;
+        let open_files = self.get_open_file_count().await?;
+        let network_io = self.get_network_io_bytes().await?;
+        let disk_io = self.get_disk_io_bytes().await?;
 
-        // Update CPU usage
-        usage.cpu_usage_percent = self.get_cpu_usage().await?;
+        // Write collected data under a single lock scope
+        let usage_snapshot = {
+            let mut usage = self.resource_usage.write().await;
+            usage.cpu_usage_percent = cpu_usage;
+            usage.memory_usage_bytes = mem_bytes;
+            usage.memory_usage_percent =
+                (mem_bytes as f64 / (self.config.max_memory_mb as f64 * 1024.0 * 1024.0)) * 100.0;
+            if let Some((gpu_bytes, gpu_percent)) = gpu_result {
+                usage.gpu_memory_usage_bytes = Some(gpu_bytes);
+                usage.gpu_memory_usage_percent = Some(gpu_percent);
+            }
+            usage.active_threads = active_threads;
+            usage.open_files = open_files;
+            usage.network_io_bytes = network_io;
+            usage.disk_io_bytes = disk_io;
+            usage.last_updated = Utc::now();
+            usage.clone()
+        };
 
-        // Update memory usage
-        usage.memory_usage_bytes = self.get_memory_usage().await?;
-        usage.memory_usage_percent = (usage.memory_usage_bytes as f64
-            / (self.config.max_memory_mb * 1024 * 1024) as f64)
-            * 100.0;
-
-        // Update GPU usage if available
-        if let Ok((gpu_bytes, gpu_percent)) = self.get_gpu_memory_usage().await {
-            usage.gpu_memory_usage_bytes = Some(gpu_bytes);
-            usage.gpu_memory_usage_percent = Some(gpu_percent);
-        }
-
-        // Update thread count
-        usage.active_threads = self.get_active_thread_count().await?;
-
-        // Update file descriptors
-        usage.open_files = self.get_open_file_count().await?;
-
-        // Update I/O stats
-        usage.network_io_bytes = self.get_network_io_bytes().await?;
-        usage.disk_io_bytes = self.get_disk_io_bytes().await?;
-
-        usage.last_updated = Utc::now();
-
-        // Check for resource warnings
-        self.check_resource_warnings(&usage).await;
+        // Check for resource warnings (lock already dropped)
+        self.check_resource_warnings(&usage_snapshot).await;
 
         Ok(())
     }

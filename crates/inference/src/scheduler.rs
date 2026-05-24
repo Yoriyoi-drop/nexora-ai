@@ -118,6 +118,7 @@ impl RequestScheduler {
                     }
                 }
                 tokio::select! {
+                    biased;
                     _ = shutdown_rx.changed() => {},
                     _ = notify.notified() => {},
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {},

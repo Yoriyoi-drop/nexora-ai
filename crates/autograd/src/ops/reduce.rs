@@ -1,5 +1,5 @@
 use ndarray::ArrayD;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
@@ -43,7 +43,7 @@ pub fn sum(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd reduce backward failed: {e}")
+                    Err(e) => warn!("autograd reduce backward failed: {e}")
                 }
             }
         }
@@ -120,7 +120,7 @@ pub fn mean(input: &Tensor) -> Tensor {
                         {
                             Ok(t) => t,
                             Err(e) => {
-                                debug!("autograd reduce numel_tensor failed: {e}");
+                                warn!("autograd reduce numel_tensor failed: {e}");
                                 return fallback_mean(input);
                             }
                         };
@@ -155,7 +155,7 @@ pub fn mean(input: &Tensor) -> Tensor {
                             );
                         }
                     }
-                    Err(e) => debug!("autograd reduce backward failed: {e}")
+                    Err(e) => warn!("autograd reduce backward failed: {e}")
                 }
             }
         }

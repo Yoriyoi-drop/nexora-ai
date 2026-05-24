@@ -895,14 +895,23 @@ impl InferenceEngineHandle {
                 });
                 sampler.set_use_gpu(use_gpu);
 
-                let (tokens, timed_out) = run_generation_loop(
-                    &model,
-                    &prompt_ids,
-                    max_gen,
-                    &mut sampler,
-                    &mut *kv_state,
-                    tokenizer.as_ref(),
-                );
+                let model_c = Arc::clone(&model);
+                let prompt_ids_c = prompt_ids.clone();
+                let (tokens, timed_out) = tokio::task::spawn_blocking(move || {
+                    run_generation_loop(
+                        &model_c,
+                        &prompt_ids_c,
+                        max_gen,
+                        &mut sampler,
+                        &mut *kv_state,
+                        tokenizer.as_ref(),
+                    )
+                })
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("Batch generation loop panicked: {:?}", e);
+                    (Vec::new(), true)
+                });
 
                 for token in tokens {
                     response.add_token(token);

@@ -1,5 +1,5 @@
 use ndarray::ArrayD;
-use tracing::debug;
+use tracing::warn;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
@@ -92,17 +92,13 @@ pub fn transpose(input: &Tensor) -> Tensor {
                                     vec![grad_mat.t().to_owned().into_dyn()]
                                 }),
                                 Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                    match ctx.transpose(grad_gpu) {
-                                        Ok(t) => vec![t],
-                                        Err(e) => {
-                                            tracing::error!("GPU transpose backward failed: {e}");
-                                            vec![grad_gpu.clone()]
-                                        }
-                                    }
+                                    ctx.transpose(grad_gpu)
+                                        .map(|t| vec![t])
+                                        .map_err(|e| format!("GPU transpose backward failed: {e}"))
                                 })),
                             );
                     }
-                    Err(e) => debug!("autograd shape backward failed: {e}")
+                    Err(e) => warn!("autograd shape backward failed: {e}")
                 }
             }
         }

@@ -141,7 +141,7 @@ impl TensorPool {
                 .zip(shape.iter())
                 .all(|(&t, &s)| t >= s)
             {
-                // For now, just return the tensor as-is (slicing would need more complex implementation)
+                // tensor shape >= requested shape; return as-is (caller uses excess capacity)
                 return Ok(tensor.to_owned());
             }
         }

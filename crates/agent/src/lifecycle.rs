@@ -87,11 +87,11 @@ pub struct LifecycleManager {
     /// Tracking status per agent
     agent_status: Arc<RwLock<HashMap<Uuid, AgentLifecycleStatus>>>,
     /// Event channel untuk lifecycle events
-    event_tx: mpsc::UnboundedSender<AgentLifecycleEvent>,
+    event_tx: mpsc::Sender<AgentLifecycleEvent>,
     /// Event receiver
-    _event_rx: Arc<RwLock<Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>>>>,
-    /// Event subscribers (bounded, buffer=32 per subscriber)
-    event_subscribers: Arc<tokio::sync::Mutex<Vec<mpsc::UnboundedSender<AgentLifecycleEvent>>>>,
+    _event_rx: Arc<RwLock<Option<mpsc::Receiver<AgentLifecycleEvent>>>>,
+    /// Event subscribers (buffer=1024 per subscriber)
+    event_subscribers: Arc<tokio::sync::Mutex<Vec<mpsc::Sender<AgentLifecycleEvent>>>>,
     /// Konfigurasi
     config: AgentManagerConfig,
 }
@@ -99,7 +99,7 @@ pub struct LifecycleManager {
 impl LifecycleManager {
     /// Create new lifecycle manager
     pub fn new(config: AgentManagerConfig) -> Self {
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (event_tx, event_rx) = mpsc::channel(1024);
 
         Self {
             agent_status: Arc::new(RwLock::new(HashMap::new())),
@@ -112,8 +112,14 @@ impl LifecycleManager {
 
     /// Emit lifecycle event
     fn emit_event(&self, event: AgentLifecycleEvent) {
-        if self.event_tx.send(event).is_err() {
-            warn!("Lifecycle event receiver dropped");
+        match self.event_tx.try_send(event) {
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!("Lifecycle event channel full — dropping event");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                warn!("Lifecycle event receiver dropped");
+            }
+            Ok(_) => {}
         }
     }
 
@@ -143,7 +149,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -173,7 +179,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -250,7 +256,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -277,7 +283,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -302,7 +308,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -332,7 +338,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -359,7 +365,7 @@ impl LifecycleManager {
             error: error.clone(),
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 
@@ -391,9 +397,9 @@ impl LifecycleManager {
     /// Get event subscriber
     pub async fn get_event_subscriber(
         &self,
-    ) -> Option<mpsc::UnboundedReceiver<AgentLifecycleEvent>> {
+    ) -> Option<mpsc::Receiver<AgentLifecycleEvent>> {
         // Implement proper subscription mechanism
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(1024);
 
         // Add subscriber to the list
         let mut subscribers = self.event_subscribers.lock().await;
@@ -469,7 +475,7 @@ impl LifecycleManager {
             agent_id,
             timestamp: now,
         };
-        if self.event_tx.send(event).is_err() {
+        if self.event_tx.send(event).await.is_err() {
             warn!("Lifecycle event receiver dropped");
         }
 

@@ -1,13 +1,29 @@
 use ndarray::ArrayD;
+use parking_lot::RwLock;
 use rand::Rng;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use super::device::{Device, Storage};
 use super::mixed_precision::DType;
 use super::tape;
 
 static TENSOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII guard providing zero-copy access to CPU tensor data.
+/// Holds the read lock so the data cannot be mutated while in use.
+pub struct DataRef<'a> {
+    _guard: parking_lot::RwLockReadGuard<'a, TensorInner>,
+    data: *const ArrayD<f32>,
+}
+
+impl<'a> Deref for DataRef<'a> {
+    type Target = ArrayD<f32>;
+    fn deref(&self) -> &ArrayD<f32> {
+        unsafe { &*self.data }
+    }
+}
 
 /// Global flag: when set, Tensor::new / from_slice / zeros / ones create GPU-resident
 /// tensors so that GPU ops (matmul, add, etc.) stay on GPU instead of falling back to CPU.
@@ -36,7 +52,7 @@ pub struct Tensor(Arc<RwLock<TensorInner>>);
 
 impl std::fmt::Debug for Tensor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let inner = self.0.read();
         f.debug_struct("Tensor")
             .field("id", &inner.id)
             .field("shape", &inner.storage.shape())
@@ -79,7 +95,7 @@ impl Tensor {
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(RwLock::new(TensorInner {
             id,
-            storage: Storage::Cpu(data),
+            storage: Storage::Cpu(Arc::new(data)),
             device: Device::Cpu,
             dtype: DType::F32,
             grad: None,
@@ -103,99 +119,78 @@ impl Tensor {
     }
 
     pub fn set_requires_grad(&self, val: bool) {
-        self.0
-            .write()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .requires_grad = val;
+        self.0.write().requires_grad = val;
     }
 
     pub fn requires_grad(&self) -> bool {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .requires_grad
+        self.0.read().requires_grad
     }
 
     pub fn id(&self) -> usize {
-        self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() }).id
+        self.0.read().id
     }
 
     pub fn device(&self) -> Device {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .device
-            .clone()
+        self.0.read().device.clone()
     }
 
     pub fn dtype(&self) -> DType {
-        self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() }).dtype
+        self.0.read().dtype
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .storage
-            .shape()
+        self.0.read().storage.shape()
     }
 
     pub fn ndim(&self) -> usize {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .storage
-            .ndim()
+        self.0.read().storage.ndim()
     }
 
     pub fn numel(&self) -> usize {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .storage
-            .numel()
+        self.0.read().storage.numel()
     }
 
     pub fn storage(&self) -> Storage {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .storage
-            .clone()
+        self.0.read().storage.clone()
     }
 
+    /// Zero-copy access to CPU data via a guard that holds the read lock.
+    /// Panics if tensor is on GPU — use `data()` for GPU readback.
+    pub fn data_ref(&self) -> DataRef<'_> {
+        let guard = self.0.read();
+        let ptr: *const ArrayD<f32> = match &guard.storage {
+            Storage::Cpu(arr) => arr.as_ref(),
+            #[cfg(feature = "gpu")]
+            Storage::Gpu(_) => panic!("data_ref() on GPU tensor — use data() for GPU readback"),
+        };
+        DataRef { _guard: guard, data: ptr }
+    }
+
+    /// Returns an `Arc<ArrayD<f32>>` — O(1) for CPU (refcount increment), O(N) GPU readback.
+    pub fn data_arc(&self) -> Arc<ArrayD<f32>> {
+        self.0.read().storage.data_arc()
+    }
+
+    /// Returns an owned copy of the tensor data (CPU clone or GPU readback).
     pub fn data(&self) -> ArrayD<f32> {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .storage
-            .to_cpu()
+        self.0.read().storage.to_cpu()
     }
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .grad
-            .as_ref()
-            .map(|g| g.to_cpu())
+        self.0.read().grad.as_ref().map(|g| g.to_cpu())
     }
 
     /// Returns the gradient storage directly (no CPU readback if on GPU).
     /// Use this in GPU training paths to avoid blocking GPU→CPU transfer.
     #[cfg(feature = "gpu")]
     pub fn grad_storage(&self) -> Option<Storage> {
-        self.0
-            .read()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .grad
-            .clone()
+        self.0.read().grad.clone()
     }
 
     /// Move tensor to a specific device.
     /// Falls back to CPU if GPU transfer fails.
     pub fn to_device(&self, target: &Device) -> Self {
-        let inner = self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let inner = self.0.read();
         if inner.device == *target {
             return self.clone();
         }
@@ -249,7 +244,7 @@ impl Tensor {
         #[cfg(feature = "gpu")]
         {
             matches!(
-                self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() }).device,
+                self.0.read().device,
                 Device::Gpu(_)
             )
         }
@@ -285,7 +280,6 @@ impl Tensor {
         let arr = match ArrayD::from_shape_vec(shape.to_vec(), data) {
             Ok(a) => a,
             Err(e) => {
-                // Fallback: should never happen since data length equals shape product
                 eprintln!("[tensor::randn] shape mismatch (unexpected): {e}");
                 ArrayD::zeros(shape.to_vec())
             }
@@ -378,7 +372,7 @@ impl Tensor {
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(RwLock::new(TensorInner {
             id,
-            storage: Storage::Cpu(data),
+            storage: Storage::Cpu(Arc::new(data)),
             device: Device::Cpu,
             dtype: DType::F32,
             grad: None,
@@ -414,21 +408,21 @@ impl Tensor {
     }
 
     pub(crate) fn accumulate_grad(&self, grad: &ArrayD<f32>) {
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let mut inner = self.0.write();
         match &inner.grad {
             Some(Storage::Cpu(arr)) => {
-                let mut existing = arr.clone();
+                let mut existing = arr.as_ref().clone();
                 existing += grad;
-                inner.grad = Some(Storage::Cpu(existing));
+                inner.grad = Some(Storage::Cpu(Arc::new(existing)));
             }
             #[cfg(feature = "gpu")]
             Some(Storage::Gpu(gpu)) => {
                 let mut existing = gpu.to_cpu();
                 existing += grad;
-                inner.grad = Some(Storage::Cpu(existing));
+                inner.grad = Some(Storage::Cpu(Arc::new(existing)));
             }
             None => {
-                inner.grad = Some(Storage::Cpu(grad.clone()));
+                inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
             }
         }
     }
@@ -437,17 +431,17 @@ impl Tensor {
     /// GPU+GPU accumulates entirely on GPU without CPU round-trip.
     #[cfg(feature = "gpu")]
     pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let mut inner = self.0.write();
         match (&mut inner.grad, grad) {
-            (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => *existing += g,
+            (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => *Arc::make_mut(existing) += g.as_ref(),
             (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
                 let g_cpu = g.to_cpu();
-                *existing += &g_cpu;
+                *Arc::make_mut(existing) += &g_cpu;
             }
             (Some(Storage::Gpu(existing)), Storage::Cpu(g)) => {
                 let mut e = existing.to_cpu();
-                e += g;
-                inner.grad = Some(Storage::Cpu(e));
+                e += g.as_ref();
+                inner.grad = Some(Storage::Cpu(Arc::new(e)));
             }
             (Some(Storage::Gpu(existing)), Storage::Gpu(g)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
@@ -455,7 +449,7 @@ impl Tensor {
                 } else {
                     let mut e = existing.to_cpu();
                     e += &g.to_cpu();
-                    inner.grad = Some(Storage::Cpu(e));
+                    inner.grad = Some(Storage::Cpu(Arc::new(e)));
                 }
             }
             (None, g) => {
@@ -465,18 +459,18 @@ impl Tensor {
     }
 
     pub(crate) fn get_grad_fn_idx(&self) -> Option<usize> {
-        self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() }).grad_fn_idx
+        self.0.read().grad_fn_idx
     }
 
     pub fn zero_grad(&self) {
-        self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() }).grad = None;
+        self.0.write().grad = None;
     }
 
     /// Zero grads on GPU when tensor storage is on GPU.
     #[cfg(feature = "gpu")]
     pub fn zero_grad_gpu(&self) -> Result<(), crate::gpu::GpuError> {
         use crate::gpu::GpuContext;
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let mut inner = self.0.write();
         inner.grad = None;
         if let Storage::Gpu(gpu_t) = &inner.storage {
             let ctx = GpuContext::global()?;
@@ -486,46 +480,40 @@ impl Tensor {
     }
 
     pub fn set_data(&self, new_data: ArrayD<f32>) {
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
-        inner.storage = Storage::Cpu(new_data);
+        let mut inner = self.0.write();
+        inner.storage = Storage::Cpu(Arc::new(new_data));
     }
 
     pub fn set_storage(&self, storage: Storage) {
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let mut inner = self.0.write();
         inner.storage = storage;
     }
 
     pub fn set_device(&self, device: Device) {
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let mut inner = self.0.write();
         inner.device = device;
     }
 
     pub fn set_grad(&self, grad: ArrayD<f32>) {
-        self.0
-            .write()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .grad = Some(Storage::Cpu(grad));
+        self.0.write().grad = Some(Storage::Cpu(Arc::new(grad)));
     }
 
     /// Set gradient from Storage (CPU or GPU).
     #[cfg(feature = "gpu")]
     pub fn set_grad_storage(&self, grad: Storage) {
-        self.0
-            .write()
-            .unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() })
-            .grad = Some(grad);
+        self.0.write().grad = Some(grad);
     }
 
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
-        let mut inner = self.0.write().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+        let mut inner = self.0.write();
         let current = inner.storage.to_cpu();
         let new_data = &current - delta;
-        inner.storage = Storage::Cpu(new_data);
+        inner.storage = Storage::Cpu(Arc::new(new_data));
     }
 
     pub fn backward(&self) {
         let shape = {
-            let inner = self.0.read().unwrap_or_else(|e| { tracing::warn!("RwLock poisoned: {}", e); e.into_inner() });
+            let inner = self.0.read();
             inner.storage.shape()
         };
         let grad = ArrayD::ones(shape);

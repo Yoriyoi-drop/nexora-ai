@@ -101,7 +101,7 @@ mod tests {
             total_sparsity += result.sparsity;
             count += 1;
 
-            println!("  {:<22} {:>4}×{:<4} {:<10} {:<10} {:<10.2}× {:<8.2}  err={:.4}",
+            println!("  {:<22} {:>4}×{:<4} {:<10} {:<10} {:<10.2}× {:<8.2} sp={:<6.2}  err={:.4}",
                 name, m, n,
                 original_params,
                 result.rank,
@@ -118,7 +118,7 @@ mod tests {
             let total_ratio = total_orig as f32 / total_comp.max(1) as f32;
 
             println!("───────────────────────────────────────────────────────────────");
-            println!("  {:<22} {:<10} {:<10} {:<10} {:<10.2}× {:<8.2}",
+            println!("  {:<22} {:<10} {:<10} {:<10} {:<10.2}× {:<8.2} sp={:<6.2}",
                 "TOTAL", "", total_orig, "", total_comp, total_ratio, avg_sparsity);
             println!("  Avg relative error: {:.4}", avg_error);
             println!("  Avg sparsity: {:.2}", avg_sparsity);

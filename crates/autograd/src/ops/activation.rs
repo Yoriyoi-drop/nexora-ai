@@ -1,4 +1,4 @@
-use tracing::debug;
+use tracing::warn;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
@@ -31,45 +31,21 @@ let input_cpu = gpu_input.to_cpu();
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let x = &saved_gpu[0];
-                                let relu_out = match ctx.elementwise_unary(x, ElemOp::Relu) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward relu failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let eps = match GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(x.shape(), 1e-12)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward relu from_cpu failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let denom = match ctx.add(&relu_out, &eps) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward add failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let mask = match ctx.div(&relu_out, &denom) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward div failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                match ctx.mul(grad_gpu, &mask) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward mul failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
+                                let relu_out = ctx.elementwise_unary(x, ElemOp::Relu)
+                                    .map_err(|e| format!("GPU backward relu failed: {e}"))?;
+                                let eps = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(x.shape(), 1e-12))
+                                    .map_err(|e| format!("GPU backward relu from_cpu failed: {e}"))?;
+                                let denom = ctx.add(&relu_out, &eps)
+                                    .map_err(|e| format!("GPU backward add failed: {e}"))?;
+                                let mask = ctx.div(&relu_out, &denom)
+                                    .map_err(|e| format!("GPU backward div failed: {e}"))?;
+                                let result = ctx.mul(grad_gpu, &mask)
+                                    .map_err(|e| format!("GPU backward mul failed: {e}"))?;
+                                Ok(vec![result])
                             })),
                         );
                     }
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -130,7 +106,7 @@ pub fn gelu(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -191,38 +167,19 @@ pub fn tanh(input: &Tensor) -> Tensor {
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let y = &saved_gpu[0];
-                                let y2 = match ctx.mul(y, y) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward tanh mul failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let ones = match GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(y.shape(), 1.0)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward tanh from_cpu failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let local = match ctx.sub(&ones, &y2) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward tanh sub failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                match ctx.mul(grad_gpu, &local) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward tanh mul failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
+                                let y2 = ctx.mul(y, y)
+                                    .map_err(|e| format!("GPU backward tanh mul failed: {e}"))?;
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(y.shape(), 1.0))
+                                    .map_err(|e| format!("GPU backward tanh from_cpu failed: {e}"))?;
+                                let local = ctx.sub(&ones, &y2)
+                                    .map_err(|e| format!("GPU backward tanh sub failed: {e}"))?;
+                                let result = ctx.mul(grad_gpu, &local)
+                                    .map_err(|e| format!("GPU backward tanh mul failed: {e}"))?;
+                                Ok(vec![result])
                             })),
                         );
                     }
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -272,7 +229,7 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -321,38 +278,19 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let y = &saved_gpu[0];
-                                let ones = match GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(y.shape(), 1.0)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sigmoid from_cpu failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let one_minus_y = match ctx.sub(&ones, y) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sigmoid sub failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let dy = match ctx.mul(y, &one_minus_y) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sigmoid mul failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                match ctx.mul(grad_gpu, &dy) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward sigmoid mul failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(y.shape(), 1.0))
+                                    .map_err(|e| format!("GPU backward sigmoid from_cpu failed: {e}"))?;
+                                let one_minus_y = ctx.sub(&ones, y)
+                                    .map_err(|e| format!("GPU backward sigmoid sub failed: {e}"))?;
+                                let dy = ctx.mul(y, &one_minus_y)
+                                    .map_err(|e| format!("GPU backward sigmoid mul failed: {e}"))?;
+                                let result = ctx.mul(grad_gpu, &dy)
+                                    .map_err(|e| format!("GPU backward sigmoid mul failed: {e}"))?;
+                                Ok(vec![result])
                             })),
                         );
                     }
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -413,59 +351,25 @@ pub fn silu(input: &Tensor) -> Tensor {
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let x = &saved_gpu[0];
-                                let sig = match ctx.elementwise_unary(x, ElemOp::Sigmoid) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu sigmoid failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let ones = match GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(x.shape(), 1.0)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu from_cpu failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let one_minus_sig = match ctx.sub(&ones, &sig) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu sub failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let x_sig = match ctx.mul(x, &sig) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu mul failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let term2 = match ctx.mul(&x_sig, &one_minus_sig) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu mul2 failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                let local_grad = match ctx.add(&sig, &term2) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu add failed: {e}");
-                                        return vec![grad_gpu.clone()];
-                                    }
-                                };
-                                match ctx.mul(grad_gpu, &local_grad) {
-                                    Ok(v) => vec![v],
-                                    Err(e) => {
-                                        tracing::error!("GPU backward silu mul3 failed: {e}");
-                                        vec![grad_gpu.clone()]
-                                    }
-                                }
+                                let sig = ctx.elementwise_unary(x, ElemOp::Sigmoid)
+                                    .map_err(|e| format!("GPU backward silu sigmoid failed: {e}"))?;
+                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(x.shape(), 1.0))
+                                    .map_err(|e| format!("GPU backward silu from_cpu failed: {e}"))?;
+                                let one_minus_sig = ctx.sub(&ones, &sig)
+                                    .map_err(|e| format!("GPU backward silu sub failed: {e}"))?;
+                                let x_sig = ctx.mul(x, &sig)
+                                    .map_err(|e| format!("GPU backward silu mul failed: {e}"))?;
+                                let term2 = ctx.mul(&x_sig, &one_minus_sig)
+                                    .map_err(|e| format!("GPU backward silu mul2 failed: {e}"))?;
+                                let local_grad = ctx.add(&sig, &term2)
+                                    .map_err(|e| format!("GPU backward silu add failed: {e}"))?;
+                                let result = ctx.mul(grad_gpu, &local_grad)
+                                    .map_err(|e| format!("GPU backward silu mul3 failed: {e}"))?;
+                                Ok(vec![result])
                             })),
                         );
                     }
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }
@@ -542,9 +446,9 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                                 None,
                             );
                         }
-                        Err(e) => debug!("autograd activation backward failed: {e}")
+                        Err(e) => warn!("autograd activation backward failed: {e}")
                     },
-                    Err(e) => debug!("autograd activation backward failed: {e}")
+                    Err(e) => warn!("autograd activation backward failed: {e}")
                 }
             }
         }

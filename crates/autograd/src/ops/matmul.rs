@@ -1,7 +1,6 @@
 use super::super::tensor::Tensor;
 use ndarray::ArrayD;
-#[cfg(feature = "gpu")]
-use crate::gpu::GpuTensor;
+use tracing::warn;
 #[cfg(feature = "gpu")]
 use crate::Storage;
 
@@ -49,19 +48,8 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                         let ga = &saved_gpu[0];
                                         let gb = &saved_gpu[1];
                                         match ctx.matmul_backward(ga, gb, grad_gpu) {
-                                            Ok((da, db)) => vec![da, db],
-                                            Err(_) => {
-                                                let zero_a = GpuTensor::from_cpu(
-                                                    &ArrayD::zeros(ga.shape()),
-                                                );
-                                                let zero_b = GpuTensor::from_cpu(
-                                                    &ArrayD::zeros(gb.shape()),
-                                                );
-                                                vec![
-                                                    zero_a.unwrap_or_else(|_| ga.clone()),
-                                                    zero_b.unwrap_or_else(|_| gb.clone()),
-                                                ]
-                                            }
+                                            Ok((da, db)) => Ok(vec![da, db]),
+                                            Err(e) => Err(format!("GPU matmul backward failed: {e}")),
                                         }
                                     });
                                 // CPU backward fallback
@@ -114,7 +102,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                     Some(gpu_backward),
                                 );
                             }
-                            Err(_) => { /* fall through to CPU */ }
+                            Err(e) => { warn!("GPU matmul forward failed, falling back to CPU: {e}"); }
                         }
                     }
                 }
