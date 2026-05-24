@@ -261,29 +261,26 @@ impl KVCache {
         let shard_index = self.get_shard_index(key);
         let mut shard = self.shards[shard_index].write().await;
 
-        // Check if entry exists and is expired — no reference held after this check
+        // Check if entry exists and is expired
         let is_expired = shard.entries.get(key).map_or(false, |e| e.is_expired());
 
         if is_expired {
             let key_owned = key.to_string();
             if let Some(removed) = shard.entries.remove(&key_owned) {
-                let entry_size = removed.size_bytes;
                 shard.lru_order.retain(|k| k != &key_owned);
-                shard.current_size_bytes -= entry_size;
-
-                // Update statistics
-                {
-                    let mut stats = self.stats.write().await;
-                    stats.misses += 1;
-                    stats.expired_cleaned += 1;
-                    self.update_hit_rate(&mut stats);
-                }
+                shard.current_size_bytes -= removed.size_bytes;
             }
-
+            // Let shard guard drop before updating stats
+            drop(shard);
+            let mut stats = self.stats.write().await;
+            stats.misses += 1;
+            stats.expired_cleaned += 1;
+            self.update_hit_rate(&mut stats);
             return Ok(None);
         }
 
         // Cache hit or miss path
+        let was_hit: bool;
         let result = if let Some(mut entry) = shard.entries.remove(key) {
                 // Update access info
                 entry.update_access();
@@ -295,13 +292,7 @@ impl KVCache {
 
                 // Update shard stats
                 shard.stats.hits += 1;
-
-                // Update global stats
-                {
-                    let mut stats = self.stats.write().await;
-                    stats.hits += 1;
-                    self.update_hit_rate(&mut stats);
-                }
+                was_hit = true;
 
                 // Re-insert updated entry
                 let cloned = entry.clone();
@@ -312,19 +303,22 @@ impl KVCache {
         } else {
             // Cache miss
             shard.stats.misses += 1;
-            {
-                let mut stats = self.stats.write().await;
-                stats.misses += 1;
-                self.update_hit_rate(&mut stats);
-            }
-
+            was_hit = false;
             None
         };
 
-        // Update access time statistics
+        // Drop shard lock before updating global stats to avoid cross-lock contention
+        drop(shard);
+
         let access_time_us = start_time.elapsed().as_micros() as u64;
         {
             let mut stats = self.stats.write().await;
+            if was_hit {
+                stats.hits += 1;
+            } else {
+                stats.misses += 1;
+            }
+            self.update_hit_rate(&mut stats);
             stats.total_access_time_us += access_time_us;
             let total_accesses = stats.hits + stats.misses;
             if total_accesses > 0 {

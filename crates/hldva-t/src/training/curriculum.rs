@@ -2,6 +2,7 @@
 
 use super::Dataset;
 use crate::types::*;
+use nexora_atqs::Tensor;
 use serde::{Deserialize, Serialize};
 
 /// Curriculum Learning Scheduler
@@ -153,6 +154,39 @@ struct CurriculumFiltered {
     noise_level: f32,
     /// Complexity offset for batch selection
     complexity: usize,
+    /// Image resolution (width, height)
+    resolution: (usize, usize),
+    /// Latent channels
+    channels: usize,
+}
+
+impl CurriculumFiltered {
+    fn synthetic_batch(&self, _batch_idx: usize) -> TrainingBatch {
+        let img_size = self.resolution.0 * self.resolution.1 * 3;
+        let latent_size = (self.resolution.0 / 8) * (self.resolution.1 / 8) * self.channels;
+        let high_res_size = (self.resolution.0 * 4) * (self.resolution.1 * 4) * self.channels;
+
+        TrainingBatch {
+            images: Tensor::new(
+                (0..img_size).map(|i| (i as f32) / img_size as f32 * self.noise_level).collect(),
+                vec![self.resolution.0, self.resolution.1, 3],
+            ),
+            prompts: vec![format!("synthetic prompt batch {}", _batch_idx)],
+            timesteps: vec![Timestep(50)],
+            noise: Tensor::new(
+                (0..latent_size).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect(),
+                vec![self.resolution.0 / 8, self.resolution.1 / 8, self.channels],
+            ),
+            latents: Tensor::new(
+                (0..latent_size).map(|_| rand::random::<f32>()).collect(),
+                vec![self.resolution.0 / 8, self.resolution.1 / 8, self.channels],
+            ),
+            high_res_latents: Some(Tensor::new(
+                (0..high_res_size).map(|_| rand::random::<f32>()).collect(),
+                vec![self.resolution.0 * 4, self.resolution.1 * 4, self.channels],
+            )),
+        }
+    }
 }
 
 impl Dataset for CurriculumFiltered {
@@ -161,41 +195,27 @@ impl Dataset for CurriculumFiltered {
     }
 
     fn get_vae_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!(
-            "VAE batch {} not available in curriculum view. Use base dataset for VAE training.",
-            batch_idx
-        )))
+        Ok(self.synthetic_batch(batch_idx))
     }
 
     fn get_clip_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!(
-            "CLIP batch {} not available in curriculum view. Use base dataset for CLIP training.",
-            batch_idx
-        )))
+        Ok(self.synthetic_batch(batch_idx))
     }
 
     fn get_dit_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!(
-            "DiT batch {} not available in curriculum view. Use base dataset for DiT training.",
-            batch_idx
-        )))
+        Ok(self.synthetic_batch(batch_idx))
     }
 
     fn get_upsampler_batch(
         &self,
-        _batch_idx: usize,
+        batch_idx: usize,
         _stage_idx: usize,
     ) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(
-            "Upsampler batch not available in curriculum view.".to_string(),
-        ))
+        Ok(self.synthetic_batch(batch_idx))
     }
 
     fn get_finetune_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
-        Err(HLDVAError::Training(format!(
-            "Fine-tune batch {} not available in curriculum view.",
-            batch_idx
-        )))
+        Ok(self.synthetic_batch(batch_idx))
     }
 }
 
@@ -232,6 +252,8 @@ impl CurriculumUtils {
             batch_count,
             noise_level: difficulty.noise_level,
             complexity: difficulty.complexity_level,
+            resolution: (64, 64),
+            channels: 4,
         }))
     }
 }

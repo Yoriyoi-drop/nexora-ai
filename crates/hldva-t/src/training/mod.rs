@@ -43,7 +43,7 @@ pub struct HLDVATrainer {
 impl HLDVATrainer {
     /// Create new trainer
     pub fn new(config: HLDVAConfig) -> HLDVAResult<Self> {
-        let pipeline = HLDVAPipeline::new(config)?;
+        let pipeline = HLDVAPipeline::new(config.clone())?;
         let optimizer = AdamW::new(&pipeline.config.training)?;
         let scheduler = CosineAnnealingLR::new(&pipeline.config.training)?;
         let loss_calculator = DDPMLoss::new(&pipeline.config.ddpm)?;
@@ -52,7 +52,28 @@ impl HLDVATrainer {
         let checkpoint_manager = CheckpointManager::new("checkpoints")?;
 
         Ok(Self {
-            config: pipeline.config.clone(),
+            config,
+            pipeline,
+            optimizer,
+            scheduler,
+            loss_calculator,
+            state,
+            checkpoint_manager,
+        })
+    }
+
+    /// Create trainer from existing pipeline config
+    pub fn from_config(config: &HLDVAConfig) -> HLDVAResult<Self> {
+        let pipeline = HLDVAPipeline::new(config.clone())?;
+        let optimizer = AdamW::new(&pipeline.config.training)?;
+        let scheduler = CosineAnnealingLR::new(&pipeline.config.training)?;
+        let loss_calculator = DDPMLoss::new(&pipeline.config.ddpm)?;
+
+        let state = TrainingState::default();
+        let checkpoint_manager = CheckpointManager::new("checkpoints")?;
+
+        Ok(Self {
+            config: config.clone(),
             pipeline,
             optimizer,
             scheduler,
@@ -500,6 +521,77 @@ impl HLDVATrainer {
     /// Get training state
     pub fn state(&self) -> &TrainingState {
         &self.state
+    }
+}
+
+/// Synthetic dataset for training demos
+pub struct SyntheticDataset {
+    batch_size: usize,
+    num_batches: usize,
+}
+
+impl SyntheticDataset {
+    pub fn new(batch_size: usize, num_batches: usize) -> Self {
+        Self { batch_size, num_batches }
+    }
+
+    fn make_batch(&self, batch_idx: usize) -> TrainingBatch {
+        let img_size = self.batch_size * 64 * 64 * 3;
+        let latent_size = self.batch_size * 8 * 8 * 4;
+        let high_res_size = self.batch_size * 256 * 256 * 4;
+
+        TrainingBatch {
+            images: Tensor::new(
+                (0..img_size).map(|i| (i as f32) / img_size.max(1) as f32).collect(),
+                vec![self.batch_size, 64, 64, 3],
+            ),
+            prompts: vec![format!("synthetic prompt {}", batch_idx)],
+            timesteps: vec![Timestep(50 + batch_idx % 1000)],
+            noise: Tensor::new(
+                (0..latent_size).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect(),
+                vec![self.batch_size, 8, 8, 4],
+            ),
+            latents: Tensor::new(
+                (0..latent_size).map(|_| rand::random::<f32>()).collect(),
+                vec![self.batch_size, 8, 8, 4],
+            ),
+            high_res_latents: Some(Tensor::new(
+                (0..high_res_size).map(|_| rand::random::<f32>()).collect(),
+                vec![self.batch_size, 256, 256, 4],
+            )),
+        }
+    }
+}
+
+impl Dataset for SyntheticDataset {
+    fn num_batches(&self) -> usize {
+        self.num_batches
+    }
+
+    fn get_vae_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Ok(self.make_batch(batch_idx))
+    }
+
+    fn get_clip_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Ok(self.make_batch(batch_idx))
+    }
+
+    fn get_dit_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Ok(self.make_batch(batch_idx))
+    }
+
+    fn get_upsampler_batch(&self, batch_idx: usize, _stage_idx: usize) -> HLDVAResult<TrainingBatch> {
+        let mut batch = self.make_batch(batch_idx);
+        let low_shape = batch.latents.shape().to_vec();
+        batch.latents = Tensor::new(
+            (0..low_shape.iter().product::<usize>()).map(|i| (i as f32) / 1000.0).collect(),
+            low_shape,
+        );
+        Ok(batch)
+    }
+
+    fn get_finetune_batch(&self, batch_idx: usize) -> HLDVAResult<TrainingBatch> {
+        Ok(self.make_batch(batch_idx))
     }
 }
 

@@ -89,6 +89,8 @@ impl KVCache {
     }
 
     pub async fn initialize(&self) -> Result<(), anyhow::Error> {
+        tracing::info!("KVCache initialized with max_entries={}, ttl={:?}",
+            self.max_entries, self.ttl);
         Ok(())
     }
 

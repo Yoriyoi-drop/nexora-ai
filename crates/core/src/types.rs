@@ -16,6 +16,7 @@ pub enum InputType {
     Query = 2,
     Data = 3,
     Internal = 4,
+    Code = 5,
 }
 
 impl Default for InputType {
@@ -178,6 +179,7 @@ impl InputData {
             InputType::Command => self.validate_command(),
             InputType::Query => self.validate_query(),
             InputType::Data => self.validate_data(),
+            InputType::Code => self.validate_text(),
             InputType::Internal => true, // Internal input - always valid
         }
     }
@@ -737,6 +739,20 @@ impl ControllerCore {
             ))
         }
     }
+}
+
+// ==================== Shared Severity Types ====================
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum IssueSeverity {
+    Critical,
+    Error,
+    High,
+    Medium,
+    Low,
+    Warning,
+    Info,
+    Style,
 }
 
 // ==================== Controller Metrics ====================

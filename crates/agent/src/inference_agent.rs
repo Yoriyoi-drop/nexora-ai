@@ -397,6 +397,7 @@ impl InferenceAgent {
     }
 
     /// Update session status
+    async fn update_session_status(
         &self,
         session_id: Uuid,
         status: InferenceSessionStatus,

@@ -151,133 +151,207 @@ impl TestGenerator {
         // Parse function signature for type-driven test generation
         let sig = SignatureInfo::from_impl(implementation);
 
-        // Detect operation types from function/type names and comments
-        let is_sort = lower.contains("sort")
-            || lower.contains("order")
-            || lower.contains("cmp")
-            || lower.contains("compare");
-        let is_search = lower.contains("search")
-            || lower.contains("find")
-            || lower.contains("locate")
-            || lower.contains("index");
-        let is_filter = lower.contains("filter")
-            || lower.contains("select")
-            || lower.contains("where");
-        let is_map = lower.contains("map")
-            || lower.contains("transform")
-            || lower.contains("convert");
-        let is_parse = lower.contains("parse")
-            || lower.contains("tokenize")
-            || lower.contains("lex");
-        let is_validate = lower.contains("validate")
-            || lower.contains("check")
-            || lower.contains("verify")
-            || lower.contains("assert");
-        let is_aggregate = lower.contains("sum")
-            || lower.contains("count")
-            || lower.contains("average")
-            || lower.contains("total");
-        let is_io = lower.contains("read")
-            || lower.contains("write")
-            || lower.contains("open")
-            || lower.contains("load")
-            || lower.contains("save");
+        // Use name-based operation detection from function name
+        let fn_name = &sig.name;
+        let is_sort = fn_name.contains("sort")
+            || fn_name.contains("order")
+            || lower.contains("sort algorithm")
+            || lower.contains("sorting");
+        let is_search = fn_name.contains("search")
+            || fn_name.contains("find")
+            || fn_name.contains("locate")
+            || fn_name.contains("index")
+            || fn_name.contains("lookup");
+        let is_filter = fn_name.contains("filter")
+            || fn_name.contains("select")
+            || lower.contains("filter predicate");
+        let is_map = fn_name.contains("map")
+            || fn_name.contains("transform")
+            || fn_name.contains("convert");
+        let is_parse = fn_name.contains("parse")
+            || fn_name.contains("tokenize")
+            || lower.contains("parser") || lower.contains("lexer");
+        let is_validate = fn_name.contains("validate")
+            || fn_name.contains("check")
+            || fn_name.contains("verify")
+            || fn_name.contains("assert");
+        let is_aggregate = fn_name.contains("sum")
+            || fn_name.contains("count")
+            || fn_name.contains("average")
+            || fn_name.contains("total")
+            || fn_name.contains("aggregate");
+        let is_io = fn_name.contains("read")
+            || fn_name.contains("write")
+            || fn_name.contains("open")
+            || fn_name.contains("load")
+            || fn_name.contains("save");
 
-        // Generate tests based on detected patterns
-        if is_sort && takes_slice {
-            self.add_sort_tests(&mut test_cases, returns_result);
+        // Generate tests based on detected patterns using function signature
+        if is_sort && (sig.has_slice_param || sig.has_vec_param) {
+            self.add_sort_tests(&mut test_cases, sig.is_result);
         } else if is_search {
-            self.add_search_tests(&mut test_cases, returns_option, returns_result);
+            self.add_search_tests(&mut test_cases, sig.is_option, sig.is_result);
         } else if is_filter {
             self.add_filter_tests(&mut test_cases);
         } else if is_map {
             self.add_map_tests(&mut test_cases);
         } else if is_parse {
-            self.add_parse_tests(&mut test_cases, returns_result);
+            self.add_parse_tests(&mut test_cases, sig.is_result);
         } else if is_validate {
-            self.add_validate_tests(&mut test_cases, returns_result, returns_bool);
+            self.add_validate_tests(&mut test_cases, sig.is_result, sig.is_bool);
         } else if is_aggregate {
-            self.add_aggregate_tests(&mut test_cases, returns_int, returns_float);
+            self.add_aggregate_tests(&mut test_cases, sig.is_int, sig.is_float);
         } else if is_io {
-            self.add_io_tests(&mut test_cases, returns_result);
+            self.add_io_tests(&mut test_cases, sig.is_result);
         } else {
             self.add_type_driven_tests(
                 &mut test_cases,
-                returns_result,
-                returns_option,
-                returns_vec,
-                returns_bool,
-                returns_string,
+                sig.is_result,
+                sig.is_option,
+                sig.is_vec,
+                sig.is_bool,
+                sig.is_string,
             );
         }
 
-        // Add edge cases based on parameter types
-        if takes_slice || takes_vec_param {
-            test_cases.push(TestCase {
-                id: "empty_input".to_string(),
-                description: "Handle empty input".to_string(),
-                input: "[]".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 0, 0.0, ""),
-                test_type: TestType::EdgeCase,
-            });
-            test_cases.push(TestCase {
-                id: "single_element".to_string(),
-                description: "Handle single element".to_string(),
-                input: "[1]".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 1, 1.0, "single"),
-                test_type: TestType::EdgeCase,
-            });
-        }
-        if takes_string_param {
-            test_cases.push(TestCase {
-                id: "empty_string".to_string(),
-                description: "Handle empty string input".to_string(),
-                input: "\"\"".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 0, 0.0, ""),
-                test_type: TestType::EdgeCase,
-            });
-            test_cases.push(TestCase {
-                id: "unicode_string".to_string(),
-                description: "Handle unicode/UTF-8 string".to_string(),
-                input: "\"héllo wörld 🚀\"".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 0, 0.0, "processed_unicode"),
-                test_type: TestType::EdgeCase,
-            });
-        }
-        if takes_int_param {
-            test_cases.push(TestCase {
-                id: "zero_value".to_string(),
-                description: "Handle zero input value".to_string(),
-                input: "0".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 0, 0.0, "zero"),
-                test_type: TestType::EdgeCase,
-            });
-            test_cases.push(TestCase {
-                id: "negative_value".to_string(),
-                description: "Handle negative input".to_string(),
-                input: "-1".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, -1, -1.0, "negative"),
-                test_type: TestType::EdgeCase,
-            });
-            test_cases.push(TestCase {
-                id: "max_boundary".to_string(),
-                description: "Handle maximum boundary input".to_string(),
-                input: "usize::MAX".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 0, 0.0, "boundary"),
-                test_type: TestType::EdgeCase,
-            });
-        }
-        if takes_float_param {
-            test_cases.push(TestCase {
-                id: "float_precision".to_string(),
-                description: "Handle floating point precision".to_string(),
-                input: "0.1 + 0.2".to_string(),
-                expected_output: self.default_output(returns_result, returns_option, returns_vec, 0, 0.30000000000000004_f64, "precision"),
-                test_type: TestType::EdgeCase,
-            });
+        // Add property-based edge cases derived from signature analysis
+        self.add_signature_edge_cases(&mut test_cases, &sig);
+
+        // Add property-based tests if the signature has sufficient structure
+        if sig.num_params >= 1 && (sig.has_slice_param || sig.has_vec_param) {
+            self.add_property_based_tests(&mut test_cases, &sig);
         }
 
         Ok(test_cases)
+    }
+
+    /// Add edge cases derived from the parsed function signature
+    fn add_signature_edge_cases(&self, tests: &mut Vec<TestCase>, sig: &SignatureInfo) {
+        // Collection edge cases
+        if sig.has_slice_param || sig.has_vec_param {
+            tests.push(TestCase {
+                id: format!("{}_empty_input", sig.name),
+                description: "Handle empty collection input".to_string(),
+                input: "vec![]".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, ""),
+                test_type: TestType::EdgeCase,
+            });
+            tests.push(TestCase {
+                id: format!("{}_single_element", sig.name),
+                description: "Handle single element collection".to_string(),
+                input: "vec![1]".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 1, 1.0, "single"),
+                test_type: TestType::EdgeCase,
+            });
+        }
+        // String edge cases
+        if sig.has_string_param {
+            tests.push(TestCase {
+                id: format!("{}_empty_string", sig.name),
+                description: "Handle empty string input".to_string(),
+                input: "\"\"".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, ""),
+                test_type: TestType::EdgeCase,
+            });
+            tests.push(TestCase {
+                id: format!("{}_unicode_string", sig.name),
+                description: "Handle unicode/UTF-8 string".to_string(),
+                input: "\"héllo wörld 🚀\"".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, "processed_unicode"),
+                test_type: TestType::EdgeCase,
+            });
+        }
+        // Integer edge cases
+        if sig.has_int_param {
+            tests.push(TestCase {
+                id: format!("{}_zero_value", sig.name),
+                description: "Handle zero input value".to_string(),
+                input: "0".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, "zero"),
+                test_type: TestType::EdgeCase,
+            });
+            tests.push(TestCase {
+                id: format!("{}_negative_value", sig.name),
+                description: "Handle negative input".to_string(),
+                input: "-1".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, -1, -1.0, "negative"),
+                test_type: TestType::EdgeCase,
+            });
+            tests.push(TestCase {
+                id: format!("{}_max_boundary", sig.name),
+                description: "Handle maximum boundary input".to_string(),
+                input: "usize::MAX".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, "boundary"),
+                test_type: TestType::EdgeCase,
+            });
+        }
+        // Float edge cases
+        if sig.has_float_param {
+            tests.push(TestCase {
+                id: format!("{}_float_precision", sig.name),
+                description: "Handle floating point precision".to_string(),
+                input: "0.1 + 0.2".to_string(),
+                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.30000000000000004_f64, "precision"),
+                test_type: TestType::EdgeCase,
+            });
+        }
+        // Mutable parameter edge cases
+        if sig.has_mut_param {
+            tests.push(TestCase {
+                id: format!("{}_mut_stability", sig.name),
+                description: "Verify mutation does not corrupt adjacent data".to_string(),
+                input: "mut vec![1, 2, 3]".to_string(),
+                expected_output: "modified".to_string(),
+                test_type: TestType::EdgeCase,
+            });
+        }
+    }
+
+    /// Add property-based test cases derived from function signature types
+    fn add_property_based_tests(&self, tests: &mut Vec<TestCase>, sig: &SignatureInfo) {
+        // Combine function name hints with signature analysis
+        let name = &sig.name;
+        let is_sort_search = name.contains("sort") || name.contains("search");
+
+        // Property: idempotency (applying twice = applying once)
+        if is_sort_search || name.contains("filter") || name.contains("normalize") {
+            tests.push(TestCase {
+                id: format!("{}_idempotent", name),
+                description: format!("Property: {} should be idempotent (apply twice = same as once)", name),
+                input: "fn_property_idempotent".to_string(),
+                expected_output: "self_equal".to_string(),
+                test_type: TestType::Unit,
+            });
+        }
+
+        // Property: order independence (reordering input doesn't change aggregate result)
+        if name.contains("sum") || name.contains("count") || name.contains("total") {
+            tests.push(TestCase {
+                id: format!("{}_commutative", name),
+                description: format!("Property: {} should be order-independent", name),
+                input: "fn_property_commutative".to_string(),
+                expected_output: "order_independent".to_string(),
+                test_type: TestType::Unit,
+            });
+        }
+
+        // Property: empty input returns identity element
+        tests.push(TestCase {
+            id: format!("{}_identity_element", name),
+            description: format!("Property: {} on empty input returns identity element", name),
+            input: "fn_property_identity".to_string(),
+            expected_output: "identity".to_string(),
+            test_type: TestType::Unit,
+        });
+
+        // Property: large input doesn't crash (stress test)
+        tests.push(TestCase {
+            id: format!("{}_large_input_stress", name),
+            description: format!("Stress property: {} handles large input without panic", name),
+            input: "(0..10000).collect::<Vec<_>>()".to_string(),
+            expected_output: "no_panic".to_string(),
+            test_type: TestType::Performance,
+        });
     }
 
     fn add_sort_tests(&self, tests: &mut Vec<TestCase>, returns_result: bool) {

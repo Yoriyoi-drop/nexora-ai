@@ -451,6 +451,7 @@ impl UnifiedModel {
                         (solution.quality_score + solution.compression_ratio as f32 * 0.05).min(1.0);
                 }
             }
+            IntegrationMode::SACAOnly => {}
         }
 
         info!("Unified solution completed in {:?}", solution.execution_time);

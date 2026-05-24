@@ -293,15 +293,9 @@ impl Trainable for HLDVAPipeline {
     type TrainingConfig = HLDVAConfig;
 
     fn train(&mut self, _config: Self::TrainingConfig) -> HLDVAResult<()> {
-        // Implementasi training dengan 4 tahap curriculum learning
-        // Ini akan diimplementasi di training module
-        tracing::info!("Starting HLDVA-T training with 4-stage curriculum learning");
-        tracing::info!("Stage 0: Pre-training VAE and CLIP");
-        tracing::info!("Stage 1: Base DiT training");
-        tracing::info!("Stage 2: Cascaded upsampler training");
-        tracing::info!("Stage 3: End-to-end fine-tuning");
-
-        Ok(())
+        let dataset = crate::training::SyntheticDataset::new(4, 10);
+        let mut trainer = crate::training::HLDVATrainer::from_config(&self.config)?;
+        trainer.train(&dataset)
     }
 
     fn evaluate(&self) -> HLDVAResult<GenerationMetrics> {

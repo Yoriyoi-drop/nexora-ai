@@ -1769,18 +1769,7 @@ pub struct QualityIssue {
     pub recommended_actions: Vec<String>,
 }
 
-/// IssueSeverity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum IssueSeverity {
-    /// Low
-    Low,
-    /// Medium
-    Medium,
-    /// High
-    High,
-    /// Critical
-    Critical,
-}
+pub use nexora_core::types::IssueSeverity;
 
 /// IssueCategory
 #[derive(Debug, Clone, Serialize, Deserialize)]

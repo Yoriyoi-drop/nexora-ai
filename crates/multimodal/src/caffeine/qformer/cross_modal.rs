@@ -40,7 +40,7 @@ impl MemoryPool {
         }
     }
 
-    fn _return_buffer(&self, buffer: Vec<f32>) {
+    fn return_buffer(&self, buffer: Vec<f32>) {
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| { tracing::warn!("Mutex poisoned: {}", e); e.into_inner() });
         if buffers.len() < self._max_pool_size {
             buffers.push(buffer);

@@ -5,6 +5,7 @@ edition = "2021"
 description = "ORACLE - Optimized Retrieval-Augmented Code Learning Engine"
 
 [dependencies]
+nexora-core = { path = "../core" }
 anyhow.workspace = true
 ndarray.workspace = true
 serde.workspace = true

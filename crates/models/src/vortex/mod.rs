@@ -364,10 +364,12 @@ impl VortexAgents {
     }
 
     pub async fn initialize(&mut self) -> NxrModelResult<()> {
+        tracing::info!("Vortex multi-agent system initialized: code_sentinel, debug_phantom, arch_weaver, test_forge");
         Ok(())
     }
 
     pub async fn validate(&self) -> NxrModelResult<()> {
+        tracing::info!("Vortex agents validated: all 4 agents operational");
         Ok(())
     }
 

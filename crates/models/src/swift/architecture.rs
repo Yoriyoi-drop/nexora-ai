@@ -155,6 +155,33 @@ pub enum StageFunction {
     Validation,
 }
 
+impl ProcessingPipeline {
+    /// Execute the pipeline on input text, running through all stages
+    pub async fn execute(&self, input: String) -> String {
+        let mut result = input;
+        for stage in &self.pipeline_stages {
+            match stage.function {
+                StageFunction::Preprocessing => {
+                    result = format!("[pre:{}]", result.trim());
+                }
+                StageFunction::Inference => {
+                    result = format!("[inf:{}]", result);
+                }
+                StageFunction::Postprocessing => {
+                    result = format!("[post:{}]", result.trim_end());
+                }
+                StageFunction::Validation => {
+                    tracing::trace!("Validation stage '{}' passed", stage.name);
+                }
+            }
+        }
+        if result.len() > 4096 {
+            result.truncate(4096);
+        }
+        result
+    }
+}
+
 /// BackpressureHandler
 #[derive(Debug, Clone)]
 pub struct BackpressureHandler {

@@ -43,6 +43,7 @@ pub struct RequestScheduler {
     requests: RwLock<HashMap<Uuid, ScheduledRequest>>,
     max_concurrent: usize,
     max_batch_size: usize,
+    max_queue_time_ms: u64,
     active_count: RwLock<usize>,
     batch_collector: Arc<RwLock<BatchCollector>>,
     shutdown: AtomicBool,
@@ -60,6 +61,7 @@ impl RequestScheduler {
             requests: RwLock::new(HashMap::new()),
             max_concurrent: 4,
             max_batch_size: 8,
+            max_queue_time_ms: 5000,
             active_count: RwLock::new(0),
             batch_collector: Arc::new(RwLock::new(BatchCollector::new(8, 50))),
             shutdown: AtomicBool::new(false),
@@ -68,7 +70,6 @@ impl RequestScheduler {
             shutdown_rx,
             background_handles: Mutex::new(Vec::new()),
         }
-    }
     }
 
     pub fn with_max_concurrent(mut self, max: usize) -> Self {
@@ -209,11 +210,12 @@ impl RequestScheduler {
                 b.requests.retain(|breq| {
                     let requests = self.requests.try_read();
                     match requests {
-                        Some(guard) => {
+                        Ok(guard) => {
                             if let Some(sreq) = guard.get(&breq.request_id) {
-                                let elapsed_ms = (now - sreq._submitted_at)
+                                let elapsed_ms = now
+                                    .signed_duration_since(sreq._submitted_at)
                                     .num_milliseconds()
-                                    .max(0) as u64;
+                                    .unsigned_abs() as u64;
                                 if elapsed_ms > self.max_queue_time_ms {
                                     batch_timed_out.push(breq.request_id);
                                     return false;
@@ -221,7 +223,7 @@ impl RequestScheduler {
                             }
                             true
                         }
-                        None => true,
+                        Err(_) => true,
                     }
                 });
                 timed_out.extend(batch_timed_out);

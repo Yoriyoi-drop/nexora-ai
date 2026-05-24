@@ -52,6 +52,16 @@ impl StreamingEngine {
     }
 
     pub async fn initialize(&self) -> Result<(), anyhow::Error> {
+        tracing::info!(
+            "StreamingEngine initializing: max_streams={}, timeout={:?}",
+            self.max_concurrent_streams, self.stream_timeout
+        );
+        // Clear any stale streams
+        {
+            let mut streams = self.active_streams.write().await;
+            streams.clear();
+        }
+        tracing::info!("StreamingEngine initialized successfully");
         Ok(())
     }
 

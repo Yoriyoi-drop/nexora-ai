@@ -736,7 +736,13 @@ impl InferenceEngine {
                 .catch_unwind()
                 .await;
             match result {
-                Ok(()) => {}
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    error!("Batch {} processing failed: {:?}", bid, e);
+                    if let Err(e2) = engine.scheduler.write().await.complete_batch_id(bid).await {
+                        warn!("Failed to complete batch {} after error: {}", bid, e2);
+                    }
+                }
                 Err(panic) => {
                     error!("Batch {} processing panicked: {:?}", bid, panic);
                     if let Err(e) = engine.scheduler.write().await.complete_batch_id(bid).await {
@@ -874,10 +880,10 @@ struct InferenceEngineHandle {
 impl InferenceEngineHandle {
     /// Process a batch of requests in parallel using tokio::spawn.
     /// Each request runs in its own task and results are fanned out individually.
-    pub async fn process_batch(&self, batch: crate::batching::Batch) {
+    pub async fn process_batch(&self, batch: crate::batching::Batch) -> Result<()> {
         let batch_size = batch.requests.len();
         if batch_size == 0 {
-            return;
+            return Ok(());
         }
         debug!(
             "Processing batch {} with {} requests",
@@ -885,10 +891,10 @@ impl InferenceEngineHandle {
         );
 
         if self.is_shutdown().await {
-            if let Err(e) = self.scheduler.write().await.complete_batch(&batch).await {
-                warn!("Failed to complete batch {} during shutdown: {}", batch.batch_id, e);
-            }
-            return;
+            self.scheduler.write().await.complete_batch(&batch).await
+                .map_err(|e| warn!("Failed to complete batch {} during shutdown: {}", batch.batch_id, e))
+                .ok();
+            return Ok(());
         }
 
         let batch_id = batch.batch_id;
@@ -1014,6 +1020,7 @@ impl InferenceEngineHandle {
             error!("Failed to complete batch {}: {}", batch_id, e);
         }
         debug!("Batch {} completed", batch_id);
+        Ok(())
     }
 
     async fn is_shutdown(&self) -> bool {

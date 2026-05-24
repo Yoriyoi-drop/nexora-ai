@@ -294,6 +294,14 @@ pub struct TaskPipeline {
     pub is_active: bool,
 }
 
+impl TaskPipeline {
+    /// Execute a task through this pipeline
+    pub async fn execute(&self, task: &str) -> String {
+        tracing::debug!("Executing task via pipeline '{}' (latency={}ms)", self.name, self.estimated_latency_ms);
+        format!("{task} | pipeline={} latency={}ms throughput={}", self.name, self.estimated_latency_ms, self.throughput)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TaskRouterAgent {
     pub id: String,

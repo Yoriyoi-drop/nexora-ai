@@ -1304,6 +1304,10 @@ impl CausalLM {
             {
                 return self.generate_gpu_impl(prompt_ids, max_tokens, temperature, top_k);
             }
+            #[cfg(not(feature = "gpu"))]
+            {
+                warn!("use_gpu=true but GPU feature is not enabled — falling back to CPU");
+            }
         }
 
         for &token_id in prompt_ids {

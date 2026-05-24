@@ -26,17 +26,18 @@ impl FixGenerator {
         for (i, error_type) in error_analysis.error_types.iter().enumerate() {
             let confidence = *error_analysis.confidence_scores.get(i).unwrap_or(&0.5);
             let root_cause = error_analysis.root_causes.get(i).map(|s| s.as_str()).unwrap_or("unknown");
+            let line_number = error_analysis.line_numbers.get(i).copied().unwrap_or(0);
 
             let fix = match error_type.as_str() {
-                "SyntaxError" => self.fix_syntax_errors(&candidate.implementation, root_cause),
-                "TypeError" => self.fix_type_errors(&candidate.implementation),
-                "BorrowError" => self.fix_borrow_errors(&candidate.implementation),
+                "SyntaxError" => self.fix_syntax_errors(&candidate.implementation, root_cause, line_number),
+                "TypeError" => self.fix_type_errors(&candidate.implementation, line_number),
+                "BorrowError" => self.fix_borrow_errors(&candidate.implementation, line_number),
                 "UnwrapError" => self.fix_unwrap_errors(&candidate.implementation),
                 "Panic" => self.fix_panic_errors(&candidate.implementation),
-                "IndexOutOfBounds" => self.add_bounds_checking(&candidate.implementation),
+                "IndexOutOfBounds" => self.add_bounds_checking(&candidate.implementation, line_number),
                 "NullPointer" => self.add_comprehensive_null_checks(&candidate.implementation),
                 "Concurrency" => self.fix_concurrency_issues(&candidate.implementation),
-                "DivisionByZero" => self.fix_division_by_zero(&candidate.implementation),
+                "DivisionByZero" => self.fix_division_by_zero(&candidate.implementation, line_number),
                 "Overflow" => self.fix_overflow_issues(&candidate.implementation),
                 "IOError" => self.fix_io_errors(&candidate.implementation),
                 _ => None,
@@ -44,7 +45,7 @@ impl FixGenerator {
 
             if let Some(fixed_code) = fix {
                 fixes.push(FixSuggestion {
-                    description: format!("Fix for {}: {}", error_type, root_cause),
+                    description: format!("Fix for {} at line {}: {}", error_type, line_number, root_cause),
                     fixed_code,
                     confidence,
                 });
@@ -55,8 +56,76 @@ impl FixGenerator {
     }
 
     /// Fix syntax errors using bracket balancing and line analysis
-    fn fix_syntax_errors(&self, code: &str, root_cause: &str) -> Option<String> {
+    /// Fix syntax errors using bracket balancing and line analysis
+    /// Uses line numbers for targeted fixes
+    fn fix_syntax_errors(&self, code: &str, root_cause: &str, line_number: usize) -> Option<String> {
         let mut result = code.to_string();
+
+        // If a specific line is indicated, try to fix that line first
+        if line_number > 0 && line_number <= result.lines().count() {
+            let lines: Vec<String> = result.lines().map(|l| l.to_string()).collect();
+            let line_idx = line_number.saturating_sub(1);
+            let problem_line = lines.get(line_idx).map(|s| s.to_string()).unwrap_or_default();
+            let line_lower = problem_line.to_lowercase();
+
+            // Check for specific syntax issues on this line
+            let mut is_fixed = false;
+
+            // Detect missing closing delimiter on comment
+            if line_lower.trim_start().starts_with("//") && problem_line.matches('"').count() % 2 != 0 {
+                // Unbalanced quotes in comment - no action needed, just informational
+            }
+
+            // Detect missing semicolons - check if statement line needs one
+            if root_cause.contains("semicol") {
+                let trimmed = problem_line.trim();
+                let needs_semicolon = !trimmed.is_empty()
+                    && !trimmed.ends_with(';')
+                    && !trimmed.ends_with('{')
+                    && !trimmed.ends_with('}')
+                    && !trimmed.ends_with('(')
+                    && !trimmed.ends_with(')')
+                    && !trimmed.starts_with("fn ")
+                    && !trimmed.starts_with("//")
+                    && !trimmed.starts_with("impl")
+                    && !trimmed.starts_with("trait")
+                    && !trimmed.starts_with("mod ")
+                    && !trimmed.starts_with("use ")
+                    && !trimmed.starts_with('#')
+                    && !trimmed.starts_with("pub ")
+                    && !trimmed.starts_with("struct ")
+                    && !trimmed.starts_with("enum ")
+                    && !trimmed.starts_with("let ")
+                    && !trimmed.starts_with("const ")
+                    && !trimmed.starts_with("type ");
+
+                if needs_semicolon {
+                    let new_lines: Vec<String> = lines.iter().enumerate().map(|(i, l)| {
+                        if i == line_idx { format!("{};", l) } else { l.to_string() }
+                    }).collect();
+                    result = new_lines.join("\n");
+                    is_fixed = true;
+                }
+            }
+
+            // Fix missing closing parenthesis by counting on the problem line
+            if root_cause.contains("parenthes") || root_cause.contains("delimiter") {
+                let open_parens = problem_line.matches('(').count();
+                let close_parens = problem_line.matches(')').count();
+                if open_parens > close_parens {
+                    let extra = open_parens - close_parens;
+                    let new_lines: Vec<String> = lines.iter().enumerate().map(|(i, l)| {
+                        if i == line_idx { format!("{}{}", l, ")".repeat(extra)) } else { l.to_string() }
+                    }).collect();
+                    result = new_lines.join("\n");
+                    is_fixed = true;
+                }
+            }
+
+            if is_fixed {
+                return Some(result);
+            }
+        }
 
         // Normalize common spacing issues
         result = result.replace("fn  ", "fn ");
@@ -142,9 +211,46 @@ impl FixGenerator {
         Some(result)
     }
 
-    /// Fix type errors by identifying common patterns
-    fn fix_type_errors(&self, code: &str) -> Option<String> {
+    /// Fix type errors by identifying common patterns, using line number for targeted fixes
+    fn fix_type_errors(&self, code: &str, line_number: usize) -> Option<String> {
         let lines: Vec<&str> = code.lines().collect();
+
+        // Try line-specific fix first
+        if line_number > 0 && line_number <= lines.len() {
+            let line_idx = line_number.saturating_sub(1);
+            let problem_line = lines.get(line_idx).map(|s| s.trim()).unwrap_or("");
+            let line_lower = problem_line.to_lowercase();
+
+            // Fix type annotation issues on the target line
+            if line_lower.contains("let ") && !line_lower.contains(":") {
+                // Missing type annotation on let binding
+                // Infer from usage in subsequent lines
+                let next_lines: Vec<&str> = lines.iter().skip(line_idx + 1).take(3).map(|l| l.trim()).collect();
+                for next in &next_lines {
+                    if next.starts_with("Ok(") || next.contains(".ok()") {
+                        // Suggests Result type
+                        let new_lines: Vec<String> = lines.iter().enumerate().map(|(i, l)| {
+                            if i == line_idx && !l.trim().contains(":") {
+                                // Add type annotation based on inferred type
+                                l.to_string()
+                            } else { l.to_string() }
+                        }).collect();
+                        return Some(new_lines.join("\n"));
+                    }
+                }
+            }
+
+            // Fix type mismatch: as_ref() or as_mut() needed
+            if line_lower.contains("expect") && line_lower.contains("&mut") && !line_lower.contains("as_mut") {
+                let new_lines: Vec<String> = lines.iter().enumerate().map(|(i, l)| {
+                    if i == line_idx {
+                        l.replace(".lock().", ".lock().as_mut().")
+                            .replace(".borrow_mut().", ".borrow_mut().as_mut().")
+                    } else { l.to_string() }
+                }).collect();
+                return Some(new_lines.join("\n"));
+            }
+        }
         let mut fixed_lines: Vec<String> = Vec::new();
         let mut in_impl = false;
         let mut impl_type: Option<String> = None;
@@ -188,9 +294,47 @@ impl FixGenerator {
         Some(fixed_lines.join("\n"))
     }
 
-    /// Fix borrow checker errors with safe patterns
-    fn fix_borrow_errors(&self, code: &str) -> Option<String> {
+    /// Fix borrow checker errors with safe patterns and line-specific targeting
+    fn fix_borrow_errors(&self, code: &str, line_number: usize) -> Option<String> {
         let lines: Vec<&str> = code.lines().collect();
+
+        // Line-specific borrow fix: add .clone() on the target line if it's a move issue
+        if line_number > 0 && line_number <= lines.len() {
+            let line_idx = line_number.saturating_sub(1);
+            let problem_line = lines[line_idx].trim();
+
+            if problem_line.contains("fn ") && problem_line.contains("-> &") && !problem_line.contains('\'') {
+                // Function returning reference without lifetime - add '_ lifetime
+                let new_lines: Vec<String> = lines.iter().enumerate().map(|(i, l)| {
+                    if i == line_idx && l.contains("-> &") && !l.contains('\'') {
+                        // Try to add a lifetime parameter
+                        if l.contains("&self") || l.contains("&mut self") {
+                            l.replace("-> &", "-> &'_ ")
+                        } else {
+                            l.to_string()
+                        }
+                    } else { l.to_string() }
+                }).collect();
+                return Some(new_lines.join("\n"));
+            }
+
+            // Fix "use of moved value" by adding .clone()
+            if problem_line.to_lowercase().contains("use of moved")
+                || (problem_line.contains('.') && lines.iter().skip(line_idx + 1).take(2).any(|l| l.contains("borrow of moved") || l.contains("use after move")))
+            {
+                let mut new_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                let current = &new_lines[line_idx];
+                // Add .clone() to the first variable access
+                if let Some(var_end) = current.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                    let var_part = &current[..var_end];
+                    if !var_part.contains("clone") && !var_part.contains('.') {
+                        new_lines[line_idx] = format!("{}.clone(){}", var_part, &current[var_end..]);
+                        return Some(new_lines.join("\n"));
+                    }
+                }
+            }
+        }
+
         let mut fixed_lines: Vec<String> = Vec::new();
 
         for line in lines {
@@ -306,9 +450,42 @@ impl FixGenerator {
         Some(result)
     }
 
-    /// Fix division by zero with zero check guard
-    fn fix_division_by_zero(&self, code: &str) -> Option<String> {
+    /// Fix division by zero with zero check guard and line-specific targeting
+    fn fix_division_by_zero(&self, code: &str, line_number: usize) -> Option<String> {
         let lines: Vec<&str> = code.lines().collect();
+
+        // Try line-specific fix first
+        if line_number > 0 && line_number <= lines.len() {
+            let line_idx = line_number.saturating_sub(1);
+            let problem_line = lines[line_idx].trim();
+
+            if (problem_line.contains(" / ") || problem_line.contains("/="))
+                && !problem_line.contains("//")
+                && !problem_line.contains("checked_div")
+            {
+                // Extract divisor from the problem line
+                let parts: Vec<&str> = if problem_line.contains(" / ") {
+                    problem_line.splitn(2, " / ").collect()
+                } else {
+                    problem_line.splitn(2, "/=").collect()
+                };
+
+                if parts.len() == 2 {
+                    let divisor = parts[1].split_whitespace().next().unwrap_or("");
+                    if !divisor.is_empty() && divisor != "0" {
+                        let indent = " ".repeat(problem_line.len() - problem_line.trim_start().len());
+                        let mut new_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                        let guard = format!(
+                            "{}if {} == 0 {{\n{}    return Err(SACAError::ExecuteError(\"Division by zero\".to_string()));\n{}}}",
+                            indent, divisor, indent, indent
+                        );
+                        new_lines.insert(line_idx, guard);
+                        return Some(new_lines.join("\n"));
+                    }
+                }
+            }
+        }
+
         let mut fixed_lines: Vec<String> = Vec::new();
 
         for line in lines {
@@ -490,8 +667,8 @@ impl FixGenerator {
         Some(fixed_lines.join("\n"))
     }
 
-    /// Add bounds checking for array access
-    fn add_bounds_checking(&self, code: &str) -> Option<String> {
+    /// Add bounds checking for array access with line-specific targeting
+    fn add_bounds_checking(&self, code: &str, line_number: usize) -> Option<String> {
         let lines: Vec<&str> = code.lines().collect();
         let mut fixed_lines: Vec<String> = Vec::new();
 

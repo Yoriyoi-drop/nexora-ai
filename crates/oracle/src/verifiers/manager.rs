@@ -157,14 +157,7 @@ pub struct CodeIssue {
     pub rule_id: String,
 }
 
-/// Issue severity
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum IssueSeverity {
-    Error,
-    Warning,
-    Info,
-    Style,
-}
+pub use nexora_core::types::IssueSeverity;
 
 /// Main code verifier manager
 pub struct CodeVerifierManager {
@@ -303,10 +296,10 @@ impl CodeVerifierManager {
 
             for issue in &result.issues {
                 match issue.severity {
-                    IssueSeverity::Error => error_count += 1,
-                    IssueSeverity::Warning => warning_count += 1,
-                    IssueSeverity::Info => info_count += 1,
-                    IssueSeverity::Style => style_count += 1,
+                    IssueSeverity::Critical | IssueSeverity::Error => error_count += 1,
+                    IssueSeverity::High | IssueSeverity::Warning => warning_count += 1,
+                    IssueSeverity::Medium | IssueSeverity::Info => info_count += 1,
+                    IssueSeverity::Low | IssueSeverity::Style => style_count += 1,
                 }
             }
         }

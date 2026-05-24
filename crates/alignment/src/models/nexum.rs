@@ -56,6 +56,7 @@ impl NxrModel for NxrNexumModel {
     }
 
     async fn state(&self) -> Result<Self::State, NxrModelError> {
+        tracing::trace!("NxrNexumModel state queried");
         Ok(())
     }
 
@@ -71,6 +72,7 @@ impl NxrModel for NxrNexumModel {
     }
 
     async fn metrics(&self) -> Result<Self::Metrics, NxrModelError> {
+        tracing::trace!("NxrNexumModel metrics queried");
         Ok(())
     }
 

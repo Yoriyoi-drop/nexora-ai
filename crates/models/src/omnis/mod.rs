@@ -157,10 +157,7 @@ pub struct TruthClaim {
 
 /// Resolution status
 #[derive(Debug, Clone)]
-pub enum ResolutionStatus {
-    /// Pending resolution
-    Pending,
-}
+pub struct ResolutionStatus;
 
 /// NXR-OMNIS Model Metrics
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -196,7 +193,7 @@ impl Default for OmnisState {
                 truth_arbitration: TruthArbitrationState {
                     truth_claims: Vec::new(),
                     contradiction_matrix: HashMap::new(),
-                    resolution_status: ResolutionStatus::Pending,
+                    resolution_status: ResolutionStatus,
                 },
             },
             last_inference: None,

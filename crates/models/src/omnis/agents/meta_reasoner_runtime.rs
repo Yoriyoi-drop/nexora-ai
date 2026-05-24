@@ -46,7 +46,7 @@ impl MetaReasonerRuntimeAgent {
             truth_arbitration: TruthArbitrationState {
                 truth_claims: Vec::new(),
                 contradiction_matrix: HashMap::new(),
-                resolution_status: ResolutionStatus::Pending,
+                resolution_status: ResolutionStatus,
             },
         })
     }

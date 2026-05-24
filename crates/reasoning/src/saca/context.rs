@@ -19,6 +19,15 @@ pub struct ContextEngine {
     file_analyzers: Vec<Arc<dyn FileAnalyzer>>,
 }
 
+/// Result of checking existing functionality
+#[derive(Debug, Clone)]
+struct FunctionalityCheck {
+    similar_functions: Vec<String>,
+    similar_names: Vec<String>,
+    duplicate_risk: f32,
+    existing_modules: Vec<String>,
+}
+
 impl ContextEngine {
     /// Create new Context engine
     pub fn new(config: ContextConfig) -> SACAResult<Self> {
@@ -530,15 +539,6 @@ impl ContextEngine {
         }
 
         Ok(())
-    }
-
-    /// Result of checking existing functionality
-    #[derive(Debug, Clone)]
-    struct FunctionalityCheck {
-        similar_functions: Vec<String>,
-        similar_names: Vec<String>,
-        duplicate_risk: f32,
-        existing_modules: Vec<String>,
     }
 
     /// Check if similar functionality already exists by searching

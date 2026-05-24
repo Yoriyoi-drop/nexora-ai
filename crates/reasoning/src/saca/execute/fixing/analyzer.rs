@@ -20,6 +20,28 @@ struct ErrorPattern {
     requires_context: bool,
 }
 
+/// Parsed error message with extracted metadata
+#[derive(Debug, Clone)]
+struct ParsedError {
+    full_message: String,
+    error_type: String,
+    line_number: usize,
+    column: usize,
+    file_path: String,
+    extracted_context: String,
+    error_category: ErrorCategory,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ErrorCategory {
+    Compilation,
+    Runtime,
+    Logic,
+    Resource,
+    Concurrency,
+    Unknown,
+}
+
 static PATTERNS: &[ErrorPattern] = &[
     // Compilation / syntax errors
     ErrorPattern {
@@ -155,16 +177,104 @@ impl ErrorAnalyzer {
         Self { analysis_depth }
     }
 
-    /// Analyze errors from execution logs
+    /// Parse an error message to extract structured information
+    fn parse_error_message(&self, error_log: &str) -> ParsedError {
+        let lower = error_log.to_lowercase();
+
+        // Extract line number using Rust compiler error format: file.rs:LINE:COL
+        let mut line_number = 0usize;
+        let mut column = 0usize;
+        let mut file_path = String::new();
+
+        // Try to match Rust compiler error format: " --> file.rs:LINE:COL" or "file.rs:LINE:COL"
+        for part in error_log.split_whitespace() {
+            if let Some(colon_pos) = part.rfind(':') {
+                if let Some(second_colon) = part[..colon_pos].rfind(':') {
+                    let line_str = &part[second_colon + 1..colon_pos];
+                    let col_str = &part[colon_pos + 1..];
+                    if let (Ok(ln), Ok(col)) = (line_str.parse::<usize>(), col_str.parse::<usize>()) {
+                        file_path = part[..second_colon].to_string();
+                        line_number = ln;
+                        column = col;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // If no Rust-style format found, try "line X" or "at line X"
+        if line_number == 0 {
+            for word in error_log.split_whitespace() {
+                if word == "line" || word == "Line" || word == "LINE" {
+                    // Next word might be the number
+                    continue;
+                }
+            }
+            // Also try: "at line N"
+            if let Some(line_idx) = lower.find("line ") {
+                let after = &lower[line_idx + 5..];
+                let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(ln) = num_str.parse::<usize>() {
+                    line_number = ln;
+                }
+            }
+        }
+
+        // Extract context: one line before and after the error description
+        let extracted_context = error_log.lines()
+            .filter(|l| {
+                let tl = l.trim().to_lowercase();
+                !tl.is_empty()
+                    && !tl.starts_with("warning")
+                    && !tl.starts_with("note:")
+                    && !tl.starts_with("help:")
+                    && !tl.starts_with("   ")
+            })
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        // Determine error category based on content
+        let error_category = if lower.contains("error[E") || lower.contains("compile") || lower.contains("syntax") {
+            ErrorCategory::Compilation
+        } else if lower.contains("panic") || lower.contains("segfault") || lower.contains("signal") {
+            ErrorCategory::Runtime
+        } else if lower.contains("logic") || lower.contains("assert") || lower.contains("invariant") || lower.contains("expectation") {
+            ErrorCategory::Logic
+        } else if lower.contains("oom") || lower.contains("out of memory") || lower.contains("disk") || lower.contains("no such file") {
+            ErrorCategory::Resource
+        } else if lower.contains("deadlock") || lower.contains("race") || lower.contains("mutex") || lower.contains("poison") {
+            ErrorCategory::Concurrency
+        } else {
+            ErrorCategory::Unknown
+        };
+
+        ParsedError {
+            full_message: error_log.to_string(),
+            error_type: String::new(),
+            line_number,
+            column,
+            file_path,
+            extracted_context,
+            error_category,
+        }
+    }
+
+    /// Analyze errors from execution logs with proper parsing and categorization
     pub async fn analyze_errors(&self, error_logs: &[String]) -> SACAResult<ErrorAnalysis> {
         let mut analysis = ErrorAnalysis {
             error_types: Vec::new(),
             root_causes: Vec::new(),
             fix_strategies: Vec::new(),
             confidence_scores: Vec::new(),
+            line_numbers: Vec::new(),
+            error_categories: Vec::new(),
         };
 
         for error_log in error_logs {
+            // Parse the error message to extract structured info
+            let parsed = self.parse_error_message(error_log);
+
             // Determine which pattern set to use based on depth
             let max_patterns = match self.analysis_depth {
                 ErrorAnalysisDepth::Shallow => 4,         // syntax, type, unwrap, panic
@@ -173,7 +283,7 @@ impl ErrorAnalyzer {
                 ErrorAnalysisDepth::Comprehensive => PATTERNS.len(), // all
             };
 
-            // Classify the error by checking all patterns
+            // Classify the error by checking all patterns with confidence scoring
             let lower_log = error_log.to_lowercase();
             let mut matched = false;
 
@@ -188,8 +298,16 @@ impl ErrorAnalyzer {
 
                     analysis.error_types.push(pattern.category.to_string());
                     analysis.root_causes.push(pattern.root_cause.to_string());
-                    analysis.fix_strategies.push(pattern.fix_strategy.to_string());
+
+                    // Append context information for better fix strategies
+                    let mut fix_strategy = pattern.fix_strategy.to_string();
+                    if !parsed.extracted_context.is_empty() {
+                        fix_strategy.push_str(&format!(" | Context near error: {}", parsed.extracted_context));
+                    }
+                    analysis.fix_strategies.push(fix_strategy);
                     analysis.confidence_scores.push(confidence);
+                    analysis.line_numbers.push(parsed.line_number);
+                    analysis.error_categories.push(format!("{:?}", parsed.error_category));
                     matched = true;
 
                     // For deep+ analysis, break after first match; for comprehensive, continue scanning
@@ -199,12 +317,15 @@ impl ErrorAnalyzer {
                 }
             }
 
-            // If no pattern matched, add a generic analysis entry
+            // If no pattern matched, add a generic analysis entry with parsed info
             if !matched && matches!(self.analysis_depth, ErrorAnalysisDepth::Deep | ErrorAnalysisDepth::Comprehensive) {
-                analysis.error_types.push("UnknownError".to_string());
-                analysis.root_causes.push("Unrecognized error pattern".to_string());
+                let category_str = format!("{:?}", parsed.error_category);
+                analysis.error_types.push(format!("{}({})", category_str, "UnknownError"));
+                analysis.root_causes.push(format!("Unrecognized error pattern at line {}: {}", parsed.line_number, parsed.extracted_context));
                 analysis.fix_strategies.push("Inspect error log context for clues; add structured error handling".to_string());
                 analysis.confidence_scores.push(0.3);
+                analysis.line_numbers.push(parsed.line_number);
+                analysis.error_categories.push(category_str);
             }
         }
 
@@ -219,4 +340,6 @@ pub struct ErrorAnalysis {
     pub root_causes: Vec<String>,
     pub fix_strategies: Vec<String>,
     pub confidence_scores: Vec<f32>,
+    pub line_numbers: Vec<usize>,
+    pub error_categories: Vec<String>,
 }

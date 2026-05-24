@@ -5,6 +5,7 @@ edition = "2021"
 description = "NXR Model Series implementations - 10 model types with agent-based architectures"
 
 [dependencies]
+nexora-core = { path = "../core" }
 nexora-shared = { path = "../shared" }
 nexora-erp = { path = "../erp" }
 nexora-vogp = { path = "../vogp" }

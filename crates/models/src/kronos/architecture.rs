@@ -303,6 +303,46 @@ pub enum ExtractionMethod {
     Hybrid,
 }
 
+impl InformationExtractionPipeline {
+    /// Execute the extraction pipeline on input text
+    pub async fn execute(&self, input: &str) -> Vec<(String, String)> {
+        let mut results: Vec<(String, String)> = Vec::new();
+        for stage in &self.extraction_stages {
+            let stage_result = match stage.function {
+                StageFunction::TextPreprocessing => {
+                    vec![("preprocessed".to_string(), input.trim().to_string())]
+                }
+                StageFunction::Tokenization => {
+                    let tokens: Vec<&str> = input.split_whitespace().collect();
+                    tokens
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| (format!("token_{i}"), t.to_string()))
+                        .collect()
+                }
+                StageFunction::EntityRecognition => {
+                    let entity_types = &self.entity_recognition.entity_types;
+                    let recognition = &self.entity_recognition.recognition_method;
+                    vec![(
+                        format!("entities_{recognition:?}"),
+                        entity_types.join(","),
+                    )]
+                }
+                StageFunction::RelationExtraction => {
+                    let rel_types = &self.relation_extraction.relation_types;
+                    let extraction = &self.relation_extraction.extraction_method;
+                    vec![(
+                        format!("relations_{extraction:?}"),
+                        rel_types.join(","),
+                    )]
+                }
+            };
+            results.extend(stage_result);
+        }
+        results
+    }
+}
+
 /// Knowledge Synthesis Engine
 #[derive(Debug, Clone)]
 pub struct KnowledgeSynthesisEngine {

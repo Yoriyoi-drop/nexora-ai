@@ -3,6 +3,7 @@
 use crate::error::CoreResult;
 use crate::types::{ModelId, TaskExecution};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -23,7 +24,7 @@ pub struct TaskManager {
     active_tasks: HashMap<String, TaskExecution>,
     max_concurrent_tasks: usize,
     strategy: TaskExecutionStrategy,
-    handlers: HashMap<String, Box<dyn Fn(String) -> String + Send + Sync>>,
+    handlers: HashMap<String, Arc<dyn Fn(String) -> String + Send + Sync>>,
     running_handles: HashMap<String, JoinHandle<CoreResult<String>>>,
 }
 
@@ -79,36 +80,46 @@ impl TaskManager {
         Ok(task_id)
     }
 
-    /// Mengeksekusi task pada model — spawn handler sebagai async task, simpan handle.
-    /// Kembalikan JoinHandle sehingga caller dapat await atau cancel task.
-    pub async fn execute_task(&mut self, task_id: &str) -> CoreResult<JoinHandle<CoreResult<String>>> {
-        let (task_input, model_key, task_description) = {
+    /// Mengeksekusi task pada model — spawn handler sebagai async task.
+    /// Caller harus memanggil complete_task() untuk mendapatkan hasil.
+    pub async fn execute_task(&mut self, task_id: &str) -> CoreResult<()> {
+        let (task_input, model_key, task_description, output_strategy) = {
             let task = self.active_tasks.get(task_id).ok_or_else(|| {
                 crate::error::CoreError::TaskExecution(format!("Task not found: {}", task_id))
             })?;
-            (task.task_input.clone(), task.assigned_model.name(), task.task_description.clone())
+            (
+                task.task_input.clone(),
+                task.assigned_model.name().to_string(),
+                task.task_description.clone(),
+                // For Direct strategy, clone the output string
+                match &self.strategy {
+                    TaskExecutionStrategy::Direct(output) => Some(output.clone()),
+                    _ => None,
+                },
+            )
         };
 
-        debug!(
-            "Executing task: id={}, strategy={:?}",
-            task_id, self.strategy
-        );
-
-        let handler_clone = self.handlers.get(&model_key).cloned();
+        debug!("Executing task: id={}, strategy={:?}", task_id, self.strategy);
 
         let tid = task_id.to_string();
 
+        // Clone handler if available (Arc is Clone)
+        let handler = self.handlers.get(&model_key).cloned();
+
         let handle = tokio::spawn(async move {
-            let output = match &handler_clone {
-                Some(h) => h(task_input),
-                None => format!("Task executed by {}: {}", model_key, task_description),
+            let output = if let Some(h) = handler {
+                // Run registered handler
+                h(task_input)
+            } else if let Some(direct_output) = output_strategy {
+                direct_output
+            } else {
+                format!("Task executed by {}: {}", model_key, task_description)
             };
             Ok(output)
         });
 
-        self.running_handles.insert(tid.clone(), handle);
-        let handle = self.running_handles.get(&tid).unwrap().clone();
-        Ok(handle)
+        self.running_handles.insert(tid, handle);
+        Ok(())
     }
 
     /// Mendapatkan task berdasarkan ID
@@ -121,37 +132,78 @@ impl TaskManager {
         self.active_tasks.values().collect()
     }
 
-    /// Menyelesaikan task — await running handle jika ada, update status.
+    /// Menyelesaikan task — await running handle dengan timeout, update status.
     pub async fn complete_task(&mut self, task_id: &str, success: bool) -> CoreResult<()> {
-        // Await running handle if present
         if let Some(handle) = self.running_handles.remove(task_id) {
             match tokio::time::timeout(std::time::Duration::from_secs(30), handle).await {
-                Ok(Ok(output)) => {
+                // timeout succeeded → JoinHandle::await succeeded → task returned Ok
+                Ok(Ok(Ok(inner_str))) => {
                     if let Some(task) = self.active_tasks.get_mut(task_id) {
-                        task.task_output = Some(output);
+                        task.task_output = Some(inner_str);
+                        task.is_completed = true;
+                        task.was_successful = success;
+                        task.end_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        if success {
+                            info!("Task completed successfully: id={}", task_id);
+                        } else {
+                            warn!("Task completed with failure: id={}", task_id);
+                        }
                     }
                 }
-                Ok(Err(e)) => {
-                    warn!("Task {} failed: {}", task_id, e);
+                // timeout succeeded → JoinHandle::await succeeded → task returned Err
+                Ok(Ok(Err(e))) => {
+                    warn!("Task {} handler returned error: {}", task_id, e);
+                    if let Some(task) = self.active_tasks.get_mut(task_id) {
+                        task.is_completed = true;
+                        task.was_successful = false;
+                        task.end_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                    }
                 }
+                // timeout succeeded → JoinHandle::await failed (panic)
+                Ok(Err(join_err)) => {
+                    warn!("Task {} handler panicked: {}", task_id, join_err);
+                    if let Some(task) = self.active_tasks.get_mut(task_id) {
+                        task.is_completed = true;
+                        task.was_successful = false;
+                        task.end_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                    }
+                }
+                // timeout elapsed
                 Err(_) => {
-                    warn!("Task {} timed out during completion", task_id);
+                    warn!("Task {} timed out after 30s", task_id);
+                    if let Some(task) = self.active_tasks.get_mut(task_id) {
+                        task.is_completed = true;
+                        task.was_successful = false;
+                        task.end_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                    }
                 }
             }
-        }
-
-        if let Some(task) = self.active_tasks.get_mut(task_id) {
-            task.is_completed = true;
-            task.was_successful = success;
-            task.end_time = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-
-            if success {
-                info!("Task completed successfully: id={}", task_id);
-            } else {
-                warn!("Task completed with failure: id={}", task_id);
+        } else {
+            // No running handle — update directly
+            if let Some(task) = self.active_tasks.get_mut(task_id) {
+                task.is_completed = true;
+                task.was_successful = success;
+                task.end_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                if success {
+                    info!("Task completed successfully: id={}", task_id);
+                } else {
+                    warn!("Task completed with failure: id={}", task_id);
+                }
             }
         }
 
@@ -190,7 +242,8 @@ impl TaskManager {
     where
         F: Fn(String) -> String + Send + Sync + 'static,
     {
-        self.handlers.insert(model.to_string(), Box::new(handler));
+        self.handlers
+            .insert(model.to_string(), Arc::new(handler));
         debug!("Handler registered for model: {}", model);
     }
 

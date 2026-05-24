@@ -145,7 +145,14 @@ impl StreamIntakeEngine {
         let batch_cfg = self.batch_config.clone();
 
         tokio::spawn(async move {
+            let ingest_timeout = Duration::from_secs(300);
+            let start = std::time::Instant::now();
+
             for text in iter {
+                if start.elapsed() > ingest_timeout {
+                    warn!("stream_from_iterator timed out after 300s");
+                    return;
+                }
                 let _permit = semaphore.acquire().await;
                 let sample = DataSample {
                     id: Uuid::new_v4(),
@@ -178,7 +185,15 @@ pub async fn dynamic_batcher(
     let (batch_tx, batch_rx) = mpsc::channel(16);
 
     tokio::spawn(async move {
+        let total_timeout = Duration::from_secs(600);
+        let start = std::time::Instant::now();
+
         loop {
+            if start.elapsed() > total_timeout {
+                warn!("dynamic_batcher total timeout reached (600s)");
+                return;
+            }
+
             let mut batch = Vec::with_capacity(batch_config.max_batch_size);
             let timer = sleep(Duration::from_millis(batch_config.max_wait_ms));
             tokio::pin!(timer);

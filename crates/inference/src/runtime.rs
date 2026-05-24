@@ -6,9 +6,10 @@ use chrono::{DateTime, Utc};
 use procfs::process::Process as ProcProcess;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use sysinfo::System;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -30,6 +31,8 @@ pub struct InferenceRuntime {
     system: Arc<RwLock<System>>,
     /// Process ID for monitoring
     pid: usize,
+    /// Tracked background task handles for shutdown/cancellation
+    background_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Runtime configuration
@@ -198,6 +201,7 @@ impl InferenceRuntime {
             events: Arc::new(RwLock::new(Vec::new())),
             system: Arc::new(RwLock::new(System::new())),
             pid,
+            background_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -413,6 +417,13 @@ impl InferenceRuntime {
             warn!("Final resource update failed during shutdown: {}", e);
         }
 
+        // Cancel tracked background tasks
+        if let Ok(mut tasks) = self.background_tasks.lock() {
+            for h in tasks.drain(..) {
+                h.abort();
+            }
+        }
+
         // Update state to shutdown
         {
             let mut state = self.state.write().await;
@@ -426,7 +437,8 @@ impl InferenceRuntime {
     /// Initialize resource monitoring
     async fn initialize_resource_monitoring(&self) -> Result<()> {
         let runtime = self.clone();
-        tokio::spawn(async move {
+        let tasks = Arc::clone(&self.background_tasks);
+        let handle = tokio::spawn(async move {
             let fut = std::panic::AssertUnwindSafe(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
                     runtime.config.resource_monitor_interval_seconds,
@@ -451,6 +463,9 @@ impl InferenceRuntime {
                 error!("Resource monitoring loop panicked: {:?}", e);
             }
         });
+        if let Ok(mut tasks) = tasks.lock() {
+            tasks.push(handle);
+        }
 
         Ok(())
     }
@@ -458,7 +473,8 @@ impl InferenceRuntime {
     /// Initialize performance tracking
     async fn initialize_performance_tracking(&self) -> Result<()> {
         let runtime = self.clone();
-        tokio::spawn(async move {
+        let tasks = Arc::clone(&self.background_tasks);
+        let handle = tokio::spawn(async move {
             let fut = std::panic::AssertUnwindSafe(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
                     runtime.config.metrics_interval_seconds,
@@ -503,6 +519,9 @@ impl InferenceRuntime {
                 error!("Performance tracking loop panicked: {:?}", e);
             }
         });
+        if let Ok(mut tasks) = tasks.lock() {
+            tasks.push(handle);
+        }
 
         Ok(())
     }
@@ -845,6 +864,7 @@ impl Clone for InferenceRuntime {
             events: Arc::clone(&self.events),
             system: Arc::clone(&self.system),
             pid: self.pid,
+            background_tasks: Arc::clone(&self.background_tasks),
         }
     }
 }

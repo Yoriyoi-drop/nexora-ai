@@ -234,19 +234,17 @@ impl StreamingEngine {
         };
 
         // Add to active streams
-        {
+        let active_count = {
             let mut streams = self.active_streams.write().await;
             streams.insert(stream_id, stream_info);
-        }
+            streams.len()
+        };
 
         // Update statistics
         {
             let mut stats = self.stats.write().await;
             stats.total_streams += 1;
-            stats.active_streams = {
-                let streams = self.active_streams.read().await;
-                streams.len()
-            };
+            stats.active_streams = active_count;
             stats.last_updated = Utc::now();
         }
 

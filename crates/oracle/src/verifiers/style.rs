@@ -138,9 +138,10 @@ impl CodeVerifier for StyleVerifier {
 
                         // Reduce score based on severity
                         match pattern.severity {
-                            IssueSeverity::Error => score -= 0.1,
-                            IssueSeverity::Warning => score -= 0.05,
-                            IssueSeverity::Info => score -= 0.02,
+                            IssueSeverity::Critical => score -= 0.15,
+                            IssueSeverity::Error | IssueSeverity::High => score -= 0.1,
+                            IssueSeverity::Warning | IssueSeverity::Medium => score -= 0.05,
+                            IssueSeverity::Info | IssueSeverity::Low => score -= 0.02,
                             IssueSeverity::Style => score -= 0.01,
                         }
                     }

@@ -2,15 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-/// Input type for request routing
-#[derive(Debug, Clone, PartialEq)]
-pub enum InputType {
-    Command,
-    Query,
-    Code,
-    Data,
-    Text,
-}
+pub use nexora_core::types::InputType;
 
 /// Generation type for text generation
 #[derive(Debug, Clone, PartialEq)]
@@ -181,13 +173,7 @@ pub struct CodeIssue {
     pub suggestion: String,
 }
 
-/// Issue severity
-#[derive(Debug, Clone, PartialEq)]
-pub enum IssueSeverity {
-    Error,
-    Warning,
-    Info,
-}
+pub use nexora_core::types::IssueSeverity;
 
 /// Design pattern information
 #[derive(Debug, Clone)]
