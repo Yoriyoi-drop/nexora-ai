@@ -1,6 +1,20 @@
 use crate::types::PostGenCheckResult;
 use regex::Regex;
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+static RE_CITATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\[(\d+|citation|sumber|source)\]").expect("valid citation pattern regex")
+});
+static RE_LARGE_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b\d{2,}(\.\d+)?%?\b").expect("valid large number pattern regex")
+});
+static RE_CONTRADICTION_MARKER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b").expect("valid contradiction marker regex")
+});
+static RE_CONTRADICTION_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b").expect("valid contradiction keyword regex")
+});
 
 #[derive(Debug, Clone)]
 pub struct PostGenConfig {
@@ -23,25 +37,15 @@ impl Default for PostGenConfig {
 
 pub struct PostGenerationVerifier {
     config: PostGenConfig,
-    citation_pattern: Regex,
-    number_pattern: Regex,
-    contradiction_markers: Vec<Regex>,
+    contradiction_markers: [&'static Regex; 2],
 }
 
 impl PostGenerationVerifier {
     pub fn new(config: PostGenConfig) -> Self {
         Self {
-            citation_pattern: Regex::new(r"(?i)\[(\d+|citation|sumber|source)\]")
-                .expect("valid citation pattern regex"),
-            number_pattern: Regex::new(r"\b\d{2,}(\.\d+)?%?\b")
-                .expect("valid large number pattern regex"),
-            contradiction_markers: vec![
-                Regex::new(
-                    r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b",
-                )
-                .expect("valid contradiction marker regex"),
-                Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b")
-                    .expect("valid contradiction keyword regex"),
+            contradiction_markers: [
+                &RE_CONTRADICTION_MARKER,
+                &RE_CONTRADICTION_KEYWORD,
             ],
             config,
         }
@@ -96,10 +100,10 @@ impl PostGenerationVerifier {
         let mut risky = Vec::new();
         for s in sentences {
             let mut risk = 0.0;
-            if self.number_pattern.find_iter(s).count() > 2 {
+            if RE_LARGE_NUMBER.find_iter(s).count() > 2 {
                 risk += 0.4;
             }
-            if !self.citation_pattern.is_match(s) && self.number_pattern.is_match(s) {
+            if !RE_CITATION.is_match(s) && RE_LARGE_NUMBER.is_match(s) {
                 risk += 0.3;
             }
             if s.to_lowercase().contains("menurut") && !s.to_lowercase().contains("saya") {

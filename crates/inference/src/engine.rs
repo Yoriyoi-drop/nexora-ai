@@ -125,7 +125,7 @@ impl InferenceEngine {
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
-            scheduler: Arc::new(RwLock::new(RequestScheduler::new())),
+            scheduler: Arc::new(RwLock::new(RequestScheduler::new(config.max_concurrent_requests))),
             kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
             model,
@@ -173,7 +173,7 @@ impl InferenceEngine {
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
-            scheduler: Arc::new(RwLock::new(RequestScheduler::new())),
+            scheduler: Arc::new(RwLock::new(RequestScheduler::new(config.max_concurrent_requests))),
             kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
             model,
@@ -865,17 +865,17 @@ fn run_generation_loop(
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
     let mut tokens = Vec::with_capacity(max_gen);
-    let mut last_logits = Vec::new();
+    let mut last_logits: Vec<f32> = prefix_logits.clone();
     let use_prefix = prefix_len > 0 && !prefix_logits.is_empty();
+    let vocab_size = model.config.vocab_size;
 
     for pos in 0..max_gen {
-        let logits: Vec<f32> = if pos == 0 && use_prefix {
+        let logits_arr: Array1<f32> = if pos == 0 && use_prefix {
             if prefix_len >= prompt_ids.len() {
-                prefix_logits.clone()
+                Array1::from_vec(prefix_logits.clone())
             } else {
                 let input = &prompt_ids[prefix_len..];
-                let logits = ModelForward::forward(model, input, kv_state);
-                logits.as_slice().unwrap_or(&[]).to_vec()
+                ModelForward::forward(model, input, kv_state)
             }
         } else {
             let input = if pos == 0 {
@@ -883,17 +883,22 @@ fn run_generation_loop(
             } else {
                 core::slice::from_ref(all_ids.last().unwrap_or(&0))
             };
-            let logits = ModelForward::forward(model, input, kv_state);
-            logits.as_slice().unwrap_or(&[]).to_vec()
+            ModelForward::forward(model, input, kv_state)
         };
 
-        last_logits = logits.clone();
+        let logits_slice: &[f32] = logits_arr.as_slice().unwrap_or(&[]);
 
-        let token_id = match sampler.sample(&logits) {
+        if logits_slice.len() == vocab_size {
+            last_logits.copy_from_slice(logits_slice);
+        } else {
+            last_logits = logits_slice.to_vec();
+        }
+
+        let token_id = match sampler.sample(logits_slice) {
             Ok(idx) => idx as u32,
             Err(e) => {
                 warn!("Sampler failed in generation loop: {:?}, falling back to argmax", e);
-                match logits.iter().enumerate().max_by(|(_, a), (_, b)| a.total_cmp(b)) {
+                match logits_slice.iter().enumerate().max_by(|(_, a), (_, b)| a.total_cmp(b)) {
                     Some((i, _)) => i as u32,
                     None => {
                         warn!("Empty logits, using default token 1");
@@ -911,7 +916,7 @@ fn run_generation_loop(
             None => token_id_to_text_fallback(token_id),
         };
 
-        let log_prob = logits.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+        let log_prob = logits_slice.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
         tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
         all_ids.push(token_id);
 

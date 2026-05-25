@@ -66,8 +66,8 @@ impl RoPE {
 
     pub fn apply_single(
         x: &[f32],
-        cos: &Array1<f32>,
-        sin: &Array1<f32>,
+        cos: &[f32],
+        sin: &[f32],
         head_dim: usize,
         pos: usize,
     ) -> Array1<f32> {

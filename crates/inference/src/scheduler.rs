@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::batching::{Batch, BatchCollector, BatchKey};
 use async_trait::async_trait;
 
+/// Deprecated: use `nexora_runtime::scheduler::RequestStatus` instead.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RequestStatus {
     Queued,
@@ -20,6 +21,7 @@ pub enum RequestStatus {
     Timeout,
 }
 
+/// Deprecated: use `nexora_runtime::scheduler::SchedulerStats` instead.
 #[derive(Debug, Clone)]
 pub struct SchedulerStats {
     pub total_requests: usize,
@@ -59,15 +61,17 @@ pub struct RequestScheduler {
     total_queue_time_ms: RwLock<f64>,
     total_processing_time_ms: RwLock<f64>,
     scheduler_start: Instant,
+    /// Delegate scheduler that handles queue ordering, priority, and strategies.
+    inner: Arc<nexora_runtime::scheduler::RequestScheduler>,
 }
 
 impl RequestScheduler {
-    pub fn new() -> Self {
+    pub fn new(max_concurrent_requests: usize) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Self {
             queue: RwLock::new(VecDeque::new()),
             requests: Arc::new(RwLock::new(HashMap::new())),
-            max_concurrent: 4,
+            max_concurrent: max_concurrent_requests,
             max_batch_size: 8,
             max_queue_time_ms: 5000,
             active_count: RwLock::new(0),
@@ -80,6 +84,7 @@ impl RequestScheduler {
             total_queue_time_ms: RwLock::new(0.0),
             total_processing_time_ms: RwLock::new(0.0),
             scheduler_start: Instant::now(),
+            inner: Arc::new(nexora_runtime::scheduler::RequestScheduler::new(max_concurrent_requests)),
         }
     }
 
@@ -98,8 +103,22 @@ impl RequestScheduler {
         self
     }
 
+    /// Set the scheduling strategy on the inner delegate scheduler.
+    pub fn with_strategy(
+        mut self,
+        strategy: nexora_runtime::scheduler::SchedulingStrategy,
+    ) -> Self {
+        self.inner = Arc::new(
+            Arc::into_inner(self.inner)
+                .expect("inner must have refcount 1 at build time")
+                .with_strategy(strategy),
+        );
+        self
+    }
+
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
         self.shutdown.store(false, Ordering::Relaxed);
+        self.inner.initialize().await?;
         Ok(())
     }
 
@@ -108,9 +127,42 @@ impl RequestScheduler {
         request_id: Uuid,
         response_tx: tokio::sync::mpsc::Sender<crate::InferenceResponse>,
     ) -> Result<(), anyhow::Error> {
-        let mut requests = self.requests.write().await;
-        let mut queue = self.queue.write().await;
+        // Register via inner scheduler for strategy-aware queue management.
+        let runtime_rx = {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<nexora_runtime::InferenceResponse>(16);
+            let response_tx_clone = response_tx.clone();
+            let handle = tokio::spawn(async move {
+                while let Some(resp) = rx.recv().await {
+                    let req_id: uuid::Uuid = resp.request_id.as_deref().and_then(|s| s.parse().ok()).unwrap_or(request_id);
+                    let _ = response_tx_clone.send(crate::InferenceResponse {
+                        request_id: req_id,
+                        inference_time_ms: resp.processing_time_ms,
+                        finish_reason: crate::FinishReason::StopSequence,
+                        text: String::new(),
+                        tokens: Vec::new(),
+                        total_tokens: 0,
+                        metadata: resp.metadata,
+                    }).await;
+                }
+            });
+            let mut handles = self.background_handles.lock().await;
+            handles.push(handle);
+            tx
+        };
 
+        let runtime_req = nexora_runtime::InferenceRequest {
+            model_id: String::new(),
+            inputs: vec![],
+            parameters: std::collections::HashMap::new(),
+            request_id: Some(request_id.to_string()),
+            input_tokens: vec![],
+            target_tokens: None,
+            priority: 50,
+            metadata: std::collections::HashMap::new(),
+        };
+        self.inner.submit_request(runtime_req, runtime_rx).await?;
+
+        let mut requests = self.requests.write().await;
         requests.insert(
             request_id,
             ScheduledRequest {
@@ -122,6 +174,7 @@ impl RequestScheduler {
                 batch_key: None,
             },
         );
+        let mut queue = self.queue.write().await;
         queue.push_back(request_id);
         Ok(())
     }
@@ -303,6 +356,9 @@ impl RequestScheduler {
     }
 
     pub async fn cancel_request(&self, request_id: Uuid) -> Result<bool, anyhow::Error> {
+        // Delegate to inner runtime scheduler for strategy-aware cancellation.
+        let inner_result = self.inner.cancel_request(request_id).await?;
+        // Also clean up local tracking.
         let mut requests = self.requests.write().await;
         if let Some(req) = requests.get_mut(&request_id) {
             if matches!(
@@ -313,25 +369,38 @@ impl RequestScheduler {
                 return Ok(true);
             }
         }
-        Ok(false)
+        Ok(inner_result)
     }
 
     pub async fn get_request_status(
         &self,
         request_id: Uuid,
     ) -> Result<Option<RequestStatus>, anyhow::Error> {
+        // Check inner scheduler first, fall back to local tracking.
+        if let Ok(Some(inner_status)) = self.inner.get_request_status(request_id).await {
+            let mapped = match inner_status {
+                nexora_runtime::scheduler::RequestStatus::Queued => RequestStatus::Queued,
+                nexora_runtime::scheduler::RequestStatus::Processing => RequestStatus::Processing,
+                nexora_runtime::scheduler::RequestStatus::Completed => RequestStatus::Completed,
+                nexora_runtime::scheduler::RequestStatus::Failed(msg) => RequestStatus::Failed(msg),
+                nexora_runtime::scheduler::RequestStatus::Cancelled => RequestStatus::Cancelled,
+                nexora_runtime::scheduler::RequestStatus::Timeout => RequestStatus::Timeout,
+            };
+            return Ok(Some(mapped));
+        }
         let requests = self.requests.read().await;
         Ok(requests.get(&request_id).map(|r| r.status.clone()))
     }
 
     pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
+        // Delegate to inner scheduler for strategy-aware shutdown.
+        self.inner.shutdown().await?;
         self.shutdown.store(true, Ordering::Relaxed);
         let _ = self.shutdown_tx.send(true);
         let mut requests = self.requests.write().await;
         let mut queue = self.queue.write().await;
         queue.clear();
         requests.retain(|_, req| matches!(req.status, RequestStatus::Processing));
-        // Await background handles for graceful shutdown
         self.cancel_background_handles().await;
         Ok(())
     }
@@ -350,6 +419,7 @@ impl RequestScheduler {
     pub async fn get_stats(&self) -> SchedulerStats {
         let requests = self.requests.read().await;
         let batching = self.batch_collector.read().await;
+        let inner_stats = self.inner.get_stats().await;
         let mut stats = SchedulerStats {
             total_requests: requests.len(),
             active_requests: 0,
@@ -358,9 +428,9 @@ impl RequestScheduler {
             failed_requests: 0,
             pending_batches: batching.batch_count(),
             pending_batch_requests: batching.pending_count(),
-            avg_queue_time_ms: 0.0,
-            avg_processing_time_ms: 0.0,
-            throughput_rps: 0.0,
+            avg_queue_time_ms: inner_stats.avg_queue_time_ms,
+            avg_processing_time_ms: inner_stats.avg_processing_time_ms,
+            throughput_rps: inner_stats.throughput_rps,
         };
         for req in requests.values() {
             match req.status {
@@ -434,6 +504,8 @@ impl RequestScheduler {
     }
 
     pub async fn complete_request(&self, request_id: Uuid) -> Result<(), anyhow::Error> {
+        // Delegate to inner scheduler for stats tracking.
+        let _ = self.inner.complete_request(request_id).await;
         {
             let requests = self.requests.read().await;
             if let Some(sreq) = requests.get(&request_id) {
@@ -499,78 +571,32 @@ impl nexora_runtime::Scheduler for RequestScheduler {
         request_id: Uuid,
         response_tx: tokio::sync::mpsc::Sender<nexora_runtime::InferenceResponse>,
     ) -> anyhow::Result<()> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::InferenceResponse>(16);
-        let handle = tokio::spawn(async move {
-            while let Some(resp) = rx.recv().await {
-                let runtime_resp = nexora_runtime::InferenceResponse {
-                    request_id: Some(resp.request_id.to_string()),
-                    model_id: String::new(),
-                    outputs: Vec::new(),
-                    metadata: resp.metadata,
-                    processing_time_ms: resp.inference_time_ms,
-                };
-                if response_tx.send(runtime_resp).await.is_err() {
-                    break;
-                }
-            }
-        });
-        let mut handles = self.background_handles.lock().await;
-        handles.push(handle);
-        self.submit_request(request_id, tx)
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        // Delegate to inner runtime scheduler for strategy-aware submission.
+        self.inner.submit(request_id, response_tx).await
     }
 
     async fn cancel(&self, request_id: Uuid) -> anyhow::Result<bool> {
-        self.cancel_request(request_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        self.inner.cancel(request_id).await
     }
 
     async fn status(
         &self,
         request_id: Uuid,
     ) -> anyhow::Result<Option<nexora_runtime::RequestStatus>> {
-        let status = self
-            .get_request_status(request_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-        Ok(status.map(|s| match s {
-            RequestStatus::Queued => nexora_runtime::RequestStatus::Queued,
-            RequestStatus::Processing => nexora_runtime::RequestStatus::Processing,
-            RequestStatus::Completed => nexora_runtime::RequestStatus::Completed,
-            RequestStatus::Failed(msg) => nexora_runtime::RequestStatus::Failed(msg),
-            RequestStatus::Cancelled => nexora_runtime::RequestStatus::Cancelled,
-            RequestStatus::Timeout => nexora_runtime::RequestStatus::Timeout,
-        }))
+        self.inner.status(request_id).await
     }
 
     async fn stats(&self) -> nexora_runtime::SchedulerStats {
-        let s = self.get_stats().await;
-        nexora_runtime::SchedulerStats {
-            total_requests: s.total_requests as u64,
-            queued_requests: s.queued_requests as u64,
-            processed_requests: s.completed_requests as u64,
-            failed_requests: s.failed_requests as u64,
-            cancelled_requests: 0,
-            current_queue_length: s.queued_requests,
-            current_active_requests: s.active_requests,
-            avg_queue_time_ms: s.avg_queue_time_ms,
-            avg_processing_time_ms: s.avg_processing_time_ms,
-            throughput_rps: s.throughput_rps,
-            last_updated: chrono::Utc::now(),
-        }
+        self.inner.stats().await
     }
 
     async fn shutdown(&self) -> anyhow::Result<()> {
-        RequestScheduler::shutdown(self)
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        self.inner.shutdown().await
     }
 }
 
 impl Default for RequestScheduler {
     fn default() -> Self {
-        Self::new()
+        Self::new(4)
     }
 }

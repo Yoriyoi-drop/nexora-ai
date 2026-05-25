@@ -112,7 +112,9 @@ fn get_or_compile_pipeline(
     entries: &[wgpu::BindGroupLayoutEntry],
 ) -> Result<CachedPipeline, DeepLearningError> {
     {
-        let cache = PIPELINE_CACHE.lock().unwrap();
+        let cache = PIPELINE_CACHE.lock().map_err(|e| {
+            DeepLearningError::Computation { reason: format!("Pipeline cache mutex poisoned: {e}") }
+        })?;
         if let Some(cached) = cache.get(cache_key) {
             return Ok(cached.clone());
         }
@@ -139,7 +141,9 @@ fn get_or_compile_pipeline(
         cache: None,
     });
     let cached = CachedPipeline { pipeline, bind_group_layout, pipeline_layout };
-    let mut cache = PIPELINE_CACHE.lock().unwrap();
+    let mut cache = PIPELINE_CACHE.lock().map_err(|e| {
+        DeepLearningError::Computation { reason: format!("Pipeline cache mutex poisoned: {e}") }
+    })?;
     cache.insert(cache_key.to_string(), cached.clone());
     Ok(cached)
 }

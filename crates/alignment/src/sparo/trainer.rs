@@ -5,6 +5,7 @@
 use anyhow::Result;
 use nexora_autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use uuid::Uuid;
 
 use super::core::{
@@ -401,22 +402,21 @@ impl SparoTrainer {
 
     /// Log training progress
     fn log_progress(&self, iteration: usize, losses: &SparoLoss, total_loss: f32) -> Result<()> {
-        println!("Iteration {}: Total Loss = {:.6}", iteration, total_loss);
-        println!(
+        info!("Iteration {}: Total Loss = {:.6}", iteration, total_loss);
+        info!(
             "  DPO Loss = {:.6} (weight: {:.2})",
             losses.dpo_loss, self.config.alpha
         );
-        println!(
+        info!(
             "  KTO Loss = {:.6} (weight: {:.2})",
             losses.kto_loss, self.config.beta
         );
-        println!(
+        info!(
             "  IPO Loss = {:.6} (weight: {:.2})",
             losses.ipo_loss, self.config.gamma
         );
-        println!("  Best Loss = {:.6}", self.training_state.best_loss);
-        println!("  Converged = {}", self.training_state.converged);
-        println!();
+        info!("  Best Loss = {:.6}", self.training_state.best_loss);
+        info!("  Converged = {}", self.training_state.converged);
 
         Ok(())
     }

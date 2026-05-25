@@ -250,17 +250,21 @@ impl RequestScheduler {
                 idx
             }
             SchedulingStrategy::Fair => {
-                // Fair: prefer highest priority group, oldest first within group
+                // Fair: weighted fair queuing with starvation prevention.
+                // Base selection on priority group, but apply an age boost
+                // so low-priority requests that have waited too long get
+                // promoted ahead of fresher high-priority ones.
+                let now = Utc::now();
                 let mut best_idx = 0;
-                let mut best_group = u8::MAX;
+                let mut best_score = f64::NEG_INFINITY;
                 for (i, req) in queue.iter().enumerate() {
                     let group = req.priority / 10 * 10;
-                    if group < best_group {
-                        best_group = group;
+                    let wait_ms = (now - req.queued_at).num_milliseconds().max(0) as f64;
+                    let age_boost = (wait_ms / 5000.0).min(5.0); // +5 max after 25s wait
+                    let score = (100 - group as i32) as f64 + age_boost;
+                    if score > best_score {
+                        best_score = score;
                         best_idx = i;
-                        if best_group == 0 {
-                            break;
-                        }
                     }
                 }
                 best_idx
@@ -489,46 +493,26 @@ impl RequestScheduler {
     }
 
     fn insert_into_queue(&self, queue: &mut VecDeque<QueuedRequest>, request: QueuedRequest) {
+        let target_group = request.priority / 10 * 10;
         let insert_pos = match self.strategy {
             SchedulingStrategy::FIFO => None,
             SchedulingStrategy::RoundRobin => {
-                // RoundRobin: distribute across sessions for fairness.
-                // Extract session_id from metadata if present to group requests.
-                let session_id = request
-                    .metadata
-                    .get("session_id")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| {
-                        request.request.metadata.get("session_id")
-                            .and_then(|v| v.as_str())
-                    })
-                    .map(|s| s.to_string());
-
-                if let Some(ref sid) = session_id {
-                    // Place after the last request from the same session
-                    queue.iter().rposition(|existing| {
-                        let existing_sid = existing
-                            .metadata
-                            .get("session_id")
-                            .and_then(|v| v.as_str())
-                            .or_else(|| {
-                                existing.request.metadata.get("session_id")
-                                    .and_then(|v| v.as_str())
-                            });
-                        matches!(existing_sid, Some(es) if es == sid)
-                    }).map(|pos| pos + 1)
-                } else {
-                    // No session info: push to back; fairness from dequeue rotation
-                    None
-                }
+                // RoundRobin: interleave across priority groups for a natural
+                // rotating pattern. Insert before the next existing request from
+                // the same priority group. Combined with the index-based rotation
+                // in get_next_request, this ensures fair round-robin dispatching.
+                queue.iter().position(|existing| {
+                    existing.priority / 10 * 10 == target_group
+                })
             }
             SchedulingStrategy::Fair => {
-                // Fair: interleave by priority groups to ensure fairness
-                // Place after requests with same priority, before lower priority
-                let threshold = request.priority / 10 * 10; // group by priority decile
+                // Fair: fair queuing by priority group. Within each group,
+                // requests are FIFO. Place after same-priority requests,
+                // before lower-priority groups. The dequeue logic (get_next_request)
+                // boosts aged low-priority requests to prevent starvation.
                 queue.iter().position(|existing| {
                     let existing_group = existing.priority / 10 * 10;
-                    existing_group < threshold
+                    existing_group < target_group
                 })
             }
             SchedulingStrategy::Priority => queue

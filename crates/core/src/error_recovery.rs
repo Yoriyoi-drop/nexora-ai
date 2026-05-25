@@ -405,7 +405,7 @@ impl Default for RetryHandler {
 pub struct ErrorRecoveryManager {
     circuit_breakers: Arc<RwLock<HashMap<String, CircuitBreaker>>>,
     error_history: Arc<RwLock<Vec<ErrorInfo>>>,
-    recovery_strategies: Arc<RwLock<HashMap<ErrorCategory, RecoveryStrategy>>>,
+    recovery_strategies: Arc<std::sync::RwLock<HashMap<ErrorCategory, RecoveryStrategy>>>,
     retry_handler: RetryHandler,
 }
 
@@ -451,7 +451,7 @@ impl ErrorRecoveryManager {
         let manager = Self {
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
             error_history: Arc::new(RwLock::new(Vec::new())),
-            recovery_strategies: Arc::new(RwLock::new(HashMap::new())),
+            recovery_strategies: Arc::new(std::sync::RwLock::new(HashMap::new())),
             retry_handler: RetryHandler::default(),
         };
 
@@ -461,12 +461,8 @@ impl ErrorRecoveryManager {
     }
 
     fn init_default_strategies(&self) {
-        // Initialize strategies using a simple approach without blocking
-        let strategies = self.recovery_strategies.clone();
-
-        // Use tokio::spawn instead of creating a nested runtime
-        tokio::spawn(async move {
-            let mut strategies_guard = strategies.write().await;
+        // Initialize strategies synchronously — no async needed for HashMap operations
+        let mut strategies_guard = self.recovery_strategies.write().unwrap();
 
             // Network errors - aggressive retry with circuit breaker
             strategies_guard.insert(
@@ -532,7 +528,6 @@ impl ErrorRecoveryManager {
                 ErrorCategory::Resource,
                 RecoveryStrategy::new(ErrorCategory::Resource).with_auto_retry(false),
             );
-        });
     }
 
     /// Get or create circuit breaker for service
@@ -552,7 +547,7 @@ impl ErrorRecoveryManager {
         self.record_error(error_info.clone()).await;
 
         // Get recovery strategy
-        let strategies = self.recovery_strategies.read().await;
+        let strategies = self.recovery_strategies.read().unwrap();
         let strategy = strategies.get(&error_info.category);
 
         // Determine recovery action
@@ -700,8 +695,8 @@ static GLOBAL_RECOVERY: std::sync::OnceLock<ErrorRecoveryManager> = std::sync::O
 pub fn global_error_recovery() -> &'static ErrorRecoveryManager {
     GLOBAL_RECOVERY.get_or_init(|| {
         let manager = ErrorRecoveryManager::new();
-        // Block briefly to let strategies initialize (spawned in tokio)
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        // Strategies are initialized synchronously inside ErrorRecoveryManager::new,
+        // so no blocking sleep is needed.
         manager
     })
 }

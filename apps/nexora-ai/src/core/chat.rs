@@ -218,7 +218,9 @@ impl ChatEngine {
         &self,
         conversation_id: &str,
     ) -> NexoraResult<ConversationContext> {
-        let convs = self.conversations.lock().unwrap();
+        let convs = self.conversations.lock().map_err(|e| {
+            NexoraError::System { message: format!("Mutex poisoned in get_conversation_context: {e}") }
+        })?;
         match convs.get(conversation_id) {
             Some(ctx) => Ok(ctx.clone()),
             None => Ok(ConversationContext {
@@ -238,7 +240,9 @@ impl ChatEngine {
         user_message: &str,
         _ai_response: &str,
     ) -> NexoraResult<()> {
-        let mut convs = self.conversations.lock().unwrap();
+        let mut convs = self.conversations.lock().map_err(|e| {
+            NexoraError::System { message: format!("Mutex poisoned in store_conversation_turn: {e}") }
+        })?;
         let ctx = convs.entry(conversation_id.to_string()).or_insert_with(|| {
             ConversationContext {
                 conversation_id: conversation_id.to_string(),

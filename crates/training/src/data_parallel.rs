@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use anyhow::Context;
 use ndarray::ArrayD;
 use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::Tensor;
@@ -31,8 +32,8 @@ impl DataParallelTrainer {
         }
     }
 
-    pub fn sync_weights_to_workers(&self) {
-        let master = self.master.lock().unwrap();
+    pub fn sync_weights_to_workers(&self) -> anyhow::Result<()> {
+        let master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in sync_weights_to_workers: {e}"))?;
         let master_params = master
             .trainable
             .as_ref()
@@ -51,20 +52,21 @@ impl DataParallelTrainer {
                 }
             }
         }
+        Ok(())
     }
 
-    pub fn train_step(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
+    pub fn train_step(&mut self, tokens: &[u32], targets: &[u32]) -> anyhow::Result<Option<f32>> {
         if self.num_workers == 0 || tokens.is_empty() || targets.is_empty() {
-            let mut master = self.master.lock().unwrap();
-            return master.train_batch(tokens, targets);
+            let mut master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in train_step: {e}"))?;
+            return Ok(master.train_batch(tokens, targets));
         }
 
         let total_seq = tokens.len().min({
-            let master = self.master.lock().unwrap();
+            let master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in train_step: {e}"))?;
             master.config.seq_length
         });
         if total_seq == 0 {
-            return None;
+            return Ok(None);
         }
 
         let chunk_size = total_seq.div_ceil(self.num_workers);
@@ -108,19 +110,19 @@ impl DataParallelTrainer {
 
         let valid_losses: Vec<f32> = worker_losses.iter().filter_map(|&l| l).collect();
         if valid_losses.is_empty() {
-            return None;
+            return Ok(None);
         }
         let avg_loss = valid_losses.iter().sum::<f32>() / valid_losses.len() as f32;
 
-        self.sync_gradients();
-        self.optimizer_step();
+        self.sync_gradients()?;
+        self.optimizer_step()?;
 
-        Some(avg_loss)
+        Ok(Some(avg_loss))
     }
 
-    pub fn sync_gradients(&self) {
+    pub fn sync_gradients(&self) -> anyhow::Result<()> {
         let master_params = {
-            let master = self.master.lock().unwrap();
+            let master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in sync_gradients: {e}"))?;
             master
                 .trainable
                 .as_ref()
@@ -139,7 +141,7 @@ impl DataParallelTrainer {
             all_grads.push(grads);
         }
 
-        let master = self.master.lock().unwrap();
+        let master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in sync_gradients: {e}"))?;
         if let Some(ref t) = master.trainable {
             let master_params = t.parameters();
             for (i, mp) in master_params.iter().enumerate() {
@@ -164,16 +166,18 @@ impl DataParallelTrainer {
         }
     }
 
-    pub fn optimizer_step(&self) {
-        let master = self.master.lock().unwrap();
+    pub fn optimizer_step(&self) -> anyhow::Result<()> {
+        let master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in optimizer_step: {e}"))?;
         if let Some(ref mut opt) = master.optimizer {
             opt.step();
             opt.zero_grad();
         }
+        Ok(())
     }
 
-    pub fn prepare_master(&self) {
-        let mut master = self.master.lock().unwrap();
+    pub fn prepare_master(&self) -> anyhow::Result<()> {
+        let mut master = self.master.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned in prepare_master: {e}"))?;
         master.prepare();
+        Ok(())
     }
 }

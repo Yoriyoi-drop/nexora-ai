@@ -5,10 +5,25 @@
 use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
 use async_trait::async_trait;
+use regex::Regex;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
+
+static RE_URL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"https?://[^\s"'<>(){}|\\^`[\]]+"#).expect("valid URL regex")
+});
+static RE_EMAIL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#).expect("valid email regex")
+});
+static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\+?[\d\-\(\)\s]{7,20}"#).expect("valid phone regex")
+});
+static RE_URL_SIMPLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"https?://[^\s]+"#).expect("valid URL simple regex")
+});
 
 /// Mesin eksekusi untuk menjalankan tindakan
 pub struct ExecutionEngine {
@@ -662,26 +677,20 @@ impl ActionHandler for ExtractHandler {
 
         let extracted = match target {
             "url" | "URL" => {
-                let re = regex::Regex::new(r#"https?://[^\s"'<>(){}|\\^`[\]]+"#).ok();
-                re.map(|r| r.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n"))
-                    .unwrap_or_default()
+                RE_URL.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
             }
             "email" => {
-                let re = regex::Regex::new(r#"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#).ok();
-                re.map(|r| r.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n"))
-                    .unwrap_or_default()
+                RE_EMAIL.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
             }
             "phone" => {
-                let re = regex::Regex::new(r#"\+?[\d\-\(\)\s]{7,20}"#).ok();
-                re.map(|r| r.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n"))
-                    .unwrap_or_default()
+                RE_PHONE.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
             }
             "custom" => {
                 let pattern = action.parameters.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
                 if pattern.is_empty() {
                     return Err(crate::caffeine::error::CaffeineError::action_head("Custom extraction requires a 'pattern' parameter"));
                 }
-                let re = match regex::Regex::new(pattern) {
+                let re = match Regex::new(pattern) {
                     Ok(r) => r,
                     Err(e) => return Err(crate::caffeine::error::CaffeineError::action_head(
                         &format!("Invalid regex pattern: {}", e),
@@ -742,18 +751,12 @@ impl ActionHandler for AnalyzeHandler {
                 format!("sentiment: {} (positive: {}, negative: {})", sentiment, pos_count, neg_count)
             }
             "entities" => {
-                let url_re = regex::Regex::new(r#"https?://[^\s]+"#).ok();
-                let email_re = regex::Regex::new(r#"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#).ok();
                 let mut entities = Vec::new();
-                if let Some(re) = url_re {
-                    for m in re.find_iter(text) {
-                        entities.push(format!("URL: {}", m.as_str()));
-                    }
+                for m in RE_URL_SIMPLE.find_iter(text) {
+                    entities.push(format!("URL: {}", m.as_str()));
                 }
-                if let Some(re) = email_re {
-                    for m in re.find_iter(text) {
-                        entities.push(format!("Email: {}", m.as_str()));
-                    }
+                for m in RE_EMAIL.find_iter(text) {
+                    entities.push(format!("Email: {}", m.as_str()));
                 }
                 if entities.is_empty() {
                     "entities: none found".to_string()

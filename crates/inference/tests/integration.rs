@@ -68,7 +68,7 @@ async fn test_kv_cache_with_repeated_access() {
 
 #[tokio::test]
 async fn test_scheduler_batching_grouping() {
-    let scheduler = RequestScheduler::new().with_max_batch_size(4);
+    let scheduler = RequestScheduler::new(4).with_max_batch_size(4);
 
     let req1 = InferenceRequest::new("hello".to_string())
         .with_model("model-a".to_string())
@@ -120,7 +120,7 @@ async fn test_scheduler_batching_grouping() {
 
 #[tokio::test]
 async fn test_scheduler_stats_with_batching() {
-    let scheduler = RequestScheduler::new().with_max_batch_size(8);
+    let scheduler = RequestScheduler::new(4).with_max_batch_size(8);
 
     let req = InferenceRequest::new("test".to_string());
     let (tx, _rx) = mpsc::channel(16);

@@ -3931,6 +3931,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tracing",
  "uuid",
 ]
 

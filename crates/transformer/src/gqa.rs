@@ -434,8 +434,8 @@ impl GQA {
         x: &Array2<f32>,
         mut cache: Option<&mut Vec<KVCacheEntry>>,
         layer_idx: usize,
-        cos: &Array1<f32>,
-        sin: &Array1<f32>,
+        cos: &[f32],
+        sin: &[f32],
     ) -> Array2<f32> {
         // Pure CPU forward path.
         // GPU-resident execution uses `forward_gpu` (no per-layer readback).
@@ -455,26 +455,22 @@ impl GQA {
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
 
-        for b in 0..batch_size {
-            let k_slice_view = k.slice(ndarray::s![b, .., ..]);
-            let k_row: Vec<f32> = k_slice_view.iter().copied().collect();
+        for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
+            let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            for h in 0..self.num_kv_heads {
-                for d in 0..self.head_dim {
-                    k[[b, h, d]] = rotated_k[h * self.head_dim + d];
-                }
-            }
+            let rotated = ndarray::Array2::from_shape_vec(
+                (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
+            ).expect("valid shape for rotated K");
+            k_slice.assign(&rotated);
         }
 
-        for b in 0..batch_size {
-            let q_slice_view = q.slice(ndarray::s![b, .., ..]);
-            let q_row: Vec<f32> = q_slice_view.iter().copied().collect();
+        for mut q_slice in q.axis_iter_mut(ndarray::Axis(0)) {
+            let q_row: Vec<f32> = q_slice.iter().copied().collect();
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            for h in 0..self.num_heads {
-                for d in 0..self.head_dim {
-                    q[[b, h, d]] = rotated_q[h * self.head_dim + d];
-                }
-            }
+            let rotated = ndarray::Array2::from_shape_vec(
+                (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
+            ).expect("valid shape for rotated Q");
+            q_slice.assign(&rotated);
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
@@ -499,15 +495,13 @@ impl GQA {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
 
+                let q_slice = q.slice(ndarray::s![b, h, ..]);
                 let mut scores = Vec::with_capacity(total_seq);
                 let mut max_score = f32::NEG_INFINITY;
                 for t in 0..total_seq {
-                    let mut score = 0.0;
                     let k_idx = (b * total_seq + t) * kv_dim + kv_off;
-                    for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_cached[k_idx + d];
-                    }
-                    score *= self.head_dim_rs;
+                    let k_view = ndarray::ArrayView1::from(&k_cached[k_idx..k_idx + self.head_dim]);
+                    let score = q_slice.dot(&k_view) * self.head_dim_rs;
                     if score > max_score {
                         max_score = score;
                     }
@@ -541,8 +535,8 @@ impl GQA {
         x: &Array2<f32>,
         cache: &mut Vec<KVCacheEntry>,
         layer_idx: usize,
-        cos: &Array1<f32>,
-        sin: &Array1<f32>,
+        cos: &[f32],
+        sin: &[f32],
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
 
@@ -560,26 +554,22 @@ impl GQA {
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
 
-        for b in 0..batch_size {
-            let k_slice_view = k.slice(ndarray::s![b, .., ..]);
-            let k_row: Vec<f32> = k_slice_view.iter().copied().collect();
+        for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
+            let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            for h in 0..self.num_kv_heads {
-                for d in 0..self.head_dim {
-                    k[[b, h, d]] = rotated_k[h * self.head_dim + d];
-                }
-            }
+            let rotated = ndarray::Array2::from_shape_vec(
+                (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
+            ).expect("valid shape for rotated K");
+            k_slice.assign(&rotated);
         }
 
-        for b in 0..batch_size {
-            let q_slice_view = q.slice(ndarray::s![b, .., ..]);
-            let q_row: Vec<f32> = q_slice_view.iter().copied().collect();
+        for mut q_slice in q.axis_iter_mut(ndarray::Axis(0)) {
+            let q_row: Vec<f32> = q_slice.iter().copied().collect();
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            for h in 0..self.num_heads {
-                for d in 0..self.head_dim {
-                    q[[b, h, d]] = rotated_q[h * self.head_dim + d];
-                }
-            }
+            let rotated = ndarray::Array2::from_shape_vec(
+                (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
+            ).expect("valid shape for rotated Q");
+            q_slice.assign(&rotated);
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
@@ -608,15 +598,13 @@ impl GQA {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
 
+                let q_slice = q.slice(ndarray::s![b, h, ..]);
                 let mut scores = vec![0.0; total_seq];
                 let mut max_score = f32::NEG_INFINITY;
                 for t in 0..total_seq {
-                    let mut score = 0.0;
                     let k_idx = t * kv_dim + kv_off;
-                    for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_slice[k_idx + d];
-                    }
-                    score *= self.head_dim_rs;
+                    let k_view = ndarray::ArrayView1::from(&k_slice[k_idx..k_idx + self.head_dim]);
+                    let score = q_slice.dot(&k_view) * self.head_dim_rs;
                     if score > max_score {
                         max_score = score;
                     }
@@ -661,8 +649,8 @@ impl GQA {
         seq_id: u64,
         layer_idx: usize,
         token_pos: usize,
-        cos: &Array1<f32>,
-        sin: &Array1<f32>,
+        cos: &[f32],
+        sin: &[f32],
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
         debug_assert_eq!(
@@ -685,27 +673,23 @@ impl GQA {
             .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
 
         // RoPE for K
-        for b in 0..batch_size {
-            let k_slice_view = k.slice(ndarray::s![b, .., ..]);
-            let k_row: Vec<f32> = k_slice_view.iter().copied().collect();
+        for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
+            let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            for h in 0..self.num_kv_heads {
-                for d in 0..self.head_dim {
-                    k[[b, h, d]] = rotated_k[h * self.head_dim + d];
-                }
-            }
+            let rotated = ndarray::Array2::from_shape_vec(
+                (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
+            ).expect("valid shape for rotated K");
+            k_slice.assign(&rotated);
         }
 
         // RoPE for Q
-        for b in 0..batch_size {
-            let q_slice_view = q.slice(ndarray::s![b, .., ..]);
-            let q_row: Vec<f32> = q_slice_view.iter().copied().collect();
+        for mut q_slice in q.axis_iter_mut(ndarray::Axis(0)) {
+            let q_row: Vec<f32> = q_slice.iter().copied().collect();
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            for h in 0..self.num_heads {
-                for d in 0..self.head_dim {
-                    q[[b, h, d]] = rotated_q[h * self.head_dim + d];
-                }
-            }
+            let rotated = ndarray::Array2::from_shape_vec(
+                (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
+            ).expect("valid shape for rotated Q");
+            q_slice.assign(&rotated);
         }
 
         // Append this token's K/V to the paged cache
@@ -726,6 +710,7 @@ impl GQA {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
 
+                let q_slice = q.slice(ndarray::s![b, h, ..]);
                 let mut max_score = f32::NEG_INFINITY;
                 let mut scores = Vec::with_capacity(num_tokens);
                 for t in 0..num_tokens {
@@ -733,11 +718,8 @@ impl GQA {
                         Some(r) => r,
                         None => continue,
                     };
-                    let mut score = 0.0;
-                    for d in 0..self.head_dim {
-                        score += q[[b, h, d]] * k_row[kv_off + d];
-                    }
-                    score *= self.head_dim_rs;
+                    let k_view = ndarray::ArrayView1::from(&k_row[kv_off..kv_off + self.head_dim]);
+                    let score = q_slice.dot(&k_view) * self.head_dim_rs;
                     if score > max_score {
                         max_score = score;
                     }

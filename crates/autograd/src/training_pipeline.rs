@@ -521,7 +521,7 @@ impl TrainingLoop {
 
     /// Call each optimizer step.
     /// Returns true if training should continue, false if stopped.
-    pub fn on_step(&mut self, loss: f64, lr: f32, grad_norm: f32, tokens_in_batch: usize) -> bool {
+    pub fn on_step(&mut self, loss: f64, lr: f32, grad_norm: f32, tokens_in_batch: usize) -> super::DLResult<bool> {
         self.step += 1;
         self.total_tokens += tokens_in_batch;
 
@@ -556,8 +556,12 @@ impl TrainingLoop {
                 if let Err(e) = std::fs::create_dir_all(dir) {
                     tracing::warn!("  Failed to create checkpoint dir: {}", e);
                 } else if self.params.is_some() && self.adam.is_some() {
-                    let params = self.params.as_ref().unwrap();
-                    let adam = self.adam.as_ref().unwrap();
+                    let params = self.params.as_ref().ok_or_else(|| {
+                        super::DeepLearningError::Computation { reason: "params not initialized for checkpoint save".into() }
+                    })?;
+                    let adam = self.adam.as_ref().ok_or_else(|| {
+                        super::DeepLearningError::Computation { reason: "adam not initialized for checkpoint save".into() }
+                    })?;
                     match Checkpoint::save(
                         &path,
                         params,
@@ -600,10 +604,10 @@ impl TrainingLoop {
 
         // Stop check
         if self.step >= self.config.max_steps || self.should_stop() {
-            return false;
+            return Ok(false);
         }
 
-        true
+        Ok(true)
     }
 
     /// Update validation loss, returns true if improved

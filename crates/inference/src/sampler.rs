@@ -53,6 +53,10 @@ pub struct Sampler {
     gpu_fallback_count: AtomicU64,
     gpu_attempts: AtomicU64,
     allow_gpu_fallback: bool,
+    fallback_threshold: f32,
+    total_attempts: u64,
+    fallback_attempts: u64,
+    gpu_disabled: bool,
 }
 
 impl Sampler {
@@ -68,7 +72,11 @@ impl Sampler {
             use_gpu,
             gpu_fallback_count: AtomicU64::new(0),
             gpu_attempts: AtomicU64::new(0),
-            allow_gpu_fallback: true, // Default to true for backward compatibility
+            allow_gpu_fallback: false,
+            fallback_threshold: 0.2,
+            total_attempts: 0,
+            fallback_attempts: 0,
+            gpu_disabled: false,
         }
     }
 
@@ -84,7 +92,11 @@ impl Sampler {
             use_gpu: false,
             gpu_fallback_count: AtomicU64::new(0),
             gpu_attempts: AtomicU64::new(0),
-            allow_gpu_fallback: true,
+            allow_gpu_fallback: false,
+            fallback_threshold: 0.2,
+            total_attempts: 0,
+            fallback_attempts: 0,
+            gpu_disabled: false,
         }
     }
 
@@ -111,6 +123,15 @@ impl Sampler {
         } else {
             self.gpu_fallback_count.load(Ordering::Relaxed) as f64 / total as f64
         }
+    }
+
+    /// Reset the GPU circuit breaker, re-enabling GPU sampling.
+    /// Call this after diagnosing and fixing the root cause of GPU failures.
+    pub fn reset_gpu_circuit_breaker(&mut self) {
+        self.gpu_disabled = false;
+        self.total_attempts = 0;
+        self.fallback_attempts = 0;
+        warn!("GPU circuit breaker has been reset — GPU sampling re-enabled");
     }
 
     pub fn reset_seed(&mut self, seed: u64) {
@@ -146,19 +167,23 @@ impl Sampler {
 
     #[cfg(feature = "gpu")]
     pub fn sample_gpu(&mut self, logits: &[f32]) -> Result<usize> {
+        self.total_attempts += 1;
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
         match self.sample_gpu_impl(logits) {
             Ok(token) => Ok(token),
             Err(e) => {
+                self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                let rate = self.fallback_attempts as f32 / self.total_attempts.max(1) as f32;
+                if rate > self.fallback_threshold {
+                    self.gpu_disabled = true;
+                    warn!(
+                        "GPU circuit breaker TRIPPED at {:.1}% fallback rate (threshold: {:.0}%) — disabling GPU. Call reset_gpu_circuit_breaker() to re-enable.",
+                        rate * 100.0,
+                        self.fallback_threshold * 100.0,
+                    );
+                }
                 if self.allow_gpu_fallback {
-                    let ratio = self.gpu_fallback_ratio();
-                    if ratio > 0.5 {
-                        warn!(
-                            "GPU fallback ratio is {:.1}% — consider disabling GPU acceleration",
-                            ratio * 100.0
-                        );
-                    }
                     warn!(
                         "GPU sampling failed: {}, falling back to CPU (fallback count: {})",
                         e,
@@ -187,19 +212,28 @@ impl Sampler {
             return Ok(Vec::new());
         }
         let vocab = batch_logits[0].len();
+        self.total_attempts += 1;
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
+
+        let cb_trip = |sampler: &mut Self| {
+            let rate = sampler.fallback_attempts as f32 / sampler.total_attempts.max(1) as f32;
+            if rate > sampler.fallback_threshold {
+                sampler.gpu_disabled = true;
+                warn!(
+                    "GPU circuit breaker TRIPPED at {:.1}% fallback rate (threshold: {:.0}%) — disabling GPU. Call reset_gpu_circuit_breaker() to re-enable.",
+                    rate * 100.0,
+                    sampler.fallback_threshold * 100.0,
+                );
+            }
+        };
+
         let ctx = match GpuContext::global() {
             Ok(c) => c,
             Err(e) => {
+                self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                cb_trip(self);
                 if self.allow_gpu_fallback {
-                    let ratio = self.gpu_fallback_ratio();
-                    if ratio > 0.5 {
-                        warn!(
-                            "GPU fallback ratio is {:.1}% — consider disabling GPU acceleration",
-                            ratio * 100.0
-                        );
-                    }
                     warn!(
                         "GPU sampling batched failed: {}, falling back to per-sequence (fallback count: {})",
                         e,
@@ -232,15 +266,10 @@ impl Sampler {
         let out = match ctx.gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed) {
             Ok(o) => o,
             Err(e) => {
+                self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                cb_trip(self);
                 if self.allow_gpu_fallback {
-                    let ratio = self.gpu_fallback_ratio();
-                    if ratio > 0.5 {
-                        warn!(
-                            "GPU fallback ratio is {:.1}% — consider disabling GPU acceleration",
-                            ratio * 100.0
-                        );
-                    }
                     warn!(
                         "GPU sampling batched call failed: {}, falling back to per-sequence (fallback count: {})",
                         e,
@@ -278,6 +307,9 @@ impl Sampler {
 
         #[cfg(feature = "gpu")]
         if self.use_gpu {
+            if self.gpu_disabled {
+                return self.sample_cpu(logits);
+            }
             return self.sample_gpu(logits);
         }
 

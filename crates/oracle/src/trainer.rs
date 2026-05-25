@@ -9,6 +9,7 @@ use ndarray::Array2;
 use nexora_autograd::Adam;
 use nexora_autograd::TensorOps;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::alignment::{CodeDpoConfig, CodeDpoTrainer, CodePreferencePair};
 use crate::backbone::{OracleBackbone, OracleBackboneConfig};
@@ -207,30 +208,30 @@ impl OracleTrainer {
 
     /// Main training loop
     pub fn train(&mut self, training_data: &[TrainingExample]) -> Result<TrainingResult> {
-        println!("🚀 Starting ORACLE Training");
-        println!("=============================");
+        info!("🚀 Starting ORACLE Training");
+        info!("=============================");
 
         let mut result = TrainingResult::new();
 
         // Phase 1: Pretraining with FIM + Contrastive
-        println!("\n📚 Phase 1: Pretraining (FIM + Contrastive)");
-        println!("===============================================");
+        info!("\n📚 Phase 1: Pretraining (FIM + Contrastive)");
+        info!("===============================================");
 
         self.training_state.phase = TrainingPhase::Pretraining;
         let pretraining_result = self.run_pretraining(training_data)?;
         result.pretraining_result = Some(pretraining_result);
 
         // Phase 2: Alignment with Code DPO
-        println!("\n🎯 Phase 2: Alignment (Code DPO)");
-        println!("=================================");
+        info!("\n🎯 Phase 2: Alignment (Code DPO)");
+        info!("=================================");
 
         self.training_state.phase = TrainingPhase::Alignment;
         let alignment_result = self.run_alignment(training_data)?;
         result.alignment_result = Some(alignment_result);
 
         // Phase 3: Final Evaluation
-        println!("\n📊 Phase 3: Final Evaluation");
-        println!("==============================");
+        info!("\n📊 Phase 3: Final Evaluation");
+        info!("==============================");
 
         self.training_state.phase = TrainingPhase::Evaluation;
         let final_metrics = self.final_evaluation(training_data)?;
@@ -239,8 +240,8 @@ impl OracleTrainer {
         self.training_state.phase = TrainingPhase::Complete;
         result.final_state = self.training_state.clone();
 
-        println!("\n🎉 ORACLE Training Completed!");
-        println!("============================");
+        info!("\n🎉 ORACLE Training Completed!");
+        info!("============================");
 
         Ok(result)
     }
@@ -252,7 +253,7 @@ impl OracleTrainer {
         let vocab_size = self.config.pretraining.vocab_size;
 
         for epoch in 0..self.config.training.pretraining_epochs {
-            println!(
+            info!(
                 "Pretraining Epoch {}/{}",
                 epoch + 1,
                 self.config.training.pretraining_epochs
@@ -329,7 +330,7 @@ impl OracleTrainer {
 
                 // Logging
                 if batch_idx % 10 == 0 {
-                    println!(
+                    info!(
                         "  Batch {}/{}: Loss = {:.6}",
                         batch_idx + 1,
                         batches.len(),
@@ -363,10 +364,10 @@ impl OracleTrainer {
                     contrastive_loss: eval_metrics.alignment_loss,
                 });
 
-                println!("  Eval Loss: {:.6}", eval_metrics.pretraining_loss);
+                info!("  Eval Loss: {:.6}", eval_metrics.pretraining_loss);
 
                 if self.check_early_stopping(eval_metrics.pretraining_loss) {
-                    println!("  Early stopping triggered");
+                    info!("  Early stopping triggered");
                     break;
                 }
             }
@@ -385,12 +386,12 @@ impl OracleTrainer {
         let mut result = AlignmentResult::new();
 
         // Generate code preference pairs
-        println!("Generating code preference pairs...");
+        info!("Generating code preference pairs...");
         let preference_pairs = self.generate_preference_pairs(training_data)?;
-        println!("Generated {} preference pairs", preference_pairs.len());
+        info!("Generated {} preference pairs", preference_pairs.len());
 
         for epoch in 0..self.config.training.alignment_epochs {
-            println!(
+            info!(
                 "Alignment Epoch {}/{}",
                 epoch + 1,
                 self.config.training.alignment_epochs
@@ -410,7 +411,7 @@ impl OracleTrainer {
 
                 // Logging
                 if batch_idx % 10 == 0 {
-                    println!(
+                    info!(
                         "  Batch {}/{}: Loss = {:.6}",
                         batch_idx + 1,
                         batches.len(),
@@ -437,16 +438,16 @@ impl OracleTrainer {
             let alignment_stats = self.dpo_trainer.get_alignment_stats(&preference_pairs);
             result.alignment_stats.push(alignment_stats.clone());
 
-            println!("  Avg Loss: {:.6}", avg_epoch_loss);
-            println!(
+            info!("  Avg Loss: {:.6}", avg_epoch_loss);
+            info!(
                 "  Security Score: {:.3}",
                 alignment_stats.avg_security_score
             );
-            println!(
+            info!(
                 "  Efficiency Score: {:.3}",
                 alignment_stats.avg_efficiency_score
             );
-            println!(
+            info!(
                 "  Quality Score: {:.3}",
                 alignment_stats.avg_code_quality_score
             );
@@ -465,7 +466,7 @@ impl OracleTrainer {
         &mut self,
         training_data: &[TrainingExample],
     ) -> Result<EvaluationMetrics> {
-        println!("Running comprehensive evaluation...");
+        info!("Running comprehensive evaluation...");
         let d_model = self.config.backbone.d_model;
         let vocab_size = self.config.pretraining.vocab_size;
 
@@ -654,7 +655,7 @@ impl OracleTrainer {
         let checkpoint_json = serde_json::to_string_pretty(&checkpoint)?;
         std::fs::write(checkpoint_path, checkpoint_json)?;
 
-        println!("  Checkpoint saved: {}", checkpoint_name);
+        info!("  Checkpoint saved: {}", checkpoint_name);
         Ok(())
     }
 
@@ -666,7 +667,7 @@ impl OracleTrainer {
         self.config = checkpoint.config;
         self.training_state = checkpoint.training_state;
 
-        println!("Checkpoint loaded from: {}", checkpoint_path);
+        info!("Checkpoint loaded from: {}", checkpoint_path);
         Ok(())
     }
 

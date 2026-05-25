@@ -34,8 +34,8 @@ impl TransformerBlock {
         x: &Array2<f32>,
         cache: &mut Vec<KVCacheEntry>,
         layer_idx: usize,
-        cos: &Array1<f32>,
-        sin: &Array1<f32>,
+        cos: &[f32],
+        sin: &[f32],
     ) -> Array2<f32> {
         // Pure CPU forward path.
         // GPU-resident execution uses `forward_gpu` (no per-layer readback).
@@ -57,7 +57,7 @@ impl TransformerBlock {
         sin: &Array1<f32>,
     ) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
-        let attn_out = self.attention.forward(&normed, None, 0, cos, sin);
+        let attn_out = self.attention.forward(&normed, None, 0, cos.as_slice().unwrap_or(&[]), sin.as_slice().unwrap_or(&[]));
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn);
@@ -72,8 +72,8 @@ impl TransformerBlock {
         seq_id: u64,
         layer_idx: usize,
         token_pos: usize,
-        cos: &Array1<f32>,
-        sin: &Array1<f32>,
+        cos: &[f32],
+        sin: &[f32],
     ) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
         let attn_out = self

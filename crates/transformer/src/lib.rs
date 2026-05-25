@@ -34,7 +34,4 @@ pub enum TransformerError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[allow(dead_code)]
-    #[error("Not implemented")]
-    NotImplemented,
 }

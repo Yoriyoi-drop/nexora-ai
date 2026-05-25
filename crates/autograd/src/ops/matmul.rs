@@ -106,7 +106,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                         }
                     }
                 }
-                _ => {}
+                _ => { warn!("MatMul: non-GPU storage despite on_gpu check — falling back to CPU"); }
             }
         }
     }

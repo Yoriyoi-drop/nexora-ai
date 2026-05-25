@@ -3,7 +3,25 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use tracing::warn;
+
+static RE_HTML_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("valid HTML tag regex"));
+
+static RE_DANGEROUS_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    let patterns: &[&str] = &[
+        r"-----BEGIN.*PRIVATE KEY-----",
+        r"-----BEGIN CERTIFICATE-----",
+        r"ghp_",
+        r"gho_",
+        r"ghu_",
+        r"ghs_",
+        r"ghr_",
+        r"AKIA",
+        r"xox[baprs]-",
+    ];
+    patterns.iter().filter_map(|p| Regex::new(p).ok()).collect()
+});
 
 static MALICIOUS_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     let patterns: &[(&str, &str)] = &[
@@ -220,9 +238,7 @@ impl SecurityValidator {
         let mut sanitized = input.to_string();
 
         // Remove HTML tags
-        if let Ok(html_tag_regex) = Regex::new(r"<[^>]*>") {
-            sanitized = html_tag_regex.replace_all(&sanitized, "").to_string();
-        }
+        sanitized = RE_HTML_TAG.replace_all(&sanitized, "").to_string();
 
         // Remove potentially dangerous characters
         let dangerous_chars = vec!['<', '>', '"', '\'', '&', '`', '$', '|', ';'];
@@ -332,18 +348,6 @@ impl SecurityUtils {
     /// assignment patterns like "password = ...", or API key regexes.
     /// Normal conversation mentioning "password", "secret", etc. is NOT blocked.
     pub fn is_dangerous_content(content: &str) -> bool {
-        let dangerous_patterns = vec![
-            "-----BEGIN.*PRIVATE KEY-----",
-            "-----BEGIN CERTIFICATE-----",
-            "ghp_",
-            "gho_",
-            "ghu_",
-            "ghs_",
-            "ghr_",
-            "AKIA", // AWS access key
-            "xox[baprs]-", // Slack token
-        ];
-
         let content_lower = content.to_lowercase();
 
         // Check for actual secrets being disclosed (assignment patterns)
@@ -369,9 +373,7 @@ impl SecurityUtils {
             }
         }
 
-        dangerous_patterns
-            .iter()
-            .any(|pattern| Regex::new(pattern).map(|r| r.is_match(content)).unwrap_or(false))
+        RE_DANGEROUS_PATTERNS.iter().any(|r| r.is_match(content))
     }
 
     /// Escape HTML content

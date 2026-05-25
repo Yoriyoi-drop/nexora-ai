@@ -6,6 +6,9 @@ const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY_MS: u64 = 50;
 
 /// Retry a fallible closure up to `MAX_RETRIES` times with a short delay.
+/// NOTE: This function is synchronous-only (no async callers), so `thread::sleep`
+/// is acceptable here. If this is ever called from async code, switch to
+/// `tokio::time::sleep(...).await`.
 fn with_retry<T, F: Fn() -> std::io::Result<T>>(f: F) -> std::io::Result<T> {
     let mut last_err = None;
     for attempt in 1..=MAX_RETRIES {

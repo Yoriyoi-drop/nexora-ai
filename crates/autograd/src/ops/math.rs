@@ -64,7 +64,7 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                         }
                     }
                 }
-                _ => {}
+                _ => { warn!("add: non-GPU storage despite on_gpu check — falling back to CPU"); }
             }
         }
     }
@@ -167,7 +167,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                         }
                     }
                 }
-                _ => {}
+                _ => { warn!("sub: non-GPU storage despite on_gpu check — falling back to CPU"); }
             }
         }
     }
@@ -249,7 +249,7 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                         }
                     }
                 }
-                _ => {}
+                _ => { warn!("mul: non-GPU storage despite on_gpu check — falling back to CPU"); }
             }
         }
     }
@@ -310,7 +310,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                         }
                     }
                 }
-                _ => {}
+                _ => { warn!("div: non-GPU storage despite on_gpu check — falling back to CPU"); }
             }
         }
     }
