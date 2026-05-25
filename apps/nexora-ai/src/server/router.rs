@@ -1,6 +1,5 @@
 use anyhow::Result;
 use axum::{
-    body::Body,
     extract::Request,
     http::{HeaderName, Method, StatusCode},
     middleware::{self, Next},

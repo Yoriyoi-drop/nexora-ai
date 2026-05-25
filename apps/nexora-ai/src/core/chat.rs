@@ -12,7 +12,7 @@ use nexora_foundation::shared::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::types::{

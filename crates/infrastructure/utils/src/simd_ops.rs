@@ -4,7 +4,6 @@
 //! dan text processing
 
 use std::arch::x86_64::*;
-use std::mem;
 
 /// Check if AVX2 is supported on the current CPU at runtime.
 ///
@@ -107,7 +106,7 @@ impl SimdVectorOps {
         
         let n = a.len();
         let chunks = n / 8;
-        let remainder = n % 8;
+        let _remainder = n % 8;
         
         for i in 0..chunks {
             // SAFETY: i < chunks = n / 8, so offset i*8 ≤ n - 8, all slices have length n
@@ -139,7 +138,7 @@ impl SimdVectorOps {
         
         let n = a.len();
         let chunks = n / 8;
-        let remainder = n % 8;
+        let _remainder = n % 8;
         
         for i in 0..chunks {
             // SAFETY: i < chunks = n / 8, so offset i*8 ≤ n - 8, all slices have length n
@@ -401,7 +400,7 @@ impl SimdTextOps {
     unsafe fn string_similarity_avx2(a: &[u8], b: &[u8], min_len: usize, max_len: usize) -> f32 {
         let mut matches = 0u32;
         let chunks = min_len / 32;
-        let remainder = min_len % 32;
+        let _remainder = min_len % 32;
         
         let mut a_ptr = a.as_ptr();
         let mut b_ptr = b.as_ptr();
@@ -432,7 +431,7 @@ impl SimdTextOps {
         matches as f32 / max_len as f32
     }
     
-    fn string_similarity_fallback(a: &[u8], b: &[u8], min_len: usize, max_len: usize) -> f32 {
+    fn string_similarity_fallback(a: &[u8], b: &[u8], _min_len: usize, max_len: usize) -> f32 {
         let matches = a.iter().zip(b.iter())
             .filter(|(x, y)| x == y)
             .count();
@@ -465,7 +464,7 @@ impl SimdTextOps {
     unsafe fn count_char_avx2(text: &[u8], target: u8) -> usize {
         let mut count = 0usize;
         let chunks = text.len() / 32;
-        let remainder = text.len() % 32;
+        let _remainder = text.len() % 32;
         
         let target_vec = _mm256_set1_epi8(target as i8);
         let mut text_ptr = text.as_ptr();
@@ -573,7 +572,7 @@ impl SimdMatrixOps {
     /// sufficient length for the given matrix dimensions.
     #[target_feature(enable = "avx2")]
     unsafe fn mat_mul_avx2(a: &[f32], a_rows: usize, a_cols: usize,
-                         b: &[f32], b_rows: usize, b_cols: usize,
+                         b: &[f32], _b_rows: usize, b_cols: usize,
                          result: &mut [f32]) {
         for i in 0..a_rows {
             for j in 0..b_cols {
@@ -581,7 +580,7 @@ impl SimdMatrixOps {
                 
                 // Process 8 elements at a time
                 let k_chunks = a_cols / 8;
-                let k_remainder = a_cols % 8;
+                let _k_remainder = a_cols % 8;
                 
                 for k_chunk in 0..k_chunks {
                     let k = k_chunk * 8;
@@ -620,7 +619,7 @@ impl SimdMatrixOps {
     }
     
     fn mat_mul_fallback(a: &[f32], a_rows: usize, a_cols: usize,
-                        b: &[f32], b_rows: usize, b_cols: usize,
+                        b: &[f32], _b_rows: usize, b_cols: usize,
                         result: &mut [f32]) {
         for i in 0..a_rows {
             for j in 0..b_cols {

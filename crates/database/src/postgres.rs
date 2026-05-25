@@ -203,7 +203,7 @@ impl PostgreSQLDatabase {
             credentials.build_connection_string_safe()
         );
 
-        let mut config: Config = connection_string.parse()?;
+        let config: Config = connection_string.parse()?;
 
         #[cfg(feature = "tls")]
         let tls = {
@@ -233,7 +233,7 @@ impl PostgreSQLDatabase {
 #[async_trait::async_trait]
 impl Database for PostgreSQLDatabase {
     async fn connect(&self) -> Result<()> {
-        let client = self.create_client().await?;
+        let _client = self.create_client().await?;
 
         let mut info = self.connection_info.write().await;
         info.is_connected = true;
@@ -765,7 +765,7 @@ impl ConnectionPool for PostgreSQLConnectionPool {
         connection: Box<dyn crate::DatabaseConnection>,
     ) -> Result<()> {
         // Get connection details before consuming the box
-        let connection_id = connection.id().to_string();
+        let _connection_id = connection.id().to_string();
         let was_active = connection.is_active();
         let connection_type = connection.database_type();
 
@@ -832,7 +832,7 @@ impl PostgreSQLConnection {
             credentials.build_connection_string_safe()
         );
 
-        let mut config: Config = connection_string.parse()?;
+        let config: Config = connection_string.parse()?;
 
         #[cfg(feature = "tls")]
         let tls = {

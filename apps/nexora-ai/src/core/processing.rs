@@ -9,7 +9,7 @@ use nexora_foundation::shared::{
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::types::{
     ClassInfo, CodeAnalysis, CodeIssue, CodeMetrics, ComplexityMetrics, FunctionInfo, ImportInfo,

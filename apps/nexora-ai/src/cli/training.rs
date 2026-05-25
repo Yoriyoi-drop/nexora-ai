@@ -8,23 +8,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::Instant;
 use tokio::signal;
 use tracing::{error, info, warn};
 
 use crate::NexoraAI;
 use nexora_datastream::{
     dataset::{
-        self, BatchIterator, CorruptedShardAction, CorruptedShardRecovery, DatasetManifest,
-        DatasetSplit, ProgressTracker, ResumeState, ShuffleBuffer, StreamingConfig,
+        BatchIterator, DatasetManifest, ProgressTracker, ResumeState, StreamingConfig,
         StreamingLoader,
     },
     filter::{DedupFilter, LengthFilter, QualityFilter},
     DataSample, ExecutionResult, SourceCategory, SourceInfo,
 };
 use nexora_deeplearning::autograd::TensorOps;
-use nexora_foundation::training::{EvalMetrics, Trainer, TrainerConfig};
-use nexora_foundation::{NxrModelConfig, NxrModelId};
+use nexora_foundation::training::{Trainer, TrainerConfig};
+use nexora_foundation::NxrModelId;
 use nexora_tokenizer::BpeTokenizer;
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 
@@ -301,7 +299,7 @@ fn init_gpu(gpu_enabled: bool) {
     if gpu_enabled {
         info!("  Initializing GPU compute backend (wgpu)...");
         match nexora_deeplearning::autograd::gpu::GpuContext::init() {
-            Ok(ctx) => {
+            Ok(_ctx) => {
                 info!("  ✅ GPU aktif: wgpu device siap, matmul GPU route aktif");
             }
             Err(e) => {
@@ -1452,7 +1450,7 @@ impl crate::cli::commands::Cli {
                             if input.is_empty() {
                                 continue;
                             }
-                            if let Some(loss) = trainer.train_batch(&input, &target) {
+                            if let Some(_loss) = trainer.train_batch(&input, &target) {
                                 if trainer.step > step {
                                     step = trainer.step;
                                 }
@@ -1474,7 +1472,7 @@ impl crate::cli::commands::Cli {
 
             // Save resume state
             let state = loader.resume_state();
-            let mut resume_state = ResumeState {
+            let resume_state = ResumeState {
                 epoch: epoch + 1,
                 shard_index: state.shard_index,
                 sample_offset: state.sample_offset,

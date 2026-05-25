@@ -11,7 +11,7 @@ use nexora_foundation::shared::{
     model_registry::NxrModelRegistry,
 };
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::types::{GenerationType, PromptAnalysis};
 

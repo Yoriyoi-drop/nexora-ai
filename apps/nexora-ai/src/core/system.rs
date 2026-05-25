@@ -1,6 +1,6 @@
 //! System monitoring and health check functionality
 
-use crate::error::{NexoraError, NexoraResult};
+use crate::error::NexoraResult;
 use crate::NexoraConfig;
 use chrono::Utc;
 use std::collections::VecDeque;
@@ -251,7 +251,7 @@ impl SystemMonitor {
         Ok(available_memory >= min_memory_required && process_count > 0)
     }
 
-    async fn api_health_check_with_system(&self, system: &System) -> NexoraResult<bool> {
+    async fn api_health_check_with_system(&self, _system: &System) -> NexoraResult<bool> {
         let load_average = sysinfo::System::load_average();
         if load_average.one >= 10.0 {
             warn!("api health: load average too high ({:.2})", load_average.one);

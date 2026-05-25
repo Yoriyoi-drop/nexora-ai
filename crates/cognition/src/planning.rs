@@ -262,7 +262,7 @@ impl PlanningStrategy for HierarchicalPlanner {
         let step_ids: HashSet<Uuid> = plan.steps.iter().map(|s| s.id).collect();
 
         // Build a reachability set for each step
-        let id_to_idx: HashMap<Uuid, usize> = plan
+        let _id_to_idx: HashMap<Uuid, usize> = plan
             .steps
             .iter()
             .enumerate()

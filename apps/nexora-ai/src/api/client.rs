@@ -3,12 +3,10 @@
 use anyhow::Result;
 use reqwest::{Client, Response};
 use serde_json::Value;
-use std::sync::Arc;
 use tracing::{info, warn};
 
 use super::types::*;
 use crate::config::api::{ApiConfig, ApiResponse, HttpClientConfig};
-use crate::NexoraAI;
 
 /// HTTP client for making API requests
 #[derive(Debug, Clone)]
