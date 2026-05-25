@@ -133,7 +133,10 @@ impl AlgorithmGenerator for HybridAlgorithmGenerator {
                             1 => apply_parallel_strategy(chunk),\n\
                             2 => apply_functional_strategy(chunk),\n\
                             3 => apply_experimental_strategy(chunk),\n\
-                             _ => unreachable!(),\n\
+                            _ => {{\n\
+                                // Unexpected chunk_idx % 4 value, using optimized strategy as fallback\n\
+                                apply_optimized_strategy(chunk)\n\
+                            }}\n\
                         }}\n\
                     }})\n\
                     .collect()\n\

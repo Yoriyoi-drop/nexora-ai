@@ -148,7 +148,9 @@ impl CheckpointManager {
         self.last_save_step = meta.step;
         self.last_save_time = std::time::Instant::now();
 
-        trainer.sync_weights();
+        trainer.sync_weights().map_err(|e| {
+            anyhow::anyhow!("Failed to sync weights before save: {}", e)
+        })?;
 
         let step_path = self
             .output_base
@@ -172,7 +174,9 @@ impl CheckpointManager {
     fn save_best(&mut self, trainer: &mut Trainer, meta: &CkptMeta, val_loss: f64) -> Result<()> {
         self.best_val_loss = Some(val_loss);
 
-        trainer.sync_weights();
+        trainer.sync_weights().map_err(|e| {
+            anyhow::anyhow!("Failed to sync weights before best save: {}", e)
+        })?;
 
         let best_path = self.output_base.with_extension("best.safetensors");
         let best_meta = serde_json::json!({
@@ -190,7 +194,9 @@ impl CheckpointManager {
     }
 
     fn save_final(&mut self, trainer: &mut Trainer, meta: &CkptMeta) -> Result<()> {
-        trainer.sync_weights();
+        trainer.sync_weights().map_err(|e| {
+            anyhow::anyhow!("Failed to sync weights before final save: {}", e)
+        })?;
 
         let final_path = self.output_base.with_extension("safetensors");
         let final_meta = serde_json::json!({

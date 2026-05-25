@@ -39,33 +39,8 @@ impl RoPE {
         sin: &Array1<f32>,
         head_dim: usize,
     ) -> Array2<f32> {
-        #[cfg(feature = "gpu")]
-        if let Ok(ctx) = nexora_autograd::gpu::GpuContext::global() {
-            use ndarray::ArrayD;
-            use nexora_autograd::gpu::GpuTensor;
-            let dim = x.shape()[1];
-            let batch_size = x.shape()[0];
-            let x_flat: Vec<f32> = x.iter().copied().collect();
-            if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![batch_size, dim], x_flat) {
-                if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
-                    let half = cos.len();
-                    let cos_gpu = ArrayD::from_shape_vec(vec![half], cos.to_vec()).ok()
-                    .and_then(|arr| GpuTensor::from_cpu(&arr).ok());
-                    let sin_gpu = ArrayD::from_shape_vec(vec![half], sin.to_vec()).ok()
-                        .and_then(|arr| GpuTensor::from_cpu(&arr).ok());
-                    if let (Some(cg), Some(sg)) = (cos_gpu, sin_gpu) {
-                        if let Ok(result) = ctx.rotary_embedding(&x_gpu, &cg, &sg, head_dim as u32) {
-                            if let Ok(cpu_data) = result.to_cpu() {
-                                if let Ok(cpu) = cpu_data.into_dimensionality::<ndarray::Ix2>() {
-                                    return cpu.to_owned();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        // Pure CPU forward path.
+        // GPU-resident execution uses `apply_gpu` (no per-layer readback).
         let (batch_size, dim) = x.dim();
         let half = head_dim / 2;
         let mut output = x.clone();

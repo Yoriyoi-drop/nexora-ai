@@ -19,12 +19,25 @@ impl<T: Send + 'static> AsyncReadback<T> {
         self.receiver.try_recv().ok()
     }
 
-    /// Blocking wait untuk hasil
+    /// Blocking wait untuk hasil with 30s timeout
     /// # Panics
     /// Panics if the sender was dropped before sending a value (GPU context destroyed).
     pub fn recv(&self) -> T {
-        // safe: sender stays alive until value is sent; only fails on GPU context destruction
-        self.receiver.recv().expect("GPU async readback channel disconnected — GPU context destroyed before readback completed")
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            match self.receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(val) => return val,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if std::time::Instant::now() > deadline {
+                        panic!("GPU async readback timed out after 30s");
+                    }
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("GPU async readback channel disconnected — GPU context destroyed before readback completed");
+                }
+            }
+        }
     }
 
     /// Non-blocking check
@@ -248,6 +261,7 @@ pub fn tensor_from_cpu_async(
         shape,
         buffer: storage,
         dtype: GpuDtype::F32,
+        device_id: 0,
     })
 }
 

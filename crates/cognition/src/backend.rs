@@ -12,7 +12,7 @@ pub trait ModelBackend: Send + Sync {
 
     /// Check if this backend is available for use
     fn is_available(&self) -> bool {
-        true
+        backend_enabled()
     }
 }
 

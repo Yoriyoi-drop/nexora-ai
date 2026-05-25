@@ -516,13 +516,14 @@ impl Trainer {
         Ok(())
     }
 
-    pub fn sync_weights(&mut self) {
+    pub fn sync_weights(&mut self) -> anyhow::Result<()> {
         if let Some(ref trainable) = self.trainable {
             let mut model_clone = self.model.clone();
             trainable.sync_to_inference(&mut model_clone)
-                .expect("sync_to_inference failed");
+                .map_err(|e| anyhow::anyhow!("sync_to_inference failed: {}", e))?;
             self.model = model_clone;
         }
+        Ok(())
     }
 
     pub fn evaluate_loss(&self, sequences: &[Vec<u32>], seq_length: usize) -> EvalMetrics {
@@ -625,8 +626,10 @@ impl Trainer {
         if let Some(ref path) = self.config.save_path {
             if let Some(ref trainable) = self.trainable {
                 let mut model_clone = self.model.clone();
-                trainable.sync_to_inference(&mut model_clone)
-                    .expect("sync_to_inference failed in epoch_checkpoint");
+                if let Err(e) = trainable.sync_to_inference(&mut model_clone) {
+                    tracing::error!("sync_to_inference failed in epoch_checkpoint: {}", e);
+                    return;
+                }
                 let save_file = format!("{}.epoch-{}.safetensors", path, epoch);
                 if let Err(e) = trainable.save_checkpoint(&save_file) {
                     warn!("Failed to save epoch checkpoint: {}", e);

@@ -135,14 +135,19 @@ impl DecomposeEngine {
     }
 
     /// Functional decomposition approach
-    async fn functional_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn functional_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
+        let step_count = cot_result.reasoning_steps.len().max(1);
+        let base_lines = 150u32.saturating_add((step_count as u32) * 20);
 
-        // Core logic module
+        // Core logic module — named after the approach
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
-            name: "CoreLogic".to_string(),
-            description: "Main business logic and algorithm implementation".to_string(),
+            name: format!("Core_{}", cot_result.approach.replace(' ', "_")),
+            description: format!(
+                "Core logic using approach '{}': {}",
+                cot_result.approach, cot_result.task_analysis
+            ),
             inputs: vec![
                 ModuleIO {
                     name: "input_data".to_string(),
@@ -165,14 +170,29 @@ impl DecomposeEngine {
             }],
             dependencies: vec![],
             complexity: ModuleComplexity::High,
-            estimated_lines: 150,
+            estimated_lines: base_lines,
         });
 
-        // Input validation module
+        // Input validation module — incorporate edge cases from CoT
+        let edge_case_descriptions: Vec<String> = cot_result
+            .edge_cases
+            .iter()
+            .take(3)
+            .cloned()
+            .collect();
+        let validation_desc = if edge_case_descriptions.is_empty() {
+            "Validates input data and parameters".to_string()
+        } else {
+            format!(
+                "Validates input data and parameters. Handles edge cases: {}",
+                edge_case_descriptions.join("; ")
+            )
+        };
+
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
             name: "InputValidator".to_string(),
-            description: "Validates input data and parameters".to_string(),
+            description: validation_desc,
             inputs: vec![ModuleIO {
                 name: "raw_input".to_string(),
                 data_type: "RawInput".to_string(),
@@ -195,10 +215,61 @@ impl DecomposeEngine {
             ],
             dependencies: vec![],
             complexity: ModuleComplexity::Low,
-            estimated_lines: 50,
+            estimated_lines: 50u32.saturating_add((cot_result.edge_cases.len() as u32) * 10),
         });
 
-        // Error handling module
+        // Assumptions checking module — derived from CoT assumptions
+        modules.push(Module {
+            id: Uuid::new_v4().to_string(),
+            name: "AssumptionsValidator".to_string(),
+            description: format!(
+                "Validates {} assumptions identified during reasoning",
+                cot_result.assumptions.len()
+            ),
+            inputs: vec![ModuleIO {
+                name: "assumptions".to_string(),
+                data_type: "Vec<String>".to_string(),
+                description: "Assumptions to validate".to_string(),
+                optional: false,
+            }],
+            outputs: vec![ModuleIO {
+                name: "validated_assumptions".to_string(),
+                data_type: "Vec<ValidatedAssumption>".to_string(),
+                description: "Validation results per assumption".to_string(),
+                optional: false,
+            }],
+            dependencies: vec![],
+            complexity: ModuleComplexity::Low,
+            estimated_lines: 30,
+        });
+
+        // Risk mitigation module — derived from CoT risks
+        modules.push(Module {
+            id: Uuid::new_v4().to_string(),
+            name: "RiskMitigator".to_string(),
+            description: format!(
+                "Mitigates {} identified risks: {}",
+                cot_result.risks.len(),
+                cot_result.risks.join(", ")
+            ),
+            inputs: vec![ModuleIO {
+                name: "risk_signal".to_string(),
+                data_type: "RiskSignal".to_string(),
+                description: "Risk indicators".to_string(),
+                optional: false,
+            }],
+            outputs: vec![ModuleIO {
+                name: "mitigation_result".to_string(),
+                data_type: "MitigationResult".to_string(),
+                description: "Risk mitigation result".to_string(),
+                optional: false,
+            }],
+            dependencies: vec![],
+            complexity: ModuleComplexity::Medium,
+            estimated_lines: 60,
+        });
+
+        // Error handling module — sized by risk count
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
             name: "ErrorHandler".to_string(),
@@ -225,7 +296,7 @@ impl DecomposeEngine {
             }],
             dependencies: vec![],
             complexity: ModuleComplexity::Medium,
-            estimated_lines: 80,
+            estimated_lines: 80u32.saturating_add((cot_result.risks.len() as u32) * 15),
         });
 
         // Output formatter module
@@ -262,14 +333,18 @@ impl DecomposeEngine {
     }
 
     /// Layered decomposition approach
-    async fn layered_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn layered_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
+        let reasoning_depth = cot_result.reasoning_steps.len().max(1) as u32;
 
-        // Presentation layer
+        // Presentation layer — named after the task
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
-            name: "PresentationLayer".to_string(),
-            description: "User interface and API endpoints".to_string(),
+            name: format!("{}_Interface", cot_result.approach.replace(' ', "_")),
+            description: format!(
+                "User interface and API endpoints for: {}",
+                cot_result.task_analysis
+            ),
             inputs: vec![ModuleIO {
                 name: "user_request".to_string(),
                 data_type: "Request".to_string(),
@@ -284,14 +359,28 @@ impl DecomposeEngine {
             }],
             dependencies: vec!["BusinessLayer".to_string()],
             complexity: ModuleComplexity::Medium,
-            estimated_lines: 100,
+            estimated_lines: 100u32.saturating_add(reasoning_depth * 10),
         });
 
-        // Business layer
+        // Business layer — integrates reasoning steps
+        let step_summary: Vec<String> = cot_result
+            .reasoning_steps
+            .iter()
+            .map(|s| s.description.clone())
+            .collect();
+        let business_desc = if step_summary.is_empty() {
+            "Business logic and rules".to_string()
+        } else {
+            format!(
+                "Business logic derived from reasoning: {}",
+                step_summary.join(" -> ")
+            )
+        };
+
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
             name: "BusinessLayer".to_string(),
-            description: "Business logic and rules".to_string(),
+            description: business_desc,
             inputs: vec![ModuleIO {
                 name: "processed_request".to_string(),
                 data_type: "ProcessedRequest".to_string(),
@@ -306,14 +395,18 @@ impl DecomposeEngine {
             }],
             dependencies: vec!["DataLayer".to_string()],
             complexity: ModuleComplexity::High,
-            estimated_lines: 200,
+            estimated_lines: 200u32.saturating_add(reasoning_depth * 25),
         });
 
-        // Data layer
+        // Data layer — accounts for edge cases and assumptions
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
             name: "DataLayer".to_string(),
-            description: "Data access and persistence".to_string(),
+            description: format!(
+                "Data access and persistence. Handles {} edge cases and validates {} assumptions",
+                cot_result.edge_cases.len(),
+                cot_result.assumptions.len()
+            ),
             inputs: vec![ModuleIO {
                 name: "data_request".to_string(),
                 data_type: "DataRequest".to_string(),
@@ -328,21 +421,51 @@ impl DecomposeEngine {
             }],
             dependencies: vec![],
             complexity: ModuleComplexity::Medium,
-            estimated_lines: 120,
+            estimated_lines: 120u32.saturating_add((cot_result.edge_cases.len() as u32) * 15),
         });
+
+        // Risk guard layer — derived from identified risks
+        if !cot_result.risks.is_empty() {
+            modules.push(Module {
+                id: Uuid::new_v4().to_string(),
+                name: "RiskGuardLayer".to_string(),
+                description: format!(
+                    "Monitors and guards against risks: {}",
+                    cot_result.risks.join(", ")
+                ),
+                inputs: vec![ModuleIO {
+                    name: "system_state".to_string(),
+                    data_type: "SystemState".to_string(),
+                    description: "Current system state for risk evaluation".to_string(),
+                    optional: false,
+                }],
+                outputs: vec![ModuleIO {
+                    name: "risk_assessment".to_string(),
+                    data_type: "RiskAssessment".to_string(),
+                    description: "Risk evaluation result".to_string(),
+                    optional: false,
+                }],
+                dependencies: vec!["BusinessLayer".to_string()],
+                complexity: ModuleComplexity::Medium,
+                estimated_lines: 80,
+            });
+        }
 
         Ok(modules)
     }
 
     /// Data-driven decomposition approach
-    async fn data_driven_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn data_driven_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
 
-        // Data model
+        // Data model — named after the task approach
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
-            name: "DataModel".to_string(),
-            description: "Data structures and models".to_string(),
+            name: format!("{}_DataModel", cot_result.approach.replace(' ', "_")),
+            description: format!(
+                "Data structures and models for: {}. Based on approach: {}",
+                cot_result.task_analysis, cot_result.approach
+            ),
             inputs: vec![],
             outputs: vec![ModuleIO {
                 name: "model_definitions".to_string(),
@@ -352,14 +475,28 @@ impl DecomposeEngine {
             }],
             dependencies: vec![],
             complexity: ModuleComplexity::Low,
-            estimated_lines: 80,
+            estimated_lines: 80u32.saturating_add((cot_result.assumptions.len() as u32) * 10),
         });
 
-        // Data processor
+        // Data processor — driven by reasoning steps
+        let processor_desc = if cot_result.reasoning_steps.is_empty() {
+            "Data transformation and processing".to_string()
+        } else {
+            format!(
+                "Data transformation following reasoning: {}",
+                cot_result
+                    .reasoning_steps
+                    .iter()
+                    .map(|s| s.logic.clone())
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            )
+        };
+
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
             name: "DataProcessor".to_string(),
-            description: "Data transformation and processing".to_string(),
+            description: processor_desc,
             inputs: vec![ModuleIO {
                 name: "raw_data".to_string(),
                 data_type: "RawData".to_string(),
@@ -372,16 +509,20 @@ impl DecomposeEngine {
                 description: "Processed data".to_string(),
                 optional: false,
             }],
-            dependencies: vec!["DataModel".to_string()],
+            dependencies: vec![format!("{}_DataModel", cot_result.approach.replace(' ', "_"))],
             complexity: ModuleComplexity::High,
-            estimated_lines: 180,
+            estimated_lines: 180u32.saturating_add((cot_result.reasoning_steps.len() as u32) * 20),
         });
 
-        // Data validator
+        // Data validator — incorporates edge cases
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
             name: "DataValidator".to_string(),
-            description: "Data validation and quality checks".to_string(),
+            description: format!(
+                "Data validation and quality checks. Validates {} edge cases and {} assumptions",
+                cot_result.edge_cases.len(),
+                cot_result.assumptions.len()
+            ),
             inputs: vec![ModuleIO {
                 name: "data_to_validate".to_string(),
                 data_type: "Data".to_string(),
@@ -394,23 +535,56 @@ impl DecomposeEngine {
                 description: "Validation results".to_string(),
                 optional: false,
             }],
-            dependencies: vec!["DataModel".to_string()],
+            dependencies: vec![format!("{}_DataModel", cot_result.approach.replace(' ', "_"))],
             complexity: ModuleComplexity::Medium,
-            estimated_lines: 90,
+            estimated_lines: 90u32.saturating_add((cot_result.edge_cases.len() as u32) * 10),
         });
+
+        // Edge case handler — one handler per detected edge case
+        for edge_case in &cot_result.edge_cases {
+            modules.push(Module {
+                id: Uuid::new_v4().to_string(),
+                name: format!("EdgeCaseHandler_{}", edge_case.replace(' ', "_")),
+                description: format!("Handles edge case: {}", edge_case),
+                inputs: vec![ModuleIO {
+                    name: "data".to_string(),
+                    data_type: "Data".to_string(),
+                    description: "Data to check for edge case".to_string(),
+                    optional: false,
+                }],
+                outputs: vec![ModuleIO {
+                    name: "handled_data".to_string(),
+                    data_type: "Data".to_string(),
+                    description: "Data after edge case handling".to_string(),
+                    optional: false,
+                }],
+                dependencies: vec!["DataProcessor".to_string()],
+                complexity: ModuleComplexity::Low,
+                estimated_lines: 30,
+            });
+        }
 
         Ok(modules)
     }
 
     /// Pipeline decomposition approach
-    async fn pipeline_decomposition(&self, _cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
+    async fn pipeline_decomposition(&self, cot_result: &CoTResult) -> SACAResult<Vec<Module>> {
         let mut modules = Vec::new();
+        let num_reasoning_steps = cot_result.reasoning_steps.len().max(1);
+        // Number of stages matches the reasoning steps, capped at max config
+        let num_stages = num_reasoning_steps
+            .min(self.config.max_modules as usize)
+            .min(6);
 
-        // Pipeline coordinator
+        // Pipeline coordinator — named after the task
+        let pipeline_name = format!("{}_Pipeline", cot_result.approach.replace(' ', "_"));
         modules.push(Module {
             id: Uuid::new_v4().to_string(),
-            name: "PipelineCoordinator".to_string(),
-            description: "Orchestrates the entire pipeline".to_string(),
+            name: pipeline_name.clone(),
+            description: format!(
+                "Orchestrates {}-stage pipeline for: {}",
+                num_stages, cot_result.task_analysis
+            ),
             inputs: vec![ModuleIO {
                 name: "pipeline_input".to_string(),
                 data_type: "PipelineInput".to_string(),
@@ -423,36 +597,78 @@ impl DecomposeEngine {
                 description: "Final pipeline output".to_string(),
                 optional: false,
             }],
-            dependencies: vec![
-                "Stage1".to_string(),
-                "Stage2".to_string(),
-                "Stage3".to_string(),
-            ],
+            dependencies: (1..=num_stages)
+                .map(|s| format!("{}Stage{}", pipeline_name, s))
+                .collect(),
             complexity: ModuleComplexity::Medium,
-            estimated_lines: 110,
+            estimated_lines: 110u32.saturating_add(num_stages as u32 * 15),
         });
 
-        // Pipeline stages
-        for i in 1..=3 {
+        // Pipeline stages — each driven by a reasoning step
+        for i in 0..num_stages {
+            let step = cot_result
+                .reasoning_steps
+                .get(i)
+                .map(|s| s.description.clone())
+                .unwrap_or_else(|| format!("Stage {}", i + 1));
+            let stage_name = format!("{}Stage{}", pipeline_name, i + 1);
+
             modules.push(Module {
                 id: Uuid::new_v4().to_string(),
-                name: "Stage".to_string() + &i.to_string(),
-                description: format!("Pipeline stage {}", i),
+                name: stage_name.clone(),
+                description: format!(
+                    "Pipeline stage {}: {}",
+                    i + 1,
+                    step
+                ),
                 inputs: vec![ModuleIO {
-                    name: "stage".to_string() + &i.to_string() + "_input",
-                    data_type: "Stage".to_string() + &i.to_string() + "Input",
-                    description: format!("Input for stage {}", i),
+                    name: format!("{}_input", stage_name),
+                    data_type: format!("{}Input", stage_name),
+                    description: format!("Input for stage {}", i + 1),
                     optional: false,
                 }],
                 outputs: vec![ModuleIO {
-                    name: "stage".to_string() + &i.to_string() + "_output",
-                    data_type: "Stage".to_string() + &i.to_string() + "Output",
-                    description: format!("Output from stage {}", i),
+                    name: format!("{}_output", stage_name),
+                    data_type: format!("{}Output", stage_name),
+                    description: format!("Output from stage {}", i + 1),
                     optional: false,
                 }],
-                dependencies: vec![],
+                dependencies: if i > 0 {
+                    vec![format!("{}Stage{}", pipeline_name, i)]
+                } else {
+                    vec![]
+                },
                 complexity: ModuleComplexity::Medium,
-                estimated_lines: 70,
+                estimated_lines: 70u32.saturating_add(num_stages as u32 * 5),
+            });
+        }
+
+        // Risk handling stage — added if risks are identified
+        if !cot_result.risks.is_empty() {
+            modules.push(Module {
+                id: Uuid::new_v4().to_string(),
+                name: "RiskHandlingStage".to_string(),
+                description: format!(
+                    "Handles pipeline risks: {}",
+                    cot_result.risks.join(", ")
+                ),
+                inputs: vec![ModuleIO {
+                    name: "error_signal".to_string(),
+                    data_type: "ErrorSignal".to_string(),
+                    description: "Error signal from any pipeline stage".to_string(),
+                    optional: false,
+                }],
+                outputs: vec![ModuleIO {
+                    name: "recovery_action".to_string(),
+                    data_type: "RecoveryAction".to_string(),
+                    description: "Recovery action to execute".to_string(),
+                    optional: false,
+                }],
+                dependencies: (1..=num_stages)
+                    .map(|s| format!("{}Stage{}", pipeline_name, s))
+                    .collect(),
+                complexity: ModuleComplexity::Medium,
+                estimated_lines: 80,
             });
         }
 

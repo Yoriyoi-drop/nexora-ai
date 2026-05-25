@@ -67,7 +67,8 @@ mod tests {
     #[test]
     fn test_main_structural_integrity() {
         let args = vec!["nexora-cli", "--config", "nexora.toml", "health"];
-        let cli = Cli::try_parse_from(args).unwrap();
+        let cli = Cli::try_parse_from(args)
+            .expect("health command should parse successfully");
         assert!(matches!(cli.command, Commands::Health { .. }));
     }
 }

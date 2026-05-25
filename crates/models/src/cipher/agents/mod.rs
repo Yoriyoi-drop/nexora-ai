@@ -11,11 +11,23 @@ pub use crypto_prime::*;
 pub use encryption_master::*;
 pub use security_guardian::*;
 
-#[derive(Debug, Clone, Default)]
-pub struct CipherAgents;
+#[derive(Debug, Clone)]
+pub struct CipherAgents {
+    config: super::config::CipherConfig,
+}
+
+impl Default for CipherAgents {
+    fn default() -> Self {
+        Self {
+            config: super::config::CipherConfig::default(),
+        }
+    }
+}
 
 impl CipherAgents {
-    pub fn new(_config: &super::config::CipherConfig) -> Self {
-        Self
+    pub fn new(config: &super::config::CipherConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
     }
 }

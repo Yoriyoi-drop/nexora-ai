@@ -165,6 +165,7 @@ pub fn gpu_sample(
         shape: shape.clone(),
         buffer: working_buf,
         dtype: GpuDtype::F32,
+        device_id: 0,
     };
     let probs = ctx.softmax(&logits_gpu)?;
     working_buf = ctx.alloc_buffer(
@@ -276,6 +277,7 @@ pub fn gpu_sample(
         shape: vec![batch],
         buffer: out_buf,
         dtype: GpuDtype::F32,
+        device_id: 0,
     })
 }
 

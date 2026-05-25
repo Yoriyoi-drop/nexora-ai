@@ -22,7 +22,17 @@ pub struct PersistentTokens {
 
 impl PersistentTokens {
     pub fn empty() -> Option<Arc<PersistentTokens>> {
-        None
+        Some(Arc::new(PersistentTokens {
+            prefix: None,
+            token: Arc::new(GeneratedToken {
+                token_id: 0,
+                token_text: Arc::from(""),
+                log_prob: 0.0,
+                position: 0,
+                metadata: std::collections::HashMap::new(),
+            }),
+            len: 0,
+        }))
     }
 
     pub fn append(prefix: Option<Arc<PersistentTokens>>, token: Arc<GeneratedToken>) -> Arc<PersistentTokens> {
@@ -92,6 +102,10 @@ pub struct BeamSearchConfig {
 
 impl Default for BeamSearchConfig {
     fn default() -> Self {
+        // beam_size=4 is the standard starting point — large enough to explore
+        // diverse hypotheses but small enough to keep compute ~4× greedy decoding.
+        // Beam size 1 is equivalent to greedy decoding (no search), so 4 is the
+        // minimum recommended for meaningful beam search.
         Self {
             beam_size: 4,
             length_penalty: 1.0,

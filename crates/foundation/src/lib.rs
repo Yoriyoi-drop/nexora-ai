@@ -79,6 +79,7 @@ pub enum FoundationError {
     #[error("Timeout error")]
     Timeout,
 
+    #[allow(dead_code)]
     #[error("Not implemented")]
     NotImplemented,
 }

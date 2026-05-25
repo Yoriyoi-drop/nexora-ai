@@ -193,6 +193,9 @@ macro_rules! define_foundation_model {
             }
 
             #[cfg(not(feature = "hallucination"))]
+            /// Returns `None` because hallucination checking is disabled when the
+            /// `hallucination` feature is off. `None` means "no issues found" —
+            /// not "check not performed".
             async fn run_hallucination_check(&self, _input: &NxrInput) -> Option<nexora_hallucination::PipelineResult> {
                 None
             }
@@ -593,7 +596,10 @@ macro_rules! define_foundation_model {
             }
 
             async fn is_ready(&self) -> bool {
-                true
+                self.model
+                    .lock()
+                    .map(|guard| guard.is_some())
+                    .unwrap_or(false)
             }
 
             async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

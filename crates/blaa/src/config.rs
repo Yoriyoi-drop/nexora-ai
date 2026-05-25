@@ -41,6 +41,14 @@ pub struct BlaaConfig {
     /// Custom headers to include in requests
     #[serde(default)]
     pub custom_headers: std::collections::HashMap<String, String>,
+
+    /// Whether streaming inference is enabled
+    #[serde(default = "default_streaming_enabled")]
+    pub streaming_enabled: bool,
+}
+
+fn default_streaming_enabled() -> bool {
+    true
 }
 
 impl Default for BlaaConfig {
@@ -55,6 +63,7 @@ impl Default for BlaaConfig {
             rate_limit_rps: defaults::DEFAULT_RATE_LIMIT_RPS,
             organization_id: None,
             custom_headers: std::collections::HashMap::new(),
+            streaming_enabled: default_streaming_enabled(),
         }
     }
 }
@@ -108,6 +117,10 @@ impl BlaaConfig {
 
         if let Ok(org_id) = std::env::var("BLAA_ORGANIZATION_ID") {
             config.organization_id = Some(org_id);
+        }
+
+        if let Ok(streaming) = std::env::var("BLAA_STREAMING_ENABLED") {
+            config.streaming_enabled = streaming.parse().unwrap_or(true);
         }
 
         Ok(config)

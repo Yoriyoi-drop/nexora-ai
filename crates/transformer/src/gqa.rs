@@ -7,9 +7,6 @@ use rayon::prelude::*;
 use super::rope::RoPE;
 
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct GqaGpuWeights {
     pub wq_t: nexora_autograd::gpu::GpuTensor,
@@ -439,32 +436,8 @@ impl GQA {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
     ) -> Array2<f32> {
-        #[cfg(feature = "gpu")]
-        if let Ok(_ctx) = GpuContext::global() {
-            use ndarray::{ArrayD, Ix2};
-            let batch_size = x.shape()[0];
-            let x_flat: Vec<f32> = x.iter().copied().collect();
-            if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![batch_size, x.shape()[1]], x_flat) {
-                if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
-                    let gpu_result = (|| {
-                        if let Some(ref mut c) = cache {
-                            self.forward_gpu(&x_gpu, &mut *c, layer_idx, cos, sin)
-                        } else {
-                            let mut tmp = Vec::new();
-                            self.forward_gpu(&x_gpu, &mut tmp, layer_idx, cos, sin)
-                        }
-                    })();
-                    if let Ok(result) = gpu_result {
-                        if let Ok(cpu) = result.to_cpu() {
-                            if let Ok(arr2) = cpu.into_dimensionality::<Ix2>() {
-                                return arr2.to_owned();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        // Pure CPU forward path.
+        // GPU-resident execution uses `forward_gpu` (no per-layer readback).
         let (batch_size, _) = x.dim();
 
         let q_proj = x.dot(&self.wq.t());
@@ -1270,12 +1243,24 @@ impl GQA {
             let slice = staging.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
             slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
-            ctx.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            });
-            rx.recv()
-                .map_err(|_| GpuError::Unsupported("readback channel closed".into()))?
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let map_result = loop {
+                ctx.device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(std::time::Duration::from_millis(100)),
+                });
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(result) => break result,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if std::time::Instant::now() > deadline {
+                            break Err(wgpu::BufferAsyncError);
+                        }
+                        continue;
+                    }
+                    Err(_) => break Err(wgpu::BufferAsyncError),
+                }
+            };
+            let map_result = map_result
                 .map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
             let mapped = slice.get_mapped_range();
             let out: Vec<f32> = mapped.chunks_exact(4).map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();

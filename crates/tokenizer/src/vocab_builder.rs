@@ -523,7 +523,9 @@ mod tests {
         assert!(loaded.vocab.contains_key("test"));
 
         // Clean up
-        std::fs::remove_file(temp_file).ok();
+        if let Err(e) = std::fs::remove_file(temp_file) {
+            tracing::warn!("Failed to remove temporary file {:?}: {}", temp_file, e);
+        }
     }
 
     #[test]

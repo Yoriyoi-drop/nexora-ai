@@ -333,34 +333,34 @@ impl NxrOmnisModel {
         }
 
         // Step 1: Decompose the problem
-        let decomposition = self.agents.oracle_7().decompose_problem(input).await?;
+        let decomposition = self.agents.oracle_7().decompose_problem(input)?;
 
         // Step 2: Meta-reasoning about approach
         let meta_reasoning = self
             .agents
             .meta_reasoner()
-            .analyze_approach(&decomposition)
-            .await?;
+            .analyze_approach(&decomposition)?;
 
         // Step 3: World modeling
-        self.agents.world_model_x().update_context(input).await?;
+        self.agents.world_model_x().update_context(input)?;
 
         // Step 4: Chain execution
         let chain_result = self
             .agents
             .chain_executor()
-            .execute_chain(&decomposition, &meta_reasoning)
-            .await?;
+            .execute_chain(&decomposition, &meta_reasoning)?;
 
         // Step 5: Truth arbitration
-        let truth_arbitration = self.agents.truth_arbiter().arbitrate(&chain_result).await?;
+        let truth_arbitration = self
+            .agents
+            .truth_arbiter()
+            .arbitrate(&decomposition, &chain_result)?;
 
         // Step 6: Synthesis
         let synthesis = self
             .agents
             .synth_prime()
-            .synthesize(&truth_arbitration)
-            .await?;
+            .synthesize(&[decomposition.clone(), meta_reasoning, chain_result, truth_arbitration])?;
 
         Ok(format!(
             "{}\n\nDL Processing: {} (tokens: {})",
@@ -376,7 +376,7 @@ impl NxrOmnisModel {
         let mut new_state = current_state;
 
         // Update world model state with new information
-        let world_update = self.agents.world_model_x().process_input(input).await?;
+        let world_update = self.agents.world_model_x().process_input(input)?;
         new_state.world_model_state.extend(world_update);
 
         self.base.update_state(new_state).await
@@ -384,7 +384,7 @@ impl NxrOmnisModel {
 
     /// Perform meta-reasoning
     async fn _meta_reason(&self, problem: &str) -> NxrModelResult<MetaReasoningState> {
-        let meta_analysis = self.agents.meta_reasoner().analyze_problem(problem).await?;
+        let meta_analysis = self.agents.meta_reasoner().analyze_problem(problem)?;
 
         Ok(MetaReasoningState {
             reasoning_chain: meta_analysis.reasoning_chain,
@@ -638,8 +638,7 @@ impl NxrModel for NxrOmnisModel {
         let reasoning_steps = self
             .agents
             .meta_reasoner()
-            .stream_reasoning(&input_text)
-            .await?;
+            .stream_reasoning(&input_text)?;
 
         for (i, step) in reasoning_steps.into_iter().enumerate() {
             let chunk = NxrStreamChunk {

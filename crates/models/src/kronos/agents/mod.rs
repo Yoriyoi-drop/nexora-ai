@@ -13,11 +13,23 @@ pub use temporal_optimizer::*;
 pub use temporal_orchestrator::*;
 pub use time_analyzer::*;
 
-#[derive(Debug, Clone, Default)]
-pub struct KronosAgents;
+#[derive(Debug, Clone)]
+pub struct KronosAgents {
+    config: super::config::KronosConfig,
+}
+
+impl Default for KronosAgents {
+    fn default() -> Self {
+        Self {
+            config: super::config::KronosConfig::default(),
+        }
+    }
+}
 
 impl KronosAgents {
-    pub fn new(_config: &super::config::KronosConfig) -> Self {
-        Self
+    pub fn new(config: &super::config::KronosConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
     }
 }

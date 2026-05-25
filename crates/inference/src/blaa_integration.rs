@@ -406,7 +406,7 @@ async fn generate_stream(
     }
 
     fn supports_streaming(&self) -> bool {
-        true
+        self.config.streaming_enabled
     }
 
     fn supports_batching(&self) -> bool {

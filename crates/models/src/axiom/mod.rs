@@ -228,10 +228,20 @@ impl NxrAxiomModel {
     }
 
     fn simulate_outcomes(&self, decision: &StrategicDecision) -> NxrModelResult<SimulationResult> {
+        let complexity_factor = (decision.rationale.len() as f64).sqrt() / 100.0;
+        let confidence_factor = decision.confidence as f64 / 2.0;
+        let recommendation_len = decision.recommendation.len() as f64 / 50.0;
+        let base_probability =
+            0.5 + (confidence_factor * 0.3) - (complexity_factor * 0.2) - (recommendation_len * 0.05);
+        let success_probability = base_probability.clamp(0.05, 0.98);
+        let roi_base =
+            0.05 + (confidence_factor * 0.2) - (complexity_factor * 0.1) - (recommendation_len * 0.02);
+        let expected_roi = roi_base.clamp(-0.5, 2.0);
+        let break_even = (50.0 + (complexity_factor * 200.0) - (confidence_factor * 30.0)) as u32;
         Ok(SimulationResult {
-            success_probability: 0.92,
-            expected_roi: 0.15,
-            time_to_break_even: 180,
+            success_probability: success_probability as f32,
+            expected_roi: expected_roi as f32,
+            time_to_break_even: break_even.max(30),
         })
     }
 

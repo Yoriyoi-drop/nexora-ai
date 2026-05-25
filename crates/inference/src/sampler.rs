@@ -24,6 +24,15 @@ pub struct SamplingConfig {
     pub seed: Option<u64>,
 }
 
+/// Default sampling: TemperatureTopKTopP with temperature=1.0, top_k=50, top_p=0.9.
+///
+/// Greedy decoding (the simplest default) would always pick the argmax token,
+/// which makes the output repetitive and unnatural. TemperatureTopKTopP gives
+/// diverse, high-quality output while still being deterministic at seed=0.
+/// Temperature=1.0 means no flattening of the distribution; top_k=50 caps the
+/// candidate set to 50 most-likely tokens; top_p=0.9 keeps tokens summing to
+/// 90% cumulative probability. This trio is the most commonly recommended
+/// default in LLM inference literature (Holtzman et al. 2020).
 impl Default for SamplingConfig {
     fn default() -> Self {
         Self {

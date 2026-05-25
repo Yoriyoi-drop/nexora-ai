@@ -14,8 +14,9 @@ pub use world_model_x_runtime::WorldModelRuntimeAgent;
 
 use nexora_shared::base_model::NxrModelResult;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OmnisAgents {
+    config: super::config::OmnisConfig,
     oracle_7: Oracle7RuntimeAgent,
     meta_reasoner: MetaReasonerRuntimeAgent,
     world_model_x: WorldModelRuntimeAgent,
@@ -24,9 +25,26 @@ pub struct OmnisAgents {
     synth_prime: SynthPrimeRuntimeAgent,
 }
 
+impl Default for OmnisAgents {
+    fn default() -> Self {
+        Self {
+            config: super::config::OmnisConfig::default(),
+            oracle_7: Oracle7RuntimeAgent::default(),
+            meta_reasoner: MetaReasonerRuntimeAgent::default(),
+            world_model_x: WorldModelRuntimeAgent::default(),
+            chain_executor: ChainExecutorRuntimeAgent::default(),
+            truth_arbiter: TruthArbiterRuntimeAgent::default(),
+            synth_prime: SynthPrimeRuntimeAgent::default(),
+        }
+    }
+}
+
 impl OmnisAgents {
-    pub fn new(_config: &super::config::OmnisConfig) -> Self {
-        Self::default()
+    pub fn new(config: &super::config::OmnisConfig) -> Self {
+        Self {
+            config: config.clone(),
+            ..Default::default()
+        }
     }
 
     pub async fn initialize(&self, _config: &super::config::OmnisConfig) -> Result<(), String> {

@@ -7,6 +7,9 @@ pub mod emotion_weaver;
 pub mod empathy_prime;
 pub mod psyche_analyzer;
 
+// NB: The sibling file `agents_new.rs` (in aether/) is a stale duplicate
+// of this module and is deliberately NOT imported.
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmotionalSignature {
     pub primary_emotion: String,

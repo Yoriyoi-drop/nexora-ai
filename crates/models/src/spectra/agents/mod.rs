@@ -22,3 +22,24 @@ pub use spectral_mapper::*;
 pub use spectral_processor::*;
 pub use spectrum_analyzer::*;
 pub use style_adapter::*;
+
+#[derive(Debug, Clone)]
+pub struct SpectraAgents {
+    config: super::config::SpectraConfig,
+}
+
+impl Default for SpectraAgents {
+    fn default() -> Self {
+        Self {
+            config: super::config::SpectraConfig::default(),
+        }
+    }
+}
+
+impl SpectraAgents {
+    pub fn new(config: &super::config::SpectraConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
+    }
+}

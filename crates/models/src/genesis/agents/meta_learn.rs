@@ -235,12 +235,49 @@ impl MetaLearnAgent {
         }).collect())
     }
 
-    async fn simulate_learning_curves(&self, _input: &MetaLearnTaskInput) -> AgentResult<Vec<String>> {
-        Ok(vec![
-            "Few-shot convergence after 5 steps: 85% accuracy".to_string(),
-            "Transfer improvement over baseline: +23%".to_string(),
-            "Meta-gradient norm: 0.042 (stable)".to_string(),
-        ])
+    async fn simulate_learning_curves(&self, input: &MetaLearnTaskInput) -> AgentResult<Vec<String>> {
+        let mut results = Vec::new();
+        let n_tasks = input.task_distribution.len().max(1);
+        let n_experience = input.learning_experience.len();
+        let n_targets = input.performance_targets.len().max(1);
+
+        let base_acc = 0.5 + (n_experience as f64 * 0.05).min(0.3);
+        let transfer_boost = (n_tasks as f64).sqrt() * 0.03;
+
+        let n_steps = (20 + n_targets * 10).max(10);
+        for step in (1..=n_steps).step_by(5.max(n_steps / 10)) {
+            let t = step as f64 / n_steps as f64;
+            let acc = base_acc + (1.0 - base_acc) * (1.0 - (-3.0 * t).exp())
+                + transfer_boost * (1.0 - (-2.0 * t).exp());
+            let task_name = input
+                .task_distribution
+                .get(step % n_tasks)
+                .cloned()
+                .unwrap_or_default();
+            results.push(format!(
+                "Few-shot convergence after {} steps: {:.1}% accuracy [task: {}]",
+                step,
+                acc * 100.0,
+                task_name
+            ));
+        }
+
+        let transfer_improvement = base_acc * 0.23 + transfer_boost * 0.5;
+        let task_diversity_factor = (n_tasks as f64).sqrt() * 0.02;
+        results.push(format!(
+            "Transfer improvement over baseline: +{:.1}% ({} tasks, {} experiences)",
+            transfer_improvement * 100.0,
+            n_tasks,
+            n_experience
+        ));
+
+        let meta_grad_norm = 0.04 + 0.01 * (1.0 - (-5.0 * task_diversity_factor * 10.0).exp());
+        results.push(format!(
+            "Meta-gradient norm: {:.3} (stable across {} target metrics)",
+            meta_grad_norm, n_targets
+        ));
+
+        Ok(results)
     }
 }
 

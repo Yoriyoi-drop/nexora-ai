@@ -143,13 +143,21 @@ impl CoreLayout {
             .unwrap_or(false)
     }
 
-    /// No‑op on non‑Linux platforms (always returns `false`).
+    /// Pin to a compute-dedicated core.
+    ///
+    /// CPU-core pinning (`sched_setaffinity`) is Linux-specific and not
+    /// available on other platforms. On non-Linux this is a no-op that
+    /// always returns `false`.
     #[cfg(not(target_os = "linux"))]
     pub fn pin_to_compute(&self) -> bool {
         false
     }
 
-    /// No‑op on non‑Linux platforms.
+    /// Pin to a data-dedicated core.
+    ///
+    /// CPU-core pinning (`sched_setaffinity`) is Linux-specific and not
+    /// available on other platforms. On non-Linux this is a no-op that
+    /// always returns `false`.
     #[cfg(not(target_os = "linux"))]
     pub fn pin_to_data(&self) -> bool {
         false

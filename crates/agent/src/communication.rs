@@ -457,14 +457,16 @@ impl MessageBus {
             .map(|(id, _)| id)
     }
 
-    /// Queue message untuk nanti
+    /// Queue a message for deferred processing.
+    /// Messages are stored in the internal queue and processed
+    /// by the agent's message loop.
     async fn queue_message(&self, message: Arc<InterAgentMessage>) -> Result<()> {
         let mut queue = self.message_queue.write().await;
         queue.push_back(message);
         Ok(())
     }
 
-    /// Process queued messages untuk agent (VecDeque front-pop for O(1) removal)
+    /// Process queued messages for an agent (VecDeque front-pop for O(1) removal)
     async fn process_queued_messages(&self, agent_id: Uuid) -> Result<()> {
         let mut queue = self.message_queue.write().await;
         let mut processed = 0usize;

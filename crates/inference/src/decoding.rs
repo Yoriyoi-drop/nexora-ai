@@ -679,9 +679,9 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
             }
         }
     }
-    // Fallback: placeholder format
-    let mut buf = String::with_capacity(12);
-    buf.push_str("[t");
+    // Fallback: descriptive placeholder
+    let mut buf = String::with_capacity(16);
+    buf.push_str("[token_");
     let mut n = token_id;
     if n == 0 {
         buf.push('0');

@@ -161,6 +161,10 @@ pub struct CausalLM {
     /// Optional injectors that run after specified layers.
     /// Key = layer index, value = the injector.
     pub injectors: Vec<(usize, Mutex<Box<dyn LayerInjector>>)>,
+    /// If true, keep intermediates on GPU to avoid repeated CPU readbacks.
+    /// When set, `forward()` will use the GPU-resident path and only read back
+    /// the final logits, eliminating ~4×N_layers synchronous sync transfers.
+    pub keep_on_gpu: bool,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: parking_lot::Mutex<Option<GpuWeights>>,
     #[cfg(feature = "gpu")]
@@ -180,6 +184,7 @@ impl Clone for CausalLM {
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
             injectors: Vec::new(),
+            keep_on_gpu: self.keep_on_gpu,
         }
     }
 }
@@ -197,6 +202,7 @@ impl Clone for CausalLM {
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
             injectors: Vec::new(),
+            keep_on_gpu: self.keep_on_gpu,
             gpu_weights: parking_lot::Mutex::new(None),
             gpu_cache: parking_lot::Mutex::new(None),
         }
@@ -252,6 +258,7 @@ impl CausalLM {
             precomputed_cos,
             precomputed_sin,
             injectors: Vec::new(),
+            keep_on_gpu: false,
             #[cfg(feature = "gpu")]
             gpu_weights: parking_lot::Mutex::new(None),
             #[cfg(feature = "gpu")]
@@ -265,11 +272,23 @@ impl CausalLM {
         kv_cache: &mut dyn KVCacheProvider,
     ) -> TransformerResult<Array1<f32>> {
         #[cfg(feature = "gpu")]
-        if let Ok(logits) = self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
-            return Ok(logits);
+        if self.keep_on_gpu {
+            // GPU-resident forward: keep all intermediates on GPU,
+            // read back only the final logits. Avoids ~4×N_layers sync transfers.
+            match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
+                Ok(logits) => return Ok(logits),
+                Err(e) => {
+                    tracing::warn!("keep_on_gpu forward failed, falling back to CPU: {e}");
+                }
+            }
+        } else {
+            #[cfg(feature = "gpu")]
+            if let Ok(logits) = self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
+                return Ok(logits);
+            }
+            #[cfg(feature = "gpu")]
+            tracing::warn!("GPU forward pass failed, falling back to CPU");
         }
-        #[cfg(feature = "gpu")]
-        tracing::warn!("GPU forward pass failed, falling back to CPU");
 
         // CPU fallback: extract inner Vec<KVCacheEntry> from CpuKVCache
         let entries = kv_cache
@@ -576,6 +595,7 @@ impl CausalLM {
             block.ffn.w3 = to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned();
         }
         model.injectors = Vec::new();
+        model.keep_on_gpu = false;
         Ok(model)
     }
 
@@ -1117,6 +1137,22 @@ impl CausalLM {
         Ok(Array1::from_vec(logits_flat))
     }
 
+    /// GPU-resident forward pass.
+    /// Uploads the input embedding once, runs ALL transformer layers on GPU
+    /// (keeping intermediates on GPU between layers), and reads back only the
+    /// final logits. Eliminates ~4×N_layers synchronous GPU→CPU transfers.
+    ///
+    /// This is the preferred method when keep_on_gpu is set. Falls back to CPU
+    /// if GPU context is unavailable.
+    #[cfg(feature = "gpu")]
+    pub fn forward_keep_gpu(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut Vec<KVCacheEntry>,
+    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+        self.forward_gpu(input_ids, kv_cache)
+    }
+
     /// Batched GPU forward pass: processes multiple sequences in a single batch.
     /// All GPU dispatches are coalesced into one queue.submit() via batch mode.
     /// Returns one logit vector per sequence.
@@ -1268,9 +1304,24 @@ impl CausalLM {
                     let slice = staging.slice(..);
                     let (tx, rx) = std::sync::mpsc::channel();
                     slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
-                    ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(10)) });
-                    rx.recv()
-                        .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("readback channel closed".into()))?
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    let map_result = loop {
+                        ctx.device.poll(wgpu::PollType::Wait {
+                            submission_index: None,
+                            timeout: Some(std::time::Duration::from_millis(100)),
+                        });
+                        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                            Ok(result) => break result,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                if std::time::Instant::now() > deadline {
+                                    break Err(wgpu::BufferAsyncError);
+                                }
+                                continue;
+                            }
+                            Err(_) => break Err(wgpu::BufferAsyncError),
+                        }
+                    };
+                    let map_result = map_result
                         .map_err(|e| nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}")))?;
                     let mapped = slice.get_mapped_range();
                     let out: Vec<f32> = mapped.chunks_exact(4).map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();

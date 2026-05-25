@@ -105,9 +105,10 @@ impl ApiClient {
     /// Process request
     pub async fn process_request(&self, request: ProcessRequest) -> Result<ProcessResponse> {
         let truncated = if request.input.len() > 100 {
+            let slice = &request.input[..request.input.len().min(100)];
             format!(
                 "{} [truncated {} chars]",
-                &request.input[..100],
+                slice,
                 request.input.len()
             )
         } else {

@@ -197,7 +197,8 @@ fn oracle_assess(behavior: &str, _context: &str) -> f32 {
 
 #[cfg(not(feature = "oracle"))]
 fn oracle_assess(_behavior: &str, _context: &str) -> f32 {
-    0.0
+    tracing::warn!("oracle_assess called without 'oracle' feature enabled — returning neutral score");
+    0.5
 }
 
 #[derive(Debug, Clone)]

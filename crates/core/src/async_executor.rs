@@ -254,7 +254,7 @@ impl AsyncTaskExecutor {
 
         // Check queue size limit
         {
-            let queue = self.task_queue.lock().unwrap();
+            let queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
             if queue.len() >= self.config.max_queue_size {
                 return Err(CoreError::TaskExecution("Task queue is full".to_string()));
             }
@@ -287,7 +287,7 @@ impl AsyncTaskExecutor {
 
         // Add task to queue
         {
-            let mut queue = self.task_queue.lock().unwrap();
+            let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
             queue.push(task);
         }
 
@@ -308,7 +308,7 @@ impl AsyncTaskExecutor {
     pub async fn cancel_task(&self, task_id: &str) -> CoreResult<()> {
         // Try to remove from queue
         {
-            let mut queue = self.task_queue.lock().unwrap();
+            let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
             queue.retain(|task| task.id != task_id);
         }
 
@@ -357,7 +357,7 @@ impl AsyncTaskExecutor {
 
         // Cancel all pending tasks
         {
-            let mut queue = self.task_queue.lock().unwrap();
+            let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
             let pending_count = queue.len();
             queue.clear();
 
@@ -412,7 +412,7 @@ impl AsyncTaskExecutor {
 
     /// Get next task from priority queue
     async fn get_next_task(&self) -> Option<AsyncTask> {
-        let mut queue = self.task_queue.lock().unwrap();
+        let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
         queue.pop()
     }
 

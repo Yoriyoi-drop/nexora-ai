@@ -450,7 +450,8 @@ impl Cli {
         output: &Option<PathBuf>,
     ) -> NexoraResult<()> {
         let truncated = if input.len() > 100 {
-            format!("{} [truncated {} chars]", &input[..100], input.len())
+            let slice = &input[..input.len().min(100)];
+            format!("{} [truncated {} chars]", slice, input.len())
         } else {
             input.to_string()
         };

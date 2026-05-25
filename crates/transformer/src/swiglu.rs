@@ -2,9 +2,6 @@ use ndarray::Array2;
 use rand::Rng;
 
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct SwigluGpuWeights {
     pub w1_t: nexora_autograd::gpu::GpuTensor,
@@ -69,25 +66,8 @@ impl SwiGLU {
     }
 
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
-        #[cfg(feature = "gpu")]
-        {
-            use ndarray::ArrayD;
-            if GpuContext::global().is_ok() {
-                let x_flat: Vec<f32> = x.iter().copied().collect();
-                if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![x.shape()[0], x.shape()[1]], x_flat) {
-                    if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
-                        if let Ok(result) = self.forward_gpu(&x_gpu) {
-                            if let Ok(cpu) = result.to_cpu() {
-                                if let Ok(arr2) = cpu.into_dimensionality::<ndarray::Ix2>() {
-                                    return arr2.to_owned();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        // Pure CPU forward path.
+        // GPU-resident execution uses `forward_gpu` (no per-layer readback).
         let gate = x.dot(&self.w1.t());
         let hidden = x.dot(&self.w3.t());
 

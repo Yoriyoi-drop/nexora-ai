@@ -20,7 +20,9 @@ use crate::config::server::ServerConfig;
 use crate::NexoraAI;
 
 pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Result<Router> {
-    let _ = init_metrics();
+    if let Err(e) = init_metrics() {
+        tracing::warn!("Failed to initialize metrics collector: {}", e);
+    }
 
     let valid_keys: Arc<HashSet<String>> = Arc::new(config.api_keys.iter().cloned().collect());
     let enable_auth = config.enable_auth;

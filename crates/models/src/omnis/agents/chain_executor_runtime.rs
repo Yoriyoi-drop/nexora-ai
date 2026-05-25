@@ -48,7 +48,7 @@ impl ChainExecutorRuntimeAgent {
 
     /// Execute chain-of-thought reasoning by breaking decomposition into steps,
     /// applying reasoning at each step, verifying coherence.
-    pub async fn execute_chain(
+    pub fn execute_chain(
         &self,
         decomposition: &str,
         meta_reasoning: &str,

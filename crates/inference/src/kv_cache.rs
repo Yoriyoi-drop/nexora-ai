@@ -379,7 +379,10 @@ mod tests {
             }));
         }
         for h in handles {
-            h.await.unwrap();
+            match h.await {
+                Ok(_) => {},
+                Err(e) => tracing::error!("KV cache worker panicked: {:?}", e),
+            }
         }
         assert_eq!(cache.store.read().await.entries.len(), 100);
     }

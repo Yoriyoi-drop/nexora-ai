@@ -214,7 +214,8 @@ impl NxrModel for NxrNexumModel {
     }
 
     async fn is_ready(&self) -> bool {
-        true
+        self.meta.uuid != uuid::Uuid::nil()
+            && !self.meta.version.is_empty()
     }
 
     async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

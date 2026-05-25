@@ -361,11 +361,25 @@ pub struct VulnerabilityEntry {
 pub enum VulnerabilityType {
     /// SQL injection
     SQLInjection,
+    /// Cross-site scripting
+    XSS,
+    /// Command injection
+    CommandInjection,
+    /// Information leak
+    InfoLeak,
+    /// Path traversal
+    PathTraversal,
+    /// Insecure deserialization
+    InsecureDeserialization,
+    /// SSRF
+    SSRF,
 }
 
 /// Severity
 #[derive(Debug, Clone)]
 pub enum Severity {
+    /// Low severity
+    Low,
     /// Medium severity
     Medium,
     /// High severity
@@ -1014,24 +1028,175 @@ impl CipherArchitecture {
     }
 
     /// Initialize architecture
-    pub async fn initialize(&mut self, config: &CipherConfig) -> NxrModelResult<()> {
-        // Initialize adversarial training
-        self.adversarial_training.training_data.dataset_size = 0;
+    pub fn initialize(&mut self, config: &CipherConfig) -> NxrModelResult<()> {
+        config.validate()?;
 
-        // Initialize vulnerability database
-        self.vulnerability_database.vulnerabilities.clear();
+        self.adversarial_training = AdversarialTrainingFramework {
+            training_methods: vec![
+                AdversarialTrainingMethod::FGSM,
+                AdversarialTrainingMethod::PGD,
+            ],
+            attack_generation: AttackGeneration {
+                attack_types: vec![AttackType::Evasion, AttackType::Poisoning],
+            },
+            defense_mechanisms: vec![DefenseMechanism {
+                name: "adversarial_training".to_string(),
+                effectiveness: 0.85,
+            }],
+            training_data: TrainingData {
+                dataset_size: match config.security_analysis.analysis_depth {
+                    super::config::AnalysisDepth::Surface => 100_000,
+                    super::config::AnalysisDepth::Deep => 500_000,
+                    super::config::AnalysisDepth::Comprehensive => 1_000_000,
+                    super::config::AnalysisDepth::Forensic => 5_000_000,
+                },
+                data_sources: match config.security_analysis.analysis_scope {
+                    super::config::AnalysisScope::Network => vec!["network_logs".to_string()],
+                    super::config::AnalysisScope::Application => {
+                        vec!["application_logs".to_string()]
+                    }
+                    super::config::AnalysisScope::System => {
+                        vec!["system_logs".to_string(), "application_logs".to_string()]
+                    }
+                    super::config::AnalysisScope::Enterprise => vec![
+                        "network_logs".to_string(),
+                        "application_logs".to_string(),
+                        "system_logs".to_string(),
+                    ],
+                },
+                data_quality: match config.security_analysis.analysis_depth {
+                    super::config::AnalysisDepth::Surface => 0.5,
+                    super::config::AnalysisDepth::Deep => 0.75,
+                    super::config::AnalysisDepth::Comprehensive => 0.9,
+                    super::config::AnalysisDepth::Forensic => 0.99,
+                },
+            },
+        };
+
+        self.vulnerability_database = VulnerabilityDatabase {
+            vulnerabilities: vec![],
+            cve_mappings: HashMap::new(),
+            update_frequency: match config.vulnerability_scanning.scan_frequency {
+                super::config::ScanFrequency::OneTime | super::config::ScanFrequency::Daily => {
+                    UpdateFrequency::Daily
+                }
+                super::config::ScanFrequency::Weekly => UpdateFrequency::Weekly,
+                super::config::ScanFrequency::Continuous => UpdateFrequency::RealTime,
+            },
+            database_sources: match &config.vulnerability_scanning.vulnerability_database {
+                super::config::VulnerabilityDatabase::BuiltIn => vec![DatabaseSource::NVD],
+                super::config::VulnerabilityDatabase::External { .. } => vec![DatabaseSource::ExploitDB],
+                super::config::VulnerabilityDatabase::Hybrid { .. } => {
+                    vec![DatabaseSource::NVD, DatabaseSource::ExploitDB]
+                }
+            },
+        };
+
+        self.threat_intelligence_network = ThreatIntelligenceNetwork {
+            intelligence_feeds: config
+                .threat_intelligence
+                .intelligence_sources
+                .iter()
+                .enumerate()
+                .map(|(i, source)| IntelligenceFeed {
+                    id: uuid::Uuid::new_v4(),
+                    name: format!("feed-{}", i),
+                    feed_type: match source {
+                        super::config::IntelligenceSource::Internal => FeedType::Internal,
+                        super::config::IntelligenceSource::ExternalFeeds { .. } => {
+                            FeedType::OpenSource
+                        }
+                        super::config::IntelligenceSource::Community => FeedType::Community,
+                        super::config::IntelligenceSource::Commercial { .. } => {
+                            FeedType::Commercial
+                        }
+                    },
+                    update_frequency: match config.threat_intelligence.update_frequency {
+                        super::config::UpdateFrequency::RealTime => UpdateFrequency::RealTime,
+                        super::config::UpdateFrequency::Hourly => UpdateFrequency::Hourly,
+                        super::config::UpdateFrequency::Daily => UpdateFrequency::Daily,
+                        super::config::UpdateFrequency::Weekly => UpdateFrequency::Weekly,
+                    },
+                    reliability: 0.8,
+                })
+                .collect(),
+            threat_actors: vec![],
+            indicators_of_compromise: vec![],
+            threat_landscape: ThreatLandscape {
+                emerging_threats: vec![],
+                trend_analysis: TrendAnalysis {
+                    trend_direction: TrendDirection::Stable,
+                    trend_magnitude: 0.0,
+                    prediction_horizon: 30,
+                },
+                risk_assessment: 0.5,
+            },
+        };
+
+        self.security_protocol_analyzer = SecurityProtocolAnalyzer {
+            protocol_parsers: vec![],
+            vulnerability_detection: VulnerabilityDetection {
+                detection_methods: vec![
+                    DetectionMethod::PatternMatching,
+                    DetectionMethod::AnomalyDetection,
+                ],
+                false_positive_rate: 0.1,
+                detection_confidence: 0.85,
+            },
+            compliance_checking: ComplianceChecking {
+                compliance_frameworks: vec![
+                    ComplianceFramework::PCIDSS,
+                    ComplianceFramework::GDPR,
+                ],
+                rule_engine: RuleEngine {
+                    rule_set: vec![],
+                    rule_execution: RuleExecution::Sequential,
+                },
+            },
+            best_practices_analysis: BestPracticesAnalysis {
+                best_practices_database: BestPracticesDatabase {
+                    practice_categories: vec![],
+                    industry_standards: vec!["NIST".to_string(), "ISO27001".to_string()],
+                },
+                gap_analysis: GapAnalysis {
+                    gap_detection: GapDetection {
+                        detection_algorithm: GapDetectionAlgorithm::RuleBased,
+                        sensitivity: 0.8,
+                    },
+                    recommendation_engine: RecommendationEngine {
+                        algorithms: vec![RecommendationAlgorithm::RiskBased],
+                        prioritization: PrioritizationMethod::RiskBased,
+                    },
+                },
+            },
+        };
 
         Ok(())
     }
 
     /// Validate architecture
-    pub async fn validate(&self) -> NxrModelResult<()> {
-        // Validate adversarial training
+    pub fn validate(&self) -> NxrModelResult<()> {
         if self.adversarial_training.training_methods.is_empty() {
             return Err("At least one training method required".into());
         }
+        if self.adversarial_training.training_data.dataset_size == 0 {
+            return Err("Training dataset size cannot be zero".into());
+        }
+        if !(0.0..=1.0).contains(&self.adversarial_training.training_data.data_quality) {
+            return Err("Data quality must be between 0.0 and 1.0".into());
+        }
 
-        // Validate zero-day simulation
+        if self.zero_day_simulation.simulation_models.is_empty() {
+            return Err("At least one simulation model required".into());
+        }
+        for model in &self.zero_day_simulation.simulation_models {
+            if !(0.0..=1.0).contains(&model.accuracy) {
+                return Err(format!("Model {} accuracy must be between 0.0 and 1.0", model.id).into());
+            }
+            if !(0.0..=1.0).contains(&model.coverage) {
+                return Err(format!("Model {} coverage must be between 0.0 and 1.0", model.id).into());
+            }
+        }
         if self
             .zero_day_simulation
             .exploit_generation
@@ -1047,59 +1212,370 @@ impl CipherArchitecture {
             return Err("Cannot allow both exploitation and modification".into());
         }
 
+        if self.vulnerability_database.database_sources.is_empty() {
+            return Err("At least one vulnerability database source required".into());
+        }
+
+        if self.threat_intelligence_network.intelligence_feeds.is_empty() {
+            return Err("At least one intelligence feed required".into());
+        }
+
         Ok(())
     }
 
     /// Perform vulnerability scan
-    pub async fn vulnerability_scan(
-        &self,
-        target: &str,
-    ) -> NxrModelResult<Vec<VulnerabilityEntry>> {
-        Ok(vec![VulnerabilityEntry {
-            id: uuid::Uuid::new_v4(),
-            cve_id: Some("CVE-2024-0001".to_string()),
-            vuln_type: VulnerabilityType::SQLInjection,
-            severity: Severity::High,
-            description: "Potential SQL injection vulnerability".to_string(),
-            affected_systems: vec![target.to_string()],
-            mitigation: Some("Use parameterized queries".to_string()),
-        }])
+    pub fn vulnerability_scan(&self, target: &str) -> NxrModelResult<Vec<VulnerabilityEntry>> {
+        if target.is_empty() {
+            return Err("Empty target cannot be scanned".into());
+        }
+        let mut vulnerabilities = Vec::new();
+        let lower = target.to_lowercase();
+
+        if lower.contains("union") && lower.contains("select") {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::SQLInjection,
+                severity: Severity::Critical,
+                description: "Potential SQL injection via UNION SELECT".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Use parameterized queries".into()),
+            });
+        }
+        if lower.contains("or ") && lower.contains("=") && lower.contains("'") {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::SQLInjection,
+                severity: Severity::High,
+                description: "Potential SQL injection via OR-based tautology".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Use parameterized queries and input sanitization".into()),
+            });
+        }
+        if lower.contains("drop ") && (lower.contains("table") || lower.contains("database")) {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::SQLInjection,
+                severity: Severity::Critical,
+                description: "Potential destructive SQL injection via DROP statement".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Restrict database permissions and use parameterized queries".into()),
+            });
+        }
+        if lower.contains("<script")
+            || lower.contains("onerror=")
+            || lower.contains("onload=")
+            || lower.contains("onclick=")
+            || lower.contains("javascript:")
+        {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::XSS,
+                severity: Severity::High,
+                description: "Cross-site scripting vector detected".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Sanitize and escape output, use Content-Security-Policy headers".into()),
+            });
+        }
+        if lower.contains("alert(")
+            || lower.contains("confirm(")
+            || lower.contains("prompt(")
+            || lower.contains("document.cookie")
+        {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::XSS,
+                severity: Severity::Medium,
+                description: "Potential reflected XSS via JavaScript execution".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Use Content-Security-Policy and encode dynamic content".into()),
+            });
+        }
+        if lower.contains(';')
+            || lower.contains('|')
+            || lower.contains("&&")
+            || lower.contains("`")
+            || lower.contains("$((")
+        {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::CommandInjection,
+                severity: Severity::Critical,
+                description: "Command injection vector detected".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Avoid shell execution with user input; use libraries over system calls".into()),
+            });
+        }
+        if lower.contains("../") || lower.contains("..\\") || lower.contains("%2e%2e") {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::PathTraversal,
+                severity: Severity::High,
+                description: "Path traversal attempt detected".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Validate and sanitize file paths; use a allowlist".into()),
+            });
+        }
+        if lower.contains("file://")
+            || lower.contains("gopher://")
+            || lower.contains("dict://")
+        {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::SSRF,
+                severity: Severity::High,
+                description: "Potential SSRF via URL scheme injection".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Restrict outbound traffic and validate URL schemes".into()),
+            });
+        }
+        if lower.contains("unserialize")
+            || lower.contains("__php_incomplete_class")
+            || lower.contains("O:") && lower.contains(":")
+        {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::InsecureDeserialization,
+                severity: Severity::High,
+                description: "Potential insecure deserialization detected".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Avoid deserializing untrusted data; use safe serialization formats".into()),
+            });
+        }
+
+        if vulnerabilities.is_empty() {
+            vulnerabilities.push(VulnerabilityEntry {
+                id: uuid::Uuid::new_v4(),
+                cve_id: None,
+                vuln_type: VulnerabilityType::InfoLeak,
+                severity: Severity::Low,
+                description: "No critical vulnerabilities detected in automated scan".into(),
+                affected_systems: vec![target.to_string()],
+                mitigation: Some("Perform manual penetration test for confirmation".into()),
+            });
+        }
+
+        Ok(vulnerabilities)
     }
 
     /// Perform penetration test
-    pub async fn penetration_test(&self, target: &str) -> NxrModelResult<PenetrationTestResult> {
+    pub fn penetration_test(
+        &self,
+        target: &str,
+        findings: &[VulnerabilityEntry],
+    ) -> NxrModelResult<PenetrationTestResult> {
+        if target.is_empty() {
+            return Err("Empty target cannot be tested".into());
+        }
+
+        let vulnerabilities_found = findings.len();
+        let critical_count = findings
+            .iter()
+            .filter(|v| matches!(v.severity, Severity::Critical))
+            .count();
+        let high_count = findings
+            .iter()
+            .filter(|v| matches!(v.severity, Severity::High))
+            .count();
+        let medium_count = findings
+            .iter()
+            .filter(|v| matches!(v.severity, Severity::Medium))
+            .count();
+
+        let risk_score = if critical_count > 0 {
+            9.0 + (critical_count as f32).min(1.0)
+        } else if high_count > 2 {
+            8.0
+        } else if high_count > 0 {
+            7.0 + (high_count as f32 * 0.5).min(1.5)
+        } else if medium_count > 0 {
+            5.0
+        } else {
+            2.0
+        };
+
+        let exploits_successful = critical_count + high_count.min(2);
+
+        let mut recommendations = Vec::new();
+        for v in findings {
+            if let Some(ref m) = v.mitigation {
+                let rec = format!("{}: {}", match v.vuln_type {
+                    VulnerabilityType::SQLInjection => "SQL Injection",
+                    VulnerabilityType::XSS => "XSS",
+                    VulnerabilityType::CommandInjection => "Command Injection",
+                    VulnerabilityType::PathTraversal => "Path Traversal",
+                    VulnerabilityType::SSRF => "SSRF",
+                    VulnerabilityType::InsecureDeserialization => "Insecure Deserialization",
+                    VulnerabilityType::InfoLeak => "Information Leak",
+                }, m);
+                if !recommendations.contains(&rec) {
+                    recommendations.push(rec);
+                }
+            }
+        }
+        if recommendations.is_empty() {
+            recommendations.push("No critical issues found; maintain current security posture".into());
+        }
+
         Ok(PenetrationTestResult {
             target: target.to_string(),
-            vulnerabilities_found: 5,
-            exploits_successful: 2,
-            risk_score: 7.5,
-            recommendations: vec![
-                "Update authentication system".to_string(),
-                "Implement input validation".to_string(),
-            ],
+            vulnerabilities_found,
+            exploits_successful,
+            risk_score: (risk_score * 10.0).round() / 10.0,
+            recommendations,
         })
     }
 
     /// Analyze security protocol
-    pub async fn analyze_protocol(&self, protocol: &str) -> NxrModelResult<ProtocolAnalysis> {
+    pub fn analyze_protocol(&self, protocol: &str) -> NxrModelResult<ProtocolAnalysis> {
+        if protocol.is_empty() {
+            return Err("Empty protocol description cannot be analyzed".into());
+        }
+        let lower = protocol.to_lowercase();
+
+        let has_encryption = lower.contains("tls")
+            || lower.contains("ssl")
+            || lower.contains("aes")
+            || lower.contains("chacha20")
+            || lower.contains("encrypt")
+            || lower.contains("https");
+        let has_auth = lower.contains("oauth")
+            || lower.contains("saml")
+            || lower.contains("jwt")
+            || lower.contains("mfa")
+            || lower.contains("authenticate")
+            || lower.contains("mutual")
+            || lower.contains("certificate");
+        let has_forward_secrecy = lower.contains("ecdhe") || lower.contains("dhe") || lower.contains("forward_secrecy");
+        let has_pfs = lower.contains("perfect_forward_secrecy") || lower.contains("pfs");
+        let has_integrity = lower.contains("hmac")
+            || lower.contains("sign")
+            || lower.contains("digest")
+            || lower.contains("checksum");
+        let has_rate_limiting = lower.contains("rate_limit")
+            || lower.contains("throttle")
+            || lower.contains("backoff");
+        let has_input_validation = lower.contains("sanitize") || lower.contains("validate") || lower.contains("escape");
+
+        let mut vulnerabilities = Vec::new();
+        if !has_encryption {
+            vulnerabilities.push("No encryption mechanism specified".to_string());
+        }
+        if !has_auth {
+            vulnerabilities.push("No authentication mechanism specified".to_string());
+        }
+        if !has_integrity {
+            vulnerabilities.push("No integrity checking mechanism specified".to_string());
+        }
+
+        let security_features = [
+            has_encryption,
+            has_auth,
+            has_forward_secrecy || has_pfs,
+            has_integrity,
+            has_rate_limiting,
+            has_input_validation,
+        ];
+        let feature_count = security_features.iter().filter(|&&f| f).count();
+        let best_practices_score = feature_count as f32 / security_features.len() as f32;
+
+        let compliance_status = if best_practices_score >= 0.8 {
+            ComplianceStatus::Compliant
+        } else if best_practices_score >= 0.4 {
+            ComplianceStatus::PartiallyCompliant
+        } else {
+            ComplianceStatus::NonCompliant
+        };
+
         Ok(ProtocolAnalysis {
             protocol_name: protocol.to_string(),
-            vulnerabilities: vec![],
-            compliance_status: ComplianceStatus::Compliant,
-            best_practices_score: 0.85,
+            vulnerabilities,
+            compliance_status,
+            best_practices_score: (best_practices_score * 100.0).round() / 100.0,
         })
     }
 
     /// Generate threat intelligence report
-    pub async fn generate_threat_report(&self) -> NxrModelResult<ThreatReport> {
+    pub fn generate_threat_report(
+        &self,
+        findings: &[VulnerabilityEntry],
+        pentest: &PenetrationTestResult,
+    ) -> NxrModelResult<ThreatReport> {
+        let emerging_threats = findings.len();
+        let high_risk_indicators = findings
+            .iter()
+            .filter(|v| matches!(v.severity, Severity::High | Severity::Critical))
+            .count();
+
+        let overall_risk_level = if pentest.risk_score >= 8.0 {
+            "Critical".to_string()
+        } else if pentest.risk_score >= 6.0 {
+            "High".to_string()
+        } else if pentest.risk_score >= 4.0 {
+            "Medium".to_string()
+        } else {
+            "Low".to_string()
+        };
+
+        let mut recommendations = pentest.recommendations.clone();
+        for v in findings {
+            match v.vuln_type {
+                VulnerabilityType::SQLInjection => {
+                    let rec = "Implement prepared statements and input validation for all database queries";
+                    if !recommendations.iter().any(|r| r.contains(rec)) {
+                        recommendations.push(rec.to_string());
+                    }
+                }
+                VulnerabilityType::XSS => {
+                    let rec = "Apply Content-Security-Policy headers and context-aware output encoding";
+                    if !recommendations.iter().any(|r| r.contains(rec)) {
+                        recommendations.push(rec.to_string());
+                    }
+                }
+                VulnerabilityType::CommandInjection => {
+                    let rec = "Use safe APIs over shell execution; never pass user input to system()";
+                    if !recommendations.iter().any(|r| r.contains(rec)) {
+                        recommendations.push(rec.to_string());
+                    }
+                }
+                VulnerabilityType::PathTraversal => {
+                    let rec = "Use a allowlist for file paths and normalize user-supplied paths";
+                    if !recommendations.iter().any(|r| r.contains(rec)) {
+                        recommendations.push(rec.to_string());
+                    }
+                }
+                VulnerabilityType::SSRF => {
+                    let rec = "Restrict outbound network access from application servers";
+                    if !recommendations.iter().any(|r| r.contains(rec)) {
+                        recommendations.push(rec.to_string());
+                    }
+                }
+                VulnerabilityType::InsecureDeserialization => {
+                    let rec = "Use safe serialization formats; validate and sign serialized data";
+                    if !recommendations.iter().any(|r| r.contains(rec)) {
+                        recommendations.push(rec.to_string());
+                    }
+                }
+                VulnerabilityType::InfoLeak => {}
+            }
+        }
+        recommendations.push("Update firewall rules".to_string());
+        recommendations.push("Monitor for suspicious activity".to_string());
+        recommendations.dedup();
+
         Ok(ThreatReport {
-            emerging_threats: 12,
-            high_risk_indicators: 5,
-            overall_risk_level: "Medium".to_string(),
-            recommendations: vec![
-                "Update firewall rules".to_string(),
-                "Monitor for suspicious activity".to_string(),
-            ],
+            emerging_threats,
+            high_risk_indicators,
+            overall_risk_level,
+            recommendations,
         })
     }
 }

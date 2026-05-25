@@ -1538,16 +1538,59 @@ impl VortexArchitecture {
         }
     }
 
-    /// Calculate metric using ML
-    /// NOTE: ML-based metric calculation is not available. All metrics
-    /// return 0.0 — real implementation requires a trained regression model.
     async fn calculate_metric_ml(&self, code: &str, metric_name: &str) -> f32 {
-        tracing::warn!(
-            "ML metrics not available; returning 0.0 for '{}'",
-            metric_name
-        );
-        let _ = code;
-        0.0
+        let lines: Vec<&str> = code.lines().collect();
+        let total_lines = lines.len().max(1);
+        let code_lines = lines
+            .iter()
+            .filter(|l| {
+                let trimmed = l.trim();
+                !trimmed.is_empty() && !trimmed.starts_with("//") && !trimmed.starts_with('#')
+                    && !trimmed.starts_with("/*") && !trimmed.starts_with('*')
+            })
+            .count();
+        let comment_lines = lines
+            .iter()
+            .filter(|l| {
+                let trimmed = l.trim();
+                trimmed.starts_with("//") || trimmed.starts_with('#')
+                    || trimmed.starts_with("/*") || trimmed.starts_with('*')
+                    || trimmed.starts_with("///") || trimmed.starts_with("//!")
+            })
+            .count();
+        let function_count = code.matches("fn ").count() + code.matches("def ").count()
+            + code.matches("function ").count();
+        let class_count = code.matches("class ").count().max(1);
+        let control_flow = code.matches("if ").count() + code.matches("else ").count()
+            + code.matches("while ").count() + code.matches("for ").count()
+            + code.matches("match ").count() + code.matches("loop ").count()
+            + code.matches("&& ").count() + code.matches("|| ").count();
+        let import_count = code.matches("use ").count() + code.matches("import ")
+            .count() + code.matches("mod ").count();
+        let comment_ratio = comment_lines as f32 / total_lines as f32;
+
+        match metric_name {
+            "Cyclomatic Complexity" => {
+                (1.0 + control_flow as f32).min(50.0)
+            }
+            "Coupling" => {
+                import_count as f32
+            }
+            "Cohesion" => {
+                let cohesion = function_count as f32 / class_count as f32;
+                cohesion.min(10.0)
+            }
+            "Maintainability" => {
+                let score = (comment_ratio * 50.0)
+                    + ((code_lines as f32 / function_count.max(1) as f32).recip().min(1.0) * 30.0)
+                    + (1.0 - (control_flow as f32 / code_lines.max(1) as f32).min(1.0)) * 20.0;
+                score.min(100.0)
+            }
+            "Documentation Coverage" => {
+                comment_ratio * 100.0
+            }
+            _ => 0.0,
+        }
     }
 
     /// Calculate overall quality score

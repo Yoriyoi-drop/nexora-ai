@@ -21,7 +21,18 @@ use nexora_autograd::gpu_kv_cache::GpuPageTable;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/// Default number of tokens per block
+/// Default number of tokens per block.
+///
+/// 16 is chosen as a reasonable heuristic:
+///   - Too small (e.g. 4)  → high overhead from per-block metadata & fragmentation.
+///   - Too large (e.g. 64) → more internal fragmentation and wasted memory for
+///     short sequences, plus larger GPU memory allocation per block.
+///   - 16 balances per-block metadata overhead (hash tables, page tables) against
+///     internal fragmentation for typical sequence lengths (512–4096 tokens).
+///
+/// For optimal performance, compute via [`PagedCacheConfig::suggest_block_size`]
+/// based on model dimensions:
+///   block_size ≈ head_dim × num_kv_heads / gcd(head_dim, 16)   clamped to [8, 64]
 pub const DEFAULT_BLOCK_SIZE: usize = 16;
 
 /// Default max number of blocks to allocate
@@ -80,6 +91,17 @@ impl PagedCacheConfig {
     /// Max blocks needed for one sequence of max_seq_len
     pub fn blocks_per_sequence(&self) -> usize {
         (self.max_seq_len + self.block_size - 1) / self.block_size
+    }
+
+    /// Suggest a block_size tuned to model dimensions.
+    ///
+    /// Formula: `min(max(8, head_dim * num_kv_heads / 16), 64)`
+    ///
+    /// This keeps the block aligned to the key/value vector size while preventing
+    /// blocks from growing too large for short sequences.
+    pub fn suggest_block_size(head_dim: usize, num_kv_heads: usize) -> usize {
+        let suggested = head_dim * num_kv_heads / 16;
+        suggested.clamp(8, 64)
     }
 }
 

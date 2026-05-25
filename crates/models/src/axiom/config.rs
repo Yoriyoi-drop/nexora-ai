@@ -32,6 +32,35 @@ pub struct AxiomConfig {
     pub deep_learning: DeepLearningConfig,
     /// GNAC integration configuration
     pub gnac: GnacIntegrationConfig,
+    /// State evolution simulation configuration (simplified ODE solver)
+    pub state_evolution: StateEvolutionConfig,
+}
+
+/// Configuration for the state evolution ODE solver
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateEvolutionConfig {
+    /// Growth rate (r) in the logistic equation dN/dt = rN(1-N/K) + A*sin(omega*t)
+    pub growth_rate: f64,
+    /// Carrying capacity (K) — upper bound for logistic growth
+    pub carrying_capacity: f64,
+    /// Amplitude (A) of periodic environmental forcing
+    pub amplitude: f64,
+    /// Angular frequency (omega) of periodic environmental forcing
+    pub omega: f64,
+    /// Time step (dt) for Euler integration
+    pub dt: f64,
+}
+
+impl Default for StateEvolutionConfig {
+    fn default() -> Self {
+        Self {
+            growth_rate: 0.5,
+            carrying_capacity: 10.0,
+            amplitude: 0.05,
+            omega: 0.5,
+            dt: 0.1,
+        }
+    }
 }
 
 /// Logical Reasoning Configuration
@@ -1796,6 +1825,8 @@ impl AxiomConfig {
             },
         };
 
+        let state_evolution = StateEvolutionConfig::default();
+
         let knowledge_base = KnowledgeBaseConfig {
             knowledge_sources: vec![
                 KnowledgeSource::BuiltIn,
@@ -1908,6 +1939,7 @@ impl AxiomConfig {
             resources,
             deep_learning: DeepLearningConfig::star_x(),
             gnac: GnacIntegrationConfig::default(),
+            state_evolution: StateEvolutionConfig::default(),
         }
     }
 

@@ -206,7 +206,13 @@ impl RequestScheduler {
         while let Some(front) = queue.front() {
             let elapsed_ms = (now - front.queued_at).num_milliseconds().max(0) as u64;
             if elapsed_ms > self.max_queue_time_ms {
-                let timed_out = queue.pop_front().unwrap();
+                let timed_out = match queue.pop_front() {
+                    Some(item) => item,
+                    None => {
+                        tracing::warn!("Scheduler race condition: queue was empty despite front() check");
+                        break;
+                    }
+                };
                 let rid = timed_out
                     .request
                     .request_id

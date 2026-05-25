@@ -965,14 +965,11 @@ mod tests {
             }
         "#;
 
-        match analyzer.analyze(content, "test.rs") {
-            Ok(analysis) => {
-                assert_eq!(analysis.functions.len(), 1);
-                assert_eq!(analysis.functions[0], "hello_world");
-                assert_eq!(analysis.dependencies.len(), 1);
-                assert!(analysis.dependencies[0].contains("std::collections"));
-            }
-            Err(e) => panic!("Code analysis failed: {}", e),
-        }
+        let analysis = analyzer.analyze(content, "test.rs")
+            .expect("Code analysis failed");
+        assert_eq!(analysis.functions.len(), 1);
+        assert_eq!(analysis.functions[0], "hello_world");
+        assert_eq!(analysis.dependencies.len(), 1);
+        assert!(analysis.dependencies[0].contains("std::collections"));
     }
 }

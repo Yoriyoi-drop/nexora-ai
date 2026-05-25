@@ -289,6 +289,7 @@ pub fn dispatch_f32_to_f16(
         shape,
         buffer: out_buf,
         dtype: GpuDtype::F32,
+        device_id: 0,
     })
 }
 
@@ -332,6 +333,7 @@ pub fn dispatch_f16_to_f32(
         shape,
         buffer: out_buf,
         dtype: GpuDtype::F32,
+        device_id: 0,
     })
 }
 

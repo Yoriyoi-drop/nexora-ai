@@ -259,6 +259,7 @@ impl GpuContext {
             shape: vec![a_shape[0], b_shape[1]],
             buffer: out_buf,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -336,6 +337,7 @@ impl GpuContext {
             shape: vec![a_shape[0], b_shape[1]],
             buffer: out,
             dtype: GpuDtype::F32,
+            device_id: 0,
         }, elapsed))
     }
 
@@ -510,6 +512,7 @@ impl GpuContext {
             shape: shape.to_vec(),
             buffer: out_buf,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 }

@@ -17,11 +17,23 @@ pub use origin_forge::*;
 pub use prime_creator::*;
 pub use system_breeder::*;
 
-#[derive(Debug, Clone, Default)]
-pub struct GenesisAgents;
+#[derive(Debug, Clone)]
+pub struct GenesisAgents {
+    config: super::config::GenesisConfig,
+}
+
+impl Default for GenesisAgents {
+    fn default() -> Self {
+        Self {
+            config: super::config::GenesisConfig::default(),
+        }
+    }
+}
 
 impl GenesisAgents {
-    pub fn new(_config: &super::config::GenesisConfig) -> Self {
-        Self
+    pub fn new(config: &super::config::GenesisConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
     }
 }

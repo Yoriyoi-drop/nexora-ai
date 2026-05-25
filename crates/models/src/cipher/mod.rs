@@ -315,7 +315,6 @@ impl NxrModel for NxrCipherModel {
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
         self.architecture
             .initialize(&config)
-            .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;

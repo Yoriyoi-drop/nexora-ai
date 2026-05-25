@@ -9,12 +9,12 @@ use crate::NexoraAI;
 
 static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
 
-pub fn init_metrics() -> Arc<MetricsCollector> {
+pub fn init_metrics() -> anyhow::Result<Arc<MetricsCollector>> {
     let collector = Arc::new(
-        MetricsCollector::new().expect("Failed to initialize metrics collector"),
+        MetricsCollector::new().map_err(|e| anyhow::anyhow!("Failed to initialize metrics collector: {}", e))?,
     );
     METRICS.set(collector.clone()).ok();
-    collector
+    Ok(collector)
 }
 
 pub fn metrics_collector() -> Option<&'static Arc<MetricsCollector>> {
@@ -69,12 +69,26 @@ pub async fn metrics_handler() -> axum::response::Response {
             axum::http::Response::builder()
                 .header("Content-Type", "text/plain; charset=utf-8")
                 .body(axum::body::Body::from(body))
-                .expect("metrics response builder should not fail")
+                .unwrap_or_else(|e| {
+                    axum::http::Response::builder()
+                        .status(500)
+                        .body(axum::body::Body::from(format!("metrics error: {}", e)))
+                        .unwrap_or_else(|_| {
+                            axum::http::Response::new(axum::body::Body::from("metrics error"))
+                        })
+                })
         }
         None => axum::http::Response::builder()
             .header("Content-Type", "text/plain; charset=utf-8")
             .body(axum::body::Body::from("# metrics disabled"))
-            .expect("metrics response builder should not fail"),
+            .unwrap_or_else(|e| {
+                axum::http::Response::builder()
+                    .status(500)
+                    .body(axum::body::Body::from(format!("metrics error: {}", e)))
+                    .unwrap_or_else(|_| {
+                        axum::http::Response::new(axum::body::Body::from("metrics error"))
+                    })
+            }),
     }
 }
 

@@ -266,7 +266,13 @@ impl InferenceRuntime {
         // Collect all async data first without holding any locks
         let cpu_usage = self.get_cpu_usage().await?;
         let mem_bytes = self.get_memory_usage().await?;
-        let gpu_result = self.get_gpu_memory_usage().await.ok();
+        let gpu_result = match self.get_gpu_memory_usage().await {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!("Failed to query GPU memory: {}", e);
+                None
+            }
+        };
         let active_threads = self.get_active_thread_count().await?;
         let open_files = self.get_open_file_count().await?;
         let network_io = self.get_network_io_bytes().await?;

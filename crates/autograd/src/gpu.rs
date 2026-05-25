@@ -853,6 +853,7 @@ impl GpuContext {
             shape: vec![1],
             buffer: out,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -903,6 +904,7 @@ impl GpuContext {
             shape: shape.to_vec(),
             buffer: out,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -953,7 +955,8 @@ impl GpuContext {
         }
 
         // Step 2: softmax (via ctx.softmax — uses reusable encoder internally)
-        let logits_gpu = GpuTensor { shape: shape.clone(), buffer: work_buf, dtype: GpuDtype::F32 };
+        let logits_gpu = GpuTensor { shape: shape.clone(), buffer: work_buf, dtype: GpuDtype::F32, device_id: 0 }
+        ;
         let probs = self.softmax(&logits_gpu)?;
 
         // Copy probs → fresh work buffer for top-k mask (avoids mutating softmax output)
@@ -986,9 +989,11 @@ impl GpuContext {
                 ],
             });
             self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
-            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32 }
+            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32, device_id: 0 }
+        
         } else {
-            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32 }
+            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32, device_id: 0 }
+        
         };
 
         // Step 3b: top-p mask (in-place on masked buffer, after top-k)
@@ -1034,7 +1039,8 @@ impl GpuContext {
         });
         self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
 
-        Ok(GpuTensor { shape: vec![batch], buffer: out.buffer, dtype: GpuDtype::F32 })
+        Ok(GpuTensor { shape: vec![batch], buffer: out.buffer, dtype: GpuDtype::F32, device_id: 0 }
+        )
     }
 
     // ── Singleton access ──────────────────────────────────────────────────────
@@ -1190,6 +1196,7 @@ impl GpuContext {
             shape: new_shape,
             buffer: pooled.buffer,
             dtype: tensor.dtype,
+            device_id: tensor.device_id,
         })
     }
 
@@ -1318,13 +1325,9 @@ impl GpuContext {
             slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-            self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            });
 
             // Safe readback: on failure, fall through to CPU timing
-            if let Ok(Ok(())) = rx.recv().map(|r| r.map_err(|_| ())) {
+            if readback_with_timeout(&self.device, &rx).is_ok() {
                 let period_ns = self.queue.get_timestamp_period() as f64;
                 if let Some((start_ts, end_ts)) = self.read_timestamps_from_buffer(&slice, &readback_buffer) {
                     let elapsed_ns = if end_ts >= start_ts {
@@ -1436,10 +1439,9 @@ impl GpuContext {
             slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-            // No blocking poll - let GPU work asynchronously, map_async will callback when ready
 
             // Safe readback with error fallback: fall through to CPU timing on failure
-            if let Ok(Ok(())) = rx.recv().map(|r| r.map_err(|_| ())) {
+            if readback_with_timeout(&self.device, &rx).is_ok() {
                 if let Some((start_ts, end_ts)) = self.read_timestamps_from_buffer(&slice, &readback_buffer) {
                     let period_ns = self.queue.get_timestamp_period() as f64;
                     let elapsed_ns = if end_ts >= start_ts {
@@ -1655,6 +1657,7 @@ impl GpuContext {
                 shape: vec![m, n],
                 buffer: out_buffer,
                 dtype: GpuDtype::F32,
+                device_id: 0,
             },
             gpu_time,
         ))
@@ -1747,6 +1750,7 @@ impl GpuContext {
                 shape: vec![m, n_dim],
                 buffer: out_buffer.buffer,
                 dtype: GpuDtype::F32,
+                device_id: 0,
             },
             gpu_time,
         ))
@@ -1910,6 +1914,7 @@ impl GpuContext {
             shape: vec![a_shape[0], b_shape[1]],
             buffer: c_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -1992,6 +1997,7 @@ impl GpuContext {
             shape: shape.to_vec(),
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2102,6 +2108,7 @@ impl GpuContext {
             shape: a_shape.to_vec(),
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2309,6 +2316,7 @@ impl GpuContext {
             shape: shape.clone(),
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2378,6 +2386,7 @@ impl GpuContext {
             shape: vec![q_heads as usize, seq as usize, dim as usize],
             buffer: dst_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2422,6 +2431,7 @@ impl GpuContext {
                     mapped_at_creation: false,
                 }),
                 dtype: GpuDtype::F32,
+                device_id: 0,
             });
         }
 
@@ -2490,6 +2500,7 @@ impl GpuContext {
                     shape: vec![1],
                     buffer: out_buffer,
                     dtype: GpuDtype::F32,
+                    device_id: 0,
                 });
             }
 
@@ -2591,6 +2602,7 @@ impl GpuContext {
             shape: shape.to_vec(),
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2680,6 +2692,7 @@ impl GpuContext {
             shape: shape.to_vec(),
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2770,6 +2783,7 @@ impl GpuContext {
             shape: vec![batch as usize],
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2857,6 +2871,7 @@ impl GpuContext {
             shape: vec![seq_len as usize, dim as usize],
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -2955,6 +2970,7 @@ impl GpuContext {
             shape: vec![batch as usize, dim as usize],
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -3036,6 +3052,7 @@ impl GpuContext {
             shape: vec![cols as usize, rows as usize],
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -3171,6 +3188,7 @@ impl GpuContext {
             shape: q_shape.clone(),
             buffer: out_buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 }
@@ -4468,6 +4486,10 @@ pub struct GpuTensor {
     pub(crate) shape: Vec<usize>,
     pub(crate) buffer: wgpu::Buffer,
     pub(crate) dtype: GpuDtype,
+    /// Which GPU device this tensor lives on. In the current single-GPU
+    /// singleton setup this is always 0, but the field is available for
+    /// multi-GPU extensions.
+    pub(crate) device_id: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -4535,13 +4557,14 @@ impl GpuTensor {
             mapped_at_creation: false,
         });
         ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
-        Ok(Self { shape, buffer, dtype: GpuDtype::F32 })
+        Ok(Self { shape, buffer, dtype: GpuDtype::F32, device_id: 0 }
+        )
     }
 
     /// Create a GpuTensor from raw components (buffer + shape).
     /// Useful for wrapping GPU buffers allocated externally.
     pub fn from_raw(shape: Vec<usize>, buffer: wgpu::Buffer, dtype: GpuDtype) -> Self {
-        Self { shape, buffer, dtype }
+        Self { shape, buffer, dtype, device_id: 0 }
     }
 
     /// Non-blocking GPU→CPU readback via channel. Hasil siap ketika GPU selesai.
@@ -4566,6 +4589,7 @@ impl GpuTensor {
             shape: new_shape,
             buffer: self.buffer.clone(),
             dtype: self.dtype,
+            device_id: self.device_id,
         })
     }
 
@@ -4576,6 +4600,7 @@ impl GpuTensor {
             shape: new_shape,
             buffer: self.buffer.clone(),
             dtype: self.dtype,
+            device_id: self.device_id,
         }
     }
 
@@ -4641,6 +4666,7 @@ impl GpuTensor {
             shape: shape.to_vec(),
             buffer,
             dtype: GpuDtype::F32,
+            device_id: 0,
         })
     }
 
@@ -4664,21 +4690,65 @@ impl GpuTensor {
         Ok(staging)
     }
 
+    fn readback_inner(&self, offset: u64, size: u64) -> Result<(Vec<u8>, wgpu::Buffer), GpuError> {
+        let ctx = Self::ctx()?;
+        let device = &ctx.device;
+        let queue = &ctx.queue;
+
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("staging"),
+            size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("readback_encoder"),
+        });
+        encoder.copy_buffer_to_buffer(self.buffer(), offset, &staging, 0, size);
+        queue.submit(Some(encoder.finish()));
+
+        let slice = staging.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let map_result = loop {
+            device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_millis(100)),
+            });
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(result) => break result,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if std::time::Instant::now() > deadline {
+                        break Err(wgpu::BufferAsyncError);
+                    }
+                    continue;
+                }
+                Err(_) => break Err(wgpu::BufferAsyncError),
+            }
+        };
+        map_result.map_err(|_| GpuError::Timeout("GPU readback".into()))?;
+
+        let mapped = slice.get_mapped_range();
+        let data = mapped.to_vec();
+        staging.unmap();
+        Ok((data, staging))
+    }
+
     pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
         let ctx = Self::ctx()?;
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
-        let staging = Self::readback_impl(ctx, &self.buffer, byte_size)?;
+        let (data, staging) = self.readback_inner(0, byte_size)?;
 
-        let result = {
-            let slice = staging.slice(..);
-            let mapped = slice.get_mapped_range();
-            let data: &[f32] = bytemuck::cast_slice(&*mapped);
-            ArrayD::from_shape_vec(self.shape.clone(), data.to_vec())
-                .map_err(|e| GpuError::ShapeMismatch(format!("to_cpu shape mismatch: {e}")))?
-        };
-        staging.unmap();
+        let result = ArrayD::from_shape_vec(self.shape.clone(), {
+            let f32_data: &[f32] = bytemuck::cast_slice(&data);
+            f32_data.to_vec()
+        })
+        .map_err(|e| GpuError::ShapeMismatch(format!("to_cpu shape mismatch: {e}")))?;
+
         Self::return_staging(ctx, staging, byte_size, true);
         Ok(result)
     }
@@ -4689,14 +4759,7 @@ impl GpuTensor {
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
-        let staging = Self::readback_impl(ctx, &self.buffer, byte_size)?;
-
-        let data = {
-            let slice = staging.slice(..);
-            let mapped = slice.get_mapped_range();
-            mapped.to_vec()
-        };
-        staging.unmap();
+        let (data, staging) = self.readback_inner(0, byte_size)?;
         Self::return_staging(ctx, staging, byte_size, true);
         Ok(data)
     }
@@ -4707,26 +4770,8 @@ impl GpuTensor {
         let ctx = Self::ctx()?;
         ctx.flush();
 
-        let staging = Self::alloc_staging(ctx, 4, true);
-
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging, 0, 4);
-        ctx.queue.submit(Some(encoder.finish()));
-
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-        readback_with_timeout(&ctx.device, &rx)
-            .map_err(|e| GpuError::Device(format!("to_cpu_first_element readback failed: {e}")))?;
-
-        let mapped = slice.get_mapped_range();
-        let data: &[f32] = bytemuck::cast_slice(&*mapped);
-        let value = data[0];
-        staging.unmap();
+        let (data, staging) = self.readback_inner(0, 4)?;
+        let value: f32 = bytemuck::cast_slice::<_, f32>(&data)[0];
         Self::return_staging(ctx, staging, 4, true);
         Ok(value)
     }
@@ -4738,13 +4783,9 @@ impl GpuTensor {
         ctx.flush();
         let byte_size = (self.numel() * 4) as u64;
 
-        let staging = Self::readback_impl(ctx, &self.buffer, byte_size)?;
-
-        let slice = staging.slice(..);
-        let mapped = slice.get_mapped_range();
-        let data: &[f32] = bytemuck::cast_slice(&*mapped);
-        let checksum: f64 = data.iter().map(|&x| x as f64).sum();
-        staging.unmap();
+        let (data, staging) = self.readback_inner(0, byte_size)?;
+        let f32_data: &[f32] = bytemuck::cast_slice(&data);
+        let checksum: f64 = f32_data.iter().map(|&x| x as f64).sum();
         Self::return_staging(ctx, staging, byte_size, true);
         Ok(checksum)
     }
@@ -4758,7 +4799,7 @@ impl GpuTensor {
     }
 
     pub fn device_id(&self) -> usize {
-        0
+        self.device_id
     }
 
     pub fn buffer(&self) -> &wgpu::Buffer {

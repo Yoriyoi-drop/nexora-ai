@@ -360,9 +360,14 @@ impl SACAPipeline {
     }
 
     /// Update final metrics after pipeline completion
-    async fn update_final_metrics(&self, _solution: &SACASolution) -> SACAResult<()> {
-        // Update global metrics based on solution performance
+    async fn update_final_metrics(&self, solution: &SACASolution) -> SACAResult<()> {
         let metrics = self.phase_metrics.read().await;
+        let total_modules = solution.modules.len();
+        let solved_count = solution
+            .modules
+            .iter()
+            .filter(|m| !m.implementation.is_empty())
+            .count();
 
         info!("Pipeline metrics:");
         for (phase, phase_metrics) in metrics.iter() {
@@ -374,6 +379,18 @@ impl SACAPipeline {
                 phase_metrics.average_attempts
             );
         }
+
+        info!(
+            "Solution quality: {:.3}, test coverage: {:.3}, performance grade: {:?}, iterations: {}, feedback loops: {}, execution time: {}s, modules: {}/{} solved",
+            solution.quality_score,
+            solution.test_coverage,
+            solution.performance_grade,
+            solution.total_iterations,
+            solution.total_feedback_loops,
+            solution.execution_time.num_seconds(),
+            solved_count,
+            total_modules,
+        );
 
         Ok(())
     }

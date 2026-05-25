@@ -44,7 +44,7 @@ impl Default for InferenceConfig {
     fn default() -> Self {
         Self {
             max_concurrent_requests: 10,
-            default_model_id: "default".to_string(),
+            default_model_id: "default-model".to_string(),
             enable_queuing: true,
             queue_size_limit: 100,
             enable_caching: true,
@@ -950,9 +950,9 @@ impl InferenceEngineHandle {
         );
 
         if self.is_shutdown().await {
-            self.scheduler.write().await.complete_batch(&batch).await
-                .map_err(|e| warn!("Failed to complete batch {} during shutdown: {}", batch.batch_id, e))
-                .ok();
+            if let Err(e) = self.scheduler.write().await.complete_batch(&batch).await {
+                warn!("Failed to complete batch {} during shutdown: {}", batch.batch_id, e);
+            }
             return Ok(());
         }
 

@@ -369,7 +369,9 @@ mod tests {
         env::set_var("NEXORA_DB_SSL_MODE", "require");
 
         let manager = CredentialManager::new();
-        let creds = manager.load_from_env().unwrap();
+        let creds = manager
+            .load_from_env()
+            .expect("Failed to load credentials from env in test");
 
         assert_eq!(creds.host, "testhost");
         assert_eq!(creds.port, 5432);
