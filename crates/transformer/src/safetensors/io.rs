@@ -117,3 +117,97 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> TransformerResult<HashMap<Str
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::array;
+
+    #[test]
+    fn test_save_load_roundtrip() {
+        let path = "/tmp/test_safetensors_roundtrip.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let t1: ArrayD<f32> = array![[1.0, 2.0], [3.0, 4.0]].into_dyn();
+        let t2: ArrayD<f32> = array![5.0, 6.0, 7.0].into_dyn();
+        save_safetensors(path, &[("weight", t1.clone()), ("bias", t2.clone())]).unwrap();
+
+        let loaded = load_safetensors(path).unwrap();
+        assert_eq!(loaded.len(), 2);
+
+        let w = loaded.get("weight").unwrap();
+        assert_eq!(w.shape(), &[2, 2]);
+        assert!((w[[0, 0]] - 1.0).abs() < 1e-6);
+        assert!((w[[1, 1]] - 4.0).abs() < 1e-6);
+
+        let b = loaded.get("bias").unwrap();
+        assert_eq!(b.shape(), &[3]);
+        assert!((b[[2]] - 7.0).abs() < 1e-6);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_save_load_empty() {
+        let path = "/tmp/test_safetensors_empty.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let tensors: Vec<(&str, ArrayD<f32>)> = vec![];
+        save_safetensors(path, &tensors).unwrap();
+        let loaded = load_safetensors(path).unwrap();
+        assert!(loaded.is_empty());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_bad_file() {
+        let path = "/tmp/test_safetensors_bad.safetensors";
+        let _ = std::fs::remove_file(path);
+        std::fs::write(path, &[0u8; 4]).unwrap();
+        let result = load_safetensors(path);
+        assert!(result.is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_nonexistent() {
+        let result = load_safetensors("/tmp/does_not_exist_12345.safetensors");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_large_tensor_values() {
+        let path = "/tmp/test_safetensors_large.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let data: Vec<f32> = (0..100).map(|i| i as f32).collect();
+        let arr = ArrayD::from_shape_vec(vec![10, 10], data).unwrap();
+        save_safetensors(path, &[("big", arr.clone())]).unwrap();
+
+        let loaded = load_safetensors(path).unwrap();
+        let l = loaded.get("big").unwrap();
+        assert_eq!(l.shape(), &[10, 10]);
+        assert!((l[[9, 9]] - 99.0).abs() < 1e-6);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_save_load_multiple_tensors() {
+        let path = "/tmp/test_safetensors_multi.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let mut tensors: Vec<(&str, ArrayD<f32>)> = Vec::new();
+        for i in 0..5 {
+            let arr = ArrayD::from_shape_vec(vec![3], vec![i as f32 * 10.0; 3]).unwrap();
+            tensors.push((Box::leak(format!("t{}", i).into_boxed_str()), arr));
+        }
+        save_safetensors(path, &tensors).unwrap();
+
+        let loaded = load_safetensors(path).unwrap();
+        assert_eq!(loaded.len(), 5);
+
+        let _ = std::fs::remove_file(path);
+    }
+}

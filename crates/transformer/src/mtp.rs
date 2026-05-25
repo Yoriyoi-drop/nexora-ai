@@ -213,7 +213,9 @@ impl MTPInference {
 
         let mut i = 0;
         while i < max_tokens {
-            let logits = self.model.forward(&[last_id], &mut *cache)
+            let logits = self
+                .model
+                .forward(&[last_id], &mut *cache)
                 .unwrap_or_else(|e| {
                     tracing::warn!("MTP forward failed during generation: {e}");
                     Array1::zeros(vocab_size)
@@ -243,7 +245,9 @@ impl MTPInference {
 
                 if draft_id == main_id || self.config.temperature > 0.5 {
                     if i + 1 < max_tokens && d < self.config.num_predictions.saturating_sub(1) {
-                        let verified_logits = self.model.forward(&[draft_id], &mut *cache)
+                        let verified_logits = self
+                            .model
+                            .forward(&[draft_id], &mut *cache)
                             .unwrap_or_else(|e| {
                                 tracing::warn!("MTP forward failed during verification: {e}");
                                 Array1::zeros(vocab_size)

@@ -114,3 +114,107 @@ impl RoPE {
         ctx.rotary_embedding(x, &cos_gpu, &sin_gpu, self.head_dim as u32)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::array;
+
+    #[test]
+    fn test_rope_new() {
+        let rope = RoPE::new(64, 128, 10000.0);
+        assert_eq!(rope.head_dim, 64);
+        assert_eq!(rope.max_seq_len, 128);
+        assert_eq!(rope.inv_freq.len(), 32);
+        assert!(rope.inv_freq[0] > rope.inv_freq[31]);
+    }
+
+    #[test]
+    fn test_precompute_freqs_cis_shape() {
+        let rope = RoPE::new(64, 128, 10000.0);
+        let (cos, sin) = rope.precompute_freqs_cis();
+        assert_eq!(cos.dim(), (128, 32));
+        assert_eq!(sin.dim(), (128, 32));
+    }
+
+    #[test]
+    fn test_precompute_freqs_cis_values() {
+        let rope = RoPE::new(4, 1, 10000.0);
+        let (cos, sin) = rope.precompute_freqs_cis();
+        assert!((cos[[0, 0]] - 1.0).abs() < 1e-5);
+        assert!((sin[[0, 0]] - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_apply_preserves_magnitude() {
+        let half = 4;
+        let head_dim = half * 2;
+        let rope = RoPE::new(head_dim, 1, 10000.0);
+        let (all_cos, all_sin) = rope.precompute_freqs_cis();
+        let cos_1d = all_cos.row(0).to_owned();
+        let sin_1d = all_sin.row(0).to_owned();
+        let x = array![[0.5, -0.2, 0.3, 0.8, -0.1, 0.6, -0.7, 0.4]];
+        let out = RoPE::apply(&x, &cos_1d, &sin_1d, head_dim);
+        let in_norm = x.iter().map(|v| v * v).sum::<f32>();
+        let out_norm = out.iter().map(|v| v * v).sum::<f32>();
+        assert!(
+            (in_norm - out_norm).abs() < 1e-5,
+            "RoPE should preserve magnitude"
+        );
+    }
+
+    #[test]
+    fn test_apply_single_shape() {
+        let rope = RoPE::new(8, 10, 10000.0);
+        let (cos, sin) = rope.precompute_freqs_cis();
+        let cos_flat: Vec<f32> = cos.iter().copied().collect();
+        let sin_flat: Vec<f32> = sin.iter().copied().collect();
+        let x = vec![1.0; 8];
+        let out = RoPE::apply_single(&x, &cos_flat, &sin_flat, 8, 3);
+        assert_eq!(out.len(), 8);
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_apply_single_matches_apply_batch1() {
+        let half = 4;
+        let head_dim = half * 2;
+        let rope = RoPE::new(head_dim, 5, 10000.0);
+        let (cos, sin) = rope.precompute_freqs_cis();
+        let cos_flat: Vec<f32> = cos.iter().copied().collect();
+        let sin_flat: Vec<f32> = sin.iter().copied().collect();
+        let x_vec = vec![0.3, -0.5, 0.7, -0.9, 1.1, -1.3, 1.5, -1.7];
+        let pos = 3;
+        let single = RoPE::apply_single(&x_vec, &cos_flat, &sin_flat, head_dim, pos);
+        let cos_row = cos.row(pos).to_owned();
+        let sin_row = sin.row(pos).to_owned();
+        let x_arr: [f32; 8] = x_vec.clone().try_into().unwrap();
+        let x_2d = ndarray::arr2(&[x_arr]);
+        let batch = RoPE::apply(&x_2d, &cos_row, &sin_row, head_dim);
+        for j in 0..head_dim {
+            assert!((single[j] - batch[[0, j]]).abs() < 1e-5, "mismatch at {j}");
+        }
+    }
+
+    #[test]
+    fn test_apply_zero_input() {
+        let rope = RoPE::new(8, 1, 10000.0);
+        let (cos, sin) = rope.precompute_freqs_cis();
+        let cos_1d = cos.row(0).to_owned();
+        let sin_1d = sin.row(0).to_owned();
+        let x = array![[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]];
+        let out = RoPE::apply(&x, &cos_1d, &sin_1d, 8);
+        assert!(out.iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
+    fn test_apply_single_bounds() {
+        let rope = RoPE::new(4, 1, 10000.0);
+        let (cos, sin) = rope.precompute_freqs_cis();
+        let cos_flat: Vec<f32> = cos.iter().copied().collect();
+        let sin_flat: Vec<f32> = sin.iter().copied().collect();
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let out = RoPE::apply_single(&x, &cos_flat, &sin_flat, 4, 0);
+        assert_eq!(out.len(), 4);
+    }
+}

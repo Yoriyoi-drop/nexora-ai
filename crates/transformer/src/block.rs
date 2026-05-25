@@ -57,7 +57,13 @@ impl TransformerBlock {
         sin: &Array1<f32>,
     ) -> Array2<f32> {
         let normed = self.attention_norm.forward(x);
-        let attn_out = self.attention.forward(&normed, None, 0, cos.as_slice().unwrap_or(&[]), sin.as_slice().unwrap_or(&[]));
+        let attn_out = self.attention.forward(
+            &normed,
+            None,
+            0,
+            cos.as_slice().unwrap_or(&[]),
+            sin.as_slice().unwrap_or(&[]),
+        );
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn);
@@ -102,9 +108,9 @@ impl TransformerBlock {
         let ctx = GpuContext::global()?;
 
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
-        let attn_out = self.attention.forward_gpu_with_rope_gpu(
-            &normed, cache, layer_idx, cos_gpu, sin_gpu,
-        )?;
+        let attn_out = self
+            .attention
+            .forward_gpu_with_rope_gpu(&normed, cache, layer_idx, cos_gpu, sin_gpu)?;
         let after_attn = ctx.add(x_gpu, &attn_out)?;
 
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
@@ -127,9 +133,9 @@ impl TransformerBlock {
 
         // 1. Attention sub-block: RMSNorm -> GQA -> residual add
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
-        let attn_out = self.attention.forward_gpu(
-            &normed, cache, layer_idx, cos, sin,
-        )?;
+        let attn_out = self
+            .attention
+            .forward_gpu(&normed, cache, layer_idx, cos, sin)?;
         // Residual: x + attn_out
         let after_attn = ctx.add(x_gpu, &attn_out)?;
 
@@ -158,7 +164,10 @@ impl TransformerBlock {
 
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
         let attn_out = self.attention.forward_gpu_with_cache_precomputed_rope(
-            &normed, &mut cache[layer_idx], cos_gpu, sin_gpu,
+            &normed,
+            &mut cache[layer_idx],
+            cos_gpu,
+            sin_gpu,
         )?;
         let after_attn = ctx.add(x_gpu, &attn_out)?;
 
@@ -184,9 +193,9 @@ impl TransformerBlock {
 
         // 1. Attention sub-block: RMSNorm -> GQA -> residual add
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
-        let attn_out = self.attention.forward_gpu_with_cache(
-            &normed, &mut cache[layer_idx], cos, sin,
-        )?;
+        let attn_out =
+            self.attention
+                .forward_gpu_with_cache(&normed, &mut cache[layer_idx], cos, sin)?;
         // Residual: x + attn_out
         let after_attn = ctx.add(x_gpu, &attn_out)?;
 
@@ -204,5 +213,86 @@ impl TransformerBlock {
         self.attention.preupload_gpu()?;
         self.ffn.preupload_gpu()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::array;
+
+    fn small_block() -> TransformerBlock {
+        TransformerBlock::new(8, 4, 2, 4, 16, 1e-6)
+    }
+
+    fn dummy_cos_sin() -> (Vec<f32>, Vec<f32>) {
+        (vec![0.0, 1.0], vec![1.0, 0.0]) // half=head_dim/2=2
+    }
+
+    #[test]
+    fn test_block_new_shapes() {
+        let block = small_block();
+        assert_eq!(block.attention_norm.weight.len(), 8);
+        assert_eq!(block.ffn_norm.weight.len(), 8);
+        assert_eq!(block.attention.wq.dim(), (16, 8));
+        assert_eq!(block.ffn.w1.dim(), (16, 8));
+    }
+
+    #[test]
+    fn test_block_forward_shape() {
+        let block = small_block();
+        let x = array![[1.0; 8]];
+        let mut cache = vec![KVCacheEntry {
+            k: vec![],
+            v: vec![],
+            kv_dim: 8,
+        }];
+        let (cos, sin) = dummy_cos_sin();
+        let out = block.forward(&x, &mut cache, 0, &cos, &sin);
+        assert_eq!(out.dim(), (1, 8));
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_block_forward_no_cache_shape() {
+        let block = small_block();
+        let x = array![[1.0; 8]];
+        let cos = ndarray::Array1::from(vec![0.0, 1.0]);
+        let sin = ndarray::Array1::from(vec![1.0, 0.0]);
+        let out = block.forward_no_cache(&x, &cos, &sin);
+        assert_eq!(out.dim(), (1, 8));
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_block_forward_batch2() {
+        let block = small_block();
+        let x = array![[1.0; 8], [2.0; 8]];
+        let mut cache = vec![KVCacheEntry {
+            k: vec![],
+            v: vec![],
+            kv_dim: 8,
+        }];
+        let (cos, sin) = dummy_cos_sin();
+        let out = block.forward(&x, &mut cache, 0, &cos, &sin);
+        assert_eq!(out.dim(), (2, 8));
+    }
+
+    #[test]
+    fn test_block_forward_accumulates_cache() {
+        let block = small_block();
+        let mut cache: Vec<KVCacheEntry> = Vec::new();
+        let (cos, sin) = dummy_cos_sin();
+
+        let x1 = array![[1.0; 8]];
+        let _ = block.forward(&x1, &mut cache, 0, &cos, &sin);
+        let seq1 = cache[0].seq_len();
+
+        let x2 = array![[2.0; 8]];
+        let _ = block.forward(&x2, &mut cache, 0, &cos, &sin);
+        let seq2 = cache[0].seq_len();
+
+        assert_eq!(seq1, 1);
+        assert_eq!(seq2, 2);
     }
 }

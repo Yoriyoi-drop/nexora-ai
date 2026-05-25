@@ -108,7 +108,10 @@ impl TrainableCausalLM {
         }
     }
 
-    pub fn sync_to_inference(&self, model: &mut CausalLM) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn sync_to_inference(
+        &self,
+        model: &mut CausalLM,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         model.token_embedding = self
             .token_embedding
             .data()
@@ -378,5 +381,165 @@ impl TrainableCausalLM {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TransformerConfig;
+
+    fn small_model() -> CausalLM {
+        CausalLM::new(TransformerConfig {
+            vocab_size: 50,
+            hidden_size: 16,
+            num_heads: 2,
+            num_kv_heads: 1,
+            num_layers: 1,
+            max_seq_len: 32,
+            intermediate_size: 32,
+            rope_theta: 10000.0,
+            use_cache: true,
+            norm_eps: 1e-6,
+        })
+    }
+
+    #[test]
+    fn test_from_inference_smoke() {
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        assert_eq!(trainable.config.vocab_size, 50);
+        assert_eq!(trainable.config.hidden_size, 16);
+        assert_eq!(trainable.blocks.len(), 1);
+        assert!(trainable.token_embedding.requires_grad());
+        assert!(trainable.lm_head.requires_grad());
+    }
+
+    #[test]
+    fn test_forward_no_panic() {
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        let input_ids = Tensor::from_slice(&[0.0f32, 1.0, 2.0], &[3]);
+        let logits = trainable.forward(&input_ids);
+        let shape = logits.shape();
+        assert_eq!(shape, &[3, 50]);
+    }
+
+    #[test]
+    fn test_forward_single_token() {
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        let input_ids = Tensor::from_slice(&[5.0f32], &[1]);
+        let logits = trainable.forward(&input_ids);
+        assert_eq!(logits.shape(), &[1, 50]);
+    }
+
+    #[test]
+    fn test_sync_to_inference_roundtrip() {
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        let mut inf2 = CausalLM::new(TransformerConfig {
+            vocab_size: 50,
+            hidden_size: 16,
+            num_heads: 2,
+            num_kv_heads: 1,
+            num_layers: 1,
+            max_seq_len: 32,
+            intermediate_size: 32,
+            rope_theta: 10000.0,
+            use_cache: true,
+            norm_eps: 1e-6,
+        });
+        trainable.sync_to_inference(&mut inf2).unwrap();
+        assert_eq!(inf2.token_embedding.dim(), (50, 16));
+        assert_eq!(inf2.lm_head.dim(), (50, 16));
+        assert_eq!(inf2.norm.weight.len(), 16);
+    }
+
+    #[test]
+    fn test_parameters_count() {
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        let params = trainable.parameters();
+        assert_eq!(params.len(), 3 + 9);
+    }
+
+    #[test]
+    fn test_zero_grad_no_panic() {
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        let input_ids = Tensor::from_slice(&[0.0f32, 1.0], &[2]);
+        let logits = trainable.forward(&input_ids);
+        let loss = logits.sum();
+        loss.backward();
+        trainable.zero_grad();
+        for p in trainable.parameters() {
+            let grad = p.grad();
+            assert!(grad.is_none() || grad.as_ref().map_or(true, |g| g.is_empty()));
+        }
+    }
+
+    #[test]
+    fn test_save_checkpoint_roundtrip() {
+        let path = "/tmp/test_trainable_ckpt.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let inf = small_model();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        if let Ok(()) = trainable.save_checkpoint(path) {
+            let mut reloaded = CausalLM::new(TransformerConfig {
+                vocab_size: 50,
+                hidden_size: 16,
+                num_heads: 2,
+                num_kv_heads: 1,
+                num_layers: 1,
+                max_seq_len: 32,
+                intermediate_size: 32,
+                rope_theta: 10000.0,
+                use_cache: true,
+                norm_eps: 1e-6,
+            });
+            TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
+            assert!(reloaded.blocks[0]
+                .attention
+                .wq
+                .iter()
+                .all(|v| v.is_finite()));
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_save_checkpoint_contents() {
+        let path = "/tmp/test_trainable_ckpt2.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let inf = small_model();
+        let original_wq = inf.blocks[0].attention.wq.clone();
+        let trainable = TrainableCausalLM::from_inference(&inf);
+        if let Ok(()) = trainable.save_checkpoint(path) {
+            let mut reloaded = CausalLM::new(TransformerConfig {
+                vocab_size: 50,
+                hidden_size: 16,
+                num_heads: 2,
+                num_kv_heads: 1,
+                num_layers: 1,
+                max_seq_len: 32,
+                intermediate_size: 32,
+                rope_theta: 10000.0,
+                use_cache: true,
+                norm_eps: 1e-6,
+            });
+            TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
+            for j in 0..original_wq.len() {
+                let orig_val = original_wq.as_slice().unwrap()[j];
+                let reloaded_val = reloaded.blocks[0].attention.wq.as_slice().unwrap()[j];
+                assert!(
+                    (orig_val - reloaded_val).abs() < 1e-5,
+                    "mismatch at {j}: {orig_val} vs {reloaded_val}"
+                );
+            }
+        }
+        let _ = std::fs::remove_file(path);
     }
 }

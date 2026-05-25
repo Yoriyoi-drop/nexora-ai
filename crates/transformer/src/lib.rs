@@ -10,7 +10,7 @@ pub mod swiglu;
 pub mod trainable;
 
 pub use config::TransformerConfig;
-pub use gqa::{KVCacheEntry, KVCacheProvider, CpuKVCache, PagedCacheReader};
+pub use gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};
 #[cfg(feature = "gpu")]
 pub use gqa::{GpuKVCache, GpuKVCacheEntry};
 pub use model::{CausalLM, LayerInjector};
@@ -33,5 +33,4 @@ pub enum TransformerError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-
 }

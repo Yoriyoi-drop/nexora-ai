@@ -22,8 +22,8 @@ pub(crate) struct GqaGpuWeights {
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
 pub struct GpuKVCacheEntry {
-    pub k: nexora_autograd::gpu::GpuTensor,  // [capacity, kv_heads, head_dim]
-    pub v: nexora_autograd::gpu::GpuTensor,  // [capacity, kv_heads, head_dim]
+    pub k: nexora_autograd::gpu::GpuTensor, // [capacity, kv_heads, head_dim]
+    pub v: nexora_autograd::gpu::GpuTensor, // [capacity, kv_heads, head_dim]
     pub seq_len: usize,
     pub capacity: usize,
     pub kv_heads: usize,
@@ -58,9 +58,10 @@ impl GpuKVCacheEntry {
         new_v: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<(), nexora_autograd::gpu::GpuError> {
         if self.seq_len >= self.capacity {
-            return Err(nexora_autograd::gpu::GpuError::Unsupported(
-                format!("GpuKVCacheEntry capacity exceeded: {} >= {}", self.seq_len, self.capacity)
-            ));
+            return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                "GpuKVCacheEntry capacity exceeded: {} >= {}",
+                self.seq_len, self.capacity
+            )));
         }
         let kv_elems = self.kv_heads * self.head_dim;
         let byte_size = (kv_elems * 4) as u64;
@@ -99,7 +100,10 @@ impl GpuKVCacheEntry {
         ctx: &nexora_autograd::gpu::GpuContext,
         q_heads: u32,
     ) -> Result<
-        (nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuTensor),
+        (
+            nexora_autograd::gpu::GpuTensor,
+            nexora_autograd::gpu::GpuTensor,
+        ),
         nexora_autograd::gpu::GpuError,
     > {
         let dim = self.head_dim as u32;
@@ -111,7 +115,10 @@ impl GpuKVCacheEntry {
 
     /// Clear the cache (reset sequence length).
     /// Does NOT deallocate buffers — memset to zero.
-    pub fn clear(&mut self, ctx: &nexora_autograd::gpu::GpuContext) -> Result<(), nexora_autograd::gpu::GpuError> {
+    pub fn clear(
+        &mut self,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
         ctx.fill_zero(&self.k)?;
         ctx.fill_zero(&self.v)?;
         self.seq_len = 0;
@@ -281,7 +288,9 @@ impl KVCacheProvider for GpuKVCache {
                     ArrayD::from_shape_vec(vec![1, kv_heads, head_dim], k.to_vec()),
                     ArrayD::from_shape_vec(vec![1, kv_heads, head_dim], v.to_vec()),
                 ) {
-                    if let (Ok(k_gpu), Ok(v_gpu)) = (GpuTensor::from_cpu(&k_arr), GpuTensor::from_cpu(&v_arr)) {
+                    if let (Ok(k_gpu), Ok(v_gpu)) =
+                        (GpuTensor::from_cpu(&k_arr), GpuTensor::from_cpu(&v_arr))
+                    {
                         let _ = self.entries[layer_idx].append(ctx, &k_gpu, &v_gpu);
                     }
                 }
@@ -383,14 +392,18 @@ impl Clone for GQA {
 
 #[derive(Debug, Clone)]
 pub struct KVCacheEntry {
-    pub k: Vec<f32>,   // flat [seq_len, kv_dim]
-    pub v: Vec<f32>,   // flat [seq_len, kv_dim]
+    pub k: Vec<f32>, // flat [seq_len, kv_dim]
+    pub v: Vec<f32>, // flat [seq_len, kv_dim]
     pub kv_dim: usize,
 }
 
 impl KVCacheEntry {
     pub fn seq_len(&self) -> usize {
-        if self.kv_dim == 0 { 0 } else { self.k.len() / self.kv_dim }
+        if self.kv_dim == 0 {
+            0
+        } else {
+            self.k.len() / self.kv_dim
+        }
     }
 }
 
@@ -447,20 +460,28 @@ impl GQA {
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim))
+            });
         let mut k = k_proj
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
+            });
         let v = v_proj
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
+            });
 
         for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
             let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
-            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
+                (self.num_kv_heads, self.head_dim),
+                rotated_k.into_raw_vec(),
+            )
+            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
             k_slice.assign(&rotated);
         }
 
@@ -468,64 +489,70 @@ impl GQA {
             let q_row: Vec<f32> = q_slice.iter().copied().collect();
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
-            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
+                (self.num_heads, self.head_dim),
+                rotated_q.into_raw_vec(),
+            )
+            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
             q_slice.assign(&rotated);
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
-        let (k_cached, v_cached, total_seq): (Cow<[f32]>, Cow<[f32]>, usize) =
-            match cache {
-                Some(cache) if layer_idx < cache.len() => {
-                    let entry = &cache[layer_idx];
-                    let seq = entry.k.len() / (batch_size * kv_dim);
-                    (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
-                }
-                _ => {
-                    let kf: Vec<f32> = k.iter().copied().collect();
-                    let vf: Vec<f32> = v.iter().copied().collect();
-                    (Cow::Owned(kf), Cow::Owned(vf), 1)
-                }
-            };
+        let (k_cached, v_cached, total_seq): (Cow<[f32]>, Cow<[f32]>, usize) = match cache {
+            Some(cache) if layer_idx < cache.len() => {
+                let entry = &cache[layer_idx];
+                let seq = entry.k.len() / (batch_size * kv_dim);
+                (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
+            }
+            _ => {
+                let kf: Vec<f32> = k.iter().copied().collect();
+                let vf: Vec<f32> = v.iter().copied().collect();
+                (Cow::Owned(kf), Cow::Owned(vf), 1)
+            }
+        };
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
         for b in 0..batch_size {
-            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads).into_par_iter().map(|h| {
-                let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
-                let kv_off = kv_h * self.head_dim;
+            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads)
+                .into_par_iter()
+                .map(|h| {
+                    let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
+                    let kv_off = kv_h * self.head_dim;
 
-                let q_slice = q.slice(ndarray::s![b, h, ..]);
-                let mut scores = Vec::with_capacity(total_seq);
-                let mut max_score = f32::NEG_INFINITY;
-                for t in 0..total_seq {
-                    let k_idx = (b * total_seq + t) * kv_dim + kv_off;
-                    let k_view = ndarray::ArrayView1::from(&k_cached[k_idx..k_idx + self.head_dim]);
-                    let score = q_slice.dot(&k_view) * self.head_dim_rs;
-                    if score > max_score {
-                        max_score = score;
-                    }
-                    scores.push(score);
-                }
-
-                let mut exp_sum = 0.0;
-                for s in scores.iter_mut() {
-                    *s = (*s - max_score).exp();
-                    exp_sum += *s;
-                }
-
-                let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                let mut out_row = vec![0.0; self.head_dim];
-                for d in 0..self.head_dim {
-                    let mut weighted = 0.0;
+                    let q_slice = q.slice(ndarray::s![b, h, ..]);
+                    let mut scores = Vec::with_capacity(total_seq);
+                    let mut max_score = f32::NEG_INFINITY;
                     for t in 0..total_seq {
-                        weighted +=
-                            scores[t] * inv_exp_sum * v_cached[(b * total_seq + t) * kv_dim + kv_off + d];
+                        let k_idx = (b * total_seq + t) * kv_dim + kv_off;
+                        let k_view =
+                            ndarray::ArrayView1::from(&k_cached[k_idx..k_idx + self.head_dim]);
+                        let score = q_slice.dot(&k_view) * self.head_dim_rs;
+                        if score > max_score {
+                            max_score = score;
+                        }
+                        scores.push(score);
                     }
-                    out_row[d] = weighted;
-                }
-                (h, out_row)
-            }).collect();
+
+                    let mut exp_sum = 0.0;
+                    for s in scores.iter_mut() {
+                        *s = (*s - max_score).exp();
+                        exp_sum += *s;
+                    }
+
+                    let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
+                    let mut out_row = vec![0.0; self.head_dim];
+                    for d in 0..self.head_dim {
+                        let mut weighted = 0.0;
+                        for t in 0..total_seq {
+                            weighted += scores[t]
+                                * inv_exp_sum
+                                * v_cached[(b * total_seq + t) * kv_dim + kv_off + d];
+                        }
+                        out_row[d] = weighted;
+                    }
+                    (h, out_row)
+                })
+                .collect();
 
             for (h, row) in results {
                 let out_base = h * self.head_dim;
@@ -554,20 +581,28 @@ impl GQA {
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim))
+            });
         let mut k = k_proj
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
+            });
         let v = v_proj
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
+            });
 
         for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
             let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
-            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
+                (self.num_kv_heads, self.head_dim),
+                rotated_k.into_raw_vec(),
+            )
+            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
             k_slice.assign(&rotated);
         }
 
@@ -575,8 +610,10 @@ impl GQA {
             let q_row: Vec<f32> = q_slice.iter().copied().collect();
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
-            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
+                (self.num_heads, self.head_dim),
+                rotated_q.into_raw_vec(),
+            )
+            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
             q_slice.assign(&rotated);
         }
 
@@ -602,40 +639,44 @@ impl GQA {
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
         for b in 0..batch_size {
-            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads).into_par_iter().map(|h| {
-                let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
-                let kv_off = kv_h * self.head_dim;
+            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads)
+                .into_par_iter()
+                .map(|h| {
+                    let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
+                    let kv_off = kv_h * self.head_dim;
 
-                let q_slice = q.slice(ndarray::s![b, h, ..]);
-                let mut scores = vec![0.0; total_seq];
-                let mut max_score = f32::NEG_INFINITY;
-                for t in 0..total_seq {
-                    let k_idx = t * kv_dim + kv_off;
-                    let k_view = ndarray::ArrayView1::from(&k_slice[k_idx..k_idx + self.head_dim]);
-                    let score = q_slice.dot(&k_view) * self.head_dim_rs;
-                    if score > max_score {
-                        max_score = score;
-                    }
-                    scores[t] = score;
-                }
-
-                let mut exp_sum = 0.0;
-                for s in scores.iter_mut() {
-                    *s = (*s - max_score).exp();
-                    exp_sum += *s;
-                }
-
-                let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                let mut out_row = vec![0.0; self.head_dim];
-                for d in 0..self.head_dim {
-                    let mut weighted = 0.0;
+                    let q_slice = q.slice(ndarray::s![b, h, ..]);
+                    let mut scores = vec![0.0; total_seq];
+                    let mut max_score = f32::NEG_INFINITY;
                     for t in 0..total_seq {
-                        weighted += scores[t] * inv_exp_sum * v_slice[t * kv_dim + kv_off + d];
+                        let k_idx = t * kv_dim + kv_off;
+                        let k_view =
+                            ndarray::ArrayView1::from(&k_slice[k_idx..k_idx + self.head_dim]);
+                        let score = q_slice.dot(&k_view) * self.head_dim_rs;
+                        if score > max_score {
+                            max_score = score;
+                        }
+                        scores[t] = score;
                     }
-                    out_row[d] = weighted;
-                }
-                (h, out_row)
-            }).collect();
+
+                    let mut exp_sum = 0.0;
+                    for s in scores.iter_mut() {
+                        *s = (*s - max_score).exp();
+                        exp_sum += *s;
+                    }
+
+                    let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
+                    let mut out_row = vec![0.0; self.head_dim];
+                    for d in 0..self.head_dim {
+                        let mut weighted = 0.0;
+                        for t in 0..total_seq {
+                            weighted += scores[t] * inv_exp_sum * v_slice[t * kv_dim + kv_off + d];
+                        }
+                        out_row[d] = weighted;
+                    }
+                    (h, out_row)
+                })
+                .collect();
 
             for (h, row) in results {
                 let out_base = h * self.head_dim;
@@ -672,21 +713,29 @@ impl GQA {
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim))
+            });
         let mut k = k_proj
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
+            });
         let v = v_proj
             .into_shape((batch_size, self.num_kv_heads, self.head_dim))
-            .unwrap_or_else(|_| ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim)));
+            .unwrap_or_else(|_| {
+                ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
+            });
 
         // RoPE for K
         for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
             let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
-            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
+                (self.num_kv_heads, self.head_dim),
+                rotated_k.into_raw_vec(),
+            )
+            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
             k_slice.assign(&rotated);
         }
 
@@ -695,8 +744,10 @@ impl GQA {
             let q_row: Vec<f32> = q_slice.iter().copied().collect();
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
-            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
+                (self.num_heads, self.head_dim),
+                rotated_q.into_raw_vec(),
+            )
+            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
             q_slice.assign(&rotated);
         }
 
@@ -776,7 +827,6 @@ impl GQA {
 
         output.dot(&self.wo.t())
     }
-
 }
 
 #[cfg(feature = "gpu")]
@@ -801,11 +851,13 @@ impl GQA {
         if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr.as_slice().ok_or_else(|| {
-                    GpuError::Unsupported("non-contiguous weight".into())
-                })?.to_vec();
+                let data = arr
+                    .as_slice()
+                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
+                    .to_vec();
                 Ok(GpuTensor::from_cpu(
-                    &ndarray::ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                    &ndarray::ArrayD::from_shape_vec(shape, data)
+                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
                 )?)
             };
             let wq = mk(&self.wq)?;
@@ -820,7 +872,9 @@ impl GQA {
             });
         }
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
+            nexora_autograd::gpu::GpuError::Unsupported(
+                "GPU weights not initialized after lazy init".into(),
+            )
         })?;
 
         // 2. QKV projection on GPU
@@ -838,12 +892,20 @@ impl GQA {
         // 5. GPU-side KV cache (no CPU round-trip)
         let (k_repeated, v_repeated) = {
             let mut scratch_guard = self.gpu_scratch.write();
-            let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].seq_len() } else { 0 };
+            let cpu_seq_len = if layer_idx < cache.len() {
+                cache[layer_idx].seq_len()
+            } else {
+                0
+            };
 
             // Take existing scratch or create new one (avoids borrow conflicts)
             let mut gpu_entry = match scratch_guard.take() {
                 Some(entry) => entry,
-                None => GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, 4096.max(cpu_seq_len + 4096))?,
+                None => GpuKVCacheEntry::new(
+                    self.num_kv_heads,
+                    self.head_dim,
+                    4096.max(cpu_seq_len + 4096),
+                )?,
             };
 
             // Re-sync from CPU if cache was reset or different generation
@@ -853,23 +915,40 @@ impl GQA {
                     ctx.fill_zero(&gpu_entry.k)?;
                     ctx.fill_zero(&gpu_entry.v)?;
                 } else {
-                    gpu_entry = GpuKVCacheEntry::new(
-                        self.num_kv_heads, self.head_dim, cpu_seq_len + 4096,
-                    )?;
+                    gpu_entry =
+                        GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, cpu_seq_len + 4096)?;
                     let ce = &cache[layer_idx];
                     let seq = ce.seq_len();
                     let k_flat: Vec<f32> = ce.k.clone();
                     let v_flat: Vec<f32> = ce.v.clone();
-                    let k_cpu = ndarray::ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], k_flat)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?;
-                    let v_cpu = ndarray::ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], v_flat)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+                    let k_cpu = ndarray::ArrayD::from_shape_vec(
+                        vec![seq, self.num_kv_heads, self.head_dim],
+                        k_flat,
+                    )
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+                    let v_cpu = ndarray::ArrayD::from_shape_vec(
+                        vec![seq, self.num_kv_heads, self.head_dim],
+                        v_flat,
+                    )
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?;
                     let k_host = GpuTensor::from_cpu(&k_cpu)?;
                     let v_host = GpuTensor::from_cpu(&v_cpu)?;
                     let bytes = (seq * self.num_kv_heads * self.head_dim * 4) as u64;
                     ctx.batch_dispatch(|enc| {
-                        enc.copy_buffer_to_buffer(k_host.buffer(), 0, gpu_entry.k.buffer(), 0, bytes);
-                        enc.copy_buffer_to_buffer(v_host.buffer(), 0, gpu_entry.v.buffer(), 0, bytes);
+                        enc.copy_buffer_to_buffer(
+                            k_host.buffer(),
+                            0,
+                            gpu_entry.k.buffer(),
+                            0,
+                            bytes,
+                        );
+                        enc.copy_buffer_to_buffer(
+                            v_host.buffer(),
+                            0,
+                            gpu_entry.v.buffer(),
+                            0,
+                            bytes,
+                        );
                         Ok(())
                     })?;
                     gpu_entry.seq_len = seq;
@@ -897,7 +976,8 @@ impl GQA {
         };
 
         // 7. Fused attention on GPU
-        let attn_output_4d = ctx.fused_attention(&q_4d, &k_repeated, &v_repeated, self.head_dim_rs, false)?;
+        let attn_output_4d =
+            ctx.fused_attention(&q_4d, &k_repeated, &v_repeated, self.head_dim_rs, false)?;
 
         // 8. Reshape attention output
         let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
@@ -925,11 +1005,13 @@ impl GQA {
         if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr.as_slice().ok_or_else(|| {
-                    GpuError::Unsupported("non-contiguous weight".into())
-                })?.to_vec();
+                let data = arr
+                    .as_slice()
+                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
+                    .to_vec();
                 Ok(GpuTensor::from_cpu(
-                    &ndarray::ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                    &ndarray::ArrayD::from_shape_vec(shape, data)
+                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
                 )?)
             };
             let wq = mk(&self.wq)?;
@@ -944,7 +1026,9 @@ impl GQA {
             });
         }
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
+            nexora_autograd::gpu::GpuError::Unsupported(
+                "GPU weights not initialized after lazy init".into(),
+            )
         })?;
 
         // 2. QKV projection on GPU
@@ -1000,11 +1084,13 @@ impl GQA {
         if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr.as_slice().ok_or_else(|| {
-                    GpuError::Unsupported("non-contiguous weight".into())
-                })?.to_vec();
+                let data = arr
+                    .as_slice()
+                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
+                    .to_vec();
                 Ok(GpuTensor::from_cpu(
-                    &ndarray::ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                    &ndarray::ArrayD::from_shape_vec(shape, data)
+                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
                 )?)
             };
             let wq = mk(&self.wq)?;
@@ -1019,7 +1105,9 @@ impl GQA {
             });
         }
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
+            nexora_autograd::gpu::GpuError::Unsupported(
+                "GPU weights not initialized after lazy init".into(),
+            )
         })?;
 
         // 2. QKV projection on GPU
@@ -1031,11 +1119,11 @@ impl GQA {
         let half = cos.len();
         let cos_gpu = GpuTensor::from_cpu(
             &ndarray::ArrayD::from_shape_vec(vec![1, half], cos.to_vec())
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?,
         )?;
         let sin_gpu = GpuTensor::from_cpu(
             &ndarray::ArrayD::from_shape_vec(vec![1, half], sin.to_vec())
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?,
         )?;
 
         // Apply RoPE on GPU for Q and K
@@ -1079,8 +1167,8 @@ impl GQA {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
         let batch_size = 1;
@@ -1089,11 +1177,13 @@ impl GQA {
         if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr.as_slice().ok_or_else(|| {
-                    GpuError::Unsupported("non-contiguous weight".into())
-                })?.to_vec();
+                let data = arr
+                    .as_slice()
+                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
+                    .to_vec();
                 Ok(GpuTensor::from_cpu(
-                    &ArrayD::from_shape_vec(shape, data).map_err(|e| GpuError::Unsupported(e.to_string()))?
+                    &ArrayD::from_shape_vec(shape, data)
+                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
                 )?)
             };
             let wq = mk(&self.wq)?;
@@ -1108,7 +1198,9 @@ impl GQA {
             });
         }
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
+            nexora_autograd::gpu::GpuError::Unsupported(
+                "GPU weights not initialized after lazy init".into(),
+            )
         })?;
 
         // 2. QKV projection on GPU
@@ -1119,10 +1211,12 @@ impl GQA {
         // 3. Upload cos/sin for RoPE
         let half = cos.len();
         let cos_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, half], cos.to_vec()).map_err(|e| GpuError::Unsupported(e.to_string()))?
+            &ArrayD::from_shape_vec(vec![1, half], cos.to_vec())
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?,
         )?;
         let sin_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, half], sin.to_vec()).map_err(|e| GpuError::Unsupported(e.to_string()))?
+            &ArrayD::from_shape_vec(vec![1, half], sin.to_vec())
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?,
         )?;
 
         let q_rotated = ctx.rotary_embedding(&q_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
@@ -1134,11 +1228,19 @@ impl GQA {
         // 5. GPU-side KV cache (no CPU round-trip)
         let (k_repeated, v_repeated) = {
             let mut scratch_guard = self.gpu_scratch.write();
-            let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].seq_len() } else { 0 };
+            let cpu_seq_len = if layer_idx < cache.len() {
+                cache[layer_idx].seq_len()
+            } else {
+                0
+            };
 
             let mut gpu_entry = match scratch_guard.take() {
                 Some(entry) => entry,
-                None => GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, 4096.max(cpu_seq_len + 4096))?,
+                None => GpuKVCacheEntry::new(
+                    self.num_kv_heads,
+                    self.head_dim,
+                    4096.max(cpu_seq_len + 4096),
+                )?,
             };
 
             // Re-sync from CPU if cache was reset or different generation
@@ -1148,23 +1250,36 @@ impl GQA {
                     ctx.fill_zero(&gpu_entry.k)?;
                     ctx.fill_zero(&gpu_entry.v)?;
                 } else {
-                    gpu_entry = GpuKVCacheEntry::new(
-                        self.num_kv_heads, self.head_dim, cpu_seq_len + 4096,
-                    )?;
+                    gpu_entry =
+                        GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, cpu_seq_len + 4096)?;
                     let ce = &cache[layer_idx];
                     let seq = ce.seq_len();
                     let k_flat: Vec<f32> = ce.k.clone();
                     let v_flat: Vec<f32> = ce.v.clone();
-                    let k_cpu = ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], k_flat)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?;
-                    let v_cpu = ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], v_flat)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+                    let k_cpu =
+                        ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], k_flat)
+                            .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+                    let v_cpu =
+                        ArrayD::from_shape_vec(vec![seq, self.num_kv_heads, self.head_dim], v_flat)
+                            .map_err(|e| GpuError::Unsupported(e.to_string()))?;
                     let k_host = GpuTensor::from_cpu(&k_cpu)?;
                     let v_host = GpuTensor::from_cpu(&v_cpu)?;
                     let bytes = (seq * self.num_kv_heads * self.head_dim * 4) as u64;
                     ctx.batch_dispatch(|enc| {
-                        enc.copy_buffer_to_buffer(k_host.buffer(), 0, gpu_entry.k.buffer(), 0, bytes);
-                        enc.copy_buffer_to_buffer(v_host.buffer(), 0, gpu_entry.v.buffer(), 0, bytes);
+                        enc.copy_buffer_to_buffer(
+                            k_host.buffer(),
+                            0,
+                            gpu_entry.k.buffer(),
+                            0,
+                            bytes,
+                        );
+                        enc.copy_buffer_to_buffer(
+                            v_host.buffer(),
+                            0,
+                            gpu_entry.v.buffer(),
+                            0,
+                            bytes,
+                        );
                         Ok(())
                     })?;
                     gpu_entry.seq_len = seq;
@@ -1191,7 +1306,8 @@ impl GQA {
         };
 
         // 7. Fused attention on GPU
-        let attn_output_4d = ctx.fused_attention(&q_4d, &k_repeated, &v_repeated, self.head_dim_rs, false)?;
+        let attn_output_4d =
+            ctx.fused_attention(&q_4d, &k_repeated, &v_repeated, self.head_dim_rs, false)?;
 
         // 8. Reshape attention output
         let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
@@ -1243,7 +1359,9 @@ impl GQA {
         let read_back = |staging: &wgpu::Buffer| -> Result<Vec<f32>, GpuError> {
             let slice = staging.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            slice.map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
             let map_result = loop {
                 ctx.device.poll(wgpu::PollType::Wait {
@@ -1261,10 +1379,13 @@ impl GQA {
                     Err(_) => break Err(wgpu::BufferAsyncError),
                 }
             };
-            let map_result = map_result
-                .map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
+            let map_result =
+                map_result.map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
             let mapped = slice.get_mapped_range();
-            let out: Vec<f32> = mapped.chunks_exact(4).map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();
+            let out: Vec<f32> = mapped
+                .chunks_exact(4)
+                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
             staging.unmap();
             Ok(out)
         };
@@ -1289,16 +1410,17 @@ impl GQA {
 
     /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
         let ctx = GpuContext::global()?;
         if self.gpu_weights.get().is_some() {
             return Ok(());
         }
         let mk = |arr: &ndarray::Array2<f32>| -> Result<GpuTensor, GpuError> {
             let shape = vec![arr.shape()[0], arr.shape()[1]];
-            let data = arr.as_slice().ok_or_else(|| {
-                GpuError::Unsupported("non-contiguous weight".into())
-            })?.to_vec();
+            let data = arr
+                .as_slice()
+                .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
+                .to_vec();
             let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data)
                 .map_err(|e| GpuError::Unsupported(e.to_string()))?;
             GpuTensor::from_cpu(&cpu_arr)
@@ -1307,12 +1429,119 @@ impl GQA {
         let wk = mk(&self.wk)?;
         let wv = mk(&self.wv)?;
         let wo = mk(&self.wo)?;
-        self.gpu_weights.set(GqaGpuWeights {
-            wq_t: ctx.transpose(&wq)?,
-            wk_t: ctx.transpose(&wk)?,
-            wv_t: ctx.transpose(&wv)?,
-            wo_t: ctx.transpose(&wo)?,
-        }).map_err(|_| GpuError::Unsupported("weights already set".into()))?;
+        self.gpu_weights
+            .set(GqaGpuWeights {
+                wq_t: ctx.transpose(&wq)?,
+                wk_t: ctx.transpose(&wk)?,
+                wv_t: ctx.transpose(&wv)?,
+                wo_t: ctx.transpose(&wo)?,
+            })
+            .map_err(|_| GpuError::Unsupported("weights already set".into()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::array;
+
+    fn small_gqa() -> GQA {
+        GQA::new(8, 4, 2, 4)
+    }
+
+    #[test]
+    fn test_gqa_new_shapes() {
+        let gqa = small_gqa();
+        assert_eq!(gqa.num_heads, 4);
+        assert_eq!(gqa.num_kv_heads, 2);
+        assert_eq!(gqa.head_dim, 4);
+        assert_eq!(gqa.num_groups, 2);
+        assert_eq!(gqa.wq.dim(), (16, 8));
+        assert_eq!(gqa.wk.dim(), (8, 8));
+        assert_eq!(gqa.wv.dim(), (8, 8));
+        assert_eq!(gqa.wo.dim(), (8, 16));
+    }
+
+    #[test]
+    fn test_gqa_forward_shape_no_cache() {
+        let gqa = small_gqa();
+        let x = array![[1.0; 8]];
+        let cos = vec![0.0; 2];
+        let sin = vec![1.0; 2];
+        let out = gqa.forward(&x, None, 0, &cos, &sin);
+        assert_eq!(out.dim(), (1, 8));
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_gqa_forward_with_kv_shape_and_cache() {
+        let gqa = small_gqa();
+        let x = array![[1.0; 8]];
+        let cos = vec![0.0; 2];
+        let sin = vec![1.0; 2];
+        let mut cache = vec![KVCacheEntry {
+            k: vec![],
+            v: vec![],
+            kv_dim: 8,
+        }];
+        let out = gqa.forward_with_kv(&x, &mut cache, 0, &cos, &sin);
+        assert_eq!(out.dim(), (1, 8));
+        assert!(cache[0].seq_len() > 0);
+        assert!(!cache[0].k.is_empty());
+    }
+
+    #[test]
+    fn test_gqa_forward_batch2() {
+        let gqa = small_gqa();
+        let x = array![[1.0; 8], [2.0; 8]];
+        let cos = vec![0.5; 2];
+        let sin = vec![0.5; 2];
+        let out = gqa.forward(&x, None, 0, &cos, &sin);
+        assert_eq!(out.dim(), (2, 8));
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_kv_cache_entry_seq_len() {
+        let entry = KVCacheEntry {
+            k: vec![1.0; 16],
+            v: vec![2.0; 16],
+            kv_dim: 8,
+        };
+        assert_eq!(entry.seq_len(), 2);
+        assert_eq!(
+            KVCacheEntry {
+                k: vec![],
+                v: vec![],
+                kv_dim: 0
+            }
+            .seq_len(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_cpu_kv_cache_append_read() {
+        let mut cache = CpuKVCache::new(0);
+        assert_eq!(cache.num_layers(), 0);
+        cache.append(0, &[1.0, 2.0, 3.0, 4.0], &[5.0, 6.0, 7.0, 8.0]);
+        assert_eq!(cache.num_layers(), 1);
+        assert_eq!(cache.seq_len(0), 1);
+        assert_eq!(cache.get_k(0), &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(cache.get_v(0), &[5.0, 6.0, 7.0, 8.0]);
+        cache.append(0, &[9.0; 4], &[10.0; 4]);
+        assert_eq!(cache.seq_len(0), 2);
+        assert_eq!(cache.get_k(0).len(), 8);
+        cache.clear();
+        assert_eq!(cache.num_layers(), 0);
+    }
+
+    #[test]
+    fn test_cpu_kv_cache_out_of_range() {
+        let cache = CpuKVCache::new(0);
+        assert_eq!(cache.get_k(99), &[] as &[f32]);
+        assert_eq!(cache.get_v(99), &[] as &[f32]);
+        assert_eq!(cache.seq_len(99), 0);
     }
 }
