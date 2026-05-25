@@ -462,7 +462,13 @@ impl ErrorRecoveryManager {
 
     fn init_default_strategies(&self) {
         // Initialize strategies synchronously — no async needed for HashMap operations
-        let mut strategies_guard = self.recovery_strategies.write().unwrap();
+        let mut strategies_guard = match self.recovery_strategies.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                warn!("Recovery strategies lock poisoned during initialization: {}", e);
+                return;
+            }
+        };
 
             // Network errors - aggressive retry with circuit breaker
             strategies_guard.insert(
@@ -547,7 +553,13 @@ impl ErrorRecoveryManager {
         self.record_error(error_info.clone()).await;
 
         // Get recovery strategy
-        let strategies = self.recovery_strategies.read().unwrap();
+        let strategies = match self.recovery_strategies.read() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Recovery strategies lock poisoned: {}", e);
+                return Ok(RecoveryAction::LogOnly);
+            }
+        };
         let strategy = strategies.get(&error_info.category);
 
         // Determine recovery action
@@ -809,7 +821,7 @@ mod tests {
             "test_service".to_string(),
         );
 
-        let action = manager.handle_error(error_info).await.unwrap();
+        let action = manager.handle_error(error_info).await.expect("handle_error should succeed in test");
         assert_eq!(action, RecoveryAction::Retry);
 
         let stats = manager.get_error_stats().await;

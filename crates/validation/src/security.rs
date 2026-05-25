@@ -214,8 +214,8 @@ impl SecurityValidator for APIKeyStrengthValidator {
                         if key_str == "your-api-key-here" || key_str == "test-key" {
                             errors.push(ValidationError {
                                 field: "api.key".to_string(),
-                                message: "API key appears to be a placeholder/default value".to_string(),
-                                code: "API_KEY_PLACEHOLDER".to_string(),
+                                message: "API key appears to be a default/test value".to_string(),
+                                code: "API_KEY_DEFAULT_VALUE".to_string(),
                                 severity: ErrorSeverity::Critical,
                             });
                         }

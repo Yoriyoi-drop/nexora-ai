@@ -310,7 +310,9 @@ impl AmpOptimizer {
         }
 
         // Inner optimizer step (on FP32 data)
-        self.inner.step();
+        if self.inner.step().is_err() {
+            return false;
+        }
 
         // Save updated FP32 weights as master
         for (i, p) in self.inner.parameters.iter().enumerate() {

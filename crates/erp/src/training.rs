@@ -277,29 +277,19 @@ impl ERPTrainer {
         base_lr * cosine_factor
     }
 
-    /// Update gate weights dari reconstructor (workaround untuk visibility)
+    /// Update gate weights from reconstructor via proper accessor
     fn update_gate_weights_from_reconstructor(
         &self,
-        _reconstructor: &mut crate::reconstruction::ContextReconstructor,
+        reconstructor: &mut crate::reconstruction::ContextReconstructor,
         gradient: &Array2<f32>,
         learning_rate: f32,
     ) -> Result<(), ERPError> {
-        // Create a working gate network dengan weights dari reconstructor
-        let mut working_gate_network = crate::reconstruction::GateNetwork::new(self.config.clone());
-
-        // Copy current weights dari reconstructor (dalam implementasi nyata, gunakan proper accessor)
-        let current_weights = working_gate_network.get_weights();
-        let _weight_shape = current_weights.shape();
-
-        // Update dengan gradient
-        working_gate_network.update_weights(gradient, learning_rate);
-
-        // Update reconstructor dengan new weights (dalam implementasi nyata, gunakan proper setter)
+        let gate_network = reconstructor.gate_network_mut();
+        gate_network.update_weights(gradient, learning_rate);
         tracing::debug!(
             "Gate weights updated with gradient norm: {:.6}",
             gradient.iter().map(|x| x * x).sum::<f32>().sqrt()
         );
-
         Ok(())
     }
 

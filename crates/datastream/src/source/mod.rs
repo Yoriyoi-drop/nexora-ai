@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn test_source_info_fields() {
         let reg = SourceRegistry::build_default();
-        let provider = reg.get("hackernews").unwrap();
+        let provider = reg.get("hackernews").expect("hackernews should be registered in default registry");
         let info = provider.source_info();
         assert_eq!(info.category, SourceCategory::News);
         assert!((info.trust_score - 0.70).abs() < 0.01);

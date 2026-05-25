@@ -22,6 +22,7 @@ const BLAA_MAX_CONCURRENT: usize = 4;
 
 /// BLAA integration untuk inference engine
 #[derive(Debug, Clone)]
+#[deprecated(note = "BLAA bridge is experimental and not part of the main inference pipeline")]
 pub struct BlaaInferenceEngine {
     config: BlaaConfig,
     client: Arc<Mutex<BlaaClient>>,
@@ -181,7 +182,7 @@ impl BlaaInferenceEngine {
             // Generate tokens from content using deterministic hash-based token IDs
             // Note: BLAA returns text only (no per-token logprobs by default).
             // We create one token per word with hash-based IDs for traceability,
-            // rather than char-level tokens with fake sequential IDs.
+            // rather than char-level tokens with sequential IDs.
             let tokens: Vec<GeneratedToken> = content
                 .split_whitespace()
                 .enumerate()

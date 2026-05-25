@@ -7,6 +7,7 @@ use super::{config::*, error::*, types::*};
 use nexora_core::async_executor::AsyncTaskExecutor;
 use nexora_oracle::verifiers::performance::PerformanceThresholds;
 use rayon::prelude::*;
+use futures::future::join_all;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -149,25 +150,21 @@ impl RerankEngine {
         let mut successful_candidates = Vec::new();
         let mut failed_count = 0;
 
-        // Process candidates sequentially for async compatibility
-        let mut results = Vec::new();
-        for (idx, execution_result) in executed_candidates.iter().enumerate() {
-            match self
-                .calculate_candidate_score(execution_result, context)
-                .await
-            {
-                Ok(candidate) => results.push(Some(candidate)),
+        // Process candidates in parallel for performance
+        let results: Vec<_> = join_all(
+            executed_candidates.iter().enumerate().map(|(idx, execution_result)| async move {
+                (idx, self.calculate_candidate_score(execution_result, context).await)
+            })
+        ).await;
+
+        for (idx, result) in results {
+            match result {
+                Ok(candidate) => successful_candidates.push(candidate),
                 Err(e) => {
                     warn!("Failed to score candidate {}: {}", idx, e);
                     failed_count += 1;
-                    results.push(None);
                 }
             }
-        }
-
-        // Filter out failed candidates
-        for candidate in results.into_iter().flatten() {
-            successful_candidates.push(candidate);
         }
 
         if failed_count > 0 {

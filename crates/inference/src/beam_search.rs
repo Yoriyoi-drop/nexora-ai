@@ -238,6 +238,7 @@ pub struct BeamSearchState {
 }
 
 /// Beam search engine
+#[deprecated(note = "Not wired into InferenceEngine - use Greedy/Temperature sampling instead")]
 pub struct BeamSearchEngine {
     config: BeamSearchConfig,
 }
@@ -638,6 +639,7 @@ pub fn create_beam_search_config(
 }
 
 /// Helper function to run complete beam search
+#[deprecated(note = "Not wired into InferenceEngine - use Greedy/Temperature sampling instead")]
 pub fn run_beam_search(
     engine: &BeamSearchEngine,
     initial_logits: &[f32],

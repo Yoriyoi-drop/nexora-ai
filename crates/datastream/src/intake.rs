@@ -47,10 +47,12 @@ impl StreamIntakeEngine {
     pub async fn ingest_file(&self, path: &str, source: SourceInfo) -> mpsc::Receiver<DataSample> {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
         let path = path.to_string();
-        let semaphore = self.semaphore.clone();
+        let source = source;
         let handles = self.background_handles.clone();
+        let _permit = self.semaphore.clone().acquire_owned().await;
 
         let handle = tokio::spawn(async move {
+            let __permit = _permit;
             let read_result = tokio::time::timeout(
                 Duration::from_secs(60),
                 tokio::fs::read_to_string(&path),
@@ -79,7 +81,7 @@ impl StreamIntakeEngine {
                 text: content,
                 token_ids,
                 metadata: std::collections::HashMap::new(),
-                source: source.clone(),
+                source,
                 stats: SampleStats {
                     char_count,
                     word_count,
@@ -91,7 +93,6 @@ impl StreamIntakeEngine {
                 curriculum_level: None,
             };
 
-            let _permit = semaphore.acquire().await;
             if tx.send(sample).await.is_err() {
                 debug!("Ingest channel closed for {}", path);
             }
@@ -108,11 +109,12 @@ impl StreamIntakeEngine {
         texts: Vec<(String, SourceInfo)>,
     ) -> mpsc::Receiver<DataSample> {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
-        let semaphore = self.semaphore.clone();
         let batch_cfg = self.batch_config.clone();
         let handles = self.background_handles.clone();
+        let _permit = self.semaphore.clone().acquire_owned().await;
 
         let handle = tokio::spawn(async move {
+            let __permit = _permit;
             let ingest_timeout = Duration::from_secs(300);
             let start = std::time::Instant::now();
 
@@ -146,7 +148,6 @@ impl StreamIntakeEngine {
                 batch.push(sample);
 
                 if batch.len() >= batch_cfg.max_batch_size {
-                    let _permit = semaphore.acquire().await;
                     let drained: Vec<_> = batch.drain(..).collect();
                     for sample in drained {
                         if tx.send(sample).await.is_err() {
@@ -158,7 +159,6 @@ impl StreamIntakeEngine {
             }
 
             if !batch.is_empty() {
-                let _permit = semaphore.acquire().await;
                 for sample in batch {
                     if tx.send(sample).await.is_err() {
                         return;
@@ -182,11 +182,13 @@ impl StreamIntakeEngine {
         String: 'static,
     {
         let (tx, rx) = mpsc::channel(self.batch_config.max_batch_size);
-        let semaphore = self.semaphore.clone();
         let batch_cfg = self.batch_config.clone();
         let handles = self.background_handles.clone();
+        let source = source;
+        let _permit = self.semaphore.clone().acquire_owned().await;
 
         let handle = tokio::spawn(async move {
+            let __permit = _permit;
             let ingest_timeout = Duration::from_secs(300);
             let start = std::time::Instant::now();
 
@@ -195,7 +197,6 @@ impl StreamIntakeEngine {
                     warn!("stream_from_iterator timed out after 300s");
                     return;
                 }
-                let _permit = semaphore.acquire().await;
                 let char_count = text.chars().count();
                 let word_count = text.split_whitespace().count();
                 let token_count = text.len() / 4;
@@ -274,8 +275,12 @@ pub async fn dynamic_batcher(
     batch_config: BatchConfig,
 ) -> BatchedReceiver {
     let (batch_tx, batch_rx) = mpsc::channel(16);
+    static BATCHER_SEM: std::sync::OnceLock<Arc<Semaphore>> = std::sync::OnceLock::new();
+    let sem = BATCHER_SEM.get_or_init(|| Arc::new(Semaphore::new(16)));
+    let _permit = sem.clone().acquire_owned().await;
 
     let handle = tokio::spawn(async move {
+        let __permit = _permit;
         let total_timeout = Duration::from_secs(600);
         let start = std::time::Instant::now();
 

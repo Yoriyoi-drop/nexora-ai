@@ -14,8 +14,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 use tracing::instrument;
 
 use nexora_shared::{
@@ -118,7 +119,7 @@ macro_rules! define_foundation_model {
     ($name:ident, $id:ident, $tier:ident) => {
         pub struct $name {
             pub tokenizer: Option<NxrTokenizerRef>,
-            /// `Arc<std::sync::Mutex>` wraps `CausalLM`. `infer()` moves CPU-bound
+            /// `Arc<tokio::sync::Mutex>` wraps `CausalLM`. `infer()` moves CPU-bound
             /// generation to `tokio::task::spawn_blocking` so the async runtime is not
             /// blocked. `infer_stream()` still holds the lock inline — callers should
             /// ensure streams are not interleaved with other model operations.
@@ -200,11 +201,8 @@ macro_rules! define_foundation_model {
                 None
             }
 
-            fn get_or_init_model(&self) -> std::sync::MutexGuard<Option<CausalLM>> {
-                let mut guard = self.model.lock().unwrap_or_else(|e| {
-                    tracing::warn!(target: stringify!($name), "mutex was poisoned, recovering");
-                    e.into_inner()
-                });
+            fn get_or_init_model(&self) -> tokio::sync::MutexGuard<'_, Option<CausalLM>> {
+                let mut guard = self.model.blocking_lock();
                 if guard.is_none() {
                     *guard = Some(CausalLM::new(self.model_config.clone()));
                 }
@@ -237,7 +235,7 @@ macro_rules! define_foundation_model {
             pub fn reload(&mut self, path: &str) -> Result<(), FoundationError> {
                 let config = transformer_config_for(NxrModelId::$id);
                 let loaded = CausalLM::from_checkpoint(config, path)?;
-                *self.model.lock().unwrap_or_else(|e| e.into_inner()) = Some(loaded);
+                *self.model.blocking_lock() = Some(loaded);
                 Ok(())
             }
 
@@ -269,7 +267,7 @@ macro_rules! define_foundation_model {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct(stringify!($name))
                     .field("tokenizer", &self.tokenizer.is_some())
-                    .field("model_initialized", &self.model.lock().unwrap_or_else(|e| e.into_inner()).is_some())
+                    .field("model_initialized", &self.model.blocking_lock().is_some())
                     .finish()
             }
         }
@@ -326,10 +324,7 @@ macro_rules! define_foundation_model {
             }
 
             async fn state(&self) -> Result<Self::State, NxrModelError> {
-                let guard = self.model.lock().unwrap_or_else(|e| {
-                    tracing::warn!("mutex was poisoned, recovering");
-                    e.into_inner()
-                });
+                let guard = self.model.lock().await;
                 Ok(serde_json::json!({
                     "status": if guard.is_some() { "ready" } else { "uninitialized" },
                     "model": stringify!($id),
@@ -343,10 +338,7 @@ macro_rules! define_foundation_model {
             }
 
             async fn reset(&self) -> Result<(), NxrModelError> {
-                let mut guard = self.model.lock().unwrap_or_else(|e| {
-                    tracing::warn!("mutex was poisoned, recovering");
-                    e.into_inner()
-                });
+                let mut guard = self.model.lock().await;
                 *guard = None;
                 self.inference_count.store(0, Ordering::Relaxed);
                 self.total_generated.store(0, Ordering::Relaxed);
@@ -392,10 +384,7 @@ macro_rules! define_foundation_model {
                 // so the async runtime is not blocked for potentially seconds.
                 let model_arc = self.model.clone();
                 let (elapsed_ms, output_ids, memory_gb) = tokio::task::spawn_blocking(move || {
-                    let guard = model_arc.lock().unwrap_or_else(|e| {
-                        tracing::warn!("model mutex was poisoned, recovering");
-                        e.into_inner()
-                    });
+                    let guard = model_arc.blocking_lock();
                     let model = guard.as_ref().ok_or_else(|| {
                         NxrModelError::NotInitialized("Model failed to initialize".to_string())
                     })?;
@@ -474,10 +463,7 @@ macro_rules! define_foundation_model {
                 let cb = callback.clone();
 
                 let count = tokio::task::spawn_blocking(move || {
-                    let guard = model_arc.lock().unwrap_or_else(|e| {
-                        tracing::warn!("model mutex was poisoned, recovering");
-                        e.into_inner()
-                    });
+                    let guard = model_arc.blocking_lock();
                     let model = match guard.as_ref() {
                         Some(m) => m,
                         None => return Ok(0usize),
@@ -596,10 +582,7 @@ macro_rules! define_foundation_model {
             }
 
             async fn is_ready(&self) -> bool {
-                self.model
-                    .lock()
-                    .map(|guard| guard.is_some())
-                    .unwrap_or(false)
+                self.model.lock().await.is_some()
             }
 
             async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

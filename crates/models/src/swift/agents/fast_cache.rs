@@ -10,17 +10,18 @@ use nexora_shared::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Fast Cache Agent - Intelligent caching system
 #[derive(Debug)]
 pub struct FastCacheAgent {
     pub config: FastCacheConfig,
-    pub cache_engine: Arc<std::sync::Mutex<CacheEngine>>,
+    pub cache_engine: Arc<Mutex<CacheEngine>>,
     pub similarity_matcher: SimilarityMatcher,
     pub eviction_policy: EvictionPolicy,
     pub status: AgentStatus,
     pub metrics: AgentMetrics,
-    pub string_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    pub string_cache: Arc<Mutex<std::collections::HashMap<String, String>>>,
 }
 
 impl Clone for FastCacheAgent {
@@ -278,7 +279,7 @@ impl Default for FastCacheAgent {
     fn default() -> Self {
         Self {
             config: FastCacheConfig::default(),
-            cache_engine: Arc::new(std::sync::Mutex::new(CacheEngine::default())),
+            cache_engine: Arc::new(Mutex::new(CacheEngine::default())),
             similarity_matcher: SimilarityMatcher::default(),
             eviction_policy: EvictionPolicy::default(),
             status: AgentStatus::Idle,
@@ -289,7 +290,7 @@ impl Default for FastCacheAgent {
                 current_load: 0.0,
                 last_activity: chrono::Utc::now(),
             },
-            string_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            string_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
@@ -405,7 +406,7 @@ impl FastCacheAgent {
     pub fn new(config: FastCacheConfig) -> Self {
         Self {
             config,
-            cache_engine: Arc::new(std::sync::Mutex::new(CacheEngine::default())),
+            cache_engine: Arc::new(Mutex::new(CacheEngine::default())),
             similarity_matcher: SimilarityMatcher::default(),
             eviction_policy: EvictionPolicy::default(),
             status: AgentStatus::Idle,
@@ -416,7 +417,7 @@ impl FastCacheAgent {
                 current_load: 0.0,
                 last_activity: chrono::Utc::now(),
             },
-            string_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            string_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -447,7 +448,7 @@ impl FastCacheAgent {
         query_embedding: &[f32],
         input: &FastCacheTaskInput,
     ) -> AgentResult<CacheResult> {
-        let engine = self.cache_engine.lock().unwrap();
+        let engine = self.cache_engine.lock().await;
 
         if engine.cache_storage.is_empty() {
             return Ok(CacheResult::Miss {
@@ -558,7 +559,7 @@ impl FastCacheAgent {
     async fn analyze_similarity(&self, query_embedding: &[f32]) -> AgentResult<SimilarityAnalysis> {
         let start_time = std::time::Instant::now();
 
-        let engine = self.cache_engine.lock().unwrap();
+        let engine = self.cache_engine.lock().await;
         let mut similarities = Vec::new();
         for entry in engine.cache_storage.values() {
             let similarity = self.calculate_similarity(query_embedding, &entry.embedding);
@@ -600,7 +601,7 @@ impl FastCacheAgent {
     }
 
     async fn calculate_cache_metrics(&self) -> AgentResult<CacheMetrics> {
-        let engine = self.cache_engine.lock().unwrap();
+        let engine = self.cache_engine.lock().await;
         let total_queries = engine.hit_count + engine.miss_count;
         let hit_rate = if total_queries > 0 {
             engine.hit_count as f32 / total_queries as f32
@@ -683,14 +684,14 @@ impl FastCacheAgent {
     }
 
     /// Check string cache for a query. Returns cached result if found.
-    pub fn get_cached_string(&self, key: &str) -> Option<String> {
-        let cache = self.string_cache.lock().unwrap();
+    pub async fn get_cached_string(&self, key: &str) -> Option<String> {
+        let cache = self.string_cache.lock().await;
         cache.get(key).cloned()
     }
 
     /// Store a string result in cache.
-    pub fn set_cached_string(&self, key: String, value: String) {
-        let mut cache = self.string_cache.lock().unwrap();
+    pub async fn set_cached_string(&self, key: String, value: String) {
+        let mut cache = self.string_cache.lock().await;
         cache.insert(key, value);
     }
 }

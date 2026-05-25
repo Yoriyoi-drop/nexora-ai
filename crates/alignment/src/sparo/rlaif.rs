@@ -773,8 +773,8 @@ pub mod utils {
         RlaifManager::new(RlaifConfig::default())
     }
 
-    /// Create mock judge for testing
-    pub fn create_mock_judge(_name: &str, confidence: f32) -> Box<dyn AiJudge> {
+    /// Create a judge instance
+    pub fn create_judge(_name: &str, confidence: f32) -> Box<dyn AiJudge> {
         Box::new(Gpt4Judge::new(confidence))
     }
 

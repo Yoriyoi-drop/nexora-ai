@@ -410,10 +410,10 @@ impl Adam {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> Result<(), DeepLearningError> {
         #[cfg(feature = "gpu")]
-        if self.try_gpu_step() {
-            return;
+        if self.try_gpu_step()? {
+            return Ok(());
         }
 
         self.step += 1;
@@ -444,10 +444,12 @@ impl Adam {
                 p.subtract_from_data(&update);
             }
         }
+
+        Ok(())
     }
 
     #[cfg(feature = "gpu")]
-    fn try_gpu_step(&mut self) -> bool {
+    fn try_gpu_step(&mut self) -> Result<bool, DeepLearningError> {
         use crate::device::Storage;
         use crate::gpu::{GpuContext, GpuTensor};
 
@@ -457,28 +459,28 @@ impl Adam {
         for p in &self.parameters {
             match p.storage() {
                 Storage::Gpu(pt) => param_gpu.push(pt),
-                _ => return false,
+                _ => return Ok(false),
             }
             match p.grad_storage() {
                 Some(Storage::Gpu(gt)) => grad_gpu.push(gt),
-                _ => return false,
+                _ => return Ok(false),
             }
         }
 
         let ctx = match GpuContext::global() {
             Ok(c) => c,
-            Err(_) => return false,
+            Err(_) => return Ok(false),
         };
 
         if self.m_gpu.is_empty() {
             for i in 0..self.m.len() {
                 let m_t = match GpuTensor::from_cpu(&self.m[i]) {
                     Ok(t) => t,
-                    Err(_) => return false,
+                    Err(_) => return Ok(false),
                 };
                 let v_t = match GpuTensor::from_cpu(&self.v[i]) {
                     Ok(t) => t,
-                    Err(_) => return false,
+                    Err(_) => return Ok(false),
                 };
                 self.m_gpu.push(m_t);
                 self.v_gpu.push(v_t);
@@ -492,13 +494,17 @@ impl Adam {
         if let Some(max_norm) = self.max_grad_norm {
             let grad_refs: Vec<&GpuTensor> = grad_gpu.iter().collect();
             if crate::gpu_grad_clip::clip_gradients_batched(ctx, &grad_refs, max_norm).is_err() {
-                return false;
+                return Ok(false);
             }
         }
 
         let pipeline = match ctx.pipelines.get("adam_step") {
             Some(p) => p,
-            None => return false,
+            None => {
+                return Err(DeepLearningError::Computation {
+                    reason: "adam_step compute pipeline not found".into(),
+                });
+            }
         };
 
         for i in 0..param_gpu.len() {
@@ -557,7 +563,7 @@ impl Adam {
             ctx.dispatch(pipeline, &bg, (wg, 1, 1));
         }
 
-        true
+        Ok(true)
     }
 
     pub fn optimizer_tensor_names(&self) -> Vec<String> {
@@ -792,6 +798,27 @@ mod tests {
     }
 
     #[test]
+    fn test_adam_step() {
+        let layer = Linear::new(4, 2, true);
+        let x = Tensor::randn(&[2, 4], false);
+        let y = layer.forward(&x).sum();
+        y.backward();
+
+        let params = layer.parameters();
+        let old_data: Vec<f32> = params[0].data().iter().copied().collect();
+
+        let mut opt = Adam::new(params.clone(), 0.001);
+        opt.step().unwrap();
+
+        let new_data = params[0].data();
+        let changed = old_data
+            .iter()
+            .zip(new_data.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
+        assert!(changed, "Adam should update parameters");
+    }
+
+    #[test]
     fn test_softmax_backward() {
         let a = Tensor::randn(&[2, 4], true);
         let b = a.softmax(1);
@@ -897,27 +924,6 @@ mod tests {
         loss.backward();
         assert!(logits.grad().is_some());
         assert_eq!(logits.grad().unwrap().shape(), &[2, 3]);
-    }
-
-    #[test]
-    fn test_adam_step() {
-        let layer = Linear::new(4, 2, true);
-        let x = Tensor::randn(&[2, 4], false);
-        let y = layer.forward(&x).sum();
-        y.backward();
-
-        let params = layer.parameters();
-        let old_data: Vec<f32> = params[0].data().iter().copied().collect();
-
-        let mut opt = Adam::new(params.clone(), 0.001);
-        opt.step();
-
-        let new_data = params[0].data();
-        let changed = old_data
-            .iter()
-            .zip(new_data.iter())
-            .any(|(a, b)| (a - b).abs() > 1e-6);
-        assert!(changed, "Adam should update parameters");
     }
 
     #[test]

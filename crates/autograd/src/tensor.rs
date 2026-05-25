@@ -1,6 +1,7 @@
 use ndarray::ArrayD;
 use parking_lot::RwLock;
 use rand::Rng;
+use tracing::warn;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -293,7 +294,7 @@ impl Tensor {
         let arr = match ArrayD::from_shape_vec(shape.to_vec(), data) {
             Ok(a) => a,
             Err(e) => {
-                eprintln!("[tensor::randn] shape mismatch (unexpected): {e}");
+                warn!("[tensor::randn] shape mismatch (unexpected): {e}");
                 ArrayD::zeros(shape.to_vec())
             }
         };

@@ -1,3 +1,10 @@
+//! WARNING: This module provides F16/BF16 conversion primitives but is NOT yet
+//! integrated into the inference pipeline. The inference engine currently uses
+//! fp32 throughout. Integration requires:
+//! 1. Converting transformer weights to F16 during GPU upload
+//! 2. Converting KV cache to F16 storage
+//! 3. Updating the sampler to handle F16 logits
+
 use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 #[derive(Clone, Copy, Debug, PartialEq)]

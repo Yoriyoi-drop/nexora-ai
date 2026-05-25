@@ -1,5 +1,8 @@
 //! Weight quantization helpers — INT8 and INT4 (packed/groupwise).
 //!
+//! NOTE: Currently dequantizes to fp32 for computation. True quantized compute
+//! (INT8/INT4 matmul) is not yet implemented.
+//!
 //! Provides:
 //! - `QuantizedDtype` — enum for supported quantized data types
 //! - `QuantizedTensor` — packed weight storage with scales

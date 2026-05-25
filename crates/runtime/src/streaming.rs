@@ -4,9 +4,9 @@
 
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -75,7 +75,7 @@ pub struct StreamingEngine {
     /// Engine state
     state: Arc<RwLock<EngineState>>,
     /// Tracked background task handles for panic detection
-    background_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    background_tasks: Arc<tokio::sync::Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Stream information
@@ -165,7 +165,7 @@ impl StreamingEngine {
             active_streams: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(StreamingStats::default())),
             state: Arc::new(RwLock::new(EngineState::Uninitialized)),
-            background_tasks: Arc::new(Mutex::new(Vec::new())),
+            background_tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -305,9 +305,8 @@ impl StreamingEngine {
         let handle = tokio::spawn(async move {
             engine.process_stream(stream, simple_tx).await;
         });
-        if let Ok(mut tasks) = self.background_tasks.lock() {
-            tasks.push(handle);
-        }
+        let mut tasks = self.background_tasks.lock().await;
+        tasks.push(handle);
 
         Ok(simple_rx)
     }
@@ -487,11 +486,11 @@ impl StreamingEngine {
         }
 
         // Cancel tracked background tasks — graceful shutdown with timeout
-        if let Ok(mut tasks) = self.background_tasks.lock() {
-            for h in tasks.drain(..) {
-                let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
-            }
+        let mut tasks = self.background_tasks.lock().await;
+        for h in tasks.drain(..) {
+            let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
         }
+
 
         // Update state
         {
@@ -530,9 +529,8 @@ impl StreamingEngine {
         let handle = tokio::spawn(async move {
             engine.run_cleanup_loop().await;
         });
-        if let Ok(mut tasks) = self.background_tasks.lock() {
-            tasks.push(handle);
-        }
+        let mut tasks = self.background_tasks.lock().await;
+        tasks.push(handle);
         Ok(())
     }
 

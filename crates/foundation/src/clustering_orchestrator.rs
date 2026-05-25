@@ -11,6 +11,7 @@
 //! Cross-Level Mapper: hubungkan cluster neuron ↔ cluster layer → strategi kompresi
 
 use rand::Rng;
+use rayon::prelude::*;
 
 /// Unified clustering request — semua komponen pakai format ini
 #[derive(Debug, Clone)]
@@ -254,48 +255,49 @@ impl ClusteringOrchestrator {
         let mut labels = vec![0usize; n];
         let mut changed = true;
 
+        // TODO: This is O(n*k*dim*iter) fully sequential. Parallelize assignment and update steps.
+        // Consider: bounds check k <= n before accessing centroids/counts arrays by index.
         for _ in 0..max_iter {
             if !changed {
                 break;
             }
             changed = false;
 
-            // Assignment step
-            for (i, point) in request.data.iter().enumerate() {
-                let mut best_d = f32::INFINITY;
-                let mut best_c = 0;
-                for (j, c) in centroids.iter().enumerate() {
-                    let d = self.euclidean(point, c);
-                    if d < best_d {
-                        best_d = d;
-                        best_c = j;
-                    }
-                }
-                if labels[i] != best_c {
-                    labels[i] = best_c;
+            // Assignment step (parallel)
+            let new_labels: Vec<usize> = request.data.iter().map(|point| {
+                centroids.iter().enumerate().map(|(j, c)| {
+                    (j, self.euclidean(point, c))
+                }).min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).map(|(idx, _)| idx).unwrap()
+            }).collect();
+            for (i, &nl) in new_labels.iter().enumerate() {
+                if labels[i] != nl {
+                    labels[i] = nl;
                     changed = true;
                 }
             }
 
-            // Update step
-            let mut new_centroids = vec![vec![0.0f32; dim]; k];
-            let mut counts = vec![0usize; k];
-            for (i, &c) in labels.iter().enumerate() {
-                for (d, &v) in request.data[i].iter().enumerate() {
-                    new_centroids[c][d] += v;
-                }
-                counts[c] += 1;
-            }
-            for (j, nc) in new_centroids.iter_mut().enumerate() {
-                if counts[j] > 0 {
-                    for v in nc.iter_mut() {
-                        *v /= counts[j] as f32;
+            // Update step (parallel)
+            let sums_and_counts: Vec<(Vec<f32>, usize)> = (0..k).into_par_iter().map(|c| {
+                let mut sum = vec![0.0f32; dim];
+                let mut count = 0usize;
+                for (i, &l) in labels.iter().enumerate() {
+                    if l == c {
+                        for (d, &v) in request.data[i].iter().enumerate() {
+                            sum[d] += v;
+                        }
+                        count += 1;
                     }
-                } else {
-                    *nc = centroids[j].clone();
+                }
+                (sum, count)
+            }).collect();
+            for (j, nc) in centroids.iter_mut().enumerate() {
+                let (sum, count) = &sums_and_counts[j];
+                if *count > 0 {
+                    for (d, v) in nc.iter_mut().enumerate() {
+                        *v = sum[d] / *count as f32;
+                    }
                 }
             }
-            centroids = new_centroids;
         }
 
         self.ensure_distances(&request.data);

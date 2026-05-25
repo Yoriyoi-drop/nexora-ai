@@ -1,3 +1,5 @@
+//! NOTE: This module is NOT wired into the inference engine. It requires integration work.
+//!
 //! Speculative Decoding
 //!
 //! SOTA decoding strategy: draft model generate K token → target model verify dalam 1 forward pass.
@@ -67,6 +69,7 @@ pub struct SpeculativeResult {
 }
 
 /// Speculative decoding engine
+#[deprecated(note = "Unwired from inference engine - use Sampler instead")]
 pub struct SpeculativeDecoder<D: DecodingStrategy> {
     /// Config
     config: SpeculativeDecodingConfig,
@@ -340,12 +343,12 @@ mod tests {
     use crate::decoding::TokenSelection;
     use std::collections::HashMap;
 
-    /// Mock decoding strategy untuk testing
-    struct MockStrategy;
+    /// Test strategy yang implement greedy (argmax) decoding
+    struct TestGreedyStrategy;
 
-    impl DecodingStrategy for MockStrategy {
+    impl DecodingStrategy for TestGreedyStrategy {
         fn name(&self) -> &str {
-            "mock"
+            "greedy"
         }
         fn select_token(
             &self,
@@ -375,8 +378,8 @@ mod tests {
     #[test]
     fn test_draft_length_dynamic_adjustment() {
         let config = SpeculativeDecodingConfig::default();
-        let target = MockStrategy;
-        let draft = MockStrategy;
+        let target = TestGreedyStrategy;
+        let draft = TestGreedyStrategy;
         let mut decoder = SpeculativeDecoder::new(config, target, draft);
 
         assert_eq!(decoder.current_draft_length, 5);

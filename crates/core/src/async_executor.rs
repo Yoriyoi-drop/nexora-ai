@@ -7,9 +7,9 @@ use crate::types::ModelId;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock, Semaphore};
+use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -254,7 +254,7 @@ impl AsyncTaskExecutor {
 
         // Check queue size limit
         {
-            let queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
+            let queue = self.task_queue.lock().await;
             if queue.len() >= self.config.max_queue_size {
                 return Err(CoreError::TaskExecution("Task queue is full".to_string()));
             }
@@ -287,7 +287,7 @@ impl AsyncTaskExecutor {
 
         // Add task to queue
         {
-            let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
+            let mut queue = self.task_queue.lock().await;
             queue.push(task);
         }
 
@@ -308,7 +308,7 @@ impl AsyncTaskExecutor {
     pub async fn cancel_task(&self, task_id: &str) -> CoreResult<()> {
         // Try to remove from queue
         {
-            let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
+            let mut queue = self.task_queue.lock().await;
             queue.retain(|task| task.id != task_id);
         }
 
@@ -357,7 +357,7 @@ impl AsyncTaskExecutor {
 
         // Cancel all pending tasks
         {
-            let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
+            let mut queue = self.task_queue.lock().await;
             let pending_count = queue.len();
             queue.clear();
 
@@ -412,7 +412,7 @@ impl AsyncTaskExecutor {
 
     /// Get next task from priority queue
     async fn get_next_task(&self) -> Option<AsyncTask> {
-        let mut queue = self.task_queue.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queue = self.task_queue.lock().await;
         queue.pop()
     }
 

@@ -123,7 +123,16 @@ impl CoreLayout {
         // a valid initial state (empty CPU set). `mem::zeroed()` produces the
         // all-zero bit pattern, which is the documented initial state for CPU sets.
         let mut set = unsafe { std::mem::zeroed::<libc::cpu_set_t>() };
+        // SAFETY: `CPU_SET` is a libc macro that sets a bit in the cpu_set_t
+        // corresponding to `core`. `core` was already bounds-checked against
+        // `total_cores` at the top of this function, so it fits within the set.
+        // `set` was just zero-initialized on the line above and is valid for writing.
         unsafe { libc::CPU_SET(core, &mut set) };
+        // SAFETY: `sched_setaffinity` sets the CPU affinity of the calling thread
+        // (pid=0). The mask `set` was properly initialized and populated with a
+        // valid core index. The size argument matches the actual size of the
+        // `cpu_set_t` struct. The syscall only affects scheduling of the calling
+        // thread and does not cause undefined behavior if it fails.
         let ret = unsafe {
             libc::sched_setaffinity(
                 0,                                 // calling thread

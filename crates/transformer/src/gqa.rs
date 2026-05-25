@@ -491,7 +491,7 @@ impl GQA {
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
         for b in 0..batch_size {
-            for h in 0..self.num_heads {
+            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads).into_par_iter().map(|h| {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
 
@@ -515,14 +515,22 @@ impl GQA {
                 }
 
                 let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                let out_base = h * self.head_dim;
+                let mut out_row = vec![0.0; self.head_dim];
                 for d in 0..self.head_dim {
                     let mut weighted = 0.0;
                     for t in 0..total_seq {
                         weighted +=
                             scores[t] * inv_exp_sum * v_cached[(b * total_seq + t) * kv_dim + kv_off + d];
                     }
-                    output[[b, out_base + d]] = weighted;
+                    out_row[d] = weighted;
+                }
+                (h, out_row)
+            }).collect();
+
+            for (h, row) in results {
+                let out_base = h * self.head_dim;
+                for d in 0..self.head_dim {
+                    output[[b, out_base + d]] = row[d];
                 }
             }
         }
@@ -705,7 +713,9 @@ impl GQA {
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
+        let cache_ref: &dyn PagedCacheReader = &*cache;
         for b in 0..batch_size {
+            let mut results = Vec::with_capacity(self.num_heads);
             for h in 0..self.num_heads {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
@@ -714,7 +724,7 @@ impl GQA {
                 let mut max_score = f32::NEG_INFINITY;
                 let mut scores = Vec::with_capacity(num_tokens);
                 for t in 0..num_tokens {
-                    let (k_row, _) = match cache.read(seq_id, layer_idx, t) {
+                    let (k_row, _) = match cache_ref.read(seq_id, layer_idx, t) {
                         Some(r) => r,
                         None => continue,
                     };
@@ -727,6 +737,7 @@ impl GQA {
                 }
 
                 if scores.is_empty() {
+                    results.push((h, Vec::new()));
                     continue;
                 }
 
@@ -737,17 +748,28 @@ impl GQA {
                 }
 
                 let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                let out_base = h * self.head_dim;
+                let mut out_row = vec![0.0; self.head_dim];
                 for d in 0..self.head_dim {
                     let mut weighted = 0.0;
                     for (t, &s) in scores.iter().enumerate() {
-                        let (_, v_row) = match cache.read(seq_id, layer_idx, t) {
+                        let (_, v_row) = match cache_ref.read(seq_id, layer_idx, t) {
                             Some(r) => r,
                             None => continue,
                         };
                         weighted += s * inv_exp_sum * v_row[kv_off + d];
                     }
-                    output[[b, out_base + d]] = weighted;
+                    out_row[d] = weighted;
+                }
+                results.push((h, out_row));
+            }
+
+            for (h, row) in results {
+                if row.is_empty() {
+                    continue;
+                }
+                let out_base = h * self.head_dim;
+                for d in 0..self.head_dim {
+                    output[[b, out_base + d]] = row[d];
                 }
             }
         }

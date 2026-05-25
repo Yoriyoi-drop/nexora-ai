@@ -393,7 +393,7 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        let response = result.unwrap();
+        let response = result.expect("process_request should succeed in test");
         assert!(response.contains("Model Processing Result"));
     }
 

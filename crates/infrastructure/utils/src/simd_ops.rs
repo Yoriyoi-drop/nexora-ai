@@ -782,6 +782,9 @@ mod tests {
         
         // Test addition
         if is_x86_feature_detected!("avx2") {
+            // SAFETY: `add_avx2` requires AVX2 CPU support, verified by
+            // `is_x86_feature_detected!("avx2")` above. The slices all have
+            // the same length (8 elements) as constructed in the test setup.
             unsafe { SimdVectorOps::add_avx2(&a, &b, &mut result) };
         } else {
             SimdVectorOps::add_fallback(&a, &b, &mut result);
@@ -791,6 +794,9 @@ mod tests {
         
         // Test multiplication
         if is_x86_feature_detected!("avx2") {
+            // SAFETY: `mul_avx2` requires AVX2 CPU support, verified by
+            // `is_x86_feature_detected!("avx2")` above. Slices are equal
+            // length as constructed in the test setup.
             unsafe { SimdVectorOps::mul_avx2(&a, &b, &mut result) };
         } else {
             SimdVectorOps::mul_fallback(&a, &b, &mut result);
@@ -806,6 +812,9 @@ mod tests {
         
         let fallback_result = SimdVectorOps::dot_product_fallback(&a, &b);
         let simd_result = if is_x86_feature_detected!("avx2") {
+            // SAFETY: `dot_product_avx2` requires AVX2 CPU support, verified
+            // by `is_x86_feature_detected!("avx2")`. Both slices have length
+            // 8 as constructed in the test.
             unsafe { SimdVectorOps::dot_product_avx2(&a, &b) }
         } else {
             fallback_result
@@ -824,6 +833,9 @@ mod tests {
         
         let fallback_result = SimdVectorOps::cosine_similarity_fallback(&a, &b);
         let simd_result = if is_x86_feature_detected!("avx2") {
+            // SAFETY: `cosine_similarity_avx2` requires AVX2 CPU support,
+            // verified by `is_x86_feature_detected!("avx2")`. Both slices
+            // have length 4 as constructed in the test.
             unsafe { SimdVectorOps::cosine_similarity_avx2(&a, &b) }
         } else {
             fallback_result

@@ -9,6 +9,10 @@ use tracing::{error, info};
 
 #[tokio::main]
 async fn main() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        tracing::error!(target: "panic", "Panic: {}", panic_info);
+    }));
+
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {

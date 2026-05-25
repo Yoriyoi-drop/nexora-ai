@@ -922,7 +922,9 @@ impl OmnisArchitecture {
             ));
         }
         if claims.len() == 1 {
-            return Ok(claims.into_iter().next().unwrap());
+            if let Some(claim) = claims.clone().into_iter().next() {
+                return Ok(claim);
+            }
         }
 
         // Score claims by length (simpler claims tend to be more factual),
@@ -941,7 +943,12 @@ impl OmnisArchitecture {
             .collect();
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        Ok(scored.into_iter().next().map(|(_, claim)| claim).unwrap())
+        match scored.into_iter().next() {
+            Some((_, claim)) => Ok(claim),
+            None => Err(NxrModelError::UnsupportedCapability(
+                "No claims survived scoring in truth arbitration".to_string(),
+            )),
+        }
     }
 
     /// Execute reasoning chain — processes each step sequentially with state tracking

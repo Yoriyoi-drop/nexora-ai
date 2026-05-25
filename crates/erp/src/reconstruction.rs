@@ -306,6 +306,14 @@ impl ContextReconstructor {
         // Default importance untuk original neurons
         1.0
     }
+
+    pub fn gate_network_mut(&mut self) -> &mut GateNetwork {
+        &mut self.gate_network
+    }
+
+    pub fn gate_network(&self) -> &GateNetwork {
+        &self.gate_network
+    }
 }
 
 /// Gate network untuk context-gated reconstruction
@@ -365,6 +373,14 @@ impl GateNetwork {
     /// Get current gate bias
     pub fn get_bias(&self) -> &Array1<f32> {
         &self.gate_bias
+    }
+
+    pub fn set_weights(&mut self, weights: Array2<f32>) {
+        self.gate_weights = weights;
+    }
+
+    pub fn set_bias(&mut self, bias: Array1<f32>) {
+        self.gate_bias = bias;
     }
 }
 

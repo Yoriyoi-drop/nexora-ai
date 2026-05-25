@@ -343,7 +343,8 @@ impl SparseCausalAttention {
         let entropy_factor = (base_entropy / (self.num_heads as f32).ln())
             .min(2.0)
             .max(0.5);
-        let adaptive_k = (self.max_sparse_connections as f32 * entropy_factor) as usize;
+        let adaptive_k_f = self.max_sparse_connections as f32 * entropy_factor;
+        let adaptive_k = if adaptive_k_f.is_nan() { 1 } else { adaptive_k_f.max(0.0) as usize };
 
         adaptive_k.min(sequence_length).max(1)
     }
@@ -460,7 +461,8 @@ impl SparseAttention for SparseCausalAttention {
         }
 
         // Adjust max_sparse_connections based on target sparsity
-        let target_connections = ((1.0 - ratio) * (self.num_heads * 100) as f32) as usize;
+        let target_connections_f = (1.0 - ratio) * (self.num_heads * 100) as f32;
+        let target_connections = if target_connections_f.is_nan() { 1 } else { target_connections_f.max(0.0) as usize };
         self.max_sparse_connections = target_connections.max(1);
 
         Ok(())

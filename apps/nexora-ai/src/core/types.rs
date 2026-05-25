@@ -244,4 +244,7 @@ pub struct HealthStatus {
     pub last_check: DateTime<Utc>,
     pub uptime_seconds: u64,
     pub active_connections: u64,
+    pub gpu_available: bool,
+    pub gpu_fallback_count: u64,
+    pub gpu_matmul_fallbacks: u64,
 }

@@ -1,3 +1,7 @@
+//! NOTE: PagedAttention cache is a standalone implementation not yet integrated
+//! with the inference engine. The engine uses CpuKVCache/GpuKVCache instead.
+//! Integration requires wiring PagedCacheReader into the transformer forward pass.
+//!
 //! PagedAttention KV Cache — block-based key-value cache manager.
 //!
 //! Mengelola memory KV cache dalam blok-blok fixed-size untuk:
@@ -200,6 +204,7 @@ impl BlockTable {
 ///
 /// Alokasi memori dalam fixed-size blocks, bukan growable Vec per sequence.
 /// Setiap sequence punya BlockTable yang memetakan logical → physical blocks.
+#[deprecated(note = "Use CpuKVCache/GpuKVCache instead - PagedAttention not yet integrated with inference engine")]
 pub struct PagedKVCache {
     config: PagedCacheConfig,
     /// Per-layer physical blocks
@@ -322,10 +327,16 @@ impl PagedKVCache {
         // Check max_blocks BEFORE push
         if self.blocks[layer].len() >= self.config.max_blocks {
             if let Some(free_idx) = self.free_lists[layer].pop() {
-                self.blocks[layer][free_idx].filled = 0;
-                self.blocks[layer][free_idx].ref_count = 1;
-                self.num_allocated += 1;
-                return Some(free_idx);
+                if free_idx < self.blocks[layer].len() {
+                    self.blocks[layer][free_idx].filled = 0;
+                    self.blocks[layer][free_idx].ref_count = 1;
+                    self.num_allocated += 1;
+                    return Some(free_idx);
+                }
+                warn!(
+                    "free_idx {} out of bounds for layer {} in alloc_block (max_blocks branch)",
+                    free_idx, layer
+                );
             }
             warn!(
                 "PagedKVCache: max_blocks ({}) reached, cannot allocate",
@@ -335,10 +346,16 @@ impl PagedKVCache {
         }
 
         if let Some(free_idx) = self.free_lists[layer].pop() {
-            self.blocks[layer][free_idx].filled = 0;
-            self.blocks[layer][free_idx].ref_count = 1;
-            self.num_allocated += 1;
-            return Some(free_idx);
+            if free_idx < self.blocks[layer].len() {
+                self.blocks[layer][free_idx].filled = 0;
+                self.blocks[layer][free_idx].ref_count = 1;
+                self.num_allocated += 1;
+                return Some(free_idx);
+            }
+            warn!(
+                "free_idx {} out of bounds for layer {} in alloc_block",
+                free_idx, layer
+            );
         }
 
         let idx = self.blocks[layer].len();
@@ -387,6 +404,15 @@ impl PagedKVCache {
 
         // Step 2b: copy-on-write — if the allocated block is shared, deep-copy it
         let cow_phys = {
+            if phys >= self.blocks[layer].len() {
+                warn!(
+                    "alloc_block returned invalid phys {} for layer {} (blocks.len={})",
+                    phys,
+                    layer,
+                    self.blocks[layer].len()
+                );
+                return None;
+            }
             let block = &self.blocks[layer][phys];
             if block.ref_count > 1 {
                 Some(block.deep_copy())
@@ -445,6 +471,10 @@ impl PagedKVCache {
         }
 
         // Then write KV data (separate borrow for blocks)
+        if phys >= self.blocks[layer].len() {
+            warn!("phys {} out of bounds for layer {} in append", phys, layer);
+            return;
+        }
         let block = &mut self.blocks[layer][phys];
         for c in 0..k_len {
             block.k[[offset, c]] = k_row[c];

@@ -1,11 +1,14 @@
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
 use crate::filter::Filter;
 use crate::types::{DataSample, FilterAction, FilterMetric, FilterResult, PipelineMetrics};
 use nexora_common::retry::RetryConfig;
+
+const GRAPH_EXEC_CONCURRENT: usize = 64;
 
 type FilterArc = Arc<dyn Filter>;
 
@@ -26,6 +29,7 @@ pub struct ExecutionGraph {
     pub exit_points: Vec<String>,
     pub metrics: Arc<RwLock<PipelineMetrics>>,
     cached_order: Arc<RwLock<Option<Vec<String>>>>,
+    semaphore: Arc<Semaphore>,
 }
 
 impl ExecutionGraph {
@@ -36,6 +40,7 @@ impl ExecutionGraph {
             exit_points: Vec::new(),
             metrics: Arc::new(RwLock::new(PipelineMetrics::default())),
             cached_order: Arc::new(RwLock::new(None)),
+            semaphore: Arc::new(Semaphore::new(GRAPH_EXEC_CONCURRENT)),
         }
     }
 
@@ -256,10 +261,16 @@ impl ExecutionGraph {
             let mut handles = Vec::with_capacity(level_nodes.len());
             if level_nodes.len() > 1 {
                 for node_id in &level_nodes {
+                    let permit = self.semaphore.clone().acquire_owned().await;
+                    let permit = match permit {
+                        Ok(p) => p,
+                        Err(_) => return ExecutionResult::Cancelled,
+                    };
                     let filter = self.nodes[node_id].filter.clone();
                     let sample = sample_arc.clone();
                     let node_id = node_id.clone();
                     handles.push(tokio::spawn(async move {
+                        let _permit = permit;
                         let result = RetryConfig::default()
                             .retry(|| {
                                 let filter = filter.clone();
@@ -284,9 +295,15 @@ impl ExecutionGraph {
                 }
             } else {
                 let node_id = level_nodes[0].clone();
+                let permit = self.semaphore.clone().acquire_owned().await;
+                let permit = match permit {
+                    Ok(p) => p,
+                    Err(_) => return ExecutionResult::Cancelled,
+                };
                 let filter = self.nodes[&node_id].filter.clone();
                 let sample = sample_arc.clone();
                 handles.push(tokio::spawn(async move {
+                    let _permit = permit;
                     let result = RetryConfig::default()
                         .retry(|| {
                             let filter = filter.clone();

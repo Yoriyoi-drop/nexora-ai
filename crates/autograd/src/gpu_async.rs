@@ -31,6 +31,7 @@ impl<T: Send + 'static> AsyncReadback<T> {
                     if std::time::Instant::now() > deadline {
                         panic!("GPU async readback timed out after 30s");
                     }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

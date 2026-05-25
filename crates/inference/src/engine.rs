@@ -3,7 +3,7 @@ use ndarray::Array1;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -75,7 +75,7 @@ pub struct InferenceEngine {
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     state: Arc<RwLock<EngineState>>,
     #[cfg(feature = "gpu")]
-    gpu_cache: Option<GpuKVCache>,
+    gpu_cache: Option<GpuKVCache>, // NOTE: This field is never read. Per-generation GPU cache is created inline in generate_internal(). Consider removing or wiring properly.
     model_ready: bool,
 }
 
@@ -196,8 +196,7 @@ impl InferenceEngine {
     }
 
     pub async fn initialize(&mut self) -> Result<()> {
-        let state = self.state.read().await.clone();
-        if state != EngineState::Uninitialized {
+        if *self.state.read().await != EngineState::Uninitialized {
             return Err(InferenceError::EngineNotInitialized(
                 "Engine already initialized".to_string(),
             ));
@@ -232,8 +231,7 @@ impl InferenceEngine {
         &self,
         request: InferenceRequest,
     ) -> Result<mpsc::Receiver<InferenceResponse>> {
-        let state = self.state.read().await.clone();
-        match state {
+        match *self.state.read().await {
             EngineState::Ready => {}
             EngineState::ShuttingDown | EngineState::Shutdown => {
                 return Err(InferenceError::EngineNotInitialized(
@@ -596,7 +594,6 @@ impl InferenceEngine {
     }
 
     pub async fn get_engine_stats(&self) -> EngineStats {
-        let state = self.state.read().await.clone();
         let active = self.active_requests.read().await.len();
         let sched_stats = self.scheduler.read().await.get_stats().await;
         let cache_stats = if self.config.enable_caching {
@@ -606,7 +603,7 @@ impl InferenceEngine {
         };
         let session_count = self.session_manager.read().await.len();
         EngineStats {
-            state,
+            state: self.state.read().await.clone(),
             active_requests_count: active,
             max_concurrent_requests: self.config.max_concurrent_requests,
             scheduler_stats: sched_stats,
@@ -635,6 +632,7 @@ impl InferenceEngine {
 
     /// Spawn a batch processing task with proper panic recovery and state tracking.
     async fn spawn_batch_processor(&self, batch: crate::batching::Batch) {
+        let batch_semaphore = Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT));
         let engine = InferenceEngineHandle {
             scheduler: self.scheduler.clone(),
             model: Arc::clone(&self.model),
@@ -644,6 +642,7 @@ impl InferenceEngine {
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
             prefix_cache: self.prefix_cache.clone(),
+            batch_semaphore,
         };
         Self::spawn_batch_processor_inner(&engine, &self.active_requests, batch).await;
     }
@@ -674,6 +673,7 @@ impl InferenceEngine {
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
             prefix_cache: self.prefix_cache.clone(),
+            batch_semaphore: Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT)),
         };
 
         let handle = tokio::spawn(async move {
@@ -770,6 +770,7 @@ impl InferenceEngine {
             #[cfg(feature = "gpu")]
             use_gpu_cache: engine.use_gpu_cache,
             prefix_cache: engine.prefix_cache.clone(),
+            batch_semaphore: engine.batch_semaphore.clone(),
         };
         let active = active_requests.clone();
         let task = tokio::spawn(async move {
@@ -929,6 +930,8 @@ fn run_generation_loop(
     (tokens, last_logits, false)
 }
 
+const BATCH_CONCURRENCY_LIMIT: usize = 64;
+
 /// Handle used inside spawned tasks to avoid borrowing self
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
@@ -939,6 +942,7 @@ struct InferenceEngineHandle {
     #[cfg(feature = "gpu")]
     use_gpu_cache: bool,
     prefix_cache: Arc<PrefixCache>,
+    batch_semaphore: Arc<Semaphore>,
 }
 
 impl InferenceEngineHandle {
@@ -976,8 +980,13 @@ impl InferenceEngineHandle {
             let use_gpu = self.use_gpu;
             #[cfg(feature = "gpu")]
             let use_gpu_cache = self.use_gpu_cache;
+            let _permit = match self.batch_semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => break,
+            };
 
             let handle = tokio::spawn(async move {
+                let __permit = _permit;
                 let start = std::time::Instant::now();
                 let mut response = InferenceResponse::new(breq.request_id);
 

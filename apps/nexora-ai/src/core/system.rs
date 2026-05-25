@@ -450,6 +450,13 @@ impl SystemMonitor {
         // Get actual active connections count
         let active_connections = self.get_active_connections_with_system(&system).await.unwrap_or(0);
 
+        // GPU health metrics
+        let gpu_available = nexora_deeplearning::gpu::GpuContext::is_available();
+        let gpu_fallback_count =
+            nexora_transformer::model::GPU_FALLBACK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+        let gpu_matmul_fallbacks =
+            nexora_deeplearning::autograd::ops::matmul::gpu_matmul_fallback_count();
+
         Ok(HealthStatus {
             healthy: component_health.values().all(|&healthy| healthy) && performance_score > 50.0,
             performance_score,
@@ -480,6 +487,9 @@ impl SystemMonitor {
             last_check: chrono::Utc::now(),
             uptime_seconds: uptime,
             active_connections,
+            gpu_available,
+            gpu_fallback_count,
+            gpu_matmul_fallbacks,
         })
     }
 

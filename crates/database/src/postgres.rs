@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client, Config, NoTls};
 use tracing::warn;
@@ -22,6 +23,7 @@ pub struct PostgreSQLDatabase {
     connection_pool: Arc<dyn ConnectionPool>,
     connection_info: Arc<RwLock<ConnectionInfo>>,
     client: Arc<RwLock<Option<Arc<Client>>>>,
+    background_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
 }
 
 /// Connection information
@@ -86,6 +88,7 @@ pub struct PostgreSQLConnection {
     connection_info: ConnectionInfo,
     client: Option<Client>,
     is_active: bool,
+    background_handles: Vec<JoinHandle<()>>,
 }
 
 /// PostgreSQL connection pool
@@ -147,6 +150,7 @@ impl PostgreSQLDatabase {
             connection_pool,
             connection_info,
             client: Arc::new(RwLock::new(None)),
+            background_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 
@@ -184,6 +188,7 @@ impl PostgreSQLDatabase {
             connection_pool,
             connection_info,
             client: Arc::new(RwLock::new(None)),
+            background_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 
@@ -219,12 +224,15 @@ impl PostgreSQLDatabase {
 
         let (client, connection) = config.connect(tls).await?;
 
-        // Spawn the connection task
-        tokio::spawn(async move {
+        // Spawn the connection task and store handle to prevent fire-and-forget
+        let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
                 tracing::error!("PostgreSQL connection error: {}", e);
             }
         });
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(handle);
+        }
 
         Ok(client)
     }
@@ -813,6 +821,7 @@ impl PostgreSQLConnection {
             },
             client: None,
             is_active: false,
+            background_handles: Vec::new(),
         }
     }
 
@@ -848,12 +857,13 @@ impl PostgreSQLConnection {
 
         let (client, connection) = config.connect(tls).await?;
 
-        // Spawn the connection task
-        tokio::spawn(async move {
+        // Spawn the connection task and store handle to prevent fire-and-forget
+        let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
                 tracing::error!("PostgreSQL connection error: {}", e);
             }
         });
+        self.background_handles.push(handle);
 
         self.client = Some(client);
         self.connection_info.is_connected = true;

@@ -65,8 +65,8 @@ impl SwiftAgents {
     }
 
     /// Check the inference result cache. Returns cached response if found.
-    pub fn check_inference_cache(&self, input: &str) -> Option<String> {
-        self.fast_cache.get_cached_string(input)
+    pub async fn check_inference_cache(&self, input: &str) -> Option<String> {
+        self.fast_cache.get_cached_string(input).await
     }
 
     /// Store an inference result in cache.

@@ -320,7 +320,7 @@ pub struct UnifiedModel {
     saca_integration: SACAIntegration,
     caffeine_model: Option<Arc<Mutex<Caffeine>>>,
     /// Real HasMoeFfn layer (Some when HasMoe or FullIntegration is active)
-    moe_ffn: Option<Arc<std::sync::Mutex<HasMoeFfn>>>,
+    moe_ffn: Option<Arc<Mutex<HasMoeFfn>>>,
 }
 
 impl UnifiedModel {
@@ -365,7 +365,7 @@ impl UnifiedModel {
             match config.integration_mode {
                 IntegrationMode::SACAWithHasMoe | IntegrationMode::FullIntegration => {
                     let ffn = HasMoeFfn::new(moe_config.clone())?;
-                    let ffn_arc = Arc::new(std::sync::Mutex::new(ffn));
+                    let ffn_arc = Arc::new(Mutex::new(ffn));
 
                     // Wire to SACAIntegration via foundation Router
                     let router = Arc::new(nexora_foundation::has_moe_ffn::routing::Router::new(
@@ -493,13 +493,7 @@ impl UnifiedModel {
     /// Apply the real MoE FFN to the solution's multimodal feature vector.
     async fn apply_moe_post_processing(&self, solution: &mut UnifiedSolution) -> ApiResult<()> {
         if let Some(ffn_lock) = &self.moe_ffn {
-            let ffn_guard = match ffn_lock.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    error!("MoE FFN mutex poisoned, recovering");
-                    poisoned.into_inner()
-                }
-            };
+            let ffn_guard = ffn_lock.lock().await;
             let hidden = ffn_guard.hidden_size;
 
             // Use multimodal_features as the hidden state; pad or truncate to hidden_size
@@ -527,7 +521,7 @@ impl UnifiedModel {
         Ok(())
     }
 
-    pub fn get_statistics(&self) -> UnifiedStats {
+    pub async fn get_statistics(&self) -> UnifiedStats {
         let integration_stats = self.saca_integration.get_integration_stats();
         UnifiedStats {
             integration_mode: self.config.integration_mode.clone(),
@@ -535,10 +529,10 @@ impl UnifiedModel {
             atqs_enabled: integration_stats.atqs_enabled,
             caffeine_enabled: integration_stats.caffeine_enabled,
             has_moe_enabled: integration_stats.has_moe_enabled,
-            moe_load_stats: self
-                .moe_ffn
-                .as_ref()
-                .map(|f| f.lock().unwrap().load_stats()),
+            moe_load_stats: match &self.moe_ffn {
+                Some(f) => Some(f.lock().await.load_stats()),
+                None => None,
+            },
         }
     }
 }
@@ -704,7 +698,7 @@ mod tests {
     #[tokio::test]
     async fn test_integration_modes_stats() {
         let basic = UnifiedModelFactory::create_basic_coder().await.unwrap();
-        let stats = basic.get_statistics();
+        let stats = basic.get_statistics().await;
         assert_eq!(stats.models_enabled, 0);
         assert!(stats.moe_load_stats.is_none());
     }

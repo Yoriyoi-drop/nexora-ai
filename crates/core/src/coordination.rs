@@ -446,15 +446,17 @@ impl MultiModelCoordinator {
                 let step = &plan[idx];
                 let input = input.clone();
                 let context = context.clone();
-                let semaphore = self.task_semaphore.clone();
+                let _permit = self
+                    .task_semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .map_err(|e| CoreError::TaskExecution(format!("Semaphore error: {}", e)))?;
                 let model = self.model_instances.get(&step.model).cloned();
                 let model_id = step.model;
 
                 handles.push(tokio::spawn(async move {
-                    let _permit = semaphore
-                        .acquire_owned()
-                        .await
-                        .map_err(|e| CoreError::TaskExecution(format!("Semaphore error: {}", e)))?;
+                    let __permit = _permit;
                     match model {
                         Some(executor) => {
                             let output = executor.execute(&input, &context).await?;
@@ -670,7 +672,7 @@ mod tests {
         // Test basic model selection
         let selected_models = coordinator.select_models(IntentType::Coding, &[]);
         assert!(selected_models.is_ok());
-        let models = selected_models.unwrap();
+        let models = selected_models.expect("select_models should return Ok in test");
         assert_eq!(models.len(), 1);
         assert_eq!(models[0], ModelId::Coding);
 

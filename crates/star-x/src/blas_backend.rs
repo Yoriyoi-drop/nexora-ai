@@ -451,9 +451,15 @@ impl BlasOperations {
     ) -> DLResult<()> {
         let (m, k) = a.dim();
         let (_k2, n) = b.dim();
-        let lda = k as i32;
-        let ldb = n as i32;
-        let ldc = n as i32;
+        let lda = i32::try_from(k).map_err(|_| DeepLearningError::Configuration {
+            reason: format!("BLAS leading dimension k={k} exceeds i32 range"),
+        })?;
+        let ldb = i32::try_from(n).map_err(|_| DeepLearningError::Configuration {
+            reason: format!("BLAS leading dimension n={n} exceeds i32 range"),
+        })?;
+        let ldc = i32::try_from(n).map_err(|_| DeepLearningError::Configuration {
+            reason: format!("BLAS leading dimension n={n} exceeds i32 range"),
+        })?;
 
         let func = self.sgemm_fn.ok_or_else(|| DeepLearningError::Computation {
             reason: "cblas_sgemm function pointer not cached".into(),
@@ -469,6 +475,16 @@ impl BlasOperations {
             reason: "Matrix C not contiguous for CBLAS FFI call".into(),
         })?;
 
+        let m_i32 = i32::try_from(m).map_err(|_| DeepLearningError::Configuration {
+            reason: format!("BLAS dimension m={m} exceeds i32 range"),
+        })?;
+        let n_i32 = i32::try_from(n).map_err(|_| DeepLearningError::Configuration {
+            reason: format!("BLAS dimension n={n} exceeds i32 range"),
+        })?;
+        let k_i32 = i32::try_from(k).map_err(|_| DeepLearningError::Configuration {
+            reason: format!("BLAS dimension k={k} exceeds i32 range"),
+        })?;
+
         // SAFETY: We pass valid, non-aliased row-major f32 buffers with
         // dimensions verified by the caller (gemm_cblas_ffi).
         unsafe {
@@ -476,9 +492,9 @@ impl BlasOperations {
                 CBLAS_ROWMajor,
                 CBLAS_NoTrans,
                 CBLAS_NoTrans,
-                m as i32,
-                n as i32,
-                k as i32,
+                m_i32,
+                n_i32,
+                k_i32,
                 alpha,
                 a_slice.as_ptr(),
                 lda,
@@ -1069,6 +1085,11 @@ fn resolve_sgemm_fn(
     unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32),
 > {
     let lib = lib_handle.as_ref()?;
+    // SAFETY: `lib` was loaded from a known BLAS shared library (libmkl_rt.so,
+    // libopenblas.so, or libAccelerate.dylib) which is guaranteed to export
+    // `cblas_sgemm` with a stable C ABI. The symbol name is null-terminated as
+    // required by libloading. The returned function pointer matches the standard
+    // cblas_sgemm signature (row-major, no-transpose, f32).
     let func: Symbol<unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32)> =
         unsafe { lib.get(b"cblas_sgemm\0") }.ok()?;
     Some(*func)

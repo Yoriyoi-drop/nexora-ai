@@ -63,7 +63,8 @@ impl RetryConfig {
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {
-        let delay = self.base_delay_ms * 2u64.pow(attempt);
+        let multiplier = if attempt < 64 { 2u64.pow(attempt) } else { u64::MAX };
+        let delay = self.base_delay_ms.saturating_mul(multiplier);
         let delay = delay.min(self.max_delay_ms);
         if self.jitter {
             delay / 2 + rand::random::<u64>() % (delay / 2 + 1)

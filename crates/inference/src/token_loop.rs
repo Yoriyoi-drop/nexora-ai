@@ -63,6 +63,7 @@ const STATE_ERROR: u8 = 3;
 const STATE_CANCELLED: u8 = 4;
 
 /// Token generation loop
+#[deprecated(note = "Unused - decoding is handled by InferenceEngine directly")]
 pub struct TokenLoop {
     /// Configuration
     config: TokenLoopConfig,

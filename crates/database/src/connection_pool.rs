@@ -254,7 +254,9 @@ impl<T: Clone> GenericConnectionPool<T> {
                     // Decrement waiting requests counter
                     *self.waiting_requests.write().await -= 1;
 
-                    let last = connections.last_mut().expect("connection was just added");
+                    let last = connections.last_mut().ok_or_else(|| {
+                        anyhow::anyhow!("Connection pool empty after acquiring permit")
+                    })?;
                     let conn_clone = last.connection.clone();
                     drop(permit);
                     return Ok(ConnectionTicket {

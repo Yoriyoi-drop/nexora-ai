@@ -1,8 +1,16 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use super::super::tensor::Tensor;
 use ndarray::ArrayD;
 use tracing::warn;
 #[cfg(feature = "gpu")]
 use crate::Storage;
+
+pub(crate) static GPU_MATMUL_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+
+pub fn gpu_matmul_fallback_count() -> u64 {
+    GPU_MATMUL_FALLBACKS.load(Ordering::Relaxed)
+}
 
 pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     let a_shape = a.shape();
@@ -102,7 +110,10 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                     Some(gpu_backward),
                                 );
                             }
-                            Err(e) => { warn!("GPU matmul forward failed, falling back to CPU: {e}"); }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "GPU matmul failed, falling back to CPU");
+                                GPU_MATMUL_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                 }

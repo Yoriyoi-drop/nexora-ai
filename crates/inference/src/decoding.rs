@@ -693,7 +693,7 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
             digits[i] = (n % 10) as u8 + b'0';
             n /= 10;
         }
-        buf.push_str(core::str::from_utf8(&digits[i..]).expect("digits are ASCII b'0'-b'9', always valid UTF-8"));
+        buf.push_str(core::str::from_utf8(&digits[i..]).unwrap_or("?"));
     }
     buf.push(']');
     buf

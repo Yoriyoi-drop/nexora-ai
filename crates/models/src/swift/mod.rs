@@ -131,7 +131,7 @@ impl NxrSwiftModel {
 
     async fn fast_inference(&self, input: &str) -> NxrModelResult<String> {
         // Check cache first
-        if let Some(cached) = self.agents.check_inference_cache(input) {
+        if let Some(cached) = self.agents.check_inference_cache(input).await {
             return Ok(cached);
         }
 

@@ -372,26 +372,24 @@ impl AgentManager {
     ) -> Result<AgentResponse> {
         debug!("Sending message to agent: {}", agent_id);
 
-        let agent_handle = self.registry.get_agent(agent_id).await?;
-
-        // Step 1: Receive message (hold lock only for receive)
+        // Step 1: Receive message
         {
-            let mut agent = agent_handle.lock().await;
+            let mut agent = self.registry.get_agent(agent_id).await?;
             agent.receive(message).await?;
         }
 
         // Create context (no lock needed)
         let context = crate::AgentContext::new(Uuid::new_v4());
 
-        // Step 2: Process message (hold lock only for process)
+        // Step 2: Process message
         let response = {
-            let mut agent = agent_handle.lock().await;
+            let mut agent = self.registry.get_agent(agent_id).await?;
             agent.process(context).await?
         };
 
-        // Step 3: Send response (hold lock only for respond)
+        // Step 3: Send response
         {
-            let mut agent = agent_handle.lock().await;
+            let mut agent = self.registry.get_agent(agent_id).await?;
             agent.respond(response.clone()).await?;
         }
 
@@ -401,15 +399,13 @@ impl AgentManager {
 
     /// Internal get status implementation
     async fn get_status_internal(&self, agent_id: Uuid) -> Result<AgentStatus> {
-        let agent_handle = self.registry.get_agent(agent_id).await?;
-        let agent = agent_handle.lock().await;
+        let agent = self.registry.get_agent(agent_id).await?;
         Ok(agent.status())
     }
 
     /// Internal get stats implementation
     async fn get_stats_internal(&self, agent_id: Uuid) -> Result<AgentStats> {
-        let agent_handle = self.registry.get_agent(agent_id).await?;
-        let agent = agent_handle.lock().await;
+        let agent = self.registry.get_agent(agent_id).await?;
         Ok(agent.get_stats())
     }
 
@@ -424,8 +420,7 @@ impl AgentManager {
         let mut results = HashMap::new();
 
         for (agent_id, _, _) in agents {
-            let agent_handle = self.registry.get_agent(agent_id).await?;
-            let agent = agent_handle.lock().await;
+            let agent = self.registry.get_agent(agent_id).await?;
             let healthy = agent.health_check().await.unwrap_or(false);
             results.insert(agent_id, healthy);
         }

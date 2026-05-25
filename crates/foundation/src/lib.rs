@@ -78,10 +78,6 @@ pub enum FoundationError {
 
     #[error("Timeout error")]
     Timeout,
-
-    #[allow(dead_code)]
-    #[error("Not implemented")]
-    NotImplemented,
 }
 
 impl From<nexora_transformer::TransformerError> for FoundationError {
@@ -116,12 +112,6 @@ mod tests {
     fn test_foundation_error_timeout() {
         let e = FoundationError::Timeout;
         assert_eq!(e.to_string(), "Timeout error");
-    }
-
-    #[test]
-    fn test_foundation_error_not_implemented() {
-        let e = FoundationError::NotImplemented;
-        assert_eq!(e.to_string(), "Not implemented");
     }
 
     #[test]

@@ -313,7 +313,7 @@ mod tests {
 
         let text = result.unwrap();
         assert!(!text.is_empty());
-        assert!(!text.contains("TODO:"), "Should not return placeholder TODO text");
+        assert!(!text.contains("TODO:"), "Generated text should not contain TODO markers");
     }
 
     #[tokio::test]

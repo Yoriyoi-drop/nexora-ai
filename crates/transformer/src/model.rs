@@ -1,9 +1,12 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 use ndarray::{Array1, Array2};
 use rand::Rng;
 use tracing::{info, warn};
+
+pub static GPU_FALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
 
 use super::block::TransformerBlock;
 use super::config::TransformerConfig;
@@ -259,7 +262,7 @@ impl CausalLM {
             precomputed_cos,
             precomputed_sin,
             injectors: Vec::new(),
-            keep_on_gpu: false,
+            keep_on_gpu: true,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
@@ -284,36 +287,50 @@ impl CausalLM {
         }
 
         #[cfg(feature = "gpu")]
-        if let Ok(logits) = self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
-            return Ok(logits);
+        match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
+            Ok(logits) => return Ok(logits),
+            Err(e) => {
+                tracing::error!(error = %e, "GPU forward pass failed");
+                GPU_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
+            }
         }
-        #[cfg(feature = "gpu")]
-        tracing::error!("GPU forward pass failed, falling back to CPU");
 
         let entries = kv_cache
             .as_cpu_entries()
             .ok_or_else(|| TransformerError::Implementation("CPU forward requires CpuKVCache".to_string()))?;
-        self.forward_cpu_impl(input_ids, entries)
+        self.forward_cpu_impl(input_ids, entries, 1)
     }
 
     /// Internal CPU forward implementation operating on `Vec<KVCacheEntry>`.
+    /// `batch_size` controls how many stacked tokens from the end of `input_ids`
+    /// are processed simultaneously. When `batch_size > 1`, all tokens are embedded
+    /// into a stacked `[batch_size, hidden_size]` tensor and passed through the
+    /// transformer blocks, returning logits for the first batch element.
     fn forward_cpu_impl(
         &self,
         input_ids: &[u32],
         kv_cache: &mut Vec<KVCacheEntry>,
+        batch_size: usize,
     ) -> TransformerResult<Array1<f32>> {
-        let batch_size = 1;
+        let bs = if batch_size == 0 { 1 } else { batch_size };
+        if bs > input_ids.len() {
+            return Err(TransformerError::Implementation(
+                format!("batch_size {} exceeds input_ids len {}", bs, input_ids.len())
+            ));
+        }
 
-        let mut h = Array2::zeros((batch_size, self.config.hidden_size));
+        let mut h = Array2::zeros((bs, self.config.hidden_size));
 
-        if let Some(&token_id) = input_ids.last() {
+        let start = input_ids.len() - bs;
+        for b in 0..bs {
+            let token_id = input_ids[start + b];
             let tid = token_id as usize;
             if tid >= self.config.vocab_size {
                 return Err(TransformerError::Implementation(
                     format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
                 ));
             }
-            h.row_mut(0).assign(&self.token_embedding.row(tid));
+            h.row_mut(b).assign(&self.token_embedding.row(tid));
         }
 
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
@@ -352,6 +369,19 @@ impl CausalLM {
 
     pub fn reset_cache(&self) -> CpuKVCache {
         CpuKVCache::new(self.config.num_layers)
+    }
+
+    pub fn set_keep_on_gpu(&mut self, keep: bool) {
+        self.keep_on_gpu = keep;
+    }
+
+    pub fn clear_gpu_cache(&self) {
+        #[cfg(feature = "gpu")]
+        if let Ok(mut cache) = self.gpu_cache.write() {
+            if let Some(gpu_entries) = cache.as_mut() {
+                gpu_entries.clear();
+            }
+        }
     }
 
     /// Forward pass using a paged KV cache.
@@ -590,7 +620,7 @@ impl CausalLM {
             block.ffn.w3 = to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned();
         }
         model.injectors = Vec::new();
-        model.keep_on_gpu = false;
+        model.keep_on_gpu = true;
         Ok(model)
     }
 
@@ -695,6 +725,11 @@ impl CausalLM {
         let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
+                if tid >= self.config.vocab_size {
+                    return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                        format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
+                    ));
+                }
                 let row_bytes = (hidden_size * 4) as u64;
                 let offset = (tid * hidden_size * 4) as u64;
                 let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
@@ -741,6 +776,11 @@ impl CausalLM {
         let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
+                if tid >= self.config.vocab_size {
+                    return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                        format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
+                    ));
+                }
                 let row_bytes = (hidden_size * 4) as u64;
                 let offset = (tid * hidden_size * 4) as u64;
                 let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
@@ -1090,11 +1130,14 @@ impl CausalLM {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
         })?;
 
-        // 1. Token embedding: buffer-to-buffer copy of ONE row from pre-uploaded embedding tensor.
-        //    No CPU→GPU upload — the entire embedding table lives on GPU permanently.
         let mut h = match input_ids.last() {
             Some(&token_id) => {
                 let tid = token_id as usize;
+                if tid >= self.config.vocab_size {
+                    return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                        format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
+                    ));
+                }
                 let row_bytes = (hidden_size * 4) as u64;
                 let offset = (tid * hidden_size * 4) as u64;
                 let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
@@ -1138,6 +1181,75 @@ impl CausalLM {
         let logits = ctx.matmul(&h, &gw.lm_head_t)?;
 
         // 6. Download logits to CPU (only at final return point)
+        let logits_flat: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
+        Ok(Array1::from_vec(logits_flat))
+    }
+
+    /// GPU forward pass that enforces GPU residency — never falls back to CPU.
+    /// If GPU fails, the error is propagated instead of silently falling back.
+    /// Preferred method when `keep_on_gpu` is set.
+    #[cfg(feature = "gpu")]
+    pub fn forward_keep_gpu(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut Vec<KVCacheEntry>,
+    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        self.preupload_weights_gpu()?;
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+        let hidden_size = self.config.hidden_size;
+        let gw = self.gpu_weights.get().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
+        })?;
+
+        let mut h = match input_ids.last() {
+            Some(&token_id) => {
+                let tid = token_id as usize;
+                if tid >= self.config.vocab_size {
+                    return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                        format!("Token ID {} out of range [0, {})", tid, self.config.vocab_size)
+                    ));
+                }
+                let row_bytes = (hidden_size * 4) as u64;
+                let offset = (tid * hidden_size * 4) as u64;
+                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(gw.token_embedding.buffer(), offset, h.buffer(), 0, row_bytes);
+                    Ok(())
+                })?;
+                h
+            }
+            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
+        };
+
+        let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
+        let half = self.config.head_dim() / 2;
+        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
+            h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
+        }
+
+        h = self.norm.forward_gpu(&h)?;
+
+        let logits = ctx.matmul(&h, &gw.lm_head_t)?;
+
         let logits_flat: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
         Ok(Array1::from_vec(logits_flat))
     }
@@ -1218,6 +1330,14 @@ impl CausalLM {
         // ── 1. Batched embedding: copy ALL token rows into one [batch_size, hidden_size] tensor ──
         let row_bytes = (hidden_size * 4) as u64;
         let mut h = GpuTensor::zeros(&[batch_size, hidden_size])?;
+        for &token_id in batch_tokens.iter() {
+            let tid = token_id as usize;
+            if tid >= vocab_size {
+                return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                    format!("Token ID {} out of range [0, {})", tid, vocab_size)
+                ));
+            }
+        }
         ctx.batch_dispatch(|enc| {
             for (seq_idx, &token_id) in batch_tokens.iter().enumerate() {
                 let offset = (token_id as usize * hidden_size * 4) as u64;

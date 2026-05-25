@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use ndarray::{ArrayD, IxDyn};
 use tracing::{debug, warn};
 
@@ -7,6 +9,8 @@ use super::super::tensor::Tensor;
 use crate::gpu::{ElemOp, GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
 use crate::{tensor::next_tensor_id, Storage};
+
+pub(crate) static GPU_MATH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
@@ -60,11 +64,17 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => warn!("autograd math backward failed: {e}")
+                            Err(e) => {
+                                tracing::warn!(error = %e, "GPU add failed, falling back to CPU");
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                 }
-                _ => { warn!("add: non-GPU storage despite on_gpu check — falling back to CPU"); }
+                _ => {
+                    tracing::warn!("add: non-GPU storage despite on_gpu check — falling back to CPU");
+                    GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
     }
@@ -163,11 +173,17 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => warn!("autograd math backward failed: {e}")
+                            Err(e) => {
+                                tracing::warn!(error = %e, "GPU sub failed, falling back to CPU");
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                 }
-                _ => { warn!("sub: non-GPU storage despite on_gpu check — falling back to CPU"); }
+                _ => {
+                    tracing::warn!("sub: non-GPU storage despite on_gpu check — falling back to CPU");
+                    GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
     }
@@ -245,11 +261,17 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => warn!("autograd math backward failed: {e}")
+                            Err(e) => {
+                                tracing::warn!(error = %e, "GPU mul failed, falling back to CPU");
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                 }
-                _ => { warn!("mul: non-GPU storage despite on_gpu check — falling back to CPU"); }
+                _ => {
+                    tracing::warn!("mul: non-GPU storage despite on_gpu check — falling back to CPU");
+                    GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
     }
@@ -306,11 +328,17 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     None,
                                 );
                             }
-                            Err(e) => warn!("autograd math backward failed: {e}")
+                            Err(e) => {
+                                tracing::warn!(error = %e, "GPU div failed, falling back to CPU");
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                 }
-                _ => { warn!("div: non-GPU storage despite on_gpu check — falling back to CPU"); }
+                _ => {
+                    tracing::warn!("div: non-GPU storage despite on_gpu check — falling back to CPU");
+                    GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
     }
@@ -368,7 +396,10 @@ pub fn exp(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => warn!("autograd math backward failed: {e}")
+                    Err(e) => {
+                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -419,7 +450,10 @@ pub fn ln(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => warn!("autograd math backward failed: {e}")
+                    Err(e) => {
+                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -473,7 +507,10 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => warn!("autograd math backward failed: {e}")
+                    Err(e) => {
+                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -525,7 +562,10 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => warn!("autograd math backward failed: {e}")
+                    Err(e) => {
+                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -571,7 +611,10 @@ pub fn neg(a: &Tensor) -> Tensor {
                             None,
                         );
                     }
-                    Err(e) => warn!("autograd math backward failed: {e}")
+                    Err(e) => {
+                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }

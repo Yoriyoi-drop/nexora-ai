@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::scanner::ShardPath;
@@ -11,7 +12,7 @@ use crate::types::DataSample;
 pub struct DatasetCache {
     token_cache: Arc<RwLock<TokenizerCache>>,
     mmap_registry: Arc<RwLock<HashMap<String, MmapEntry>>>,
-    mmap_order: Arc<std::sync::Mutex<VecDeque<String>>>,
+    mmap_order: Arc<Mutex<VecDeque<String>>>,
     cache_dir: PathBuf,
     max_entries: usize,
 }
@@ -29,7 +30,7 @@ impl DatasetCache {
         Self {
             token_cache: Arc::new(RwLock::new(TokenizerCache::new(cache_dir.join("tokens")))),
             mmap_registry: Arc::new(RwLock::new(HashMap::new())),
-            mmap_order: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            mmap_order: Arc::new(Mutex::new(VecDeque::new())),
             cache_dir,
             max_entries: 10_000,
         }
@@ -39,10 +40,10 @@ impl DatasetCache {
         self.token_cache.clone()
     }
 
-    pub fn register_mmap(&self, shard: &ShardPath) {
+    pub async fn register_mmap(&self, shard: &ShardPath) {
         let key = shard.path.to_string_lossy().to_string();
         let mut reg = self.mmap_registry.write();
-        let mut order = self.mmap_order.lock().unwrap();
+        let mut order = self.mmap_order.lock().await;
 
         if !reg.contains_key(&key) {
             order.push_back(key.clone());

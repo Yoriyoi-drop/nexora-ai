@@ -39,17 +39,22 @@ impl CurriculumScheduler {
         let progress = self.get_progress();
 
         match self.config.strategy {
-            CurriculumStrategy::Linear => CurriculumDifficulty {
-                noise_level: self.config.initial_noise_level * (1.0 - progress),
-                resolution_factor: 1.0 + progress * (self.config.max_resolution_factor - 1.0),
-                complexity_level: (progress * self.config.max_complexity_level as f32) as usize,
+            CurriculumStrategy::Linear => {
+                let complexity = progress * self.config.max_complexity_level as f32;
+                CurriculumDifficulty {
+                    noise_level: self.config.initial_noise_level * (1.0 - progress),
+                    resolution_factor: 1.0 + progress * (self.config.max_resolution_factor - 1.0),
+                    complexity_level: if complexity.is_nan() { 0 } else { complexity.max(0.0) as usize },
+                }
             },
-            CurriculumStrategy::Exponential => CurriculumDifficulty {
-                noise_level: self.config.initial_noise_level * (-2.0 * progress).exp(),
-                resolution_factor: 1.0
-                    + (self.config.max_resolution_factor - 1.0) * (progress.powf(2.0)),
-                complexity_level: (progress.powf(2.0) * self.config.max_complexity_level as f32)
-                    as usize,
+            CurriculumStrategy::Exponential => {
+                let complexity = progress.powf(2.0) * self.config.max_complexity_level as f32;
+                CurriculumDifficulty {
+                    noise_level: self.config.initial_noise_level * (-2.0 * progress).exp(),
+                    resolution_factor: 1.0
+                        + (self.config.max_resolution_factor - 1.0) * (progress.powf(2.0)),
+                    complexity_level: if complexity.is_nan() { 0 } else { complexity.max(0.0) as usize },
+                }
             },
             CurriculumStrategy::Step => {
                 let step_size = 1.0 / self.config.num_stages as f32;
@@ -246,7 +251,8 @@ impl CurriculumUtils {
             return Err(HLDVAError::Training("Base dataset is empty".to_string()));
         }
         let ratio = (1.0 / (0.5 + difficulty.complexity_level as f32 * 0.1)).clamp(0.1, 1.0);
-        let batch_count = (num_batches as f32 * ratio).ceil() as usize;
+        let batch_count_f = (num_batches as f32 * ratio).ceil();
+        let batch_count = if batch_count_f.is_nan() { 0 } else { batch_count_f as usize };
         let batch_count = batch_count.max(1).min(num_batches);
         Ok(Box::new(CurriculumFiltered {
             batch_count,

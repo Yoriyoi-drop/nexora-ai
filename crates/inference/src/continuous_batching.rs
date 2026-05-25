@@ -32,6 +32,7 @@ pub struct StepResult {
 ///
 /// Variable-length sequences are handled by processing all remaining prompt tokens
 /// for prefill sequences before proceeding to batched generation for all sequences.
+#[deprecated(note = "Use InferenceEngine with sampler-based decoding instead")]
 pub struct SequentialBatchingEngine<M> {
     sequences: HashMap<u64, Sequence>,
     kv_caches: HashMap<u64, CpuKVCache>,
@@ -41,7 +42,7 @@ pub struct SequentialBatchingEngine<M> {
     max_total_sequences: usize,
     samplers: HashMap<u64, Sampler>,
     use_gpu: bool,
-    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+    tokenizer: Option<Arc<std::sync::Mutex<BpeTokenizer>>>,
 }
 
 impl<M> SequentialBatchingEngine<M>
@@ -72,13 +73,13 @@ where
         }
     }
 
-    pub fn set_tokenizer(&mut self, tokenizer: Arc<tokio::sync::Mutex<BpeTokenizer>>) {
+    pub fn set_tokenizer(&mut self, tokenizer: Arc<std::sync::Mutex<BpeTokenizer>>) {
         self.tokenizer = Some(tokenizer);
     }
 
     fn decode_token(&self, token_id: u32) -> String {
         if let Some(ref tok) = self.tokenizer {
-            tok.blocking_lock().decode(&[token_id])
+            tok.lock().unwrap_or_else(|e| e.into_inner()).decode(&[token_id])
         } else {
             format!("[{}]", token_id)
         }
@@ -370,7 +371,7 @@ where
         let text: String = seq
             .generated
             .iter()
-            .map(|t| (&*t.token_text).to_string())
+            .map(|t| t.token_text.to_string())
             .collect();
         Some(InferenceResponse {
             request_id: seq.request_id,
@@ -409,7 +410,7 @@ where
                 let text: String = seq
                     .generated
                     .iter()
-                    .map(|t| (&*t.token_text).to_string())
+                    .map(|t| t.token_text.to_string())
                     .collect();
                 results.push(InferenceResponse {
                     request_id: seq.request_id,

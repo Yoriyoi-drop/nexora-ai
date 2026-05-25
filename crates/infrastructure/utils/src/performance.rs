@@ -372,8 +372,8 @@ impl PerformanceMonitor {
             if !times.is_empty() {
                 let total_time: Duration = times.iter().sum();
                 let avg_time = total_time / times.len() as u32;
-                let min_time = *times.iter().min().expect("times is non-empty (guarded by !is_empty check above)");
-                let max_time = *times.iter().max().expect("times is non-empty (guarded by !is_empty check above)");
+                let min_time = *times.iter().min().unwrap_or(&Duration::ZERO);
+                let max_time = *times.iter().max().unwrap_or(&Duration::ZERO);
                 let error_rate = if count > 0 {
                     error_count as f64 / count as f64
                 } else {
@@ -427,8 +427,8 @@ impl PerformanceMonitor {
 
         let total_time: Duration = times.iter().sum();
         let avg_time = total_time / times.len() as u32;
-        let min_time = *times.iter().min().expect("times is non-empty (early return if empty)");
-        let max_time = *times.iter().max().expect("times is non-empty (early return if empty)");
+        let min_time = *times.iter().min().unwrap_or(&Duration::ZERO);
+        let max_time = *times.iter().max().unwrap_or(&Duration::ZERO);
         let error_rate = if count > 0 {
             error_count as f64 / count as f64
         } else {
@@ -639,8 +639,8 @@ impl BenchmarkUtils {
 
         let total_time: Duration = durations.iter().sum();
         let average_time = total_time / iterations as u32;
-        let min_time = *durations.iter().min().expect("durations is non-empty (iterations > 0)");
-        let max_time = *durations.iter().max().expect("durations is non-empty (iterations > 0)");
+        let min_time = *durations.iter().min().unwrap_or(&Duration::ZERO);
+        let max_time = *durations.iter().max().unwrap_or(&Duration::ZERO);
 
         // Calculate standard deviation
         let mean = average_time.as_secs_f64();

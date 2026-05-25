@@ -261,8 +261,8 @@ impl CausalLmModel {
     }
 
     pub async fn load_model(&self) -> NxrModelResult<()> {
-        let tc = self.transformer_config.read().await.clone();
-        let mut model = CausalLM::new(tc.clone());
+        let tc = self.transformer_config.read().await;
+        let mut model = CausalLM::new((*tc).clone());
 
         // Attach EchoNet injector if configured
         if let Some(echo_cfg) = &self.echo_net_config {

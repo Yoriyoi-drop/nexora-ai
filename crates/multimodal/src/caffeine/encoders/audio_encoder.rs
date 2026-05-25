@@ -132,7 +132,8 @@ impl AudioEncoder {
         for m in 0..self.n_mels {
             let mel_m = mel_min + (m as f32 + 1.0) * (mel_max - mel_min) / (self.n_mels + 1) as f32;
             let hz_m = mel_to_hz(mel_m);
-            let fft_m = (n_fft as f32 * hz_m / (self.sample_rate as f32 / 2.0)) as usize;
+            let fft_m_f = n_fft as f32 * hz_m / (self.sample_rate as f32 / 2.0);
+            let fft_m = if fft_m_f.is_nan() { 0 } else { fft_m_f.max(0.0) as usize };
 
             // Create triangular filter
             for k in 0..n_fft {
@@ -149,8 +150,9 @@ impl AudioEncoder {
                         mel_max
                     };
                     let next_hz = mel_to_hz(next_mel);
-                    let next_fft =
-                        (n_fft as f32 * next_hz / (self.sample_rate as f32 / 2.0)) as usize;
+                    let next_fft_f =
+                        n_fft as f32 * next_hz / (self.sample_rate as f32 / 2.0);
+                    let next_fft = if next_fft_f.is_nan() { 0 } else { next_fft_f.max(0.0) as usize };
 
                     if k <= next_fft {
                         mel_filters[m][k] = (next_fft - k) as f32 / (next_fft - fft_m) as f32;

@@ -107,13 +107,11 @@ impl RequestScheduler {
     pub fn with_strategy(
         mut self,
         strategy: nexora_runtime::scheduler::SchedulingStrategy,
-    ) -> Self {
-        self.inner = Arc::new(
-            Arc::into_inner(self.inner)
-                .expect("inner must have refcount 1 at build time")
-                .with_strategy(strategy),
-        );
-        self
+    ) -> Result<Self, anyhow::Error> {
+        let inner = Arc::into_inner(self.inner)
+            .ok_or_else(|| anyhow::anyhow!("inner Arc has refcount > 1, cannot mutate"))?;
+        self.inner = Arc::new(inner.with_strategy(strategy));
+        Ok(self)
     }
 
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {

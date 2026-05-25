@@ -826,6 +826,11 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
             lsm_data[b * classes + c] = (data[[b, c]] - max_val) - log_sum;
         }
         let t = tgt[b] as usize;
+        if t >= classes {
+            tracing::warn!("cross_entropy: target index {} out of range [0, {})", t, classes);
+            loss_data[b] = 0.0;
+            continue;
+        }
         loss_data[b] = -lsm_data[b * classes + t];
     }
     let loss = ArrayD::from_shape_vec(vec![batch], loss_data).unwrap_or_else(|e| {
@@ -856,6 +861,10 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
             let mut dx_data = vec![0.0f32; batch * classes];
             for b in 0..batch {
                 let t = tgt_saved[b] as usize;
+                if t >= classes {
+                    tracing::warn!("cross_entropy backward: target index {} out of range [0, {})", t, classes);
+                    continue;
+                }
                 let g = grad[b]; // upstream gradient per sample
                 for c in 0..classes {
                     let p = lsm[[b, c]].exp();
@@ -906,6 +915,10 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                                 let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
                                 for i in 0..ids_arr.len() {
                                     let idx = ids_arr[i] as usize;
+                                    if idx >= vocab_size {
+                                        tracing::warn!("embedding backward: index {} out of range [0, {})", idx, vocab_size);
+                                        continue;
+                                    }
                                     for j in 0..d {
                                         d_weight[[idx, j]] += grad[[i, j]];
                                     }
@@ -922,6 +935,10 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                                 let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
                                 for i in 0..ids_cpu.len() {
                                     let idx = ids_cpu[i] as usize;
+                                    if idx >= vocab_size {
+                                        tracing::warn!("embedding gpu backward: index {} out of range [0, {})", idx, vocab_size);
+                                        continue;
+                                    }
                                     for j in 0..d {
                                         d_weight[[idx, j]] += grad_cpu[[i, j]];
                                     }
@@ -983,6 +1000,10 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
 
             for i in 0..ids_arr.len() {
                 let idx = ids_arr[i] as usize;
+                if idx >= vocab_size {
+                    tracing::warn!("embedding backward: index {} out of range [0, {})", idx, vocab_size);
+                    continue;
+                }
                 for j in 0..d {
                     d_weight[[idx, j]] += grad[[i, j]];
                 }

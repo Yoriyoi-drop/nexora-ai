@@ -416,7 +416,8 @@ impl TopKResonanceRouting {
         } else {
             // Scale between min and max based on candidate count
             let ratio = (total_candidates - self.min_k) as f32 / (self.max_k - self.min_k) as f32;
-            (self.min_k as f32 + ratio * (self.top_k - self.min_k) as f32) as usize
+            let v = self.min_k as f32 + ratio * (self.top_k - self.min_k) as f32;
+            if v.is_nan() { self.min_k } else { v.max(0.0) as usize }
         };
 
         Ok(adaptive_k.clamp(self.min_k, self.max_k))
@@ -589,7 +590,8 @@ impl TopKResonanceRouting {
         let bin_size = (max_val - min_val) / 10.0;
 
         for &value in &values {
-            let bin_index = ((value - min_val) / bin_size) as usize;
+            let bin_f = (value - min_val) / bin_size;
+            let bin_index = if bin_f.is_nan() { 0 } else { bin_f.max(0.0) as usize };
             if bin_index < 10 {
                 histogram[bin_index] += 1.0;
             }

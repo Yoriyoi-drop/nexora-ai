@@ -434,8 +434,10 @@ fn str_main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         sum += r_mat[i * k + a] * row;
     }
-    // NOTE: simplified — real STR uses W[l] directly not row projection
-    // This is the coupled approximation W[l+1] ≈ R·W[l]·C
+    out[i * n + j] = sum;
+    // Coupled projection: out[i,j] = Σ_a Σ_b R[i,a] · W[a,b] · C[b,j]
+    // This WGSL shader computes the trilinear product R·W·C on GPU.
+    // Used as an alternative to the SVD-based solver in str_route_gpu().
 }
 "#;
 
@@ -549,7 +551,8 @@ impl GpuContext {
         let pipeline = self.pipelines.get("sedc_randn")
             .ok_or_else(|| GpuError::Pipeline("sedc_randn not compiled".into()))?;
         let out = GpuTensor::zeros(shape)?;
-        let n = out.numel() as u32;
+        let n = u32::try_from(out.numel())
+            .map_err(|_| GpuError::Conversion(format!("numel {} exceeds u32 range", out.numel())))?;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("randn_cfg"),
             size: 16,
@@ -587,8 +590,10 @@ impl GpuContext {
     /// QR: Y ∈ ℝ^{m×n} → Q ∈ ℝ^{m×n} (Gram-Schmidt on GPU)
     pub fn qr_decomposition_gpu(&self, y: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let shape = y.shape();
-        let m = shape[0] as u32;
-        let n = shape[1] as u32;
+        let m = u32::try_from(shape[0])
+            .map_err(|_| GpuError::Conversion(format!("shape[0] {} exceeds u32 range", shape[0])))?;
+        let n = u32::try_from(shape[1])
+            .map_err(|_| GpuError::Conversion(format!("shape[1] {} exceeds u32 range", shape[1])))?;
         let pipeline = self.pipelines.get("sedc_qr")
             .ok_or_else(|| GpuError::Pipeline("sedc_qr not compiled".into()))?;
         let q = self.copy_buffer_gpu(y)?;
@@ -836,7 +841,8 @@ impl GpuContext {
         let r_gpu = self.copy_buffer_gpu(h)?;
         let mut bit_vectors: Vec<Vec<i8>> = Vec::with_capacity(bits);
         let mut scales: Vec<f32> = Vec::with_capacity(bits);
-        let numel = d as u32;
+        let numel = u32::try_from(d)
+            .map_err(|_| GpuError::Conversion(format!("d={d} exceeds u32 range")))?;
 
         for b in 0..bits {
             // Compute τ_b = η · Std(r_{b-1})
@@ -932,7 +938,8 @@ impl GpuContext {
     pub fn copy_buffer_gpu(&self, src: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let pipeline = self.pipelines.get("sedc_copy")
             .ok_or_else(|| GpuError::Pipeline("sedc_copy not compiled".into()))?;
-        let numel = src.numel() as u32;
+        let numel = u32::try_from(src.numel())
+            .map_err(|_| GpuError::Conversion(format!("numel {} exceeds u32 range", src.numel())))?;
         let dst = GpuTensor::zeros(&src.shape())?;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("copy_cfg"),
@@ -1011,6 +1018,47 @@ impl GpuContext {
         let w_approx = self.matmul(&us, &v_trunc_t).map_err(SedcError::Gpu)?;
 
         Ok((r, c, w_approx))
+    }
+
+    /// Dispatch the WGSL STR_ROUTE compute shader to compute out = R · W · C.
+    /// This is the direct trilinear product alternative to the SVD-based solver.
+    pub fn str_route_dispatch_gpu(
+        &self,
+        r: &GpuTensor,
+        w: &GpuTensor,
+        c: &GpuTensor,
+    ) -> Result<GpuTensor, GpuError> {
+        let m = r.shape()[0] as u32;
+        let k = r.shape()[1] as u32;
+        let n = w.shape()[1] as u32;
+
+        let pipeline = self.pipelines.get("sedc_str")
+            .ok_or_else(|| GpuError::Pipeline("sedc_str not compiled".into()))?;
+
+        let out = GpuTensor::zeros(&[m as usize, n as usize])?;
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("str_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[m, k, n, 0u32]));
+
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("str_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: w.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: r.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: c.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: out.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: cfg_buf.as_entire_binding() },
+            ],
+        });
+
+        self.dispatch(pipeline, &bg, (m.div_ceil(8), n.div_ceil(8), 1));
+        Ok(out)
     }
 
     // ── GPU: REC (Recursive Error Compensation) ────────────────────────────

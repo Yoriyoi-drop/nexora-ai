@@ -388,7 +388,8 @@ impl SlidingWindowAttention {
     /// Update performance statistics
     fn update_statistics(&mut self, seq_len: usize) {
         // Calculate average window utilization
-        let total_windows = ((seq_len as f32 - 1.0) / self.stride as f32).ceil() as usize;
+        let total_windows_f = ((seq_len as f32 - 1.0) / self.stride as f32).ceil();
+        let total_windows = if total_windows_f.is_nan() { 0 } else { total_windows_f as usize };
         let effective_window_size =
             (self.window_size as f32 * total_windows as f32).min(seq_len as f32);
         self.avg_window_utilization = effective_window_size / seq_len as f32;

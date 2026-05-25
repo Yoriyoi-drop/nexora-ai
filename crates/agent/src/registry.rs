@@ -6,12 +6,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockMappedWriteGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{Agent, AgentConfig, AgentError, AgentStatus, Result};
-use tokio::sync::Mutex;
 
 /// Information tentang registered agent
 #[derive(Debug, Clone)]
@@ -47,8 +46,8 @@ pub struct IntentMapping {
 
 /// Registry untuk semua agent
 pub struct AgentRegistry {
-    /// Map dari agent ID ke Agent instance (shared via Arc + Mutex)
-    agents: Arc<RwLock<HashMap<Uuid, Arc<Mutex<Box<dyn Agent>>>>>>,
+    /// Map dari agent ID ke Agent instance
+    agents: Arc<RwLock<HashMap<Uuid, Box<dyn Agent>>>>,
     /// Map dari agent ID ke AgentInfo
     agent_info: Arc<RwLock<HashMap<Uuid, AgentInfo>>>,
     /// Intent mapping
@@ -99,10 +98,10 @@ impl AgentRegistry {
             restart_attempts: 0,
         };
 
-        // Register agent (wrap in Arc<Mutex> for shared access)
+        // Register agent
         {
             let mut agents = self.agents.write().await;
-            agents.insert(agent_id, Arc::new(Mutex::new(agent)));
+            agents.insert(agent_id, agent);
         }
 
         // Register info
@@ -163,14 +162,13 @@ impl AgentRegistry {
         }
     }
 
-    /// Get agent instance (shared handle)
-    pub async fn get_agent(&self, agent_id: Uuid) -> Result<Arc<Mutex<Box<dyn Agent>>>> {
-        self.agents
-            .read()
-            .await
-            .get(&agent_id)
-            .cloned()
-            .ok_or_else(|| AgentError::AgentNotFound { agent_id: agent_id.to_string() })
+    /// Get agent instance with write access
+    pub async fn get_agent(&self, agent_id: Uuid) -> Result<RwLockMappedWriteGuard<'_, Box<dyn Agent>>> {
+        let guard = self.agents.write().await;
+        if !guard.contains_key(&agent_id) {
+            return Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() });
+        }
+        Ok(RwLockWriteGuard::map(guard, |map| map.get_mut(&agent_id).unwrap()))
     }
 
     /// Get agent info
