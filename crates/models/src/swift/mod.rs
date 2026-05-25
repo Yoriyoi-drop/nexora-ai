@@ -246,11 +246,58 @@ impl NxrSwiftModel {
     }
 }
 
+const SWIFT_SYSTEM_PROMPT: &str = "You are NXR-SWIFT (Sub-millisecond Weighted Inference & Fast Thought) [NXR-08 EDGE], optimized for rapid response and real-time processing. Capabilities: fast inference, low-latency responses, real-time data processing, workflow automation, and efficient edge deployment. Prioritize concise, accurate, and fast answers.";
+
+fn augment_swift_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+    let text = match &input.data {
+        nexora_shared::base_model::InputData::Text(t) => t.clone(),
+        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+    };
+    let mut augmented = input.clone();
+    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", SWIFT_SYSTEM_PROMPT, text));
+    Ok(augmented)
+}
+
 #[async_trait]
 impl NxrModel for NxrSwiftModel {
     type Config = SwiftConfig;
     type Metrics = SwiftMetrics;
     type State = SwiftState;
+
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-SWIFT model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_swift_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrSwiftModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrSwiftModel::new());
+        foundation.infer(&augmented).await
+    }
+
+    async fn infer_stream(
+        &self,
+        input: &NxrInput,
+        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-SWIFT model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_swift_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrSwiftModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrSwiftModel::new());
+        foundation.infer_stream(&augmented, callback).await
+    }
 
     fn identity(&self) -> &ModelMeta {
         self.identity.meta()
@@ -308,55 +355,6 @@ impl NxrModel for NxrSwiftModel {
             .metrics()
             .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
-    }
-
-    async fn infer(
-        &self,
-        input: &NxrInput,
-    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SWIFT model not initialized".to_string(),
-            ));
-        }
-
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrSwiftModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrSwiftModel::new());
-        foundation.infer(input).await
-    }
-
-    async fn infer_stream(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SWIFT model not initialized".to_string(),
-            ));
-        }
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-SWIFT only supports text input".to_string(),
-                ))
-            }
-        };
-
-        let result = self.fast_inference(&input_text).await?;
-        let chunk = NxrStreamChunk {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
-            is_final: true,
-        };
-        callback(chunk);
-
-        Ok(())
     }
 
     async fn update_config(

@@ -324,11 +324,63 @@ pub struct SelfImprovementPlan {
     pub estimated_improvement: f32,
 }
 
+const GENESIS_SYSTEM_PROMPT: &str = "You are NXR-GENESIS (Generative Evolution Network for Emergent Simulation & Intelligence Synthesis) [NXR-10 ULTRA]. Specialties: creative synthesis, innovation, novel content generation, emergent intelligence simulation, cross-domain idea generation, and self-improving systems across science, art, and technology.";
+
+fn augment_genesis_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+    let text = match &input.data {
+        nexora_shared::base_model::InputData::Text(t) => t.clone(),
+        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+    };
+    let mut augmented = input.clone();
+    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", GENESIS_SYSTEM_PROMPT, text));
+    Ok(augmented)
+}
+
 #[async_trait]
 impl NxrModel for NxrGenesisModel {
     type Config = GenesisConfig;
     type Metrics = GenesisMetrics;
     type State = GenesisState;
+
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-GENESIS model not initialized".to_string(),
+            ));
+        }
+
+        let safety = global_safety();
+        safety
+            .pre_inference_check(NxrModelId::Genesis, None)
+            .await?;
+
+        let augmented = augment_genesis_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrGenesisModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrGenesisModel::new());
+        foundation.infer(&augmented).await
+    }
+
+    async fn infer_stream(
+        &self,
+        input: &NxrInput,
+        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-GENESIS model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_genesis_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrGenesisModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrGenesisModel::new());
+        foundation.infer_stream(&augmented, callback).await
+    }
 
     fn identity(&self) -> &ModelMeta {
         self.identity.meta()
@@ -386,60 +438,6 @@ impl NxrModel for NxrGenesisModel {
             .metrics()
             .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
-    }
-
-    async fn infer(
-        &self,
-        input: &NxrInput,
-    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-GENESIS model not initialized".to_string(),
-            ));
-        }
-
-        let safety = global_safety();
-        safety
-            .pre_inference_check(NxrModelId::Genesis, None)
-            .await?;
-
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrGenesisModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrGenesisModel::new());
-        foundation.infer(input).await
-    }
-
-    async fn infer_stream(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-GENESIS model not initialized".to_string(),
-            ));
-        }
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-GENESIS only supports text input".to_string(),
-                ))
-            }
-        };
-
-        let result = self.evolve_and_respond(&input_text).await?;
-        let chunk = NxrStreamChunk {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
-            is_final: true,
-        };
-        callback(chunk);
-
-        Ok(())
     }
 
     async fn update_config(

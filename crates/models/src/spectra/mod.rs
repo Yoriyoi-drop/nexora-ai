@@ -443,6 +443,10 @@ impl NxrModel for NxrSpectraModel {
         foundation.infer_stream(&augmented, callback).await
     }
 
+    fn identity(&self) -> &ModelMeta {
+        self.identity.meta()
+    }
+
     fn capabilities(&self) -> &CapabilityVector {
         self.capabilities.vector()
     }
@@ -491,55 +495,6 @@ impl NxrModel for NxrSpectraModel {
             .metrics()
             .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
-    }
-
-    async fn infer(
-        &self,
-        input: &NxrInput,
-    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SPECTRA model not initialized".to_string(),
-            ));
-        }
-
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrSpectraModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrSpectraModel::new());
-        foundation.infer(input).await
-    }
-
-    async fn infer_stream(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-SPECTRA model not initialized".to_string(),
-            ));
-        }
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-SPECTRA only supports text input".to_string(),
-                ))
-            }
-        };
-
-        let result = self.generate_creative_content(&input_text).await?;
-        let chunk = NxrStreamChunk {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
-            is_final: true,
-        };
-        callback(chunk);
-
-        Ok(())
     }
 
     async fn update_config(

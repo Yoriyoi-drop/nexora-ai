@@ -504,6 +504,10 @@ impl NxrModel for NxrOmnisModel {
         foundation.infer_stream(&augmented, callback).await
     }
 
+    fn identity(&self) -> &ModelMeta {
+        self.identity.meta()
+    }
+
     fn capabilities(&self) -> &CapabilityVector {
         self.capabilities.vector()
     }
@@ -568,63 +572,6 @@ impl NxrModel for NxrOmnisModel {
             .metrics()
             .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
-    }
-
-    async fn infer(
-        &self,
-        input: &NxrInput,
-    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-OMNIS model not initialized".to_string(),
-            ));
-        }
-
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrOmnisModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrOmnisModel::new());
-        foundation.infer(input).await
-    }
-
-    async fn infer_stream(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-OMNIS model not initialized".to_string(),
-            ));
-        }
-
-        // Extract input text
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-OMNIS only supports text input".to_string(),
-                ))
-            }
-        };
-
-        // Stream reasoning steps
-        let reasoning_steps = self
-            .agents
-            .meta_reasoner()
-            .stream_reasoning(&input_text)?;
-
-        for (i, step) in reasoning_steps.into_iter().enumerate() {
-            let chunk = NxrStreamChunk {
-                id: uuid::Uuid::new_v4(),
-                input_id: input.id,
-                timestamp: chrono::Utc::now(),
-                data: nexora_shared::base_model::StreamChunkData::TextDelta(step),
-                is_final: i == 4, // Assuming 5 steps total
-            };
-            callback(chunk);
-        }
-
-        Ok(())
     }
 
     async fn update_config(

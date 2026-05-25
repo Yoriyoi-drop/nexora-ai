@@ -389,6 +389,10 @@ impl NxrModel for NxrAetherModel {
         foundation.infer_stream(&augmented, callback).await
     }
 
+    fn identity(&self) -> &ModelMeta {
+        self.identity.meta()
+    }
+
     fn capabilities(&self) -> &CapabilityVector {
         self.capabilities.vector()
     }
@@ -437,65 +441,6 @@ impl NxrModel for NxrAetherModel {
             .metrics()
             .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
-    }
-
-    async fn infer(
-        &self,
-        input: &NxrInput,
-    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-ÆTHER model not initialized".to_string(),
-            ));
-        }
-
-        let safety = global_safety();
-        let consent_token = input.metadata.get("consent_token").and_then(|v| v.as_str());
-        safety
-            .pre_inference_check(NxrModelId::Aether, consent_token)
-            .await?;
-
-        if self.config().psychological.enable_profiling {
-            safety.gate.check_consent(consent_token)?;
-        }
-
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrAetherModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrAetherModel::new());
-        foundation.infer(input).await
-    }
-
-    async fn infer_stream(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-ÆTHER model not initialized".to_string(),
-            ));
-        }
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-ÆTHER only supports text input".to_string(),
-                ))
-            }
-        };
-
-        let result = self.analyze_emotional_content(&input_text).await?;
-        let chunk = NxrStreamChunk {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
-            is_final: true,
-        };
-        callback(chunk);
-
-        Ok(())
     }
 
     async fn update_config(

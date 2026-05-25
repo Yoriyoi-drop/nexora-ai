@@ -325,11 +325,58 @@ pub struct KnowledgeSynthesis {
     pub knowledge_gaps: Vec<String>,
 }
 
+const KRONOS_SYSTEM_PROMPT: &str = "You are NXR-KRONOS (Knowledge Retrieval & Ontological Neural Optimization System) [NXR-09 CORE]. Specialties: knowledge management, factual retrieval, semantic search, knowledge graph navigation, fact verification, research synthesis, and comprehensive information analysis across all domains.";
+
+fn augment_kronos_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+    let text = match &input.data {
+        nexora_shared::base_model::InputData::Text(t) => t.clone(),
+        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+    };
+    let mut augmented = input.clone();
+    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", KRONOS_SYSTEM_PROMPT, text));
+    Ok(augmented)
+}
+
 #[async_trait]
 impl NxrModel for NxrKronosModel {
     type Config = KronosConfig;
     type Metrics = KronosMetrics;
     type State = KronosState;
+
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-KRONOS model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_kronos_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrKronosModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrKronosModel::new());
+        foundation.infer(&augmented).await
+    }
+
+    async fn infer_stream(
+        &self,
+        input: &NxrInput,
+        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-KRONOS model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_kronos_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrKronosModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrKronosModel::new());
+        foundation.infer_stream(&augmented, callback).await
+    }
 
     fn identity(&self) -> &ModelMeta {
         self.identity.meta()
@@ -387,55 +434,6 @@ impl NxrModel for NxrKronosModel {
             .metrics()
             .await
             .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))
-    }
-
-    async fn infer(
-        &self,
-        input: &NxrInput,
-    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-KRONOS model not initialized".to_string(),
-            ));
-        }
-
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrKronosModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrKronosModel::new());
-        foundation.infer(input).await
-    }
-
-    async fn infer_stream(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
-        if !self.base.is_initialized().await {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "NXR-KRONOS model not initialized".to_string(),
-            ));
-        }
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-KRONOS only supports text input".to_string(),
-                ))
-            }
-        };
-
-        let result = self.retrieve_knowledge(&input_text).await?;
-        let chunk = NxrStreamChunk {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
-            is_final: true,
-        };
-        callback(chunk);
-
-        Ok(())
     }
 
     async fn update_config(
