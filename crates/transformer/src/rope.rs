@@ -49,12 +49,10 @@ impl RoPE {
             if let Ok(x_cpu) = ArrayD::from_shape_vec(vec![batch_size, dim], x_flat) {
                 if let Ok(x_gpu) = GpuTensor::from_cpu(&x_cpu) {
                     let half = cos.len();
-                    let cos_gpu = GpuTensor::from_cpu(
-                        &ArrayD::from_shape_vec(vec![half], cos.to_vec()).expect("shape mismatch for cos")
-                    ).ok();
-                    let sin_gpu = GpuTensor::from_cpu(
-                        &ArrayD::from_shape_vec(vec![half], sin.to_vec()).expect("shape mismatch for sin")
-                    ).ok();
+                    let cos_gpu = ArrayD::from_shape_vec(vec![half], cos.to_vec()).ok()
+                    .and_then(|arr| GpuTensor::from_cpu(&arr).ok());
+                    let sin_gpu = ArrayD::from_shape_vec(vec![half], sin.to_vec()).ok()
+                        .and_then(|arr| GpuTensor::from_cpu(&arr).ok());
                     if let (Some(cg), Some(sg)) = (cos_gpu, sin_gpu) {
                         if let Ok(result) = ctx.rotary_embedding(&x_gpu, &cg, &sg, head_dim as u32) {
                             if let Ok(cpu_data) = result.to_cpu() {

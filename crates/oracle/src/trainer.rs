@@ -6,6 +6,8 @@
 
 use anyhow::Result;
 use ndarray::Array2;
+use nexora_autograd::Adam;
+use nexora_autograd::TensorOps;
 use serde::{Deserialize, Serialize};
 
 use crate::alignment::{CodeDpoConfig, CodeDpoTrainer, CodePreferencePair};
@@ -141,6 +143,10 @@ pub struct OracleTrainer {
     verifier: crate::verifiers::CodeVerifierManager,
     position_tracker: CrossFilePositionTracker,
     training_state: OracleTrainingState,
+    /// Differentiable parameter wrappers for autograd training
+    trainable_params: Vec<nexora_autograd::Tensor>,
+    /// Adam optimizer for gradient-based weight updates
+    optimizer: Adam,
 }
 
 /// Lightweight code analysis result used by the ORACLE facade.
@@ -169,6 +175,13 @@ impl OracleTrainer {
         let verifier = crate::verifiers::CodeVerifierManager::new();
         let position_tracker = CrossFilePositionTracker::new();
 
+        // Create differentiable training parameters for the backbone
+        let trainable_params = backbone.collect_training_tensors();
+        let lr = config.training.learning_rate;
+        let mut optimizer = Adam::new(trainable_params.clone(), lr);
+        optimizer.set_weight_decay(0.01);
+        optimizer.set_max_grad_norm(Some(config.training.grad_clip_norm));
+
         Ok(Self {
             config,
             backbone,
@@ -179,6 +192,8 @@ impl OracleTrainer {
             verifier,
             position_tracker,
             training_state: OracleTrainingState::default(),
+            trainable_params,
+            optimizer,
         })
     }
 
@@ -230,9 +245,11 @@ impl OracleTrainer {
         Ok(result)
     }
 
-    /// Run pretraining phase
+    /// Run pretraining phase with REAL gradient-based training
     fn run_pretraining(&mut self, training_data: &[TrainingExample]) -> Result<PretrainingResult> {
         let mut result = PretrainingResult::new();
+        let d_model = self.config.backbone.d_model;
+        let vocab_size = self.config.pretraining.vocab_size;
 
         for epoch in 0..self.config.training.pretraining_epochs {
             println!(
@@ -241,24 +258,71 @@ impl OracleTrainer {
                 self.config.training.pretraining_epochs
             );
 
-            // Create batches
-            let batches = self.create_pretraining_batches(training_data)?;
+            // Refresh trainable params from backbone at start of epoch
+            // (in case the backbone was modified externally)
+            self.trainable_params = self.backbone.collect_training_tensors();
+            self.optimizer = {
+                let lr = self.config.training.learning_rate;
+                let mut opt = Adam::new(self.trainable_params.clone(), lr);
+                opt.set_weight_decay(0.01);
+                opt.set_max_grad_norm(Some(self.config.training.grad_clip_norm));
+                opt
+            };
 
+            let batches = self.create_pretraining_batches(training_data)?;
             let mut epoch_loss = 0.0;
             let mut batch_count = 0;
 
             for (batch_idx, batch) in batches.iter().enumerate() {
-                // Convert batch to input_ids for backbone forward pass
                 let input_ids = self.batch_to_input_ids(batch)?;
-                let mask = None;
+                let (batch_size, seq_len) = input_ids.dim();
 
-                // Real forward pass through OracleBackbone
-                let logits = self.backbone.forward(&input_ids, mask)?;
+                // ── 1. Zero gradients ──
+                self.optimizer.zero_grad();
 
-                // Training step with real logits for cross-entropy
-                let loss = self.pretrainer.training_step_with_logits(batch, &logits)?;
-                epoch_loss += loss.total_loss;
+                // ── 2. Differentiable forward pass via Tensor ops ──
+                let logits_t = self.backbone.forward_tensor(
+                    &input_ids,
+                    &self.trainable_params,
+                    None,
+                    d_model,
+                    vocab_size,
+                )?;
+
+                // ── 3. Build flat labels for loss computation ──
+                let mut flat_labels = Vec::new();
+                for example in &batch.examples {
+                    flat_labels.extend_from_slice(&example.tokens);
+                }
+                // Truncate/pad to match batch * seq_len
+                let expected_len = batch_size * seq_len;
+                if flat_labels.len() > expected_len {
+                    flat_labels.truncate(expected_len);
+                }
+                flat_labels.resize(expected_len, -1);
+
+                // Flatten logits from [batch, seq, vocab] to [batch*seq, vocab]
+                let logits_flat = logits_t.reshape(&[expected_len, vocab_size]);
+
+                // ── 4. Compute differentiable cross-entropy loss ──
+                let (loss_t, loss_val) =
+                    crate::backbone::compute_tensor_loss(&logits_flat, &flat_labels, vocab_size);
+
+                // ── 5. Backward: compute gradients ──
+                loss_t.backward();
+
+                // ── 6. Optimizer step: update all trainable params ──
+                self.optimizer.step();
+
+                // ── 7. Sync updated params back to backbone ndarray ──
+                self.backbone.sync_from_tensors(&self.trainable_params);
+
+                epoch_loss += loss_val;
                 batch_count += 1;
+
+                // Update training state
+                self.pretrainer.training_state.step_count += 1;
+                self.pretrainer.training_state.total_loss += loss_val;
 
                 // Update position tracker
                 self.update_position_tracker(&batch.examples)?;
@@ -269,12 +333,13 @@ impl OracleTrainer {
                         "  Batch {}/{}: Loss = {:.6}",
                         batch_idx + 1,
                         batches.len(),
-                        loss.total_loss
+                        loss_val
                     );
                 }
 
                 // Checkpoint
                 if self.training_state.current_step % self.config.training.checkpoint_interval == 0
+                    && self.training_state.current_step > 0
                 {
                     self.save_checkpoint(format!(
                         "pretraining_epoch_{}_step_{}",
@@ -300,7 +365,6 @@ impl OracleTrainer {
 
                 println!("  Eval Loss: {:.6}", eval_metrics.pretraining_loss);
 
-                // Early stopping
                 if self.check_early_stopping(eval_metrics.pretraining_loss) {
                     println!("  Early stopping triggered");
                     break;
@@ -396,21 +460,45 @@ impl OracleTrainer {
         Ok(result)
     }
 
-    /// Final evaluation
+    /// Final evaluation using real Tensor-based forward pass
     pub fn final_evaluation(
         &mut self,
         training_data: &[TrainingExample],
     ) -> Result<EvaluationMetrics> {
         println!("Running comprehensive evaluation...");
+        let d_model = self.config.backbone.d_model;
+        let vocab_size = self.config.pretraining.vocab_size;
 
-        // Pretraining evaluation
+        // Pretraining evaluation with Tensor forward
         let pretraining_batches = self.create_pretraining_batches(training_data)?;
         let mut pretraining_losses = Vec::new();
 
         for batch in pretraining_batches.iter().take(10) {
-            // Sample 10 batches
-            let loss = self.pretrainer.training_step(batch)?;
-            pretraining_losses.push(loss.total_loss);
+            let input_ids = self.batch_to_input_ids(batch)?;
+            let (batch_size, seq_len) = input_ids.dim();
+            let expected_len = batch_size * seq_len;
+
+            let logits_t = self.backbone.forward_tensor(
+                &input_ids,
+                &self.trainable_params,
+                None,
+                d_model,
+                vocab_size,
+            )?;
+
+            let mut flat_labels = Vec::new();
+            for example in &batch.examples {
+                flat_labels.extend_from_slice(&example.tokens);
+            }
+            if flat_labels.len() > expected_len {
+                flat_labels.truncate(expected_len);
+            }
+            flat_labels.resize(expected_len, -1);
+
+            let logits_flat = logits_t.reshape(&[expected_len, vocab_size]);
+            let (_loss_t, loss_val) =
+                crate::backbone::compute_tensor_loss(&logits_flat, &flat_labels, vocab_size);
+            pretraining_losses.push(loss_val);
         }
 
         // Alignment evaluation
@@ -419,7 +507,6 @@ impl OracleTrainer {
         let mut alignment_losses = Vec::new();
 
         for batch in alignment_batches.iter().take(10) {
-            // Sample 10 batches
             let loss = self.dpo_trainer.training_step(batch)?;
             alignment_losses.push(loss.total_loss);
         }
@@ -427,7 +514,6 @@ impl OracleTrainer {
         // Code verification evaluation
         let mut verification_scores = Vec::new();
         for example in training_data.iter().take(100) {
-            // Sample 100 examples
             let code = self.tokenizer.decode(&example.tokens)?;
             let result = self.verifier.verify_code(&code, "python")?;
             verification_scores.push(result);

@@ -6,7 +6,8 @@ use async_trait::async_trait;
 use futures;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -138,7 +139,7 @@ impl InferenceAgent {
 
         // Check concurrent session limit
         {
-            let sessions = self.active_sessions.lock().unwrap();
+            let sessions = self.active_sessions.lock();
             if sessions.len() >= self.config.max_concurrent_sessions {
                 return Err(AgentError::ProcessingError {
                     operation: "start_session".to_string(),
@@ -167,7 +168,7 @@ impl InferenceAgent {
 
         // Add to active sessions
         {
-            let mut sessions = self.active_sessions.lock().unwrap();
+            let mut sessions = self.active_sessions.lock();
             sessions.insert(session_id, session);
         }
 
@@ -207,7 +208,7 @@ impl InferenceAgent {
 
         // Check session exists and is ready
         {
-            let sessions = self.active_sessions.lock().unwrap();
+            let sessions = self.active_sessions.lock();
             if let Some(session) = sessions.get(&session_id) {
                 if session.status != InferenceSessionStatus::Ready
                     && session.status != InferenceSessionStatus::Running
@@ -291,7 +292,7 @@ impl InferenceAgent {
 
         // Check session exists and is ready
         {
-            let sessions = self.active_sessions.lock().unwrap();
+            let sessions = self.active_sessions.lock();
             if let Some(session) = sessions.get(&session_id) {
                 if session.status != InferenceSessionStatus::Ready
                     && session.status != InferenceSessionStatus::Running
@@ -346,13 +347,13 @@ impl InferenceAgent {
 
     /// Get session information
     pub async fn get_session_info(&self, session_id: Uuid) -> Result<Option<InferenceSession>> {
-        let sessions = self.active_sessions.lock().unwrap();
+        let sessions = self.active_sessions.lock();
         Ok(sessions.get(&session_id).cloned())
     }
 
     /// List active sessions
     pub async fn list_active_sessions(&self) -> Vec<InferenceSession> {
-        let sessions = self.active_sessions.lock().unwrap();
+        let sessions = self.active_sessions.lock();
         sessions.values().cloned().collect()
     }
 
@@ -362,7 +363,7 @@ impl InferenceAgent {
         let mut sessions_to_remove = Vec::new();
 
         {
-            let sessions = self.active_sessions.lock().unwrap();
+            let sessions = self.active_sessions.lock();
             for (session_id, session) in sessions.iter() {
                 let age_seconds = (now - session.created_at).num_seconds() as u64;
                 if age_seconds > self.config.max_session_age_seconds {
@@ -386,7 +387,7 @@ impl InferenceAgent {
         let mut timed_out = Vec::new();
 
         {
-            let sessions = self.active_sessions.lock().unwrap();
+            let sessions = self.active_sessions.lock();
             for (session_id, session) in sessions.iter() {
                 if session.status == InferenceSessionStatus::Running {
                     let idle = (now - session.last_activity).num_seconds() as u64;
@@ -412,7 +413,7 @@ impl InferenceAgent {
         session_id: Uuid,
         status: InferenceSessionStatus,
     ) -> Result<()> {
-        let mut sessions = self.active_sessions.lock().unwrap();
+        let mut sessions = self.active_sessions.lock();
         if let Some(session) = sessions.get_mut(&session_id) {
             session.status = status;
             session.last_activity = chrono::Utc::now();
@@ -432,7 +433,7 @@ impl InferenceAgent {
         tokens_generated: u64,
         processing_time_ms: u64,
     ) -> Result<()> {
-        let mut sessions = self.active_sessions.lock().unwrap();
+        let mut sessions = self.active_sessions.lock();
         if let Some(session) = sessions.get_mut(&session_id) {
             session.tokens_generated += tokens_generated;
             session.processing_time_ms += processing_time_ms;
@@ -448,13 +449,13 @@ impl InferenceAgent {
 
     /// Clean up session
     async fn cleanup_session(&self, session_id: Uuid) {
-        let mut sessions = self.active_sessions.lock().unwrap();
+        let mut sessions = self.active_sessions.lock();
         sessions.remove(&session_id);
     }
 
     /// Get inference statistics
     pub async fn get_inference_stats(&self) -> InferenceStats {
-        let sessions = self.active_sessions.lock().unwrap();
+        let sessions = self.active_sessions.lock();
         let total_tokens: u64 = sessions.values().map(|s| s.tokens_generated).sum();
         let total_processing_time: u64 = sessions.values().map(|s| s.processing_time_ms).sum();
 
@@ -663,7 +664,7 @@ impl Agent for InferenceAgent {
 
         // Stop all active sessions
         let session_ids: Vec<Uuid> = {
-            let sessions = self.active_sessions.lock().unwrap();
+            let sessions = self.active_sessions.lock();
             sessions.keys().cloned().collect()
         };
 

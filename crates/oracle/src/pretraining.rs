@@ -656,7 +656,7 @@ pub struct DualLoss {
 pub struct OraclePretrainer {
     config: OraclePretrainingConfig,
     dual_loss_calculator: DualLossCalculator,
-    training_state: PretrainingState,
+    pub training_state: PretrainingState,
 }
 
 impl OraclePretrainer {

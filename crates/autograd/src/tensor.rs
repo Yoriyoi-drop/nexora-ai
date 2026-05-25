@@ -159,15 +159,15 @@ impl Tensor {
     }
 
     /// Zero-copy access to CPU data via a guard that holds the read lock.
-    /// Panics if tensor is on GPU — use `data()` for GPU readback.
-    pub fn data_ref(&self) -> DataRef<'_> {
+    /// Returns `Err` if tensor is on GPU — use `data()` for GPU readback.
+    pub fn data_ref(&self) -> Result<DataRef<'_>, &'static str> {
         let guard = self.0.read();
         let ptr: *const ArrayD<f32> = match &guard.storage {
             Storage::Cpu(arr) => arr.as_ref(),
             #[cfg(feature = "gpu")]
-            Storage::Gpu(_) => panic!("data_ref() on GPU tensor — use data() for GPU readback"),
+            Storage::Gpu(_) => return Err("data_ref() on GPU tensor — use data() for GPU readback"),
         };
-        DataRef { _guard: guard, data: ptr }
+        Ok(DataRef { _guard: guard, data: ptr })
     }
 
     /// Returns an `Arc<ArrayD<f32>>` — O(1) for CPU (refcount increment), O(N) GPU readback.

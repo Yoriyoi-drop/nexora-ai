@@ -124,7 +124,7 @@ impl Sampler {
         } else {
             0
         };
-        let seed = self.config.seed.unwrap_or(42);
+        let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
         let out = ctx
             .gpu_sample(&gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
             .map_err(|e| InferenceError::DecodingError(format!("gpu_sample: {}", e)))?;
@@ -219,7 +219,7 @@ impl Sampler {
             .map_err(|e| InferenceError::DecodingError(format!("GpuTensor::from_cpu: {}", e)))?;
 
         let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
-        let seed = self.config.seed.unwrap_or(42);
+        let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
         let out = match ctx.gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed) {
             Ok(o) => o,
             Err(e) => {
@@ -440,9 +440,10 @@ impl AdvancedSampler {
 
     pub fn sample(&mut self, logits: &[f32]) -> Result<usize> {
         let mut adjusted = logits.to_vec();
+        let penalty = self.repetition_penalty - 1.0;
         for &past in &self.history {
             if let Some(v) = adjusted.get_mut(past) {
-                *v /= self.repetition_penalty.max(0.01);
+                *v -= penalty * v.abs();
             }
         }
         let idx = self.base.sample(&adjusted)?;

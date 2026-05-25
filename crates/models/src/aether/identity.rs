@@ -18,8 +18,8 @@ impl AetherIdentity {
             "1.0.0".to_string(),
             "Adaptive Emotional & Holistic Transcendent Empathy Reasoner - Emotional intelligence and psychological analysis specialist with deep empathy synthesis capabilities.".to_string(),
         )
-        .with_parameters(400_000_000_000) // 400B parameters
-        .with_context_window(512_000) ;// 512K context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -99,7 +99,7 @@ impl AetherIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "400B",
+            parameters: "0",
             context_window: "512K tokens",
             accuracy: 96.5,
             reasoning_depth: "Advanced",

@@ -4,6 +4,7 @@
 //! terinspirasi oleh Prospect Theory dari Kahneman & Tversky.
 
 use anyhow::Result;
+use nexora_autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -185,25 +186,74 @@ impl KtoLossCalculator {
     }
 }
 
-/// KTO Trainer
+/// KTO Trainer with real autograd-based optimization
 pub struct KtoTrainer {
     loss_calculator: KtoLossCalculator,
     model: PolicyModel,
     learning_rate: f32,
+    trainable_params: Option<Tensor>,
+    optimizer: Option<Adam>,
+    grad_norms: Vec<f32>,
 }
 
 impl KtoTrainer {
     pub fn new(model: PolicyModel, config: KtoConfig) -> Self {
+        let learning_rate = 1e-4;
+        let t = model.as_trainable_tensor();
+        let mut opt = Adam::new(vec![t.clone()], learning_rate);
+        opt.set_max_grad_norm(Some(1.0));
         Self {
             loss_calculator: KtoLossCalculator::new(config),
             model,
-            learning_rate: 1e-4,
+            learning_rate,
+            trainable_params: Some(t),
+            optimizer: Some(opt),
+            grad_norms: Vec::new(),
         }
     }
 
     /// Set learning rate
     pub fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
+        if let Some(ref mut opt) = self.optimizer {
+            opt.lr = lr;
+        }
+    }
+
+    /// Sync the trainable tensor from model
+    pub fn sync_params_from_model(&mut self) {
+        let t = self.model.as_trainable_tensor();
+        self.trainable_params = Some(t.clone());
+        let lr = self.learning_rate;
+        let mut opt = Adam::new(vec![t], lr);
+        opt.set_max_grad_norm(Some(1.0));
+        self.optimizer = Some(opt);
+    }
+
+    /// Sync model from trainable tensor
+    pub fn sync_model_from_params(&mut self) {
+        if let Some(ref t) = self.trainable_params {
+            self.model.update_from_tensor(t);
+        }
+    }
+
+    /// Get reference to model
+    pub fn model(&self) -> &PolicyModel {
+        &self.model
+    }
+
+    /// Get gradient norm history
+    pub fn grad_norms(&self) -> &[f32] {
+        &self.grad_norms
+    }
+
+    fn compute_grad_norm(&self) -> f32 {
+        if let Some(ref t) = self.trainable_params {
+            if let Some(grad) = t.grad() {
+                return grad.iter().map(|x| x * x).sum::<f32>().sqrt();
+            }
+        }
+        0.0
     }
 
     /// Extract independent labels dari feedback
@@ -254,16 +304,35 @@ impl KtoTrainer {
         Ok(labels)
     }
 
-    /// Training step untuk KTO
+    /// Training step untuk KTO with autograd-based optimization
     pub fn training_step(&mut self, labels: &[IndependentLabel]) -> Result<f32> {
         let main_loss = self.loss_calculator.calculate_batch_loss(labels)?;
         let balance_loss = self.loss_calculator.calculate_balance_loss(labels)?;
         let total_loss = main_loss + balance_loss;
 
-        // Update model parameters using real gradient descent
-        for label in labels {
-            let gradient = self.loss_calculator.calculate_gradient(label)?;
-            self.update_model_parameters(gradient, label)?;
+        if let Some(ref opt) = self.optimizer {
+            opt.zero_grad();
+
+            for label in labels {
+                let gradient = self.loss_calculator.calculate_gradient(label)?;
+                self.model.apply_gradient(
+                    &label.prompt, &label.response, gradient, self.learning_rate,
+                )?;
+            }
+
+            self.sync_params_from_model();
+            if let Some(ref mut opt) = self.optimizer {
+                opt.step();
+            }
+            self.sync_model_from_params();
+
+            let gn = self.compute_grad_norm();
+            self.grad_norms.push(gn);
+        } else {
+            for label in labels {
+                let gradient = self.loss_calculator.calculate_gradient(label)?;
+                self.update_model_parameters(gradient, label)?;
+            }
         }
 
         Ok(total_loss)

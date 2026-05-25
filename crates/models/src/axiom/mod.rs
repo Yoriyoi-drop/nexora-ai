@@ -277,7 +277,13 @@ impl NxrAxiomModel {
                 .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
+            match h.run_pipeline(&text, ctx.as_deref(), None).await {
+                Ok(result) => return Some(result),
+                Err(e) => {
+                    tracing::warn!("Pipeline execution failed: {}", e);
+                    return None;
+                }
+            }
         }
         None
     }
@@ -437,10 +443,10 @@ impl NxrModel for NxrAxiomModel {
             },
             performance: nexora_shared::base_model::PerformanceMetrics {
                 tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
-                memory_usage_gb: 48.0,
-                gpu_utilization: Some(0.90),
-                cpu_utilization: 0.75,
-                network_usage_mbps: Some(5.0),
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
             },
         })
     }
@@ -456,24 +462,24 @@ impl NxrModel for NxrAxiomModel {
             ));
         }
 
-        let steps = vec![
-            "Analyzing strategic context...",
-            "Assessing risk factors...",
-            "Generating decision options...",
-            "Simulating outcomes...",
-            "Recommending strategic action...",
-        ];
+        let input_text = match &input.data {
+            nexora_shared::base_model::InputData::Text(text) => text.clone(),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-AXIOM only supports text input".to_string(),
+                ))
+            }
+        };
 
-        for (i, step) in steps.into_iter().enumerate() {
-            let chunk = NxrStreamChunk {
-                id: uuid::Uuid::new_v4(),
-                input_id: input.id,
-                timestamp: chrono::Utc::now(),
-                data: nexora_shared::base_model::StreamChunkData::TextDelta(step.to_string()),
-                is_final: i == 4,
-            };
-            callback(chunk);
-        }
+        let result = self.make_strategic_decision(&input_text).await?;
+        let chunk = NxrStreamChunk {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
+            is_final: true,
+        };
+        callback(chunk);
 
         Ok(())
     }
@@ -515,12 +521,12 @@ impl NxrModel for NxrAxiomModel {
         &self,
     ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
-            memory_gb: 48.0,
-            cpu_percent: 75.0,
-            gpu_percent: Some(90.0),
-            gpu_memory_gb: Some(40.0),
-            disk_gb: 200.0,
-            network_mbps: 5.0,
+            memory_gb: 0.0,
+            cpu_percent: 0.0,
+            gpu_percent: None,
+            gpu_memory_gb: None,
+            disk_gb: 0.0,
+            network_mbps: 0.0,
             active_connections: 0,
             queue_size: 0,
         })

@@ -43,9 +43,6 @@ struct ScheduledRequest {
     batch_key: Option<BatchKey>,
 }
 
-/// Handler type for processing batches through the inference engine
-pub type BatchHandler = Arc<dyn Fn(Batch) -> crate::Result<()> + Send + Sync>;
-
 pub struct RequestScheduler {
     queue: RwLock<VecDeque<Uuid>>,
     requests: Arc<RwLock<HashMap<Uuid, ScheduledRequest>>>,
@@ -59,7 +56,6 @@ pub struct RequestScheduler {
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
     background_handles: tokio::sync::Mutex<Vec<JoinHandle<()>>>,
-    engine_handler: Option<BatchHandler>,
     total_queue_time_ms: RwLock<f64>,
     total_processing_time_ms: RwLock<f64>,
     scheduler_start: Instant,
@@ -81,22 +77,10 @@ impl RequestScheduler {
             shutdown_tx,
             shutdown_rx,
             background_handles: tokio::sync::Mutex::new(Vec::new()),
-            engine_handler: None,
             total_queue_time_ms: RwLock::new(0.0),
             total_processing_time_ms: RwLock::new(0.0),
             scheduler_start: Instant::now(),
         }
-    }
-
-    /// Set the engine handler for batch processing
-    pub fn with_engine_handler(mut self, handler: BatchHandler) -> Self {
-        self.engine_handler = Some(handler);
-        self
-    }
-
-    /// Set the engine handler after construction
-    pub fn set_engine_handler(&mut self, handler: BatchHandler) {
-        self.engine_handler = Some(handler);
     }
 
     pub fn with_max_concurrent(mut self, max: usize) -> Self {
@@ -117,120 +101,6 @@ impl RequestScheduler {
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
         self.shutdown.store(false, Ordering::Relaxed);
         Ok(())
-    }
-
-    pub fn validate(&self) -> Result<(), anyhow::Error> {
-        if self.engine_handler.is_none() {
-            return Err(anyhow::anyhow!("engine_handler not set — call set_engine_handler before start"));
-        }
-        Ok(())
-    }
-
-    /// Spawn a background worker that periodically polls for ready batches,
-    /// dispatches them to the inference engine, and fans out responses.
-    /// This ensures both timed-out and ready batches are drained.
-    /// Returns the JoinHandle so callers can await/cancel the background worker.
-    pub fn start(this: Arc<RwLock<Self>>) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            {
-                let s = this.read().await;
-                if s.engine_handler.is_none() {
-                    tracing::error!("engine_handler not set — call set_engine_handler before start");
-                    return;
-                }
-            }
-            let notify = {
-                let s = this.read().await;
-                s.notify.clone()
-            };
-            let mut shutdown_rx = {
-                let s = this.read().await;
-                s.shutdown_rx.clone()
-            };
-            let mut last_watchdog = Instant::now();
-            loop {
-                if this.read().await.shutdown.load(Ordering::Relaxed) {
-                    break;
-                }
-
-                // Periodic timeout sweep for queued requests (every pop)
-                this.read().await.drain_timed_out_requests().await;
-
-                // Periodic watchdog for in-flight requests (every 1s)
-                if last_watchdog.elapsed() >= Duration::from_secs(1) {
-                    this.read().await.watchdog_check().await;
-                    last_watchdog = Instant::now();
-                }
-
-                while let Some(batch) = this.read().await.pop_batch().await {
-                    debug!("background worker popped ready batch {}", batch.batch_id);
-                    let req_ids: Vec<Uuid> = batch.requests.iter().map(|r| r.request_id).collect();
-                    let handler = this.read().await.engine_handler.clone();
-                    match handler {
-                        Some(engine_fn) => {
-                            match engine_fn(batch) {
-                                Ok(_) => {
-                                    for req_id in &req_ids {
-                                        if let Err(e) = this.read().await.complete_request(*req_id).await {
-                                            tracing::warn!("failed to complete request {}: {}", req_id, e);
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    for req_id in &req_ids {
-                                        this.read().await.update_status(*req_id, RequestStatus::Failed(e.to_string())).await;
-                                        let mut resp = crate::InferenceResponse::new(*req_id);
-                                        resp.finish_reason = crate::FinishReason::Error(e.to_string());
-                                        let requests = this.read().await.requests.clone();
-                                        let tx = {
-                                            let requests = requests.read().await;
-                                            requests.get(req_id).map(|r| r.response_tx.clone())
-                                        };
-                                        if let Some(tx) = tx {
-                                            if let Err(e) = tx.send(resp).await {
-                                                tracing::warn!("Failed to send response for request {:?}: {}", req_id, e);
-                                            }
-                                        }
-                                        if let Err(e) = this.read().await.complete_request(*req_id).await {
-                                            tracing::warn!("failed to complete errored request: {}", e);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        None => {
-                            for req_id in &req_ids {
-                                this.read().await.update_status(*req_id, RequestStatus::Timeout).await;
-                                let mut resp = crate::InferenceResponse::new(*req_id);
-                                resp.finish_reason = crate::FinishReason::Timeout;
-                                let requests = this.read().await.requests.clone();
-                                let tx = {
-                                    let requests = requests.read().await;
-                                    requests.get(req_id).map(|r| r.response_tx.clone())
-                                };
-                                if let Some(tx) = tx {
-                                    if let Err(e) = tx.send(resp).await {
-                                        tracing::warn!("Failed to send response for request {:?}: {}", req_id, e);
-                                    }
-                                }
-                                if let Err(e) = this.read().await.complete_request(*req_id).await {
-                                    tracing::warn!("background worker: failed to complete request {}: {}", req_id, e);
-                                }
-                            }
-                        }
-                    }
-                }
-                tokio::select! {
-                    biased;
-                    _ = shutdown_rx.changed() => {
-                        tracing::debug!("background worker received shutdown signal");
-                        break;
-                    }
-                    _ = notify.notified() => {},
-                    _ = tokio::time::sleep(Duration::from_millis(100)) => {},
-                }
-            }
-        })
     }
 
     pub async fn submit_request(
@@ -464,12 +334,6 @@ impl RequestScheduler {
         // Await background handles for graceful shutdown
         self.cancel_background_handles().await;
         Ok(())
-    }
-
-    /// Register a background handle for tracking (called from start() result).
-    pub async fn register_background_handle(&self, handle: JoinHandle<()>) {
-        let mut handles = self.background_handles.lock().await;
-        handles.push(handle);
     }
 
     /// Cancel all tracked background handles with graceful shutdown.

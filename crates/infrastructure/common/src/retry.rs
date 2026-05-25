@@ -59,16 +59,7 @@ impl RetryConfig {
                 }
             }
         }
-        match last_err {
-            Some(e) => Err(e),
-            None => {
-                tracing::error!("retry loop exhausted but no error was captured");
-                // This branch is unreachable because the loop runs at least once.
-                // Provide a safe default by returning a generic error placeholder.
-                // In practice, the loop always produces an error before exiting.
-                unreachable!()
-            }
-        }
+        Err(last_err.expect("retry loop always sets last_err before exit"))
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {

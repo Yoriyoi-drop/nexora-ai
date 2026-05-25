@@ -8,7 +8,8 @@
 
 use ndarray::{s, Array2};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use parking_lot::Mutex;
+use std::sync::OnceLock;
 
 use nexora_transformer::KVCacheEntry;
 use tracing::warn;

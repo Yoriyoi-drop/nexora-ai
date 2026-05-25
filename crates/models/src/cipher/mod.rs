@@ -247,7 +247,13 @@ impl NxrCipherModel {
                 .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
+            match h.run_pipeline(&text, ctx.as_deref(), None).await {
+                Ok(result) => return Some(result),
+                Err(e) => {
+                    tracing::warn!("Pipeline execution failed: {}", e);
+                    return None;
+                }
+            }
         }
         None
     }
@@ -402,10 +408,10 @@ impl NxrModel for NxrCipherModel {
             },
             performance: nexora_shared::base_model::PerformanceMetrics {
                 tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
-                memory_usage_gb: 16.0,
-                gpu_utilization: Some(0.70),
-                cpu_utilization: 0.65,
-                network_usage_mbps: Some(2.0),
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
             },
         })
     }
@@ -421,23 +427,24 @@ impl NxrModel for NxrCipherModel {
             ));
         }
 
-        let steps = vec![
-            "Scanning for vulnerabilities...",
-            "Assessing threat landscape...",
-            "Analyzing attack vectors...",
-            "Generating security recommendations...",
-        ];
+        let input_text = match &input.data {
+            nexora_shared::base_model::InputData::Text(text) => text.clone(),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-CIPHER only supports text input".to_string(),
+                ))
+            }
+        };
 
-        for (i, step) in steps.into_iter().enumerate() {
-            let chunk = NxrStreamChunk {
-                id: uuid::Uuid::new_v4(),
-                input_id: input.id,
-                timestamp: chrono::Utc::now(),
-                data: nexora_shared::base_model::StreamChunkData::TextDelta(step.to_string()),
-                is_final: i == 3,
-            };
-            callback(chunk);
-        }
+        let result = self.analyze_security(&input_text).await?;
+        let chunk = NxrStreamChunk {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
+            is_final: true,
+        };
+        callback(chunk);
 
         Ok(())
     }
@@ -479,12 +486,12 @@ impl NxrModel for NxrCipherModel {
         &self,
     ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
-            memory_gb: 16.0,
-            cpu_percent: 65.0,
-            gpu_percent: Some(70.0),
-            gpu_memory_gb: Some(12.0),
-            disk_gb: 100.0,
-            network_mbps: 2.0,
+            memory_gb: 0.0,
+            cpu_percent: 0.0,
+            gpu_percent: None,
+            gpu_memory_gb: None,
+            disk_gb: 0.0,
+            network_mbps: 0.0,
             active_connections: 0,
             queue_size: 0,
         })

@@ -18,8 +18,8 @@ impl CipherIdentity {
             "1.0.0".to_string(),
             "Cybersecurity Intelligence & Penetration Hardening Evaluation Responder - Specialized offensive and defensive cybersecurity model for vulnerability analysis, penetration testing, and security protocol design.".to_string(),
         )
-        .with_parameters(300_000_000_000) // 300B parameters
-        .with_context_window(512_000) ;// 512K context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -93,7 +93,7 @@ impl CipherIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "300B",
+            parameters: "0",
             context_window: "512K tokens",
             accuracy: 98.6,
             reasoning_depth: "Advanced",

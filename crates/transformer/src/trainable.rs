@@ -108,25 +108,25 @@ impl TrainableCausalLM {
         }
     }
 
-    pub fn sync_to_inference(&self, model: &mut CausalLM) {
+    pub fn sync_to_inference(&self, model: &mut CausalLM) -> Result<(), Box<dyn std::error::Error>> {
         model.token_embedding = self
             .token_embedding
             .data()
             .into_dimensionality::<ndarray::Ix2>()
-            .expect("Internal invariant: token_embedding must be 2D")
+            .map_err(|_| "Internal invariant: token_embedding must be 2D")?
             .to_owned();
         model.lm_head = self
             .lm_head
             .data()
             .into_dimensionality::<ndarray::Ix2>()
-            .expect("Internal invariant: lm_head must be 2D")
+            .map_err(|_| "Internal invariant: lm_head must be 2D")?
             .to_owned();
         model.norm.weight = self
             .norm
             .weight
             .data()
             .into_dimensionality::<ndarray::Ix1>()
-            .expect("Internal invariant: norm must be 1D")
+            .map_err(|_| "Internal invariant: norm must be 1D")?
             .to_owned();
         for (i, block) in self.blocks.iter().enumerate() {
             model.blocks[i].attention_norm.weight = block
@@ -134,65 +134,66 @@ impl TrainableCausalLM {
                 .weight
                 .data()
                 .into_dimensionality::<ndarray::Ix1>()
-                .expect("Internal invariant: attention norm must be 1D")
+                .map_err(|_| "Internal invariant: attention norm must be 1D")?
                 .to_owned();
             model.blocks[i].ffn_norm.weight = block
                 .ffn_norm
                 .weight
                 .data()
                 .into_dimensionality::<ndarray::Ix1>()
-                .expect("Internal invariant: ffn norm must be 1D")
+                .map_err(|_| "Internal invariant: ffn norm must be 1D")?
                 .to_owned();
             model.blocks[i].attention.wq = block
                 .attention
                 .wq
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: attention wq must be 2D")
+                .map_err(|_| "Internal invariant: attention wq must be 2D")?
                 .to_owned();
             model.blocks[i].attention.wk = block
                 .attention
                 .wk
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: attention wk must be 2D")
+                .map_err(|_| "Internal invariant: attention wk must be 2D")?
                 .to_owned();
             model.blocks[i].attention.wv = block
                 .attention
                 .wv
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: attention wv must be 2D")
+                .map_err(|_| "Internal invariant: attention wv must be 2D")?
                 .to_owned();
             model.blocks[i].attention.wo = block
                 .attention
                 .wo
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: attention wo must be 2D")
+                .map_err(|_| "Internal invariant: attention wo must be 2D")?
                 .to_owned();
             model.blocks[i].ffn.w1 = block
                 .ffn
                 .w1
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: ffn w1 must be 2D")
+                .map_err(|_| "Internal invariant: ffn w1 must be 2D")?
                 .to_owned();
             model.blocks[i].ffn.w2 = block
                 .ffn
                 .w2
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: ffn w2 must be 2D")
+                .map_err(|_| "Internal invariant: ffn w2 must be 2D")?
                 .to_owned();
             model.blocks[i].ffn.w3 = block
                 .ffn
                 .w3
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
-                .expect("Internal invariant: ffn w3 must be 2D")
+                .map_err(|_| "Internal invariant: ffn w3 must be 2D")?
                 .to_owned();
         }
+        Ok(())
     }
 
     pub fn forward(&self, input_ids: &Tensor) -> Tensor {

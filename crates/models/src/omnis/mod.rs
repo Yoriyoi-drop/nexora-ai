@@ -431,7 +431,13 @@ impl NxrOmnisModel {
                 .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
+            match h.run_pipeline(&text, ctx.as_deref(), None).await {
+                Ok(result) => return Some(result),
+                Err(e) => {
+                    tracing::warn!("Pipeline execution failed: {}", e);
+                    return None;
+                }
+            }
         }
         None
     }
@@ -599,9 +605,9 @@ impl NxrModel for NxrOmnisModel {
             },
             performance: nexora_shared::base_model::PerformanceMetrics {
                 tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
-                memory_usage_gb: 64.0, // Estimated
-                gpu_utilization: Some(0.85),
-                cpu_utilization: 0.45,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
                 network_usage_mbps: None,
             },
         })
@@ -719,13 +725,12 @@ impl NxrModel for NxrOmnisModel {
     async fn resource_usage(
         &self,
     ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
-        // This would integrate with system monitoring
         Ok(ResourceUsage {
-            memory_gb: 64.0,
-            cpu_percent: 45.0,
-            gpu_percent: Some(85.0),
-            gpu_memory_gb: Some(48.0),
-            disk_gb: 200.0,
+            memory_gb: 0.0,
+            cpu_percent: 0.0,
+            gpu_percent: None,
+            gpu_memory_gb: None,
+            disk_gb: 0.0,
             network_mbps: 0.0,
             active_connections: 0,
             queue_size: 0,

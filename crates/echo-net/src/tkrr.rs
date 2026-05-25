@@ -649,7 +649,7 @@ impl TopKResonanceRouting {
         let event = RoutingEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time after epoch")
+                .map_err(|e| DeepLearningError::Configuration { reason: format!("system time: {}", e) })?
                 .as_secs(),
             total_candidates: all_candidates.len(),
             selected_candidates: selected_candidates.len(),

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ndarray::Array1;
+use nexora_tokenizer::BpeTokenizer;
 use tracing::warn;
 
 use crate::sampler::{Sampler, SamplingConfig};
@@ -40,6 +41,7 @@ pub struct SequentialBatchingEngine<M> {
     max_total_sequences: usize,
     samplers: HashMap<u64, Sampler>,
     use_gpu: bool,
+    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
 }
 
 impl<M> SequentialBatchingEngine<M>
@@ -59,6 +61,7 @@ where
             use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
             #[cfg(not(feature = "gpu"))]
             use_gpu: false,
+            tokenizer: None,
         }
     }
 
@@ -66,6 +69,18 @@ where
         self.use_gpu = use_gpu;
         for sampler in self.samplers.values_mut() {
             sampler.set_use_gpu(use_gpu);
+        }
+    }
+
+    pub fn set_tokenizer(&mut self, tokenizer: Arc<tokio::sync::Mutex<BpeTokenizer>>) {
+        self.tokenizer = Some(tokenizer);
+    }
+
+    fn decode_token(&self, token_id: u32) -> String {
+        if let Some(ref tok) = self.tokenizer {
+            tok.blocking_lock().decode(&[token_id])
+        } else {
+            format!("[{}]", token_id)
         }
     }
 
@@ -140,73 +155,30 @@ where
             }
         }
 
-        // --- PHASE 1: Full batched prefill ---
-        // Process ALL remaining prompt tokens for each prefill sequence.
-        // For each token position up to max remaining length, call forward_batched
-        // with the tokens at that position across all sequences that still have
-        // tokens remaining. This gives true batched prefill with masking.
+        // --- PHASE 1: Batched prefill ---
+        // Process ALL remaining prompt tokens for each prefill sequence in a
+        // single forward call. The model processes all tokens sequentially
+        // internally but with a single function call overhead, and the returned
+        // logits predict the first generated token.
         if !prefill_ids.is_empty() {
-            // Determine max remaining prompt length across all prefill sequences
-            let max_remaining: usize = prefill_ids
-                .iter()
-                .filter_map(|id| self.sequences.get(id))
-                .map(|s| s.prompt.len() - s.prompt_pos)
-                .max()
-                .unwrap_or(0);
-
             // Extract KV caches for prefill sequences
             let mut prefill_caches: Vec<(u64, CpuKVCache)> = prefill_ids
                 .iter()
                 .filter_map(|&sid| self.kv_caches.remove(&sid).map(|c| (sid, c)))
                 .collect();
 
-            // Process one token position at a time across all sequences
-            for pos_offset in 0..max_remaining {
-                let mut batch_ids: Vec<u64> = Vec::new();
-                let mut batch_inputs: Vec<u32> = Vec::new();
-                let mut batch_cache_indices: Vec<usize> = Vec::new();
+            let mut prefill_logits: Vec<(u64, Array1<f32>)> = Vec::with_capacity(prefill_ids.len());
 
-                for (ci, (sid, cache)) in prefill_caches.iter_mut().enumerate() {
-                    let seq = match self.sequences.get(sid) {
-                        Some(s) => s,
-                        None => continue,
-                    };
-                    let prompt_idx = seq.prompt_pos + pos_offset;
-                    if prompt_idx < seq.prompt.len() {
-                        batch_ids.push(*sid);
-                        batch_inputs.push(seq.prompt[prompt_idx]);
-                        batch_cache_indices.push(ci);
-                    }
-                }
-
-                if batch_ids.is_empty() {
-                    continue;
-                }
-
-                // Gather caches for this batch position
-                let mut batch_caches: Vec<CpuKVCache> = batch_cache_indices
-                    .iter()
-                    .map(|&ci| std::mem::replace(&mut prefill_caches[ci].1, CpuKVCache::new(0)))
-                    .collect();
-
-                // Batched forward at this position
-                let _all_logits: Vec<Array1<f32>> = if batch_ids.len() > 1 {
-                    self.model.forward_batched(&batch_inputs, &mut batch_caches)
-                } else if let Some(cache) = batch_caches.first_mut() {
-                    vec![self.model.forward(&batch_inputs, cache)]
-                } else {
-                    Vec::new()
+            for (sid, cache) in prefill_caches.iter_mut() {
+                let seq = match self.sequences.get(sid) {
+                    Some(s) => s,
+                    None => continue,
                 };
+                let prompt_tokens: Vec<u32> = seq.prompt[seq.prompt_pos..].to_vec();
+                drop(seq);
 
-                // Restore caches
-                for (bi, &ci) in batch_cache_indices.iter().enumerate() {
-                    if bi < batch_caches.len() {
-                        prefill_caches[ci].1 = std::mem::replace(
-                            &mut batch_caches[bi],
-                            CpuKVCache::new(0),
-                        );
-                    }
-                }
+                let logits = self.model.forward(&prompt_tokens, cache);
+                prefill_logits.push((*sid, logits));
             }
 
             // Restore all prefill KV caches and update states to Generating
@@ -218,65 +190,60 @@ where
                 }
             }
 
-            // After full prefill, generate first output token for each prefill sequence
-            // by doing a single forward pass with the last prompt token
-            for &sid in &prefill_ids {
-                if let Some(cache) = self.kv_caches.get_mut(&sid) {
-                    if let Some(seq) = self.sequences.get(&sid) {
-                        let last_prompt = seq.prompt.last().copied().unwrap_or(0);
-                        let logits_arr = self.model.forward(&[last_prompt], cache);
-                        let logits_vec: Vec<f32> = logits_arr.into_raw_vec();
+            // Generate first output token for each prefill sequence using
+            // the logits from the batched prefill forward pass
+            for (sid, logits_arr) in prefill_logits {
+                let logits_vec: Vec<f32> = logits_arr.into_raw_vec();
 
-                        let sampler = match self.samplers.get_mut(&sid) {
-                            Some(s) => s,
-                            None => continue,
-                        };
-                        let token_id = match sampler.sample(&logits_vec) {
-                            Ok(idx) => u32::try_from(idx).unwrap_or(u32::MAX),
-                            Err(e) => {
-                                warn!(
-                                    "Sampler failed for prefill sequence {}, error: {:?}, falling back to argmax",
-                                    sid, e
-                                );
-                                logits_vec
-                                    .iter()
-                                    .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                                    .map(|(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
-                                    .unwrap_or(0)
-                            }
-                        };
+                let sampler = match self.samplers.get_mut(&sid) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let token_id = match sampler.sample(&logits_vec) {
+                    Ok(idx) => u32::try_from(idx).unwrap_or(u32::MAX),
+                    Err(e) => {
+                        warn!(
+                            "Sampler failed for prefill sequence {}, error: {:?}, falling back to argmax",
+                            sid, e
+                        );
+                        logits_vec
+                            .iter()
+                            .enumerate()
+                            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                            .map(|(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
+                            .unwrap_or(0)
+                    }
+                };
 
-                        let seq = match self.sequences.get_mut(&sid) {
-                            Some(s) => s,
-                            None => continue,
-                        };
-                        let log_prob = logits_vec.get(token_id as usize).copied().unwrap_or(0.0);
-                        let pos = seq.prompt.len() + seq.generated.len();
-                        seq.push_token(Arc::new(GeneratedToken::new(
-                            token_id,
-                            String::new(),
-                            log_prob,
-                            pos,
-                        )));
+                let token_text = self.decode_token(token_id);
+                let seq = match self.sequences.get_mut(&sid) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let log_prob = logits_vec.get(token_id as usize).copied().unwrap_or(0.0);
+                let pos = seq.prompt.len() + seq.generated.len();
+                seq.push_token(Arc::new(GeneratedToken::new(
+                    token_id,
+                    token_text,
+                    log_prob,
+                    pos,
+                )));
 
-                        let mut finish_reason: Option<FinishReason> = None;
-                        if token_id == seq.eos_token_id && !seq.generated.is_empty() {
-                            finish_reason = Some(FinishReason::EndOfSequence);
-                        } else if seq.reached_max_tokens() {
-                            finish_reason = Some(FinishReason::MaxTokens);
-                        }
+                let mut finish_reason: Option<FinishReason> = None;
+                if token_id == seq.eos_token_id && !seq.generated.is_empty() {
+                    finish_reason = Some(FinishReason::EndOfSequence);
+                } else if seq.reached_max_tokens() {
+                    finish_reason = Some(FinishReason::MaxTokens);
+                }
 
-                        if let Some(reason) = finish_reason {
-                            seq.finish(reason.clone());
-                            if let Some(resp) = self.build_response(
-                                sid,
-                                reason,
-                                step_start.elapsed().as_millis() as u64,
-                            ) {
-                                completed.push(resp);
-                            }
-                        }
+                if let Some(reason) = finish_reason {
+                    seq.finish(reason.clone());
+                    if let Some(resp) = self.build_response(
+                        sid,
+                        reason,
+                        step_start.elapsed().as_millis() as u64,
+                    ) {
+                        completed.push(resp);
                     }
                 }
             }
@@ -344,6 +311,8 @@ where
                     }
                 };
 
+                let token_text = self.decode_token(token_id);
+
                 let seq = match self.sequences.get_mut(&seq_id) {
                     Some(s) => s,
                     None => {
@@ -363,7 +332,7 @@ where
                 let pos = seq.prompt.len() + seq.generated.len();
                 seq.push_token(Arc::new(GeneratedToken::new(
                     token_id,
-                    String::new(),
+                    token_text,
                     log_prob,
                     pos,
                 )));

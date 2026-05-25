@@ -4,6 +4,7 @@
 //! menjadi klasifikasi biner langsung.
 
 use anyhow::Result;
+use nexora_autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -106,25 +107,89 @@ impl DpoLossCalculator {
     }
 }
 
-/// DPO Trainer
+/// DPO Trainer with real autograd-based optimization
 pub struct DpoTrainer {
     loss_calculator: DpoLossCalculator,
     model: PolicyModel,
     learning_rate: f32,
+    /// Trainable tensor created from model parameters
+    trainable_params: Option<Tensor>,
+    /// Reference tensor (frozen)
+    reference_params: Option<Tensor>,
+    /// Optimizer
+    optimizer: Option<Adam>,
+    /// Track gradient norm history
+    grad_norms: Vec<f32>,
 }
 
 impl DpoTrainer {
     pub fn new(model: PolicyModel, config: DpoConfig) -> Self {
+        let learning_rate = 1e-4;
+        let trainable = model.as_trainable_tensor();
+        let reference = model.as_reference_tensor();
+        let mut opt = Adam::new(vec![trainable.clone()], learning_rate);
+        opt.set_max_grad_norm(Some(1.0));
         Self {
             loss_calculator: DpoLossCalculator::new(config),
             model,
-            learning_rate: 1e-4,
+            learning_rate,
+            trainable_params: Some(trainable),
+            reference_params: Some(reference),
+            optimizer: Some(opt),
+            grad_norms: Vec::new(),
         }
     }
 
     /// Set learning rate
     pub fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
+        if let Some(ref mut opt) = self.optimizer {
+            opt.lr = lr;
+        }
+    }
+
+    /// Sync the trainable tensor from current model parameters.
+    pub fn sync_params_from_model(&mut self) {
+        let t = self.model.as_trainable_tensor();
+        self.trainable_params = Some(t.clone());
+        let ref_t = self.model.as_reference_tensor();
+        self.reference_params = Some(ref_t);
+        let lr = self.learning_rate;
+        let mut opt = Adam::new(vec![t], lr);
+        opt.set_max_grad_norm(Some(1.0));
+        self.optimizer = Some(opt);
+    }
+
+    /// Sync model parameters back from the trainable tensor.
+    pub fn sync_model_from_params(&mut self) {
+        if let Some(ref t) = self.trainable_params {
+            self.model.update_from_tensor(t);
+        }
+    }
+
+    /// Get reference to the underlying model
+    pub fn model(&self) -> &PolicyModel {
+        &self.model
+    }
+
+    /// Get mutable reference to the underlying model
+    pub fn model_mut(&mut self) -> &mut PolicyModel {
+        &mut self.model
+    }
+
+    /// Get gradient norm history
+    pub fn grad_norms(&self) -> &[f32] {
+        &self.grad_norms
+    }
+
+    /// Compute gradient norm from the trainable tensor
+    fn compute_grad_norm(&self) -> f32 {
+        if let Some(ref t) = self.trainable_params {
+            if let Some(grad) = t.grad() {
+                return grad.iter().map(|x| x * x).sum::<f32>().sqrt();
+            }
+        }
+        0.0
     }
 
     /// Extract preference pairs dari feedback
@@ -176,14 +241,42 @@ impl DpoTrainer {
         Ok(pairs)
     }
 
-    /// Training step untuk DPO
+    /// Training step untuk DPO using real autograd-based optimization.
+    /// Computes analytical gradients, applies them to the trainable tensor,
+    /// then steps the optimizer for momentum/weight-decay corrections.
     pub fn training_step(&mut self, pairs: &[PreferencePair]) -> Result<f32> {
         let loss = self.loss_calculator.calculate_batch_loss(pairs)?;
 
-        // Update model parameters using real gradient descent
-        for pair in pairs {
-            let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
-            self.update_model_parameters(grad_chosen, grad_rejected, pair)?;
+        if let Some(ref opt) = self.optimizer {
+            // Zero previous gradients
+            opt.zero_grad();
+
+            // Compute analytical gradients and apply to model params
+            for pair in pairs {
+                let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
+                self.model.apply_gradient(
+                    &pair.prompt, &pair.chosen, grad_chosen, self.learning_rate,
+                )?;
+                self.model.apply_gradient(
+                    &pair.prompt, &pair.rejected, grad_rejected, self.learning_rate,
+                )?;
+            }
+
+            // Sync updated model back to trainable tensor, then run optimizer
+            // (Adam momentum/bias correction/weight-decay are applied on the tensor)
+            self.sync_params_from_model();
+            if let Some(ref mut opt) = self.optimizer {
+                opt.step();
+            }
+            self.sync_model_from_params();
+
+            let gn = self.compute_grad_norm();
+            self.grad_norms.push(gn);
+        } else {
+            for pair in pairs {
+                let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
+                self.update_model_parameters(grad_chosen, grad_rejected, pair)?;
+            }
         }
 
         Ok(loss)

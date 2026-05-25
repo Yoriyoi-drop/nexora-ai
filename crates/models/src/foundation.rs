@@ -181,7 +181,13 @@ macro_rules! define_foundation_model {
                     let ctx = input.parameters.get("context")
                         .and_then(|v| v.as_str())
                         .map(String::from);
-                    return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
+                    match h.run_pipeline(&text, ctx.as_deref(), None).await {
+                        Ok(result) => return Some(result),
+                        Err(e) => {
+                            tracing::warn!("Pipeline execution failed: {}", e);
+                            return None;
+                        }
+                    }
                 }
                 None
             }

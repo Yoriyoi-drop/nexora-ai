@@ -6,6 +6,8 @@ description = "Alignment frameworks for Nexora - SPARO (RLAIF, SPIN, DPO, IPO, K
 
 [dependencies]
 nexora-shared = { path = "../shared" }
+nexora-autograd = { path = "../autograd" }
+nexora-oracle = { path = "../oracle", optional = true }
 serde.workspace = true
 anyhow.workspace = true
 ndarray.workspace = true
@@ -15,3 +17,6 @@ tracing.workspace = true
 chrono.workspace = true
 bincode = "1.3"
 async-trait.workspace = true
+
+[features]
+oracle = ["nexora-oracle"]

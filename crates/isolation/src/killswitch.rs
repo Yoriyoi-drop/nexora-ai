@@ -5,13 +5,14 @@ use uuid::Uuid;
 
 use crate::layer1_mode::ModeId;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KillSwitch {
     pub enabled: bool,
     pub confirm_required: bool,
     pub grace_period_seconds: u64,
     pub history: Vec<KillEvent>,
     pub protection: KillProtection,
+    pub kill_timestamps: Vec<chrono::DateTime<chrono::Utc>>,
+    pub handlers: Vec<Box<dyn Fn(&KillEvent) + Send + Sync>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +74,24 @@ impl KillSwitch {
                 cooldown_seconds: 60,
                 require_escalation_for: vec!["defense".into(), "system".into()],
             },
+            kill_timestamps: Vec::new(),
+            handlers: Vec::new(),
         }
+    }
+
+    pub fn register_handler<F: Fn(&KillEvent) + Send + Sync + 'static>(&mut self, handler: F) {
+        self.handlers.push(Box::new(handler));
+    }
+
+    fn enforce_rate_limit(&mut self) -> Result<(), KillSwitchError> {
+        let now = chrono::Utc::now();
+        let one_minute_ago = now - chrono::Duration::minutes(1);
+        self.kill_timestamps.retain(|t| *t > one_minute_ago);
+        if self.kill_timestamps.len() >= self.protection.max_kills_per_minute as usize {
+            return Err(KillSwitchError::RateLimitExceeded(self.protection.max_kills_per_minute));
+        }
+        self.kill_timestamps.push(now);
+        Ok(())
     }
 
     pub fn kill_agent(
@@ -90,6 +108,8 @@ impl KillSwitch {
             return Err(KillSwitchError::AgentProtected(agent_id));
         }
 
+        self.enforce_rate_limit()?;
+
         let event = KillEvent {
             id: Uuid::new_v4(),
             target: KillTarget::Agent(agent_id),
@@ -102,6 +122,9 @@ impl KillSwitch {
         };
 
         self.history.push(event.clone());
+        for handler in &self.handlers {
+            handler(&event);
+        }
         Ok(event)
     }
 
@@ -119,6 +142,8 @@ impl KillSwitch {
             return Err(KillSwitchError::ModeProtected(mode_id.clone()));
         }
 
+        self.enforce_rate_limit()?;
+
         let event = KillEvent {
             id: Uuid::new_v4(),
             target: KillTarget::Mode(mode_id),
@@ -131,6 +156,9 @@ impl KillSwitch {
         };
 
         self.history.push(event.clone());
+        for handler in &self.handlers {
+            handler(&event);
+        }
         Ok(event)
     }
 
@@ -138,6 +166,8 @@ impl KillSwitch {
         if !self.enabled {
             return Err(KillSwitchError::KillSwitchDisabled);
         }
+
+        self.enforce_rate_limit()?;
 
         let event = KillEvent {
             id: Uuid::new_v4(),
@@ -153,6 +183,9 @@ impl KillSwitch {
         };
 
         self.history.push(event.clone());
+        for handler in &self.handlers {
+            handler(&event);
+        }
         Ok(event)
     }
 

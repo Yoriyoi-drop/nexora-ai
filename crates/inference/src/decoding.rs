@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use tracing::{debug, warn};
 
+use rand::Rng;
 use std::sync::Arc;
 
 use crate::{GeneratedToken, InferenceError, Result};
@@ -213,11 +214,12 @@ impl GreedyDecoding {
             }
         }
 
-        // Apply repetition penalty
+        // Apply repetition penalty (logit-space approximation)
         if config.repetition_penalty != 1.0 {
+            let penalty = config.repetition_penalty - 1.0;
             for token_id in context.token_frequencies.keys() {
                 if let Some(logit) = adjusted.get_mut(*token_id as usize) {
-                    *logit /= config.repetition_penalty;
+                    *logit -= penalty * logit.abs();
                 }
             }
         }
@@ -353,7 +355,7 @@ impl TemperatureSampling {
                     }
                 };
                 let top_k = if config.top_k > 0 { config.top_k } else { 0 };
-                let seed = 42u64;
+                let seed = rand::thread_rng().gen();
                 match ctx.gpu_sample(&gpu, config.temperature, top_k, config.top_p, seed) {
                     Ok(out) => {
                         if let Ok(raw) = out.to_cpu_raw_bytes() {
@@ -513,9 +515,10 @@ impl TemperatureSampling {
         }
 
         if config.repetition_penalty != 1.0 {
+            let penalty = config.repetition_penalty - 1.0;
             for token_id in context.token_frequencies.keys() {
                 if let Some(logit) = adjusted.get_mut(*token_id as usize) {
-                    *logit /= config.repetition_penalty;
+                    *logit -= penalty * logit.abs();
                 }
             }
         }

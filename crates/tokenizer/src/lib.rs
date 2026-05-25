@@ -36,3 +36,10 @@ pub use vocab_builder::{
     build_vocab_from_file, build_vocab_from_texts, create_byte_level_vocab, VocabBuilder,
     VocabBuilderConfig, VocabBuilderStats, VocabEntry,
 };
+
+/// Unified tokenizer trait for encoding text and decoding token IDs.
+pub trait Tokenizer {
+    fn encode(&self, text: &str) -> anyhow::Result<Vec<u32>>;
+    fn decode(&self, ids: &[u32]) -> anyhow::Result<String>;
+    fn vocab_size(&self) -> usize;
+}

@@ -144,21 +144,27 @@ impl SwiGLU {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
         let mut guard = self.gpu_weights.lock();
-        let cached = guard.get_or_insert_with(|| {
-            let mk = |arr: &Array2<f32>| -> GpuTensor {
+        if guard.is_none() {
+            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, nexora_autograd::gpu::GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr.as_slice().expect("non-contiguous weight slice").to_vec();
-                GpuTensor::from_cpu(&ndarray::ArrayD::from_shape_vec(shape, data).expect("shape mismatch for weight")).expect("failed to upload weight to GPU")
+                let data = arr.as_slice().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported("non-contiguous weight slice".into())
+                })?.to_vec();
+                let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data)
+                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(format!("shape mismatch for weight: {}", e)))?;
+                GpuTensor::from_cpu(&cpu_arr)
             };
-            let w1 = mk(&self.w1);
-            let w2 = mk(&self.w2);
-            let w3 = mk(&self.w3);
-            SwigluGpuWeights {
-                w1_t: ctx.transpose(&w1).expect("failed to transpose w1"),
-                w2_t: ctx.transpose(&w2).expect("failed to transpose w2"),
-                w3_t: ctx.transpose(&w3).expect("failed to transpose w3"),
-            }
-        });
+            let w1 = mk(&self.w1)?;
+            let w2 = mk(&self.w2)?;
+            let w3 = mk(&self.w3)?;
+            *guard = Some(SwigluGpuWeights {
+                w1_t: ctx.transpose(&w1)?,
+                w2_t: ctx.transpose(&w2)?,
+                w3_t: ctx.transpose(&w3)?,
+            });
+        }
+        let cached = guard.as_ref()
+            .ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("SwiGLU weights not initialized".into()))?;
 
         let gate = ctx.matmul(x, &cached.w1_t)?;
         let hidden = ctx.matmul(x, &cached.w3_t)?;

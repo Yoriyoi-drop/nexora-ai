@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use ndarray::Array2;
+use nexora_autograd::Tensor;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -110,6 +111,7 @@ pub struct PolicyModel {
     pub parameters: Array2<f32>,
     pub reference_params: Array2<f32>,
     pub is_teacher: bool,
+    pub requires_grad: bool,
 }
 
 impl PolicyModel {
@@ -122,11 +124,49 @@ impl PolicyModel {
             parameters,
             reference_params,
             is_teacher: false,
+            requires_grad: true,
         }
     }
 
     pub fn set_as_teacher(&mut self) {
         self.is_teacher = true;
+    }
+
+    /// Create a trainable autograd Tensor from model parameters.
+    /// The tensor shares no memory — copy data back via `update_from_tensor`.
+    pub fn as_trainable_tensor(&self) -> Tensor {
+        let shape = vec![self.parameters.nrows(), self.parameters.ncols()];
+        let t = Tensor::from_slice(self.parameters.as_slice().unwrap_or(&[]), &shape);
+        t.set_requires_grad(self.requires_grad);
+        t
+    }
+
+    /// Create a frozen reference Tensor from reference_params for KL/regularization.
+    pub fn as_reference_tensor(&self) -> Tensor {
+        let shape = vec![self.reference_params.nrows(), self.reference_params.ncols()];
+        let t = Tensor::from_slice(self.reference_params.as_slice().unwrap_or(&[]), &shape);
+        t.set_requires_grad(false);
+        t
+    }
+
+    /// Copy trained data back from a Tensor (e.g. after optimizer.step()).
+    pub fn update_from_tensor(&mut self, tensor: &Tensor) {
+        let data = tensor.data();
+        let flat: Vec<f32> = data.iter().copied().collect();
+        let (r, c) = self.parameters.dim();
+        if flat.len() == r * c {
+            for i in 0..r {
+                for j in 0..c {
+                    self.parameters[[i, j]] = flat[i * c + j];
+                }
+            }
+        }
+    }
+
+    /// Copy data from trainable tensor back into both parameters and reference_params.
+    pub fn update_from_tensor_all(&mut self, tensor: &Tensor) {
+        self.update_from_tensor(tensor);
+        self.reference_params = self.parameters.clone();
     }
 
     pub fn log_probability(&self, input: &str, output: &str) -> Result<f32> {
@@ -164,8 +204,6 @@ impl PolicyModel {
     }
 
     /// Apply gradient descent update to model parameters.
-    /// Uses real gradient of log_probability w.r.t. each parameter.
-    /// d(log_prob)/d(w[i,j]) = input_feat[i] * output_feat[j] / (255 * 255 * output_len)
     pub fn apply_gradient(
         &mut self,
         input: &str,

@@ -18,8 +18,8 @@ impl OmnisIdentity {
             "1.0.0".to_string(),
             "Nexus Omniscient Reasoning System - Flagship model with maximum capabilities for multi-modal reasoning, world modeling, and meta-cognition.".to_string(),
         )
-        .with_parameters(2_000_000_000_000) // 2T+ parameters
-        .with_context_window(10_000_000) ;// 10M context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -101,7 +101,7 @@ impl OmnisIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "2T+",
+            parameters: "0",
             context_window: "10M tokens",
             accuracy: 99.7,
             reasoning_depth: "Unlimited",

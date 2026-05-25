@@ -18,8 +18,8 @@ impl KronosIdentity {
             "1.0.0".to_string(),
             "Knowledge Retrieval & Organized Networked Object Storage - Specialized knowledge management and retrieval system with advanced indexing, semantic search, and knowledge graph capabilities.".to_string(),
         )
-        .with_parameters(150_000_000_000) // 150B parameters
-        .with_context_window(512_000) ;// 512K context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -96,7 +96,7 @@ impl KronosIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "150B",
+            parameters: "0",
             context_window: "512K tokens",
             accuracy: 97.8,
             reasoning_depth: "Intermediate",

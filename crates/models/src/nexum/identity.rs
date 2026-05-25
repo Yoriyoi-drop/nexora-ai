@@ -18,8 +18,8 @@ impl NexumIdentity {
             "1.0.0".to_string(),
             "Neural EXecutive Unified Multi-agent - Multi-agent orchestration and alignment coordination specialist with advanced consensus building and conflict resolution capabilities.".to_string(),
         )
-        .with_parameters(350_000_000_000) // 350B parameters
-        .with_context_window(750_000) ;// 750K context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -99,7 +99,7 @@ impl NexumIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "350B",
+            parameters: "0",
             context_window: "750K tokens",
             accuracy: 93.2,
             reasoning_depth: "Advanced",

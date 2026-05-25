@@ -18,8 +18,8 @@ impl SpectraIdentity {
             "1.0.0".to_string(),
             "Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture - Creative multimodal synthesis specialist with advanced artistic and creative capabilities.".to_string(),
         )
-        .with_parameters(300_000_000_000) // 300B parameters
-        .with_context_window(1_000_000) ;// 1M context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -99,7 +99,7 @@ impl SpectraIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "300B",
+            parameters: "0",
             context_window: "1M tokens",
             accuracy: 94.8,
             reasoning_depth: "Advanced",

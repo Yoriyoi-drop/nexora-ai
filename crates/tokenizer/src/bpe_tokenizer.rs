@@ -1,3 +1,4 @@
+use crate::Tokenizer;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -350,6 +351,18 @@ pub struct TokenizerStats {
 impl Default for BpeTokenizer {
     fn default() -> Self {
         Self::new(BpeConfig::default())
+    }
+}
+
+impl Tokenizer for BpeTokenizer {
+    fn encode(&self, text: &str) -> anyhow::Result<Vec<u32>> {
+        Ok(BpeTokenizer::encode(self, text))
+    }
+    fn decode(&self, ids: &[u32]) -> anyhow::Result<String> {
+        Ok(BpeTokenizer::decode(self, ids))
+    }
+    fn vocab_size(&self) -> usize {
+        BpeTokenizer::vocab_size(self)
     }
 }
 

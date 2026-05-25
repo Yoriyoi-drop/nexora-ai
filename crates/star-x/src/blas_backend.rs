@@ -43,6 +43,11 @@ pub struct BlasOperations {
     /// back to ndarray's `general_mat_mul` (which itself uses BLAS if
     /// compiled with the `blas` feature).
     lib_handle: Option<Library>,
+    /// Cached `cblas_sgemm` function pointer to avoid symbol resolution on
+    /// every GEMM call. Set during construction when the library is loaded.
+    sgemm_fn: Option<
+        unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32),
+    >,
 }
 
 impl Clone for BlasOperations {
@@ -56,7 +61,22 @@ impl Clone for BlasOperations {
                 self.backend, e
             );
             Self::with_backend(BlasBackend::CustomSIMD)
-                .expect("CustomSIMD backend should never fail")
+                .unwrap_or_else(|_| {
+                    warn!("CustomSIMD backend unexpectedly failed, using ndarray fallback");
+                    Self {
+                        backend: BlasBackend::CustomSIMD,
+                        available_features: BlasFeatures {
+                            supports_fma: is_x86_feature_detected!("fma"),
+                            supports_avx2: is_x86_feature_detected!("avx2"),
+                            supports_avx512: is_x86_feature_detected!("avx512f"),
+                            supports_multi_threading: false,
+                            supports_batched_operations: false,
+                            max_threads: 1,
+                        },
+                        lib_handle: None,
+                        sgemm_fn: None,
+                    }
+                })
         })
     }
 }
@@ -78,10 +98,12 @@ impl BlasOperations {
         let backend = Self::detect_optimal_backend()?;
         let features = Self::detect_features(backend)?;
         let lib_handle = Self::try_load_blas_library(backend);
+        let sgemm_fn = resolve_sgemm_fn(&lib_handle);
         Ok(Self {
             backend,
             available_features: features,
             lib_handle,
+            sgemm_fn,
         })
     }
 
@@ -89,10 +111,12 @@ impl BlasOperations {
     pub fn with_backend(backend: BlasBackend) -> DLResult<Self> {
         let features = Self::detect_features(backend)?;
         let lib_handle = Self::try_load_blas_library(backend);
+        let sgemm_fn = resolve_sgemm_fn(&lib_handle);
         Ok(Self {
             backend,
             available_features: features,
             lib_handle,
+            sgemm_fn,
         })
     }
 
@@ -388,9 +412,9 @@ impl BlasOperations {
             });
         }
 
-        // Try CBLAS FFI first if we have a library handle
-        if let Some(ref lib) = self.lib_handle {
-            if self.call_cblas_sgemm(lib, alpha, &a, &b, beta, &mut c).is_ok() {
+        // Try CBLAS FFI first if we have a cached function pointer
+        if self.sgemm_fn.is_some() {
+            if self.call_cblas_sgemm(alpha, &a, &b, beta, &mut c).is_ok() {
                 return Ok(());
             }
         }
@@ -401,18 +425,15 @@ impl BlasOperations {
         Ok(())
     }
 
-    /// Call `cblas_sgemm` dynamically via libloading.
+    /// Call `cblas_sgemm` using the cached function pointer.
     ///
     /// # Safety
     ///
-    /// The `lib` parameter must be a valid handle to a BLAS shared library
-    /// that exports `cblas_sgemm` with the standard CBLAS ABI (row-major,
-    /// single-precision). This is guaranteed by construction:
-    /// - `lib` comes from `try_load_blas_library` which only loads known BLAS
-    ///   libraries (libmkl_rt.so, libopenblas.so, libAccelerate.dylib).
-    /// - The function pointer is immediately cast from `*mut c_void` using
-    ///   libloading's `Symbol::get`, which is safe per libloading's docs as
-    ///   long as the library exports the symbol.
+    /// The `sgemm_fn` field must be populated (non-None) before calling this
+    /// method. This is guaranteed by the caller (`gemm_cblas_ffi`) which checks
+    /// `self.sgemm_fn.is_some()` before dispatching here.
+    /// - The function pointer was resolved from a known BLAS shared library
+    ///   (libmkl_rt.so, libopenblas.so, libAccelerate.dylib) at construction.
     /// - Buffer pointers (`a_slice_ptr`, `b_slice_ptr`, `c_slice_ptr_mut`)
     ///   must point to contiguous row-major f32 arrays whose dimensions match
     ///   (m, n, k). The caller (`gemm_cblas_ffi`) verifies shape compatibility
@@ -422,7 +443,6 @@ impl BlasOperations {
     ///   borrows uniquely.
     fn call_cblas_sgemm(
         &self,
-        lib: &Library,
         alpha: f32,
         a: &ArrayView<f32, ndarray::Ix2>,
         b: &ArrayView<f32, ndarray::Ix2>,
@@ -435,15 +455,9 @@ impl BlasOperations {
         let ldb = n as i32;
         let ldc = n as i32;
 
-        // SAFETY: Symbol::get returns a pointer to the exported function. It
-        // is safe because libloading ensures the library outlives the symbol,
-        // and we're casting to the known cblas_sgemm signature.
-        let func: Symbol<unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32)> =
-            unsafe { lib.get(b"cblas_sgemm\0").map_err(|e| {
-                DeepLearningError::Computation {
-                    reason: format!("Failed to load cblas_sgemm symbol: {}", e),
-                }
-            })? };
+        let func = self.sgemm_fn.ok_or_else(|| DeepLearningError::Computation {
+            reason: "cblas_sgemm function pointer not cached".into(),
+        })?;
 
         let a_slice = a.as_slice().ok_or_else(|| DeepLearningError::Computation {
             reason: "Matrix A not contiguous for CBLAS FFI call".into(),
@@ -963,11 +977,18 @@ impl BlasOperations {
     unsafe fn relu_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
         let (m, n) = output.dim();
         let slice = require_contiguous_mut(output.as_slice_mut())?;
-
-        for i in 0..(m * n) {
-            slice[i] = slice[i].max(0.0);
+        let total = m * n;
+        let mut i = 0;
+        let zero = _mm256_setzero_ps();
+        while i + 8 <= total {
+            let vals = _mm256_loadu_ps(slice.as_ptr().add(i));
+            let relued = _mm256_max_ps(vals, zero);
+            _mm256_storeu_ps(slice.as_mut_ptr().add(i), relued);
+            i += 8;
         }
-
+        for j in i..total {
+            slice[j] = slice[j].max(0.0);
+        }
         Ok(())
     }
 
@@ -995,7 +1016,22 @@ impl BlasOperations {
     // guarantees memory access is within the bounds of the caller's allocated buffer.
     #[target_feature(enable = "avx2")]
     unsafe fn tanh_avx2(&self, mut output: ArrayViewMut<f32, ndarray::Ix2>) -> DLResult<()> {
-        output.map_inplace(|x| *x = x.tanh());
+        let (m, n) = output.dim();
+        let slice = require_contiguous_mut(output.as_slice_mut())?;
+        let total = m * n;
+        let mut i = 0;
+        while i + 8 <= total {
+            let vals = _mm256_loadu_ps(slice.as_ptr().add(i));
+            let x2 = _mm256_mul_ps(vals, vals);
+            let num = _mm256_mul_ps(vals, _mm256_add_ps(_mm256_set1_ps(27.0), x2));
+            let den = _mm256_add_ps(_mm256_set1_ps(27.0), _mm256_mul_ps(_mm256_set1_ps(9.0), x2));
+            let tanh_val = _mm256_div_ps(num, den);
+            _mm256_storeu_ps(slice.as_mut_ptr().add(i), tanh_val);
+            i += 8;
+        }
+        for j in i..total {
+            slice[j] = slice[j].tanh();
+        }
         Ok(())
     }
 
@@ -1023,6 +1059,19 @@ impl BlasOperations {
 pub struct BlasBackendInfo {
     pub backend: BlasBackend,
     pub features: BlasFeatures,
+}
+
+/// Resolve `cblas_sgemm` function pointer from a loaded BLAS library.
+/// Returns `None` if no library handle is available or the symbol is not found.
+fn resolve_sgemm_fn(
+    lib_handle: &Option<Library>,
+) -> Option<
+    unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32),
+> {
+    let lib = lib_handle.as_ref()?;
+    let func: Symbol<unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32)> =
+        unsafe { lib.get(b"cblas_sgemm\0") }.ok()?;
+    Some(*func)
 }
 
 // SAFETY: Caller must ensure AVX2 is supported before calling. This function uses
@@ -1057,7 +1106,22 @@ pub fn get_blas_operations() -> &'static BlasOperations {
                 // But if it does, we still initialize CustomSIMD directly.
                 warn!("BLAS auto-detect failed ({}), using CustomSIMD fallback", e);
                 BlasOperations::with_backend(BlasBackend::CustomSIMD)
-                    .expect("CustomSIMD backend is infallible")
+                    .unwrap_or_else(|_| {
+                        warn!("CustomSIMD backend unexpectedly failed, initializing direct fallback");
+                        BlasOperations {
+                            backend: BlasBackend::CustomSIMD,
+                            available_features: BlasFeatures {
+                                supports_fma: is_x86_feature_detected!("fma"),
+                                supports_avx2: is_x86_feature_detected!("avx2"),
+                                supports_avx512: is_x86_feature_detected!("avx512f"),
+                                supports_multi_threading: false,
+                                supports_batched_operations: false,
+                                max_threads: 1,
+                            },
+                            lib_handle: None,
+                            sgemm_fn: None,
+                        }
+                    })
             }
         }
     })

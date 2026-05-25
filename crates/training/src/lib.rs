@@ -419,7 +419,9 @@ impl Trainer {
 
             if let Some(ref path) = self.config.save_path {
                 if self.step % self.config.save_every == 0 {
-                    trainable.sync_to_inference(&mut self.model);
+                    if let Err(e) = trainable.sync_to_inference(&mut self.model) {
+                        warn!("sync_to_inference failed at step {}: {}", self.step, e);
+                    }
                     let save_file = format!("{}.safetensors", path);
                     if let Err(e) = trainable.save_checkpoint(&save_file) {
                         warn!("Failed to save checkpoint at step {}: {}", self.step, e);
@@ -517,7 +519,8 @@ impl Trainer {
     pub fn sync_weights(&mut self) {
         if let Some(ref trainable) = self.trainable {
             let mut model_clone = self.model.clone();
-            trainable.sync_to_inference(&mut model_clone);
+            trainable.sync_to_inference(&mut model_clone)
+                .expect("sync_to_inference failed");
             self.model = model_clone;
         }
     }
@@ -622,7 +625,8 @@ impl Trainer {
         if let Some(ref path) = self.config.save_path {
             if let Some(ref trainable) = self.trainable {
                 let mut model_clone = self.model.clone();
-                trainable.sync_to_inference(&mut model_clone);
+                trainable.sync_to_inference(&mut model_clone)
+                    .expect("sync_to_inference failed in epoch_checkpoint");
                 let save_file = format!("{}.epoch-{}.safetensors", path, epoch);
                 if let Err(e) = trainable.save_checkpoint(&save_file) {
                     warn!("Failed to save epoch checkpoint: {}", e);
@@ -842,7 +846,9 @@ fn train_batch_gpu(
 
         if *step % config.save_every == 0 {
             if let Some(ref path) = config.save_path {
-                trainable.sync_to_inference(model);
+                if let Err(e) = trainable.sync_to_inference(model) {
+                    warn!("sync_to_inference failed: {}", e);
+                }
                 let save_file = format!("{}.safetensors", path);
                 if let Err(e) = trainable.save_checkpoint(&save_file) {
                     warn!("Failed to save checkpoint: {}", e);

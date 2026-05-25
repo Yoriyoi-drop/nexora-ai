@@ -568,11 +568,7 @@ impl InverseSpectralCollapse {
         // Adaptive strength: increase for low coherence
         if self.adaptive_strength {
             let coherence = self.calculate_phase_coherence(
-                &output
-                    .view()
-                    .into_dimensionality()
-                    .expect("dimensions match")
-                    .to_owned(),
+                &output.to_owned().into_dyn(),
             )?;
             if coherence < 0.5 {
                 self.config.collapse_strength *= self.strength_growth;
@@ -600,10 +596,7 @@ impl InverseSpectralCollapse {
 
         // Update spectral fidelity (based on phase coherence)
         let coherence = self.calculate_phase_coherence(
-            &output
-                .to_owned()
-                .into_dimensionality()
-                .expect("dimensions match"),
+            &output.to_owned().into_dyn(),
         )?;
         self.spectral_fidelity = self.spectral_fidelity * 0.9 + coherence * 0.1;
 
@@ -672,24 +665,23 @@ impl InverseSpectralCollapse {
 
     /// Get recent collapse events
     pub fn get_output_weights(&self) -> Tensor {
-        // safe: iterated from same array, length always matches
+        let shape = vec![
+            self.output_weights.shape()[0],
+            self.output_weights.shape()[1],
+        ];
         let data = ArrayD::from_shape_vec(
-            vec![
-                self.output_weights.shape()[0],
-                self.output_weights.shape()[1],
-            ],
+            shape.clone(),
             self.output_weights.iter().copied().collect(),
         )
-        .expect("data length matches shape");
+        .unwrap_or_else(|_| ArrayD::zeros(shape));
         Tensor::new(data)
     }
     pub fn get_output_bias(&self) -> Tensor {
-        // safe: iterated from same array, length always matches
         let data = ArrayD::from_shape_vec(
             vec![self.output_bias.len()],
             self.output_bias.iter().copied().collect(),
         )
-        .expect("data length matches shape");
+        .unwrap_or_else(|_| ArrayD::zeros(vec![self.output_bias.len()]));
         Tensor::new(data)
     }
     pub fn set_output_weights(&mut self, t: &Tensor) {

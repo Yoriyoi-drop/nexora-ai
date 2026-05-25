@@ -37,6 +37,7 @@ pub struct InferenceConfig {
     pub use_gpu: bool,
     #[cfg(feature = "gpu")]
     pub use_gpu_cache: bool,
+    pub checkpoint_path: Option<String>,
 }
 
 impl Default for InferenceConfig {
@@ -54,6 +55,7 @@ impl Default for InferenceConfig {
             use_gpu: true,
             #[cfg(feature = "gpu")]
             use_gpu_cache: true,
+            checkpoint_path: None,
         }
     }
 }
@@ -74,6 +76,7 @@ pub struct InferenceEngine {
     state: Arc<RwLock<EngineState>>,
     #[cfg(feature = "gpu")]
     gpu_cache: Option<GpuKVCache>,
+    model_ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,11 +92,21 @@ impl InferenceEngine {
     pub fn new(config: InferenceConfig) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
         let model_config = TransformerConfig::default();
-        let model = Arc::new(CausalLM::new(model_config));
-        info!(
-            "CausalLM initialized with {} parameters",
-            model.parameter_count()
-        );
+        let (model, model_ready) = if let Some(ref ckpt_path) = config.checkpoint_path {
+            match CausalLM::from_checkpoint(model_config.clone(), ckpt_path) {
+                Ok(m) => {
+                    info!("Loaded checkpoint from {}", ckpt_path);
+                    (Arc::new(m), true)
+                }
+                Err(e) => {
+                    error!("Failed to load checkpoint from {}: {}", ckpt_path, e);
+                    (Arc::new(CausalLM::new(model_config.clone())), false)
+                }
+            }
+        } else {
+            warn!("No checkpoint path configured — model initialized with random weights");
+            (Arc::new(CausalLM::new(model_config.clone())), false)
+        };
 
         #[cfg(feature = "gpu")]
         let gpu_cache = if config.use_gpu_cache {
@@ -107,6 +120,8 @@ impl InferenceEngine {
         };
         #[cfg(not(feature = "gpu"))]
         let gpu_cache = ();
+
+        info!("CausalLM initialized with {} parameters", model.parameter_count());
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
@@ -128,6 +143,7 @@ impl InferenceEngine {
             config,
             #[cfg(feature = "gpu")]
             gpu_cache,
+            model_ready,
         }
     }
 
@@ -175,6 +191,7 @@ impl InferenceEngine {
             config,
             #[cfg(feature = "gpu")]
             gpu_cache,
+            model_ready: true,
         }
     }
 
@@ -183,6 +200,11 @@ impl InferenceEngine {
         if state != EngineState::Uninitialized {
             return Err(InferenceError::EngineNotInitialized(
                 "Engine already initialized".to_string(),
+            ));
+        }
+        if !self.model_ready {
+            return Err(InferenceError::ModelNotLoaded(
+                "No checkpoint loaded — use with_model() or set checkpoint_path in InferenceConfig".to_string(),
             ));
         }
         info!("Initializing inference engine");
@@ -289,7 +311,10 @@ impl InferenceEngine {
                     let t = tok.lock().await;
                     t.encode(&request.prompt)
                 }
-                None => request.prompt.bytes().map(|b| b as u32).collect(),
+                None => {
+                    warn!("No tokenizer configured for streaming request {}", request_id);
+                    return;
+                }
             };
 
             let cpu_cache = model.reset_cache();
@@ -408,15 +433,17 @@ impl InferenceEngine {
                 .with_inference_time(start.elapsed().as_millis() as u64));
         }
 
-        let prompt_ids = self.encode_prompt(&request.prompt).await;
+        let prompt_ids = self.encode_prompt(&request.prompt).await?;
         let max_gen = request.max_tokens.min(2048) as usize;
 
-        // Check prefix cache (informational hit/miss tracking)
+        // Check prefix cache for warm-start opportunity
         let prefix_match = self.prefix_cache.match_prefix(&prompt_ids).await;
-        if prefix_match.prefix_len > 0 {
+        let prefix_len = prefix_match.prefix_len;
+        let prefix_logits = prefix_match.cached_value;
+        if prefix_len > 0 {
             debug!(
-                "Prefix cache hit: {}/{} tokens matched",
-                prefix_match.prefix_len,
+                "Prefix cache hit: {}/{} tokens matched, skipping prefill",
+                prefix_len,
                 prompt_ids.len()
             );
         }
@@ -456,6 +483,8 @@ impl InferenceEngine {
                 &mut sampler,
                 &mut *kv_state,
                 tokenizer.as_ref(),
+                prefix_len,
+                prefix_logits,
             )
         })
         .await
@@ -614,6 +643,7 @@ impl InferenceEngine {
             use_gpu: self.config.use_gpu,
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
+            prefix_cache: self.prefix_cache.clone(),
         };
         Self::spawn_batch_processor_inner(&engine, &self.active_requests, batch).await;
     }
@@ -643,6 +673,7 @@ impl InferenceEngine {
             use_gpu: self.config.use_gpu,
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
+            prefix_cache: self.prefix_cache.clone(),
         };
 
         let handle = tokio::spawn(async move {
@@ -738,6 +769,7 @@ impl InferenceEngine {
             use_gpu: engine.use_gpu,
             #[cfg(feature = "gpu")]
             use_gpu_cache: engine.use_gpu_cache,
+            prefix_cache: engine.prefix_cache.clone(),
         };
         let active = active_requests.clone();
         let task = tokio::spawn(async move {
@@ -782,13 +814,15 @@ impl InferenceEngine {
         Ok(())
     }
 
-    async fn encode_prompt(&self, prompt: &str) -> Vec<u32> {
+    async fn encode_prompt(&self, prompt: &str) -> Result<Vec<u32>> {
         match &self.tokenizer {
             Some(tok) => {
                 let t = tok.lock().await;
-                t.encode(prompt)
+                Ok(t.encode(prompt))
             }
-            None => prompt.bytes().map(|b| b as u32).collect(),
+            None => Err(InferenceError::InvalidRequest(
+                "No tokenizer configured".to_string(),
+            )),
         }
     }
 
@@ -815,6 +849,8 @@ fn token_id_to_text_fallback(token_id: u32) -> String {
 }
 
 /// Core generation loop shared by single-request and batch-request paths.
+/// If `prefix_len > 0`, skips prefill for the cached prefix tokens and
+/// uses `prefix_logits` as the starting logits (warm-start).
 /// Returns generated tokens and whether a timeout occurred.
 fn run_generation_loop(
     model: &CausalLM,
@@ -823,24 +859,37 @@ fn run_generation_loop(
     sampler: &mut crate::sampler::Sampler,
     kv_state: &mut dyn KVCacheProvider,
     tokenizer: Option<&Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+    prefix_len: usize,
+    prefix_logits: Vec<f32>,
 ) -> (Vec<GeneratedToken>, Vec<f32>, bool) {
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
     let mut tokens = Vec::with_capacity(max_gen);
     let mut last_logits = Vec::new();
+    let use_prefix = prefix_len > 0 && !prefix_logits.is_empty();
 
     for pos in 0..max_gen {
-        let input: &[u32] = if pos == 0 {
-            prompt_ids
+        let logits: Vec<f32> = if pos == 0 && use_prefix {
+            if prefix_len >= prompt_ids.len() {
+                prefix_logits.clone()
+            } else {
+                let input = &prompt_ids[prefix_len..];
+                let logits = ModelForward::forward(model, input, kv_state);
+                logits.as_slice().unwrap_or(&[]).to_vec()
+            }
         } else {
-            core::slice::from_ref(all_ids.last().unwrap_or(&0))
+            let input = if pos == 0 {
+                prompt_ids
+            } else {
+                core::slice::from_ref(all_ids.last().unwrap_or(&0))
+            };
+            let logits = ModelForward::forward(model, input, kv_state);
+            logits.as_slice().unwrap_or(&[]).to_vec()
         };
 
-        let logits = ModelForward::forward(model, input, kv_state);
-        let logits_slice = logits.as_slice().unwrap_or(&[]);
-        last_logits = logits_slice.to_vec();
+        last_logits = logits.clone();
 
-        let token_id = match sampler.sample(logits_slice) {
+        let token_id = match sampler.sample(&logits) {
             Ok(idx) => idx as u32,
             Err(e) => {
                 warn!("Sampler failed in generation loop: {:?}, falling back to argmax", e);
@@ -884,6 +933,7 @@ struct InferenceEngineHandle {
     use_gpu: bool,
     #[cfg(feature = "gpu")]
     use_gpu_cache: bool,
+    prefix_cache: Arc<PrefixCache>,
 }
 
 impl InferenceEngineHandle {
@@ -917,6 +967,7 @@ impl InferenceEngineHandle {
             let scheduler = self.scheduler.clone();
             let model = self.model.clone();
             let tokenizer = self.tokenizer.clone();
+            let prefix_cache = self.prefix_cache.clone();
             let use_gpu = self.use_gpu;
             #[cfg(feature = "gpu")]
             let use_gpu_cache = self.use_gpu_cache;
@@ -948,8 +999,37 @@ impl InferenceEngineHandle {
                         let t = tok.lock().await;
                         t.encode(&breq.prompt)
                     }
-                    None => breq.prompt.bytes().map(|b| b as u32).collect(),
+                    None => {
+                        warn!("No tokenizer configured for batch request {}", breq.request_id);
+                        let err_resp = response
+                            .with_finish_reason(FinishReason::Error("No tokenizer configured".to_string()))
+                            .with_inference_time(start.elapsed().as_millis() as u64);
+                        if let Err(e) = scheduler
+                            .write()
+                            .await
+                            .send_response(breq.request_id, err_resp)
+                            .await
+                        {
+                            warn!(
+                                "Failed to send tokenizer error to {}: {}",
+                                breq.request_id, e
+                            );
+                        }
+                        return;
+                    }
                 };
+
+                // Check prefix cache for warm-start opportunity
+                let prefix_match = prefix_cache.match_prefix(&prompt_ids).await;
+                let prefix_len = prefix_match.prefix_len;
+                let prefix_logits = prefix_match.cached_value;
+                if prefix_len > 0 {
+                    debug!(
+                        "Prefix cache hit: {}/{} tokens matched, skipping prefill",
+                        prefix_len,
+                        prompt_ids.len()
+                    );
+                }
 
                 let cpu_cache = model.reset_cache();
                 #[cfg(feature = "gpu")]
@@ -984,6 +1064,8 @@ impl InferenceEngineHandle {
                         &mut sampler,
                         &mut *kv_state,
                         tokenizer.as_ref(),
+                        prefix_len,
+                        prefix_logits,
                     )
                 })
                 .await

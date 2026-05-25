@@ -374,19 +374,19 @@ impl AdaptivePhaseSeparationStabilizer {
     pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
         // Return trainable parameters as ArrayD<f32> for gradient computation
         // Phase adjustment parameters
-        let phase_separation_strength = ArrayD::from_shape_vec(vec![1], vec![self.phase_separation_strength]).unwrap();
-        let similarity_threshold = ArrayD::from_shape_vec(vec![1], vec![self.similarity_threshold]).unwrap();
-        let max_phase_adjustment = ArrayD::from_shape_vec(vec![1], vec![self.max_phase_adjustment]).unwrap();
+        let phase_separation_strength = ArrayD::from_shape_vec(vec![1], vec![self.phase_separation_strength]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let similarity_threshold = ArrayD::from_shape_vec(vec![1], vec![self.similarity_threshold]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let max_phase_adjustment = ArrayD::from_shape_vec(vec![1], vec![self.max_phase_adjustment]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         // Phase stabilization parameters
-        let momentum_factor = ArrayD::from_shape_vec(vec![1], vec![self.momentum_factor]).unwrap();
+        let momentum_factor = ArrayD::from_shape_vec(vec![1], vec![self.momentum_factor]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         // Conflict detection parameters
-        let conflict_threshold = ArrayD::from_shape_vec(vec![1], vec![self.conflict_threshold]).unwrap();
-        let conflict_penalty = ArrayD::from_shape_vec(vec![1], vec![self.conflict_penalty]).unwrap();
+        let conflict_threshold = ArrayD::from_shape_vec(vec![1], vec![self.conflict_threshold]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let conflict_penalty = ArrayD::from_shape_vec(vec![1], vec![self.conflict_penalty]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         // Phase normalization parameters
-        let normalization_strength = ArrayD::from_shape_vec(vec![1], vec![self.normalization_strength]).unwrap();
+        let normalization_strength = ArrayD::from_shape_vec(vec![1], vec![self.normalization_strength]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         vec![
             phase_separation_strength,

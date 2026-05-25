@@ -18,8 +18,8 @@ impl SwiftIdentity {
             "1.0.0".to_string(),
             "Speed-optimized Workflow Integration & Fast-response Transformer - High-speed model optimized for rapid response, real-time processing, and workflow integration with minimal latency.".to_string(),
         )
-        .with_parameters(120_000_000_000) // 120B parameters
-        .with_context_window(256_000) ;// 256K context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -96,7 +96,7 @@ impl SwiftIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "120B",
+            parameters: "0",
             context_window: "256K tokens",
             accuracy: 97.2,
             reasoning_depth: "Intermediate",

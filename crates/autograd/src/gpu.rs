@@ -193,6 +193,12 @@ impl GpuContext {
             .alloc(size, usage)
     }
 
+    /// Allocate a buffer through the memory pool, falling back to
+    /// `device.create_buffer` if the pool is unavailable.
+    pub fn alloc_or_create_buffer(&self, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
+        self.alloc_buffer(size, usage).buffer
+    }
+
     /// Return a buffer to the memory pool for reuse
     pub fn dealloc_buffer(&self, buf: crate::gpu_memory::PooledBuffer) {
         self.memory_pool
@@ -1856,21 +1862,14 @@ impl GpuContext {
         let tile_u32 = u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
-        let c_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("matmul_output"),
-            size: c_size,
-            usage: wgpu::BufferUsages::STORAGE
+        let c_buffer = self.alloc_or_create_buffer(
+            c_size,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        );
 
-        let dims_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("matmul_dims"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let dims_buf = self.alloc_or_create_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
         let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
         self.queue
             .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
@@ -1946,21 +1945,14 @@ impl GpuContext {
         let shape = a.shape();
         let numel = a.numel();
 
-        let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("elementwise_output"),
-            size: (numel * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE
+        let out_buffer = self.alloc_or_create_buffer(
+            (numel * 4) as u64,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        );
 
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("elementwise_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let cfg_buf = self.alloc_or_create_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
         let cfg_data: [u32; 4] = [numel as u32, op as u32, 0, 0];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
@@ -2063,21 +2055,14 @@ impl GpuContext {
         }
         let numel = a.numel();
 
-        let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("elementwise_output"),
-            size: (numel * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE
+        let out_buffer = self.alloc_or_create_buffer(
+            (numel * 4) as u64,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        );
 
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("elementwise_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let cfg_buf = self.alloc_or_create_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
         let cfg_data: [u32; 4] = [numel as u32, op as u32, 0, 0];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
@@ -4783,7 +4768,6 @@ impl GpuTensor {
     /// GPU max element reduction
     pub fn max_element_gpu(&self) -> Result<f32, GpuError> {
         let ctx = Self::ctx()?;
-        let pipeline_key = "reduce_max";
         let numel = self.numel();
         if numel == 0 {
             return Ok(f32::NEG_INFINITY);
@@ -4791,10 +4775,9 @@ impl GpuTensor {
         if numel == 1 {
             return self.to_cpu_first_element();
         }
-        // Use simple staged reduction via CPU fallback for now
-        // Full GPU reduction would use warp-level primitives
-        let cpu = self.to_cpu()?;
-        Ok(cpu.iter().copied().fold(f32::NEG_INFINITY, f32::max))
+        // Use proper GPU reduction via already-compiled WGSL shader
+        let result_tensor = ctx.max(self)?;
+        result_tensor.to_cpu_first_element()
     }
 
     /// GPU sum reduction
@@ -4804,8 +4787,11 @@ impl GpuTensor {
         if numel == 0 {
             return Ok(0.0);
         }
-        // Use simple staged reduction via CPU fallback for now
-        let cpu = self.to_cpu()?;
-        Ok(cpu.iter().sum())
+        if numel == 1 {
+            return self.to_cpu_first_element();
+        }
+        // Use proper GPU reduction via already-compiled WGSL shader
+        let result_tensor = ctx.sum(self)?;
+        result_tensor.to_cpu_first_element()
     }
 }

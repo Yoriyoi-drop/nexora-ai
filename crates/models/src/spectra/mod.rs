@@ -135,8 +135,8 @@ impl SpectraIdentity {
             "1.0.0".to_string(),
             "Spectral Perception & Encoding for Creative Transcendence & Research Analytics - Multimodal creative generation specialist with advanced cross-modal synthesis capabilities.".to_string(),
         )
-        .with_parameters(350_000_000_000) // 350B parameters
-        .with_context_window(1_000_000); // 1M context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0); // not loaded
 
         Self { meta }
     }
@@ -361,7 +361,13 @@ impl NxrSpectraModel {
                 .get("context")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            return h.run_pipeline(&text, ctx.as_deref(), None).await.ok();
+            match h.run_pipeline(&text, ctx.as_deref(), None).await {
+                Ok(result) => return Some(result),
+                Err(e) => {
+                    tracing::warn!("Pipeline execution failed: {}", e);
+                    return None;
+                }
+            }
         }
         None
     }
@@ -504,9 +510,9 @@ impl NxrModel for NxrSpectraModel {
             },
             performance: nexora_shared::base_model::PerformanceMetrics {
                 tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
-                memory_usage_gb: 24.0,
-                gpu_utilization: Some(0.80),
-                cpu_utilization: 0.50,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
                 network_usage_mbps: None,
             },
         })
@@ -523,23 +529,24 @@ impl NxrModel for NxrSpectraModel {
             ));
         }
 
-        let steps = vec![
-            "Analyzing creative requirements...",
-            "Selecting artistic style...",
-            "Generating creative content...",
-            "Refining cross-modal synthesis...",
-        ];
+        let input_text = match &input.data {
+            nexora_shared::base_model::InputData::Text(text) => text.clone(),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "NXR-SPECTRA only supports text input".to_string(),
+                ))
+            }
+        };
 
-        for (i, step) in steps.into_iter().enumerate() {
-            let chunk = NxrStreamChunk {
-                id: uuid::Uuid::new_v4(),
-                input_id: input.id,
-                timestamp: chrono::Utc::now(),
-                data: nexora_shared::base_model::StreamChunkData::TextDelta(step.to_string()),
-                is_final: i == 3,
-            };
-            callback(chunk);
-        }
+        let result = self.generate_creative_content(&input_text).await?;
+        let chunk = NxrStreamChunk {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::StreamChunkData::TextDelta(result),
+            is_final: true,
+        };
+        callback(chunk);
 
         Ok(())
     }
@@ -596,11 +603,11 @@ impl NxrModel for NxrSpectraModel {
         &self,
     ) -> Result<ResourceUsage, nexora_shared::base_model::NxrModelError> {
         Ok(ResourceUsage {
-            memory_gb: 24.0,
-            cpu_percent: 50.0,
-            gpu_percent: Some(80.0),
-            gpu_memory_gb: Some(20.0),
-            disk_gb: 120.0,
+            memory_gb: 0.0,
+            cpu_percent: 0.0,
+            gpu_percent: None,
+            gpu_memory_gb: None,
+            disk_gb: 0.0,
             network_mbps: 0.0,
             active_connections: 0,
             queue_size: 0,

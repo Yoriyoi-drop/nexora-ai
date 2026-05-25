@@ -18,8 +18,8 @@ impl VortexIdentity {
             "1.0.0".to_string(),
             "Variable Optimization Recursive Text & Expert eXchange - Code generation and software engineering specialist with advanced debugging, architecture analysis, and optimization capabilities.".to_string(),
         )
-        .with_parameters(700_000_000_000) // 700B parameters
-        .with_context_window(2_000_000) ;// 2M context
+        .with_parameters(0) // not loaded; real count from CausalLM config
+        .with_context_window(0) ;// not loaded
 
         Self { meta }
     }
@@ -99,7 +99,7 @@ impl VortexIdentity {
     /// Get performance specifications
     pub fn performance_specs(&self) -> PerformanceSpecs {
         PerformanceSpecs {
-            parameters: "700B",
+            parameters: "0",
             context_window: "2M tokens",
             accuracy: 97.2,
             reasoning_depth: "Advanced",

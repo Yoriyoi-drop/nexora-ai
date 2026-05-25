@@ -3317,6 +3317,8 @@ dependencies = [
  "bincode",
  "chrono",
  "ndarray 0.15.6",
+ "nexora-autograd",
+ "nexora-oracle",
  "nexora-shared",
  "rand 0.8.6",
  "serde",
@@ -3921,6 +3923,7 @@ dependencies = [
  "chrono",
  "ndarray 0.15.6",
  "ndarray-rand",
+ "nexora-autograd",
  "nexora-core",
  "once_cell",
  "rand 0.8.6",
@@ -4041,6 +4044,7 @@ dependencies = [
  "smallvec",
  "thiserror 1.0.69",
  "tracing",
+ "unicode-normalization",
  "unicode-segmentation",
 ]
 

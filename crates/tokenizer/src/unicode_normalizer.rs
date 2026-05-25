@@ -5,6 +5,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use unicode_normalization::UnicodeNormalization;
 
 /// Unicode normalization forms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -94,105 +95,13 @@ impl UnicodeNormalizer {
         Ok(result)
     }
 
-    /// Apply Unicode normalization (simplified implementation)
+    /// Apply Unicode normalization using built-in Unicode tables
     fn apply_unicode_normalization(&self, text: &str) -> Result<String> {
-        // Note: This is a simplified implementation
-        // Full Unicode normalization would require a library like unicode-normalization
-        // For now, we'll do basic character-level normalization
-
         match self.config.form {
-            NormalizationForm::NFC => {
-                // Simplified NFC: just return the text as-is for now
-                // In a full implementation, this would compose characters
-                Ok(text.to_string())
-            }
-            NormalizationForm::NFD => {
-                // Simplified NFD: just return the text as-is for now
-                // In a full implementation, this would decompose characters
-                Ok(text.to_string())
-            }
-            NormalizationForm::NFKC => {
-                // Simplified NFKC: apply compatibility composition
-                self.apply_compatibility_composition(text)
-            }
-            NormalizationForm::NFKD => {
-                // Simplified NFKD: apply compatibility decomposition
-                self.apply_compatibility_decomposition(text)
-            }
-        }
-    }
-
-    /// Apply compatibility composition (simplified)
-    fn apply_compatibility_composition(&self, text: &str) -> Result<String> {
-        let mut result = String::new();
-
-        for ch in text.chars() {
-            let normalized = self.normalize_compatibility_char(ch);
-            result.push_str(&normalized);
-        }
-
-        Ok(result)
-    }
-
-    /// Apply compatibility decomposition (simplified)
-    fn apply_compatibility_decomposition(&self, text: &str) -> Result<String> {
-        let mut result = String::new();
-
-        for ch in text.chars() {
-            let normalized = self.decompose_compatibility_char(ch);
-            result.push_str(&normalized);
-        }
-
-        Ok(result)
-    }
-
-    /// Normalize a single character for compatibility
-    fn normalize_compatibility_char(&self, ch: char) -> String {
-        // Simplified compatibility normalization
-        match ch {
-            // Common compatibility mappings
-            '"' => "\"".to_string(),
-            '\'' => "'".to_string(),
-            '`' => "'".to_string(),
-            '–' => "-".to_string(),    // en dash
-            '—' => "-".to_string(),    // em dash
-            '…' => "...".to_string(),  // ellipsis
-            '©' => "(c)".to_string(),  // copyright
-            '®' => "(r)".to_string(),  // registered
-            '™' => "(tm)".to_string(), // trademark
-            _ => ch.to_string(),
-        }
-    }
-
-    /// Decompose a single character for compatibility
-    fn decompose_compatibility_char(&self, ch: char) -> String {
-        // Simplified compatibility decomposition
-        match ch {
-            'á' => "a\u{0301}".to_string(), // a + acute accent
-            'é' => "e\u{0301}".to_string(), // e + acute accent
-            'í' => "i\u{0301}".to_string(), // i + acute accent
-            'ó' => "o\u{0301}".to_string(), // o + acute accent
-            'ú' => "u\u{0301}".to_string(), // u + acute accent
-            'à' => "a\u{0300}".to_string(), // a + grave accent
-            'è' => "e\u{0300}".to_string(), // e + grave accent
-            'ì' => "i\u{0300}".to_string(), // i + grave accent
-            'ò' => "o\u{0300}".to_string(), // o + grave accent
-            'ù' => "u\u{0300}".to_string(), // u + grave accent
-            'â' => "a\u{0302}".to_string(), // a + circumflex
-            'ê' => "e\u{0302}".to_string(), // e + circumflex
-            'î' => "i\u{0302}".to_string(), // i + circumflex
-            'ô' => "o\u{0302}".to_string(), // o + circumflex
-            'û' => "u\u{0302}".to_string(), // u + circumflex
-            'ä' => "a\u{0308}".to_string(), // a + diaeresis
-            'ë' => "e\u{0308}".to_string(), // e + diaeresis
-            'ï' => "i\u{0308}".to_string(), // i + diaeresis
-            'ö' => "o\u{0308}".to_string(), // o + diaeresis
-            'ü' => "u\u{0308}".to_string(), // u + diaeresis
-            'ã' => "a\u{0303}".to_string(), // a + tilde
-            'ñ' => "n\u{0303}".to_string(), // n + tilde
-            'õ' => "o\u{0303}".to_string(), // o + tilde
-            'ç' => "c\u{0327}".to_string(), // c + cedilla
-            _ => ch.to_string(),
+            NormalizationForm::NFC => Ok(text.nfc().collect::<String>()),
+            NormalizationForm::NFD => Ok(text.nfd().collect::<String>()),
+            NormalizationForm::NFKC => Ok(text.nfkc().collect::<String>()),
+            NormalizationForm::NFKD => Ok(text.nfkd().collect::<String>()),
         }
     }
 

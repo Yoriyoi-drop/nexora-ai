@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use ndarray::{s, Array1, Array2, Array3};
+use nexora_autograd::{ops, Tensor, TensorOps};
 use serde::{Deserialize, Serialize};
 
 /// Konfigurasi ORACLE Backbone
@@ -46,10 +47,10 @@ impl Default for OracleBackboneConfig {
 
 /// Sparse Mixture of Experts Layer
 pub struct SparseMoELayer {
-    _config: OracleBackboneConfig,
-    experts: Vec<MLPExpert>,
-    gate: LinearLayer,
-    router: Router,
+    pub _config: OracleBackboneConfig,
+    pub experts: Vec<MLPExpert>,
+    pub gate: LinearLayer,
+    pub router: Router,
 }
 
 impl SparseMoELayer {
@@ -119,10 +120,10 @@ impl SparseMoELayer {
 
 /// Individual Expert (MLP)
 pub struct MLPExpert {
-    w1: Array2<f32>,
-    w2: Array2<f32>,
-    b1: Array1<f32>,
-    b2: Array1<f32>,
+    pub w1: Array2<f32>,
+    pub w2: Array2<f32>,
+    pub b1: Array1<f32>,
+    pub b2: Array1<f32>,
 }
 
 impl MLPExpert {
@@ -211,11 +212,11 @@ impl Router {
 
 /// Multi-head Latent Attention (MLA)
 pub struct MultiHeadLatentAttention {
-    config: OracleBackboneConfig,
-    latent_projection: LinearLayer,
-    attention_heads: Vec<LatentAttentionHead>,
-    output_projection: LinearLayer,
-    latent_compression: LatentCompression,
+    pub config: OracleBackboneConfig,
+    pub latent_projection: LinearLayer,
+    pub attention_heads: Vec<LatentAttentionHead>,
+    pub output_projection: LinearLayer,
+    pub latent_compression: LatentCompression,
 }
 
 impl MultiHeadLatentAttention {
@@ -289,12 +290,12 @@ impl MultiHeadLatentAttention {
 
 /// Individual Latent Attention Head
 pub struct LatentAttentionHead {
-    head_dim: usize,
-    latent_dim: usize,
-    q_proj: LinearLayer,
-    k_proj: LinearLayer,
-    v_proj: LinearLayer,
-    out_proj: LinearLayer,
+    pub head_dim: usize,
+    pub latent_dim: usize,
+    pub q_proj: LinearLayer,
+    pub k_proj: LinearLayer,
+    pub v_proj: LinearLayer,
+    pub out_proj: LinearLayer,
 }
 
 impl LatentAttentionHead {
@@ -467,8 +468,8 @@ impl LatentCompression {
 
 /// Simple Linear Layer
 pub struct LinearLayer {
-    weight: Array2<f32>,
-    bias: Array1<f32>,
+    pub weight: Array2<f32>,
+    pub bias: Array1<f32>,
 }
 
 impl LinearLayer {
@@ -576,7 +577,7 @@ impl OracleBackbone {
 
 /// Embedding Layer
 pub struct EmbeddingLayer {
-    embeddings: Array2<f32>,
+    pub embeddings: Array2<f32>,
 }
 
 impl EmbeddingLayer {
@@ -607,9 +608,9 @@ impl EmbeddingLayer {
 
 /// Layer Normalization
 pub struct LayerNorm {
-    weight: Array1<f32>,
-    bias: Array1<f32>,
-    eps: f32,
+    pub weight: Array1<f32>,
+    pub bias: Array1<f32>,
+    pub eps: f32,
 }
 
 impl LayerNorm {
@@ -644,6 +645,481 @@ impl LayerNorm {
 
         Ok(output)
     }
+}
+
+// ─── Tensor-based training methods ──────────────────────────────────────────────
+
+impl OracleBackbone {
+    /// Create differentiable parameter wrappers for ALL backbone weights.
+    /// Returns (tensors, a closure to sync back).
+    /// Number of tensors is deterministic:
+    ///   1 embedding + 1 output_w + 1 output_b
+    ///   + layers × (2 norms + 2 norm_b + gate_w + gate_b
+    ///                + n_experts × (w1 + b1 + w2 + b2)
+    ///                + q_proj + k_proj + v_proj + attn_out_proj)
+    pub fn collect_training_tensors(&self) -> Vec<Tensor> {
+        let mut tensors = Vec::new();
+
+        let mk_tensor = |data: &[f32], shape: &[usize]| -> Tensor {
+            let t = Tensor::from_slice(data, shape);
+            t.set_requires_grad(true);
+            t
+        };
+
+        // 0: embedding
+        {
+            let d: Vec<f32> = self.embedding.embeddings.iter().copied().collect();
+            let s = self.embedding.embeddings.shape().to_vec();
+            tensors.push(mk_tensor(&d, &s));
+        }
+
+        // Per-layer parameters
+        for i in 0..self.moe_layers.len() {
+            // norm1_weight, norm1_bias
+            {
+                let d: Vec<f32> = self.norm_layers[i].weight.iter().copied().collect();
+                let s = self.norm_layers[i].weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+            {
+                let d: Vec<f32> = self.norm_layers[i].bias.iter().copied().collect();
+                let s = self.norm_layers[i].bias.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+
+            // MoE gate weight + bias
+            {
+                let d: Vec<f32> = self.moe_layers[i].gate.weight.iter().copied().collect();
+                let s = self.moe_layers[i].gate.weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+            {
+                let d: Vec<f32> = self.moe_layers[i].gate.bias.iter().copied().collect();
+                let s = self.moe_layers[i].gate.bias.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+
+            // Experts
+            for e in 0..self.config.n_experts {
+                let exp = &self.moe_layers[i].experts[e];
+                {
+                    let d: Vec<f32> = exp.w1.iter().copied().collect();
+                    let s = exp.w1.shape().to_vec();
+                    tensors.push(mk_tensor(&d, &s));
+                }
+                {
+                    let d: Vec<f32> = exp.b1.iter().copied().collect();
+                    let s = exp.b1.shape().to_vec();
+                    tensors.push(mk_tensor(&d, &s));
+                }
+                {
+                    let d: Vec<f32> = exp.w2.iter().copied().collect();
+                    let s = exp.w2.shape().to_vec();
+                    tensors.push(mk_tensor(&d, &s));
+                }
+                {
+                    let d: Vec<f32> = exp.b2.iter().copied().collect();
+                    let s = exp.b2.shape().to_vec();
+                    tensors.push(mk_tensor(&d, &s));
+                }
+            }
+
+            // norm2_weight, norm2_bias
+            {
+                let d: Vec<f32> = self.norm_layers[i + 1].weight.iter().copied().collect();
+                let s = self.norm_layers[i + 1].weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+            {
+                let d: Vec<f32> = self.norm_layers[i + 1].bias.iter().copied().collect();
+                let s = self.norm_layers[i + 1].bias.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+
+            // Attention projections from first head (all heads use same projection in MLA)
+            let head0 = &self.attention_layers[i].attention_heads[0];
+            // q_proj: [latent_dim, head_dim]
+            {
+                let d: Vec<f32> = head0.q_proj.weight.iter().copied().collect();
+                let s = head0.q_proj.weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+            // k_proj
+            {
+                let d: Vec<f32> = head0.k_proj.weight.iter().copied().collect();
+                let s = head0.k_proj.weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+            // v_proj
+            {
+                let d: Vec<f32> = head0.v_proj.weight.iter().copied().collect();
+                let s = head0.v_proj.weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+            // out_proj (head output to latent)
+            {
+                let d: Vec<f32> = head0.out_proj.weight.iter().copied().collect();
+                let s = head0.out_proj.weight.shape().to_vec();
+                tensors.push(mk_tensor(&d, &s));
+            }
+        }
+
+        // Output projection weight + bias
+        {
+            let d: Vec<f32> = self.output_projection.weight.iter().copied().collect();
+            let s = self.output_projection.weight.shape().to_vec();
+            tensors.push(mk_tensor(&d, &s));
+        }
+        {
+            let d: Vec<f32> = self.output_projection.bias.iter().copied().collect();
+            let s = self.output_projection.bias.shape().to_vec();
+            tensors.push(mk_tensor(&d, &s));
+        }
+
+        tensors
+    }
+
+    /// Sync tensor values back to the backbone's ndarray parameters.
+    /// `tensors` must be in the same order as `collect_training_tensors`.
+    pub fn sync_from_tensors(&mut self, tensors: &[Tensor]) {
+        let mut idx = 0usize;
+
+        // Embedding
+        copy_tensor_to_arr2(&tensors[idx].data(), &mut self.embedding.embeddings);
+        idx += 1;
+
+        for i in 0..self.moe_layers.len() {
+            // norm1
+            copy_tensor_to_arr1(&tensors[idx].data(), &mut self.norm_layers[i].weight);
+            idx += 1;
+            copy_tensor_to_arr1(&tensors[idx].data(), &mut self.norm_layers[i].bias);
+            idx += 1;
+
+            // gate
+            copy_tensor_to_arr2(&tensors[idx].data(), &mut self.moe_layers[i].gate.weight);
+            idx += 1;
+            copy_tensor_to_arr1(&tensors[idx].data(), &mut self.moe_layers[i].gate.bias);
+            idx += 1;
+
+            // experts
+            for e in 0..self.config.n_experts {
+                let exp = &mut self.moe_layers[i].experts[e];
+                copy_tensor_to_arr2(&tensors[idx].data(), &mut exp.w1);
+                idx += 1;
+                copy_tensor_to_arr1(&tensors[idx].data(), &mut exp.b1);
+                idx += 1;
+                copy_tensor_to_arr2(&tensors[idx].data(), &mut exp.w2);
+                idx += 1;
+                copy_tensor_to_arr1(&tensors[idx].data(), &mut exp.b2);
+                idx += 1;
+            }
+
+            // norm2
+            copy_tensor_to_arr1(&tensors[idx].data(), &mut self.norm_layers[i + 1].weight);
+            idx += 1;
+            copy_tensor_to_arr1(&tensors[idx].data(), &mut self.norm_layers[i + 1].bias);
+            idx += 1;
+
+            // attention projections (first head)
+            let head0 = &mut self.attention_layers[i].attention_heads[0];
+            copy_tensor_to_arr2(&tensors[idx].data(), &mut head0.q_proj.weight);
+            idx += 1;
+            copy_tensor_to_arr2(&tensors[idx].data(), &mut head0.k_proj.weight);
+            idx += 1;
+            copy_tensor_to_arr2(&tensors[idx].data(), &mut head0.v_proj.weight);
+            idx += 1;
+            copy_tensor_to_arr2(&tensors[idx].data(), &mut head0.out_proj.weight);
+            idx += 1;
+        }
+
+        // Output projection
+        copy_tensor_to_arr2(&tensors[idx].data(), &mut self.output_projection.weight);
+        idx += 1;
+        copy_tensor_to_arr1(&tensors[idx].data(), &mut self.output_projection.bias);
+    }
+
+    /// Differentiable forward pass using Tensor ops.
+    /// Returns logits [batch, seq_len, vocab_size].
+    /// Uses soft MoE (all experts weighted by gate scores) for differentiability.
+    pub fn forward_tensor(
+        &self,
+        input_ids: &Array2<i32>,
+        params: &[Tensor],
+        _mask: Option<&Tensor>,
+        d_model: usize,
+        vocab_size: usize,
+    ) -> Result<Tensor> {
+        let (batch_size, seq_len) = input_ids.dim();
+        let n = batch_size * seq_len;
+        let param = TensorParamIndexer::new(self.config.n_experts);
+
+        // Flatten input for embedding
+        let flat: Vec<f32> = input_ids.iter().map(|&x| x as f32).collect();
+        let ids = Tensor::from_slice(&flat, &[n]);
+
+        // --- Embedding ---
+        let mut h = ops::nn::embedding(&ids, &params[param.emb]);
+        // h: [n, d_model]
+
+        // --- Transformer layers ---
+        for li in 0..self.moe_layers.len() {
+            let lo = param.layer_offset(li);
+
+            // Pre-norm (norm1)
+            let norm_w = &params[lo.norm1_w];
+            let norm_b = &params[lo.norm1_b];
+            h = ops::nn::layer_norm_2d(&h, Some(norm_w), Some(norm_b), 1e-6);
+
+            // --- MoE with soft gating (differentiable) ---
+            let gate_scores = ops::nn::softmax(
+                &h.matmul(&params[lo.gate_w]).add(&params[lo.gate_b]),
+                1,
+            );
+            // gate_scores: [n, n_experts]
+
+            // Soft MoE: weighted sum of all experts
+            let n_experts = self.config.n_experts;
+            let mut moe_out = Tensor::zeros(&[n, d_model], false);
+
+            // Compute each expert's output and aggregate
+            for e in 0..n_experts {
+                let ew1 = &params[lo.expert_w1(e)];
+                let eb1 = &params[lo.expert_b1(e)];
+                let ew2 = &params[lo.expert_w2(e)];
+                let eb2 = &params[lo.expert_b2(e)];
+
+                // expert_out = gelu(x @ W1 + b1) @ W2 + b2
+                let expert_h = h.matmul(ew1).add(eb1).gelu();
+                let expert_out = expert_h.matmul(ew2).add(eb2);
+
+                // Create gate score mask for this expert: select column e of gate_scores
+                // Build a one-hot selector: [n, n_experts], column e = 1
+                let mut sel = vec![0.0f32; n * n_experts];
+                for i in 0..n {
+                    sel[i * n_experts + e] = 1.0;
+                }
+                let selector = Tensor::from_slice(&sel, &[n, n_experts]);
+                let score = gate_scores.mul(&selector); // [n, n_experts], only column e
+                // Reshape score to [n, 1] by multiplying with ones vector
+                // score [n, n_experts] * ones [n_experts, 1] → [n, 1]
+                let ones = Tensor::from_slice(
+                    &vec![1.0f32; n_experts],
+                    &[n_experts, 1],
+                );
+                // But the ones tensor has requires_grad=false, which is fine
+                let score_2d = score.matmul(&ones); // [n, 1]
+
+                // Weight expert output by gate score
+                let weighted = expert_out.mul(&score_2d); // broadcasts [n, d] * [n, 1] → [n, d]
+                moe_out = moe_out.add(&weighted);
+            }
+
+            h = h.add(&moe_out);
+
+            // Post-norm (norm2)
+            let norm2_w = &params[lo.norm2_w];
+            let norm2_b = &params[lo.norm2_b];
+            h = ops::nn::layer_norm_2d(&h, Some(norm2_w), Some(norm2_b), 1e-6);
+
+            // --- Multi-head latent attention (flattened 2D matmul with block+causal mask) ---
+            let head_dim = d_model / self.config.n_heads;
+            let q = h.matmul(&params[lo.q_proj]); // [n, head_dim]
+            let k = h.matmul(&params[lo.k_proj]); // [n, head_dim]
+            let v = h.matmul(&params[lo.v_proj]); // [n, head_dim]
+
+            // Flattened 2D attention: scores = Q @ K^T  [n, n]
+            let k_t = k.transpose(); // [head_dim, n]
+            let scale = (head_dim as f32).sqrt();
+            let scale_t = Tensor::from_slice(&[1.0 / scale], &[1]);
+            let mut scores = q.matmul(&k_t).mul(&scale_t); // [n, n]
+
+            // Create block-diagonal causal mask:
+            // - cross-batch positions get -inf (each batch isolated)
+            // - future positions (j > i) within same batch get -inf
+            let mut mask_data = vec![0.0f32; n * n];
+            for bi in 0..batch_size {
+                for bj in 0..batch_size {
+                    for i in 0..seq_len {
+                        for j in 0..seq_len {
+                            let row = bi * seq_len + i;
+                            let col = bj * seq_len + j;
+                            if bi != bj || i < j {
+                                // cross-batch or future position: mask out
+                                mask_data[row * n + col] = f32::NEG_INFINITY;
+                            }
+                        }
+                    }
+                }
+            }
+            let mask_t = Tensor::from_slice(&mask_data, &[n, n]);
+            scores = scores.add(&mask_t);
+
+            // Softmax over last dim (columns: how much each position attends to others)
+            let attn_weights = ops::nn::softmax(&scores, 1); // [n, n]
+
+            // attention output = attn @ V  [n, head_dim]
+            let attn_out = attn_weights.matmul(&v); // [n, head_dim]
+
+            // Project output back to d_model
+            let attn_proj = attn_out.matmul(&params[lo.attn_out_proj]); // [n, d_model]
+
+            h = h.add(&attn_proj);
+        }
+
+        // --- Output projection ---
+        let out_w_idx = param.output_w(self.moe_layers.len());
+        let out_b_idx = param.output_b(self.moe_layers.len());
+        let logits = h.matmul(&params[out_w_idx]).add(&params[out_b_idx]);
+        let logits_3d = logits.reshape(&[batch_size, seq_len, vocab_size]);
+
+        Ok(logits_3d)
+    }
+}
+
+/// Helper: copy tensor data into a 2D ndarray
+fn copy_tensor_to_arr2(data: &ndarray::ArrayD<f32>, target: &mut Array2<f32>) {
+    let flat: Vec<f32> = data.iter().copied().collect();
+    let (rows, cols) = target.dim();
+    if flat.len() == rows * cols {
+        for i in 0..rows {
+            for j in 0..cols {
+                target[[i, j]] = flat[i * cols + j];
+            }
+        }
+    }
+}
+
+/// Helper: copy tensor data into a 1D ndarray
+fn copy_tensor_to_arr1(data: &ndarray::ArrayD<f32>, target: &mut Array1<f32>) {
+    let flat: Vec<f32> = data.iter().copied().collect();
+    if flat.len() == target.len() {
+        for i in 0..target.len() {
+            target[i] = flat[i];
+        }
+    }
+}
+
+/// Parameter index calculator for the flat tensor layout used in forward_tensor.
+struct TensorParamIndexer {
+    n_experts: usize,
+    pub emb: usize,
+    pub params_per_layer: usize,
+}
+
+impl TensorParamIndexer {
+    fn new(n_experts: usize) -> Self {
+        Self {
+            emb: 0,
+            params_per_layer: 2  // norms (w+b)
+                + 2              // gate (w+b)
+                + n_experts * 4  // experts (w1+b1+w2+b2)
+                + 2              // norm2 (w+b)
+                + 4,             // q,k,v,out projections
+            n_experts,
+        }
+    }
+
+    fn layer_offset(&self, layer: usize) -> LayerTensorOffset {
+        let base = self.emb + 1 + layer * self.params_per_layer;
+        LayerTensorOffset {
+            norm1_w: base,
+            norm1_b: base + 1,
+            gate_w: base + 2,
+            gate_b: base + 3,
+            expert_start: base + 4,
+            norm2_w: base + 4 + self.n_experts * 4,
+            norm2_b: base + 5 + self.n_experts * 4,
+            q_proj: base + 6 + self.n_experts * 4,
+            k_proj: base + 7 + self.n_experts * 4,
+            v_proj: base + 8 + self.n_experts * 4,
+            attn_out_proj: base + 9 + self.n_experts * 4,
+        }
+    }
+
+    /// Index of output weight tensor (embedding + all layers first)
+    fn output_w(&self, n_layers: usize) -> usize {
+        self.emb + 1 + n_layers * self.params_per_layer
+    }
+
+    fn output_b(&self, n_layers: usize) -> usize {
+        self.output_w(n_layers) + 1
+    }
+}
+
+struct LayerTensorOffset {
+    norm1_w: usize,
+    norm1_b: usize,
+    gate_w: usize,
+    gate_b: usize,
+    expert_start: usize,
+    norm2_w: usize,
+    norm2_b: usize,
+    q_proj: usize,
+    k_proj: usize,
+    v_proj: usize,
+    attn_out_proj: usize,
+}
+
+impl LayerTensorOffset {
+    fn expert_w1(&self, e: usize) -> usize {
+        self.expert_start + e * 4
+    }
+    fn expert_b1(&self, e: usize) -> usize {
+        self.expert_start + e * 4 + 1
+    }
+    fn expert_w2(&self, e: usize) -> usize {
+        self.expert_start + e * 4 + 2
+    }
+    fn expert_b2(&self, e: usize) -> usize {
+        self.expert_start + e * 4 + 3
+    }
+}
+
+/// Compute a differentiable cross-entropy loss from logits and labels.
+/// Labels with value -100 are ignored (they contribute zero gradient).
+pub fn compute_tensor_loss(
+    logits: &Tensor,
+    labels: &[i32],
+    vocab_size: usize,
+) -> (Tensor, f32) {
+    let logits_data = logits.data();
+    let shape = logits_data.shape();
+    let n = shape[0]; // batch * seq_len flattened
+
+    // Build one-hot targets: only positions with label >= 0 contribute
+    let mut one_hot = vec![0.0f32; n * vocab_size];
+    let mut valid = 0;
+
+    for i in 0..n {
+        if i < labels.len() && labels[i] >= 0 {
+            let li = labels[i] as usize;
+            if li < vocab_size {
+                one_hot[i * vocab_size + li] = 1.0;
+                valid += 1;
+            }
+        }
+    }
+
+    // Create differentiable loss:
+    // loss = -sum(log_softmax(logits) * one_hot) / valid_count
+    let log_probs = ops::nn::log_softmax(logits, 1);
+    // neg_log_probs = -log_softmax
+    let neg_log_probs = ops::math::neg(&log_probs);
+    let weighted = neg_log_probs.mul(&Tensor::from_slice(&one_hot, &[n, vocab_size]));
+
+    // weighted.sum() gives scalar, divide by valid count
+    let total = weighted.sum();
+    let scale = if valid > 0 {
+        1.0 / valid as f32
+    } else {
+        1.0
+    };
+    let scale_t = Tensor::from_slice(&[scale], &[1]);
+
+    let loss_t = total.mul(&scale_t);
+    let loss_val = loss_t.data()[0];
+
+    (loss_t, loss_val)
 }
 
 /// Utility functions

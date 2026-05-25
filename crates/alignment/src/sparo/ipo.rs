@@ -4,6 +4,7 @@
 //! dan menjaga kemampuan generalisasi.
 
 use anyhow::Result;
+use nexora_autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -179,27 +180,69 @@ impl IpoLossCalculator {
     }
 }
 
-/// IPO Trainer
+/// IPO Trainer with autograd-based optimization
 pub struct IpoTrainer {
     loss_calculator: IpoLossCalculator,
     model: PolicyModel,
     identity_constraints: HashMap<Uuid, IdentityConstraint>,
     learning_rate: f32,
+    trainable_params: Option<Tensor>,
+    optimizer: Option<Adam>,
+    grad_norms: Vec<f32>,
 }
 
 impl IpoTrainer {
     pub fn new(model: PolicyModel, config: IpoConfig) -> Self {
+        let learning_rate = 1e-4;
+        let t = model.as_trainable_tensor();
+        let mut opt = Adam::new(vec![t.clone()], learning_rate);
+        opt.set_max_grad_norm(Some(1.0));
         Self {
             loss_calculator: IpoLossCalculator::new(config),
             model,
             identity_constraints: HashMap::new(),
-            learning_rate: 1e-4,
+            learning_rate,
+            trainable_params: Some(t),
+            optimizer: Some(opt),
+            grad_norms: Vec::new(),
         }
     }
 
     /// Set learning rate
     pub fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
+        if let Some(ref mut opt) = self.optimizer {
+            opt.lr = lr;
+        }
+    }
+
+    fn sync_params_from_model(&mut self) {
+        let t = self.model.as_trainable_tensor();
+        self.trainable_params = Some(t.clone());
+        let lr = self.learning_rate;
+        let mut opt = Adam::new(vec![t], lr);
+        opt.set_max_grad_norm(Some(1.0));
+        self.optimizer = Some(opt);
+    }
+
+    fn sync_model_from_params(&mut self) {
+        if let Some(ref t) = self.trainable_params {
+            self.model.update_from_tensor(t);
+        }
+    }
+
+    fn compute_grad_norm(&self) -> f32 {
+        if let Some(ref t) = self.trainable_params {
+            if let Some(grad) = t.grad() {
+                return grad.iter().map(|x| x * x).sum::<f32>().sqrt();
+            }
+        }
+        0.0
+    }
+
+    /// Get gradient norm history
+    pub fn grad_norms(&self) -> &[f32] {
+        &self.grad_norms
     }
 
     /// Add identity constraint
@@ -231,15 +274,41 @@ impl IpoTrainer {
         Ok(())
     }
 
-    /// Training step untuk IPO
+    /// Training step untuk IPO with autograd-based optimization
     pub fn training_step(&mut self) -> Result<f32> {
         let constraints: Vec<_> = self.identity_constraints.values().cloned().collect();
         let loss = self.loss_calculator.calculate_batch_loss(&constraints)?;
 
-        // Update model parameters using real gradient descent
-        for constraint in &constraints {
-            let gradient = self.loss_calculator.calculate_gradient(constraint)?;
-            self.update_model_parameters(gradient, constraint)?;
+        if let Some(ref opt) = self.optimizer {
+            opt.zero_grad();
+
+            for constraint in &constraints {
+                let gradient = self.loss_calculator.calculate_gradient(constraint)?;
+                let identity_grad = gradient * self.loss_calculator.config.identity_strength;
+                let contrastive_grad = gradient * self.loss_calculator.config.tau;
+                self.model.apply_gradient(
+                    &constraint.prompt, &constraint.original_response,
+                    identity_grad, self.learning_rate,
+                )?;
+                self.model.apply_gradient(
+                    &constraint.prompt, &constraint.current_response,
+                    -contrastive_grad, self.learning_rate,
+                )?;
+            }
+
+            self.sync_params_from_model();
+            if let Some(ref mut opt) = self.optimizer {
+                opt.step();
+            }
+            self.sync_model_from_params();
+
+            let gn = self.compute_grad_norm();
+            self.grad_norms.push(gn);
+        } else {
+            for constraint in &constraints {
+                let gradient = self.loss_calculator.calculate_gradient(constraint)?;
+                self.update_model_parameters(gradient, constraint)?;
+            }
         }
 
         Ok(loss)

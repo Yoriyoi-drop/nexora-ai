@@ -3,6 +3,7 @@
 //! Core tokenizer functionality with vocabulary and merge rules
 
 use crate::special_tokens::SpecialTokens;
+use crate::Tokenizer;
 use anyhow::Result;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -435,6 +436,18 @@ struct TokenizerData {
 impl Default for TokenizerCore {
     fn default() -> Self {
         Self::with_default_config()
+    }
+}
+
+impl Tokenizer for TokenizerCore {
+    fn encode(&self, text: &str) -> anyhow::Result<Vec<u32>> {
+        self.tokenize(text)
+    }
+    fn decode(&self, ids: &[u32]) -> anyhow::Result<String> {
+        TokenizerCore::decode(self, ids)
+    }
+    fn vocab_size(&self) -> usize {
+        TokenizerCore::vocab_size(self)
     }
 }
 

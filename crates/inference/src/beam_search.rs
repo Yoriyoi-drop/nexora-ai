@@ -633,7 +633,10 @@ pub fn run_beam_search(
     let mut state = engine.initialize(initial_logits)?;
 
     for step_logits in subsequent_logits.iter().take(max_steps - 1) {
-        engine.expand_beam(&mut state, &[step_logits.clone()])?;
+        let batched_logits: Vec<Vec<f32>> = (0..state.hypotheses.len())
+            .map(|_| step_logits.clone())
+            .collect();
+        engine.expand_beam(&mut state, &batched_logits)?;
 
         if engine.should_stop(&state, max_steps) {
             break;
