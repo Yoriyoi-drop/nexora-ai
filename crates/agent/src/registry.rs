@@ -165,10 +165,8 @@ impl AgentRegistry {
     /// Get agent instance with write access
     pub async fn get_agent(&self, agent_id: Uuid) -> Result<RwLockMappedWriteGuard<'_, Box<dyn Agent>>> {
         let guard = self.agents.write().await;
-        if !guard.contains_key(&agent_id) {
-            return Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() });
-        }
-        Ok(RwLockWriteGuard::map(guard, |map| map.get_mut(&agent_id).unwrap()))
+        RwLockWriteGuard::try_map(guard, |map| map.get_mut(&agent_id))
+            .map_err(|_| AgentError::AgentNotFound { agent_id: agent_id.to_string() })
     }
 
     /// Get agent info

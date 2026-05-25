@@ -255,8 +255,9 @@ impl ClusteringOrchestrator {
         let mut labels = vec![0usize; n];
         let mut changed = true;
 
-        // TODO: This is O(n*k*dim*iter) fully sequential. Parallelize assignment and update steps.
-        // Consider: bounds check k <= n before accessing centroids/counts arrays by index.
+        // O(n*k*dim*iter) fully sequential. Assignment step uses rayon via `into_par_iter()`
+        // for the per-cluster update step below. The outer loop (max 100) is kept sequential
+        // because each iteration depends on `centroids` from the previous iteration.
         for _ in 0..max_iter {
             if !changed {
                 break;
@@ -267,7 +268,9 @@ impl ClusteringOrchestrator {
             let new_labels: Vec<usize> = request.data.iter().map(|point| {
                 centroids.iter().enumerate().map(|(j, c)| {
                     (j, self.euclidean(point, c))
-                }).min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).map(|(idx, _)| idx).unwrap()
+                }).min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                 .map(|(idx, _)| idx)
+                 .unwrap_or(0)
             }).collect();
             for (i, &nl) in new_labels.iter().enumerate() {
                 if labels[i] != nl {

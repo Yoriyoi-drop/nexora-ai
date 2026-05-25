@@ -23,7 +23,9 @@ fn with_retry<T, F: Fn() -> std::io::Result<T>>(f: F) -> std::io::Result<T> {
             }
         }
     }
-    Err(last_err.unwrap())
+    Err(last_err.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::Other, "retry loop exhausted without error")
+    }))
 }
 
 /// Manages disk-backed persistent wgpu pipeline cache.

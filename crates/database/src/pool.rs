@@ -75,15 +75,15 @@ pub struct PoolConfig {
 impl Default for PoolConfig {
     fn default() -> Self {
         Self {
-            database_url: "postgresql://localhost/nexora".to_string(),
-            max_connections: 20,
-            min_connections: 5,
-            connect_timeout: Duration::from_secs(30),
-            idle_timeout: Duration::from_secs(600),
-            max_lifetime: Some(Duration::from_secs(1800)),
-            test_query: "SELECT 1".to_string(),
-            enable_query_logging: true,
-            slow_query_threshold: Duration::from_millis(500),
+            database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgresql://localhost/nexora".to_string()),
+            max_connections: std::env::var("DB_MAX_CONNECTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(20),
+            min_connections: std::env::var("DB_MIN_CONNECTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(5),
+            connect_timeout: Duration::from_secs(std::env::var("DB_CONNECT_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(30)),
+            idle_timeout: Duration::from_secs(std::env::var("DB_IDLE_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(600)),
+            max_lifetime: std::env::var("DB_MAX_LIFETIME").ok().and_then(|v| v.parse().ok()).map(Duration::from_secs).or(Some(Duration::from_secs(1800))),
+            test_query: std::env::var("DB_TEST_QUERY").unwrap_or_else(|_| "SELECT 1".to_string()),
+            enable_query_logging: std::env::var("DB_ENABLE_QUERY_LOGGING").ok().map(|v| v == "true" || v == "1").unwrap_or(true),
+            slow_query_threshold: Duration::from_millis(std::env::var("DB_SLOW_QUERY_THRESHOLD_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(500)),
         }
     }
 }

@@ -64,7 +64,12 @@ impl KVCache {
                 entries: HashMap::new(),
                 lru_order: BTreeSet::new(),
             }),
-            ttl: Duration::from_secs(3600),
+            ttl: Duration::from_secs(
+                std::env::var("KV_CACHE_TTL_SECS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3600),
+            ),
             max_entries: 10_000,
             max_entry_bytes: 8_388_608,
             max_memory_bytes: 1_073_741_824,
@@ -281,7 +286,13 @@ impl KVCache {
     async fn maybe_cleanup(&self) {
         // Lock ordering: last_cleanup → store (dropped before evict_expired acquires store)
         let mut last = self.last_cleanup.write().await;
-        if last.elapsed() > Duration::from_secs(300) {
+        let eviction_interval = Duration::from_secs(
+            std::env::var("KV_CACHE_EVICTION_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+        );
+        if last.elapsed() > eviction_interval {
             *last = Instant::now();
             drop(last);
             self.evict_expired().await;

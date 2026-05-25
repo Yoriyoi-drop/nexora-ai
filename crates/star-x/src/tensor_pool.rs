@@ -69,7 +69,7 @@ impl TensorPool {
 
     /// Get 1D tensor from pool atau create new
     pub fn get_1d(&self, size: usize) -> DLResult<Array1<f32>> {
-        let mut pool = self.pool_1d.lock().expect("tensor_pool mutex poisoned");
+        let mut pool = self.pool_1d.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find appropriate size category
         let category_idx = self.find_1d_category(size)?;
@@ -90,7 +90,7 @@ impl TensorPool {
         let size = tensor.len();
         let category_idx = self.find_1d_category(size)?;
 
-        let mut pool = self.pool_1d.lock().expect("tensor_pool mutex poisoned");
+        let mut pool = self.pool_1d.lock().unwrap_or_else(|e| e.into_inner());
         if pool[category_idx].len() < self.max_pool_size {
             pool[category_idx].push(tensor);
         }
@@ -100,7 +100,7 @@ impl TensorPool {
 
     /// Get 2D tensor from pool atau create new
     pub fn get_2d(&self, rows: usize, cols: usize) -> DLResult<Array2<f32>> {
-        let mut pool = self.pool_2d.lock().expect("tensor_pool mutex poisoned");
+        let mut pool = self.pool_2d.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find appropriate size category
         let category_idx = self.find_2d_category(rows, cols)?;
@@ -121,7 +121,7 @@ impl TensorPool {
         let (rows, cols) = tensor.dim();
         let category_idx = self.find_2d_category(rows, cols)?;
 
-        let mut pool = self.pool_2d.lock().expect("tensor_pool mutex poisoned");
+        let mut pool = self.pool_2d.lock().unwrap_or_else(|e| e.into_inner());
         if pool[category_idx].len() < self.max_pool_size {
             pool[category_idx].push(tensor);
         }
@@ -131,7 +131,7 @@ impl TensorPool {
 
     /// Get dynamic tensor from pool atau create new
     pub fn get_dyn(&self, shape: &[usize]) -> DLResult<ArrayD<f32>> {
-        let mut pool = self.pool_dyn.lock().expect("tensor_pool mutex poisoned");
+        let mut pool = self.pool_dyn.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find appropriate size category
         let category_idx = self.find_dyn_category(shape)?;
@@ -158,7 +158,7 @@ impl TensorPool {
         let shape = tensor.shape().to_vec();
         let category_idx = self.find_dyn_category(&shape)?;
 
-        let mut pool = self.pool_dyn.lock().expect("tensor_pool mutex poisoned");
+        let mut pool = self.pool_dyn.lock().unwrap_or_else(|e| e.into_inner());
         if pool[category_idx].len() < self.max_pool_size {
             pool[category_idx].push(tensor);
         }
@@ -211,19 +211,19 @@ impl TensorPool {
     /// Clear all pools (for memory cleanup)
     pub fn clear_all(&self) {
         {
-            let mut pool = self.pool_1d.lock().expect("tensor_pool mutex poisoned");
+            let mut pool = self.pool_1d.lock().unwrap_or_else(|e| e.into_inner());
             for category in pool.iter_mut() {
                 category.clear();
             }
         }
         {
-            let mut pool = self.pool_2d.lock().expect("tensor_pool mutex poisoned");
+            let mut pool = self.pool_2d.lock().unwrap_or_else(|e| e.into_inner());
             for category in pool.iter_mut() {
                 category.clear();
             }
         }
         {
-            let mut pool = self.pool_dyn.lock().expect("tensor_pool mutex poisoned");
+            let mut pool = self.pool_dyn.lock().unwrap_or_else(|e| e.into_inner());
             for category in pool.iter_mut() {
                 category.clear();
             }
@@ -235,7 +235,7 @@ impl TensorPool {
         let mut stats = PoolStats::default();
 
         {
-            let pool = self.pool_1d.lock().expect("tensor_pool mutex poisoned");
+            let pool = self.pool_1d.lock().unwrap_or_else(|e| e.into_inner());
             for (i, category) in pool.iter().enumerate() {
                 stats
                     .pool_1d_sizes
@@ -244,7 +244,7 @@ impl TensorPool {
         }
 
         {
-            let pool = self.pool_2d.lock().expect("tensor_pool mutex poisoned");
+            let pool = self.pool_2d.lock().unwrap_or_else(|e| e.into_inner());
             for (i, category) in pool.iter().enumerate() {
                 stats
                     .pool_2d_sizes
@@ -253,7 +253,7 @@ impl TensorPool {
         }
 
         {
-            let pool = self.pool_dyn.lock().expect("tensor_pool mutex poisoned");
+            let pool = self.pool_dyn.lock().unwrap_or_else(|e| e.into_inner());
             for (i, category) in pool.iter().enumerate() {
                 stats
                     .pool_dyn_sizes

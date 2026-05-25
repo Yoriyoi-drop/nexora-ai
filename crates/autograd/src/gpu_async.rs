@@ -20,22 +20,24 @@ impl<T: Send + 'static> AsyncReadback<T> {
     }
 
     /// Blocking wait untuk hasil with 30s timeout
-    /// # Panics
-    /// Panics if the sender was dropped before sending a value (GPU context destroyed).
-    pub fn recv(&self) -> T {
+    pub fn recv(&self) -> Result<T, GpuError> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             match self.receiver.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(val) => return val,
+                Ok(val) => return Ok(val),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if std::time::Instant::now() > deadline {
-                        panic!("GPU async readback timed out after 30s");
+                        return Err(GpuError::Timeout(
+                            "GPU async readback timed out after 30s".into(),
+                        ));
                     }
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    panic!("GPU async readback channel disconnected — GPU context destroyed before readback completed");
+                    return Err(GpuError::Device(
+                        "GPU async readback channel disconnected — GPU context destroyed before readback completed".into(),
+                    ));
                 }
             }
         }

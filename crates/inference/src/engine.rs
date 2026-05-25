@@ -33,6 +33,9 @@ pub struct InferenceConfig {
     pub cache_size_limit_mb: usize,
     pub enable_streaming: bool,
     pub default_timeout_seconds: u64,
+    pub generation_timeout_seconds: u64,
+    pub cleanup_interval_seconds: u64,
+    pub recv_timeout_millis: u64,
     pub metrics_interval_seconds: u64,
     pub use_gpu: bool,
     #[cfg(feature = "gpu")]
@@ -51,6 +54,9 @@ impl Default for InferenceConfig {
             cache_size_limit_mb: 1024,
             enable_streaming: true,
             default_timeout_seconds: 30,
+            generation_timeout_seconds: 60,
+            cleanup_interval_seconds: 30,
+            recv_timeout_millis: 50,
             metrics_interval_seconds: 60,
             use_gpu: true,
             #[cfg(feature = "gpu")]
@@ -302,6 +308,7 @@ impl InferenceEngine {
         let temperature = request.temperature;
         let top_p = request.top_p;
         let top_k = request.top_k as usize;
+        let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
 
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
@@ -339,7 +346,6 @@ impl InferenceEngine {
 
             let max_gen = max_tokens.min(2048) as usize;
 
-            let generation_timeout = Duration::from_secs(60);
             let gen_result = tokio::time::timeout(generation_timeout, async {
                 for pos in 0..max_gen {
                     let input: &[u32] = if pos == 0 {
@@ -473,6 +479,7 @@ impl InferenceEngine {
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let prompt_ids_for_loop = prompt_ids.clone();
+        let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
         let (tokens, last_logits, timed_out) = tokio::task::spawn_blocking(move || {
             run_generation_loop(
                 &model,
@@ -483,6 +490,7 @@ impl InferenceEngine {
                 tokenizer.as_ref(),
                 prefix_len,
                 prefix_logits,
+                generation_timeout,
             )
         })
         .await
@@ -643,6 +651,7 @@ impl InferenceEngine {
             use_gpu_cache: self.config.use_gpu_cache,
             prefix_cache: self.prefix_cache.clone(),
             batch_semaphore,
+            generation_timeout: Duration::from_secs(self.config.generation_timeout_seconds),
         };
         Self::spawn_batch_processor_inner(&engine, &self.active_requests, batch).await;
     }
@@ -674,7 +683,11 @@ impl InferenceEngine {
             use_gpu_cache: self.config.use_gpu_cache,
             prefix_cache: self.prefix_cache.clone(),
             batch_semaphore: Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT)),
+            generation_timeout: Duration::from_secs(self.config.generation_timeout_seconds),
         };
+
+        let cleanup_interval = Duration::from_secs(self.config.cleanup_interval_seconds);
+        let recv_timeout = Duration::from_millis(self.config.recv_timeout_millis);
 
         let handle = tokio::spawn(async move {
             let mut last_cleanup = std::time::Instant::now();
@@ -687,7 +700,7 @@ impl InferenceEngine {
                     break;
                 }
 
-                if last_cleanup.elapsed() >= Duration::from_secs(30) {
+                if last_cleanup.elapsed() >= cleanup_interval {
                     // Evict stale sessions
                     {
                         let mut sessions = session_manager.write().await;
@@ -716,7 +729,7 @@ impl InferenceEngine {
                 }
 
                 // No batch ready, wait for next request
-                let request = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+                let request = tokio::time::timeout(recv_timeout, rx.recv()).await;
 
                 match request {
                     Ok(Some(req)) => {
@@ -771,6 +784,7 @@ impl InferenceEngine {
             use_gpu_cache: engine.use_gpu_cache,
             prefix_cache: engine.prefix_cache.clone(),
             batch_semaphore: engine.batch_semaphore.clone(),
+            generation_timeout: engine.generation_timeout,
         };
         let active = active_requests.clone();
         let task = tokio::spawn(async move {
@@ -862,6 +876,7 @@ fn run_generation_loop(
     tokenizer: Option<&Arc<tokio::sync::Mutex<BpeTokenizer>>>,
     prefix_len: usize,
     prefix_logits: Vec<f32>,
+    generation_timeout: Duration,
 ) -> (Vec<GeneratedToken>, Vec<f32>, bool) {
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
@@ -921,8 +936,8 @@ fn run_generation_loop(
         tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
         all_ids.push(token_id);
 
-        if token_id == 0 || start.elapsed() > Duration::from_secs(60) {
-            let timed_out = start.elapsed() > Duration::from_secs(60);
+        if token_id == 0 || start.elapsed() > generation_timeout {
+            let timed_out = start.elapsed() > generation_timeout;
             return (tokens, last_logits, timed_out);
         }
     }
@@ -943,6 +958,7 @@ struct InferenceEngineHandle {
     use_gpu_cache: bool,
     prefix_cache: Arc<PrefixCache>,
     batch_semaphore: Arc<Semaphore>,
+    generation_timeout: Duration,
 }
 
 impl InferenceEngineHandle {
@@ -980,6 +996,7 @@ impl InferenceEngineHandle {
             let use_gpu = self.use_gpu;
             #[cfg(feature = "gpu")]
             let use_gpu_cache = self.use_gpu_cache;
+            let generation_timeout = self.generation_timeout;
             let _permit = match self.batch_semaphore.clone().acquire_owned().await {
                 Ok(p) => p,
                 Err(_) => break,
@@ -1080,6 +1097,7 @@ impl InferenceEngineHandle {
                         tokenizer.as_ref(),
                         prefix_len,
                         prefix_logits,
+                        generation_timeout,
                     )
                 })
                 .await

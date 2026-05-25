@@ -80,13 +80,13 @@ pub struct MySQLConfig {
 impl Default for MySQLConfig {
     fn default() -> Self {
         Self {
-            host: "localhost".to_string(),
-            port: 3306,
-            username: "root".to_string(),
-            password: "".to_string(),
-            database: "nexora".to_string(),
-            pool_size: 10,
-            timeout: 30,
+            host: std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_string()),
+            port: std::env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3306),
+            username: std::env::var("DB_USER").unwrap_or_else(|_| "nexora".to_string()),
+            password: std::env::var("DB_PASSWORD").unwrap_or_default(),
+            database: std::env::var("DB_NAME").unwrap_or_else(|_| "nexora".to_string()),
+            pool_size: std::env::var("DB_POOL_SIZE").ok().and_then(|v| v.parse().ok()).unwrap_or(10),
+            timeout: std::env::var("DB_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
         }
     }
 }
@@ -881,16 +881,21 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             database_type: DatabaseType::PostgreSQL,
-            host: "localhost".to_string(),
-            port: 5432,
-            database: "nexora".to_string(),
-            username: "postgres".to_string(),
-            password: "".to_string(),
-            ssl_mode: SslMode::Prefer,
-            max_connections: 10,
-            connection_timeout_seconds: 30,
-            idle_timeout_seconds: 300,
-            max_lifetime_seconds: 3600,
+            host: std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_string()),
+            port: std::env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5432),
+            database: std::env::var("DB_NAME").unwrap_or_else(|_| "nexora".to_string()),
+            username: std::env::var("DB_USER").unwrap_or_else(|_| "nexora".to_string()),
+            password: std::env::var("DB_PASSWORD").unwrap_or_default(),
+            ssl_mode: match std::env::var("DB_SSL_MODE").unwrap_or_else(|_| "prefer".to_string()).to_lowercase().as_str() {
+                "disable" => SslMode::Disable,
+                "allow" => SslMode::Allow,
+                "require" => SslMode::Require,
+                _ => SslMode::Prefer,
+            },
+            max_connections: std::env::var("DB_MAX_CONNECTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(10),
+            connection_timeout_seconds: std::env::var("DB_CONNECT_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
+            idle_timeout_seconds: std::env::var("DB_IDLE_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
+            max_lifetime_seconds: std::env::var("DB_MAX_LIFETIME").ok().and_then(|v| v.parse().ok()).unwrap_or(3600),
         }
     }
 }

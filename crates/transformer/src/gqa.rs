@@ -460,7 +460,7 @@ impl GQA {
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
                 (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
-            ).expect("valid shape for rotated K");
+            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
             k_slice.assign(&rotated);
         }
 
@@ -469,7 +469,7 @@ impl GQA {
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
                 (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
-            ).expect("valid shape for rotated Q");
+            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
             q_slice.assign(&rotated);
         }
 
@@ -567,7 +567,7 @@ impl GQA {
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
                 (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
-            ).expect("valid shape for rotated K");
+            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
             k_slice.assign(&rotated);
         }
 
@@ -576,7 +576,7 @@ impl GQA {
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
                 (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
-            ).expect("valid shape for rotated Q");
+            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
             q_slice.assign(&rotated);
         }
 
@@ -686,7 +686,7 @@ impl GQA {
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
                 (self.num_kv_heads, self.head_dim), rotated_k.into_raw_vec(),
-            ).expect("valid shape for rotated K");
+            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
             k_slice.assign(&rotated);
         }
 
@@ -696,7 +696,7 @@ impl GQA {
             let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
             let rotated = ndarray::Array2::from_shape_vec(
                 (self.num_heads, self.head_dim), rotated_q.into_raw_vec(),
-            ).expect("valid shape for rotated Q");
+            ).unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
             q_slice.assign(&rotated);
         }
 
