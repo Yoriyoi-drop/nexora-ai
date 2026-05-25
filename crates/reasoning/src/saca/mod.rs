@@ -77,8 +77,21 @@ impl SacaEngine {
         problem: &str,
         context: &str,
     ) -> Result<ReasoningResult, crate::saca::SACAError> {
+        let task = CodingTask {
+            description: if context.is_empty() {
+                problem.to_string()
+            } else {
+                format!("{}\n\nContext: {}", problem, context)
+            },
+            requirements: vec![],
+            constraints: vec![],
+            context: None,
+        };
+        let config = SACAConfig::default();
+        let saca = SACA::new(config).await?;
+        let solution = saca.solve(task).await?;
         Ok(ReasoningResult {
-            conclusion: format!("{} {}", problem, context).trim().to_string(),
+            conclusion: solution.final_code,
         })
     }
 }

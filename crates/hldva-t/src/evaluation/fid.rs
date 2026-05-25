@@ -129,7 +129,7 @@ impl FIDMetric {
 
                 // 5th percentile and 95th percentile for distribution range
                 let mut sorted = reduced.clone();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                 features.push(sorted[(reduced.len() as f32 * 0.05) as usize].max(0.0));
                 features.push(sorted[(reduced.len() as f32 * 0.95) as usize].min(1.0));
             }

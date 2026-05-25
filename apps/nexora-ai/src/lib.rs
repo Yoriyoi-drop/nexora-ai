@@ -30,6 +30,36 @@ use nexora_foundation::shared::{
     model_identity::NxrModelId,
     model_registry::global_registry,
 };
+/// Create an InferenceEngine sharing the model from the registry via with_model().
+/// This avoids InferenceEngine::new() which creates a separate uninitialized CausalLM.
+pub async fn create_inference_engine(
+    registry: &nexora_foundation::shared::model_registry::NxrModelRegistry,
+    model_id: &NxrModelId,
+    config: nexora_inference::InferenceConfig,
+) -> Result<nexora_inference::InferenceEngineStruct, NexoraError> {
+    let model_raw = registry
+        .get_model_raw(model_id)
+        .await
+        .map_err(|e| NexoraError::model(format!("Model {} not found: {}", model_id, e)))?;
+
+    let causal_lm_model = model_raw
+        .downcast_ref::<nexora_foundation::causal_lm_model::CausalLmModel>()
+        .ok_or_else(|| {
+            NexoraError::model(format!("Model {} is not a CausalLmModel", model_id))
+        })?;
+
+    let model_arc = causal_lm_model
+        .get_model_arc()
+        .await
+        .ok_or_else(|| NexoraError::model(format!("Model {} not loaded", model_id)))?;
+
+    Ok(nexora_inference::InferenceEngineStruct::with_model(
+        model_arc,
+        None,
+        config,
+    ))
+}
+
 /// Nexora AI System - Main orchestrator for all AI components
 ///
 /// This is the central coordinator that manages all Nexora AI components including:

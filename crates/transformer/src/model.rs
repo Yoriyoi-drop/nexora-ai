@@ -822,6 +822,27 @@ impl CausalLM {
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_gpu_with_cache_precomputed_rope(&h, cache, layer_idx, &cos_gpu, &sin_gpu)?;
+
+            // Run injectors (Echo-Net APSS, etc.) after each layer
+            for (target_layer, injector) in &self.injectors {
+                if *target_layer == layer_idx {
+                    let h_cpu = h.to_cpu()?;
+                    let dims = h_cpu.shape().to_vec();
+                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>()
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                            format!("injector reshape [{}x{}]: {}", dims[0], dims[1], e)
+                        ))?;
+                    let mut guard = injector.lock().map_err(|e| {
+                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                    })?;
+                    guard.after_layer(layer_idx, &mut h_2d, pos)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                            format!("injector after_layer: {}", e)
+                        ))?;
+                    let h_dyn = h_2d.into_dyn();
+                    h = GpuTensor::from_cpu(&h_dyn)?;
+                }
+            }
         }
 
         h = self.norm.forward_gpu(&h)?;
@@ -987,6 +1008,7 @@ impl CausalLM {
                             let _ = tx.send(r);
                         },
                     );
+                    // Called from spawn_blocking — sync device.poll(Wait) is acceptable here
                     ctx.device.poll(wgpu::PollType::Wait {
                         submission_index: None,
                         timeout: Some(Duration::from_secs(30)),
@@ -1171,6 +1193,27 @@ impl CausalLM {
         // 3. Forward through all transformer blocks on GPU
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
+
+            // Run injectors (Echo-Net APSS) after each layer
+            for (target_layer, injector) in &self.injectors {
+                if *target_layer == layer_idx {
+                    let h_cpu = h.to_cpu()?;
+                    let dims = h_cpu.shape().to_vec();
+                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>()
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                            format!("injector reshape [{}x{}]: {}", dims[0], dims[1], e)
+                        ))?;
+                    let mut guard = injector.lock().map_err(|e| {
+                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                    })?;
+                    guard.after_layer(layer_idx, &mut h_2d, pos)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                            format!("injector after_layer: {}", e)
+                        ))?;
+                    let h_dyn = h_2d.into_dyn();
+                    h = GpuTensor::from_cpu(&h_dyn)?;
+                }
+            }
         }
 
         // 4. Final RMSNorm on GPU
@@ -1244,6 +1287,27 @@ impl CausalLM {
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
+
+            // Run injectors (Echo-Net APSS) after each layer
+            for (target_layer, injector) in &self.injectors {
+                if *target_layer == layer_idx {
+                    let h_cpu = h.to_cpu()?;
+                    let dims = h_cpu.shape().to_vec();
+                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>()
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                            format!("injector reshape [{}x{}]: {}", dims[0], dims[1], e)
+                        ))?;
+                    let mut guard = injector.lock().map_err(|e| {
+                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                    })?;
+                    guard.after_layer(layer_idx, &mut h_2d, pos)
+                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                            format!("injector after_layer: {}", e)
+                        ))?;
+                    let h_dyn = h_2d.into_dyn();
+                    h = GpuTensor::from_cpu(&h_dyn)?;
+                }
+            }
         }
 
         h = self.norm.forward_gpu(&h)?;
@@ -1363,14 +1427,11 @@ impl CausalLM {
             let k_proj = ctx.matmul(&normed, &block_gw.wk_t)?;
             let v_proj = ctx.matmul(&normed, &block_gw.wv_t)?;
 
-            // Per-sequence: RoPE (per-position cos/sin), KV cache append, attention
-            let q_dim = n_heads * head_dim;
-            let kv_dim_total = n_kv_heads * head_dim;
-            let mut attn_rows = Vec::with_capacity(batch_size);
-
+            // Batch-upload cos/sin for ALL sequences at once: [batch_size, half]
+            let mut cos_flat = Vec::with_capacity(batch_size * half);
+            let mut sin_flat = Vec::with_capacity(batch_size * half);
             for seq_idx in 0..batch_size {
                 let pos = gpu_caches[seq_idx].first().map(|e| e.seq_len).unwrap_or(0);
-
                 let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
                     self.precomputed_cos.slice(ndarray::s![pos * half..(pos + 1) * half]).to_owned()
                 } else {
@@ -1381,16 +1442,31 @@ impl CausalLM {
                 } else {
                     Array1::zeros(half)
                 };
+                cos_flat.extend_from_slice(
+                    cos_slice.as_slice().ok_or_else(|| {
+                        nexora_autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
+                    })?
+                );
+                sin_flat.extend_from_slice(
+                    sin_slice.as_slice().ok_or_else(|| {
+                        nexora_autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
+                    })?
+                );
+            }
+            let cos_gpu_batch = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![batch_size, half], cos_flat)
+                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+            )?;
+            let sin_gpu_batch = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![batch_size, half], sin_flat)
+                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
+            )?;
 
-                let cos_gpu = GpuTensor::from_cpu(
-                    &ArrayD::from_shape_vec(vec![1, half], cos_slice.to_vec())
-                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-                )?;
-                let sin_gpu = GpuTensor::from_cpu(
-                    &ArrayD::from_shape_vec(vec![1, half], sin_slice.to_vec())
-                        .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?
-                )?;
+            let q_dim = n_heads * head_dim;
+            let kv_dim_total = n_kv_heads * head_dim;
+            let mut attn_rows = Vec::with_capacity(batch_size);
 
+            for seq_idx in 0..batch_size {
                 // Extract this sequence's Q/K/V rows via buffer copy
                 let q_row = GpuTensor::zeros(&[1, q_dim])?;
                 ctx.batch_dispatch(|enc| {
@@ -1410,9 +1486,21 @@ impl CausalLM {
                     Ok(())
                 })?;
 
+                // Copy this sequence's cos/sin row from batched GPU tensor
+                let row_cos = GpuTensor::zeros(&[1, half])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(cos_gpu_batch.buffer(), (seq_idx * half * 4) as u64, row_cos.buffer(), 0, (half * 4) as u64);
+                    Ok(())
+                })?;
+                let row_sin = GpuTensor::zeros(&[1, half])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(sin_gpu_batch.buffer(), (seq_idx * half * 4) as u64, row_sin.buffer(), 0, (half * 4) as u64);
+                    Ok(())
+                })?;
+
                 // RoPE (per-sequence because positions differ)
-                let q_rotated = ctx.rotary_embedding(&q_row, &cos_gpu, &sin_gpu, head_dim as u32)?;
-                let k_rotated = ctx.rotary_embedding(&k_row, &cos_gpu, &sin_gpu, head_dim as u32)?;
+                let q_rotated = ctx.rotary_embedding(&q_row, &row_cos, &row_sin, head_dim as u32)?;
+                let k_rotated = ctx.rotary_embedding(&k_row, &row_cos, &row_sin, head_dim as u32)?;
 
                 // Append K/V to per-sequence GPU cache
                 let k_3d = k_rotated.reshape(vec![1, n_kv_heads, head_dim])?;
@@ -1504,6 +1592,7 @@ impl CausalLM {
                     let (tx, rx) = std::sync::mpsc::channel();
                     slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
                     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    // Called from spawn_blocking — sync device.poll(Wait) is acceptable here
                     let map_result = loop {
                         ctx.device.poll(wgpu::PollType::Wait {
                             submission_index: None,

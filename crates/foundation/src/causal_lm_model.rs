@@ -203,7 +203,7 @@ pub struct CausalLmModel {
     meta: ModelMeta,
     capabilities: CapabilityVector,
     config: Value,
-    model: Arc<RwLock<Option<CausalLM>>>,
+    model: Arc<RwLock<Option<Arc<CausalLM>>>>,
     tokenizer: Arc<RwLock<Option<MiniTokenizer>>>,
     transformer_config: Arc<RwLock<TransformerConfig>>,
     initialized: Arc<RwLock<bool>>,
@@ -303,7 +303,7 @@ impl CausalLmModel {
             }
         }
 
-        *self.model.write().await = Some(model);
+        *self.model.write().await = Some(Arc::new(model));
         *self.initialized.write().await = true;
         info!("CausalLM model loaded: {} params", tc.parameter_count());
         Ok(())
@@ -337,10 +337,14 @@ impl CausalLmModel {
             .as_mut()
             .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         use nexora_transformer::TrainableCausalLM;
-        TrainableCausalLM::load_checkpoint(model_ref, path)
+        TrainableCausalLM::load_checkpoint(Arc::make_mut(model_ref), path)
             .map_err(|e| NxrModelError::Inference(format!("Load failed: {}", e)))?;
         info!("Checkpoint loaded from {}", path);
         Ok(())
+    }
+
+    pub async fn get_model_arc(&self) -> Option<Arc<CausalLM>> {
+        self.model.read().await.as_ref().cloned()
     }
 
     pub fn set_use_gpu(&self, enabled: bool) {
@@ -450,6 +454,11 @@ impl CausalLmModel {
         let causal_lm = model
             .take()
             .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
+        let causal_lm = Arc::try_unwrap(causal_lm)
+            .unwrap_or_else(|arc| {
+                warn!("Multiple Arc references to model existed during train_on_data — cloning (weights may not transfer)");
+                (*arc).clone()
+            });
         drop(model);
 
         let mut trainer_cfg = cfg;
@@ -546,7 +555,7 @@ impl CausalLmModel {
             None
         };
 
-        *self.model.write().await = Some(trained_model);
+        *self.model.write().await = Some(Arc::new(trained_model));
 
         Ok(TrainingReport {
             steps: trainer.step,

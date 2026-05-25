@@ -1,13 +1,19 @@
 //! Weight quantization helpers — INT8 and INT4 (packed/groupwise).
 //!
-//! NOTE: Currently dequantizes to fp32 for computation. True quantized compute
-//! (INT8/INT4 matmul) is not yet implemented.
+//! WARNING: This crate provides INT8/INT4 weight storage only. All computation
+//! dequantizes to fp32. No quantized matmul kernels are implemented. There is
+//! NO performance benefit from quantization at inference time - only reduced
+//! disk/memory storage.
 //!
 //! Provides:
 //! - `QuantizedDtype` — enum for supported quantized data types
 //! - `QuantizedTensor` — packed weight storage with scales
 //! - Quantize/dequantize functions for INT8 (per-tensor) and INT4 (packed, groupwise)
 //! - `quantize_linear` / `dequantize_linear` that wraps the full pipeline
+
+/// Set to `true` to make it impossible to ignore: this crate stores weights in
+/// INT8/INT4 format but converts back to FP32 for every operation. No speed gain.
+pub const QUANTIZATION_IS_STORAGE_ONLY: bool = true;
 
 use ndarray::Array2;
 

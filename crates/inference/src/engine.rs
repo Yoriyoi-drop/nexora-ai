@@ -18,6 +18,7 @@ use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
 use nexora_common::retry::RetryConfig;
+use nexora_memory::MemoryManager;
 use nexora_tokenizer::BpeTokenizer;
 use nexora_transformer::{CausalLM, KVCacheProvider, TransformerConfig};
 #[cfg(feature = "gpu")]
@@ -80,9 +81,8 @@ pub struct InferenceEngine {
     request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
     state: Arc<RwLock<EngineState>>,
-    #[cfg(feature = "gpu")]
-    gpu_cache: Option<GpuKVCache>, // NOTE: This field is never read. Per-generation GPU cache is created inline in generate_internal(). Consider removing or wiring properly.
     model_ready: bool,
+    memory: Option<Arc<Mutex<MemoryManager>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,26 +106,16 @@ impl InferenceEngine {
                 }
                 Err(e) => {
                     error!("Failed to load checkpoint from {}: {}", ckpt_path, e);
-                    (Arc::new(CausalLM::new(model_config.clone())), false)
+                    warn!("Falling back to random weights — model is uninitialized for inference until checkpoint is loaded");
+                    warn!("InferenceEngine::new() creates uninitialized model — use with_model() instead");
+                    (Arc::new(CausalLM::new(model_config.clone())), true)
                 }
             }
         } else {
             warn!("No checkpoint path configured — model initialized with random weights");
-            (Arc::new(CausalLM::new(model_config.clone())), false)
+            warn!("InferenceEngine::new() creates uninitialized model — use with_model() instead");
+            (Arc::new(CausalLM::new(model_config.clone())), true)
         };
-
-        #[cfg(feature = "gpu")]
-        let gpu_cache = if config.use_gpu_cache {
-            let num_layers = model.config.num_layers;
-            let n_kv_heads = model.config.num_kv_heads;
-            let head_dim = model.config.head_dim();
-            let max_seq = model.config.max_seq_len;
-            Some(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
-        } else {
-            None
-        };
-        #[cfg(not(feature = "gpu"))]
-        let gpu_cache = ();
 
         info!("CausalLM initialized with {} parameters", model.parameter_count());
 
@@ -147,10 +137,14 @@ impl InferenceEngine {
             active_requests: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(EngineState::Uninitialized)),
             config,
-            #[cfg(feature = "gpu")]
-            gpu_cache,
             model_ready,
+            memory: None,
         }
+    }
+
+    pub fn with_memory(mut self, memory: MemoryManager) -> Self {
+        self.memory = Some(Arc::new(Mutex::new(memory)));
+        self
     }
 
     pub fn with_model(
@@ -163,19 +157,6 @@ impl InferenceEngine {
             "Initializing inference engine with loaded model ({} params)",
             model.parameter_count()
         );
-
-        #[cfg(feature = "gpu")]
-        let gpu_cache = if config.use_gpu_cache {
-            let num_layers = model.config.num_layers;
-            let n_kv_heads = model.config.num_kv_heads;
-            let head_dim = model.config.head_dim();
-            let max_seq = model.config.max_seq_len;
-            Some(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
-        } else {
-            None
-        };
-        #[cfg(not(feature = "gpu"))]
-        let gpu_cache = ();
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
@@ -195,9 +176,8 @@ impl InferenceEngine {
             active_requests: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(EngineState::Uninitialized)),
             config,
-            #[cfg(feature = "gpu")]
-            gpu_cache,
             model_ready: true,
+            memory: None,
         }
     }
 
@@ -310,11 +290,34 @@ impl InferenceEngine {
         let top_k = request.top_k as usize;
         let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
 
+        // Memory-based RAG for streaming path
+        let augmented_prompt = if let Some(memory) = &self.memory {
+            let mem = memory.lock().await;
+            match mem.search(&request.prompt).await {
+                Ok(results) if !results.is_empty() => {
+                    let context: String = results
+                        .iter()
+                        .take(3)
+                        .map(|r| format!("- {}", r.value))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!(
+                        "Relevant context:\n{}\n\n---\n\n{}",
+                        context, request.prompt
+                    )
+                }
+                _ => request.prompt.clone(),
+            }
+        } else {
+            request.prompt.clone()
+        };
+        let memory_clone = self.memory.clone();
+
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
                 Some(tok) => {
                     let t = tok.lock().await;
-                    t.encode(&request.prompt)
+                    t.encode(&augmented_prompt)
                 }
                 None => {
                     warn!("No tokenizer configured for streaming request {}", request_id);
@@ -412,6 +415,21 @@ impl InferenceEngine {
                 }
             }
 
+            // Store interaction in memory for future RAG
+            if let Some(ref memory) = memory_clone {
+                if all_ids.len() > prompt_ids.len() {
+                    let response_text = match &tokenizer {
+                        Some(tok) => {
+                            let t = tok.lock().await;
+                            let response_ids: Vec<u32> = all_ids[prompt_ids.len()..].to_vec();
+                            t.decode(&response_ids)
+                        }
+                        None => format!("[{} tokens generated]", all_ids.len() - prompt_ids.len()),
+                    };
+                    let _ = memory.lock().await.store_interaction(&augmented_prompt, &response_text).await;
+                }
+            }
+
             {
                 let mut a = active.write().await;
                 a.remove(&request_id);
@@ -437,7 +455,31 @@ impl InferenceEngine {
                 .with_inference_time(start.elapsed().as_millis() as u64));
         }
 
-        let prompt_ids = self.encode_prompt(&request.prompt).await?;
+        // Memory-based RAG: enrich prompt with relevant past context
+        let augmented_prompt = if let Some(memory) = &self.memory {
+            let mem = memory.lock().await;
+            match mem.search(&request.prompt).await {
+                Ok(results) if !results.is_empty() => {
+                    let context: String = results
+                        .iter()
+                        .take(3)
+                        .map(|r| format!("- {}", r.value))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let augmented = format!(
+                        "Relevant context:\n{}\n\n---\n\n{}",
+                        context, request.prompt
+                    );
+                    debug!("Memory RAG: prepended {} context items to prompt", results.iter().take(3).count());
+                    augmented
+                }
+                _ => request.prompt.clone(),
+            }
+        } else {
+            request.prompt.clone()
+        };
+
+        let prompt_ids = self.encode_prompt(&augmented_prompt).await?;
         let max_gen = request.max_tokens.min(2048) as usize;
 
         // Check prefix cache for warm-start opportunity
@@ -494,10 +536,10 @@ impl InferenceEngine {
             )
         })
         .await
-        .unwrap_or_else(|e| {
+        .map_err(|e| {
             tracing::error!("Generation loop panicked: {:?}", e);
-            (Vec::<GeneratedToken>::new(), Vec::<f32>::new(), true)
-        });
+            InferenceError::InternalError(format!("Generation loop panicked: {:?}", e))
+        })?;
 
         for token in tokens {
             response.add_token(token);
@@ -522,6 +564,15 @@ impl InferenceEngine {
             "Prefix cache stats: hit_rate={:.3}",
             self.prefix_cache.hit_rate()
         );
+
+        // Store interaction in memory for future RAG
+        if let Some(memory) = &self.memory {
+            let mem = memory.lock().await;
+            let response_text = response.text.clone();
+            if !response_text.is_empty() {
+                let _ = mem.store_interaction(&augmented_prompt, &response_text).await;
+            }
+        }
 
         Ok(response)
     }
@@ -881,14 +932,15 @@ fn run_generation_loop(
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
     let mut tokens = Vec::with_capacity(max_gen);
-    let mut last_logits: Vec<f32> = prefix_logits.clone();
-    let use_prefix = prefix_len > 0 && !prefix_logits.is_empty();
     let vocab_size = model.config.vocab_size;
+    let mut prefix_logits = prefix_logits;
+    let use_prefix = prefix_len > 0 && !prefix_logits.is_empty();
+    let mut last_logits: Vec<f32> = if use_prefix { prefix_logits.clone() } else { Vec::with_capacity(vocab_size) };
 
     for pos in 0..max_gen {
         let logits_arr: Array1<f32> = if pos == 0 && use_prefix {
             if prefix_len >= prompt_ids.len() {
-                Array1::from_vec(prefix_logits.clone())
+                Array1::from_vec(std::mem::take(&mut prefix_logits))
             } else {
                 let input = &prompt_ids[prefix_len..];
                 ModelForward::forward(model, input, kv_state)
@@ -1087,7 +1139,7 @@ impl InferenceEngineHandle {
 
                 let model_c = Arc::clone(&model);
                 let prompt_ids_c = prompt_ids.clone();
-                let (tokens, _last_logits, timed_out) = tokio::task::spawn_blocking(move || {
+                let gen_result = tokio::task::spawn_blocking(move || {
                     run_generation_loop(
                         &model_c,
                         &prompt_ids_c,
@@ -1100,11 +1152,21 @@ impl InferenceEngineHandle {
                         generation_timeout,
                     )
                 })
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::error!("Batch generation loop panicked: {:?}", e);
-                    (Vec::<GeneratedToken>::new(), Vec::<f32>::new(), true)
-                });
+                .await;
+
+                let (tokens, _last_logits, timed_out) = match gen_result {
+                    Ok(r) => r,
+                    Err(e) => {
+                        error!("Batch generation loop panicked: {:?}", e);
+                        let err_resp = response
+                            .with_finish_reason(FinishReason::Error(format!("Generation panicked: {:?}", e)))
+                            .with_inference_time(start.elapsed().as_millis() as u64);
+                        if let Err(e) = scheduler.write().await.send_response(breq.request_id, err_resp).await {
+                            warn!("Failed to send panic error response: {}", e);
+                        }
+                        return;
+                    }
+                };
 
                 for token in tokens {
                     response.add_token(token);

@@ -96,30 +96,14 @@ async fn register_causal_lm(
 
     let pcount = transformer_config.parameter_count();
 
-    // Enable EchoNet APSS block injection if NEXORA_ECHO_NET is set
-    let echo_net_enabled = std::env::var("NEXORA_ECHO_NET").is_ok();
-    if echo_net_enabled {
-        info!(
-            "NEXORA_ECHO_NET set — attaching APSS injection after layer 2 for {}",
-            model_id
-        );
-    }
+    // Echo-Net APSS injection enabled by default for all models
+    info!("EchoNet APSS injection enabled after layer 2 for {}", model_id);
 
-    let enable_sedc = std::env::var("NEXORA_SEDC").is_ok();
-    if enable_sedc {
-        info!(
-            "NEXORA_SEDC set — enabling weight compression for {}",
-            model_id
-        );
-    }
+    // SEDC weight compression is opt-in — must be explicitly enabled
+    info!("SEDC weight compression — must be explicitly enabled for {}", model_id);
 
     let mut model = CausalLmModel::new(model_id, transformer_config.clone());
-    if echo_net_enabled {
-        model = model.with_echo_net(crate::causal_lm_model::EchoNetInjectionConfig::default());
-    }
-    if enable_sedc {
-        model = model.with_sedc();
-    }
+    model = model.with_echo_net(crate::causal_lm_model::EchoNetInjectionConfig::default());
     let mini_tok = MiniTokenizer::new(vocab_size);
     model.load_tokenizer(mini_tok).await;
 

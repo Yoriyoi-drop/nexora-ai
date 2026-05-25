@@ -562,14 +562,57 @@ impl NxrVortexModel {
     }
 }
 
+const VORTEX_SYSTEM_PROMPT: &str = "You are NXR-VORTEX (Variable Optimization Recursive Text & Expert eXchange) [NXR-02 APEX], a code generation and software engineering specialist. Capabilities: code synthesis, debugging, architecture analysis, code review, test generation, and optimization across all programming languages. Provide detailed technical responses with code examples.";
+
+fn augment_vortex_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+    let text = match &input.data {
+        nexora_shared::base_model::InputData::Text(t) => t.clone(),
+        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+    };
+    let mut augmented = input.clone();
+    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", VORTEX_SYSTEM_PROMPT, text));
+    Ok(augmented)
+}
+
 #[async_trait]
 impl NxrModel for NxrVortexModel {
     type Config = VortexConfig;
     type Metrics = VortexMetrics;
     type State = VortexState;
 
-    fn identity(&self) -> &ModelMeta {
-        self.identity.meta()
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-VORTEX model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_vortex_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrVortexModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrVortexModel::new());
+        foundation.infer(&augmented).await
+    }
+
+    async fn infer_stream(
+        &self,
+        input: &NxrInput,
+        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-VORTEX model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_vortex_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrVortexModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrVortexModel::new());
+        foundation.infer_stream(&augmented, callback).await
     }
 
     fn capabilities(&self) -> &CapabilityVector {
@@ -640,115 +683,10 @@ impl NxrModel for NxrVortexModel {
             ));
         }
 
-        let start_time = std::time::Instant::now();
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-VORTEX only supports text input".to_string(),
-                ))
-            }
-        };
-
-        // Tokenize input
-        let tokens = {
-            let tokenizer = self.components.tokenizer.read();
-            tokenizer.encode(&input_text)
-        };
-
-        // Process input with deep learning
-        let dl_result = self
-            .dl_process(&input_text)
-            .await
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-
-        // Process through MoE for expert code routing
-        let moe_input = ndarray::Array2::from_shape_vec(
-            (1, tokens.len().max(1)),
-            tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
-        )
-        .unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
-        let _moe_output = self.components.moe.forward(&moe_input);
-
-        // Enhanced code analysis via ORACLE-VORTEX integration
-        let oracle_summary = String::new();
-
-        // Perform code analysis
-        let task_input = code_sentinel::CodeSentinelTaskInput {
-            source_code: input_text.clone(),
-            file_path: String::new(),
-            programming_language: String::new(),
-            analysis_scope: code_sentinel::AnalysisScope {
-                include_security_analysis: true,
-                include_performance_analysis: true,
-                include_maintainability_analysis: true,
-                include_architectural_analysis: true,
-                include_style_analysis: true,
-                include_documentation_analysis: true,
-            },
-            review_policies: vec![],
-            custom_rules: vec![],
-        };
-        let analysis = self
-            .agents
-            .code_sentinel()
-            .process(task_input)
-            .await
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-        let result = format!(
-            "Code Analysis:\nQuality Score: {:.2}\nIssues: {}\nSuggestions: {}\nORACLE: {}\nDL Processing: {}",
-            analysis.quality_metrics.overall_quality_score,
-            analysis.issues_found.len(),
-            analysis.suggestions.len(),
-            oracle_summary,
-            dl_result
-        );
-
-        let generation_time_ms = start_time.elapsed().as_millis() as u64;
-        let total_tokens = result.split_whitespace().count();
-
-        let mut extras = std::collections::HashMap::new();
-        #[cfg(feature = "hallucination")]
-        if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert(
-                "hallucination_risk".to_string(),
-                serde_json::Value::String(format!("{:?}", report.risk_level)),
-            );
-            extras.insert(
-                "hallucination_score".to_string(),
-                serde_json::Value::Number(
-                    serde_json::Number::from_f64(report.score as f64)
-                        .unwrap_or(serde_json::Number::from(0)),
-                ),
-            );
-            extras.insert(
-                "hallucination_action".to_string(),
-                serde_json::Value::String(format!("{:?}", report.action)),
-            );
-        }
-
-        Ok(NxrOutput {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::OutputData::Text(result),
-            metadata: nexora_shared::base_model::GenerationMetadata {
-                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
-                total_tokens,
-                generation_time_ms,
-                model_version: self.identity.meta().version.clone(),
-                seed: None,
-                extras,
-            },
-            performance: nexora_shared::base_model::PerformanceMetrics {
-                tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
-                memory_usage_gb: 0.0,
-                gpu_utilization: None,
-                cpu_utilization: 0.0,
-                network_usage_mbps: None,
-            },
-        })
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrVortexModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrVortexModel::new());
+        foundation.infer(input).await
     }
 
     async fn infer_stream(

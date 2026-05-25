@@ -46,6 +46,7 @@ libc = "0.2"
 
 # GPU sampling
 nexora-autograd = { path = "../autograd" }
+nexora-memory = { path = "../memory" }
 
 [features]
 default = ["gpu"]

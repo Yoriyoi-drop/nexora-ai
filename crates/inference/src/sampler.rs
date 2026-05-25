@@ -3,6 +3,8 @@ use rand::SeedableRng;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, warn};
 
+pub use nexora_transformer::model::GPU_FALLBACK_COUNT;
+
 use crate::{InferenceError, Result};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,7 +58,6 @@ pub struct Sampler {
     fallback_threshold: f32,
     total_attempts: u64,
     fallback_attempts: u64,
-    gpu_disabled: bool,
 }
 
 impl Sampler {
@@ -76,7 +77,6 @@ impl Sampler {
             fallback_threshold: 0.2,
             total_attempts: 0,
             fallback_attempts: 0,
-            gpu_disabled: false,
         }
     }
 
@@ -96,7 +96,6 @@ impl Sampler {
             fallback_threshold: 0.2,
             total_attempts: 0,
             fallback_attempts: 0,
-            gpu_disabled: false,
         }
     }
 
@@ -125,13 +124,28 @@ impl Sampler {
         }
     }
 
-    /// Reset the GPU circuit breaker, re-enabling GPU sampling.
-    /// Call this after diagnosing and fixing the root cause of GPU failures.
+    /// Reset GPU fallback counters.
     pub fn reset_gpu_circuit_breaker(&mut self) {
-        self.gpu_disabled = false;
         self.total_attempts = 0;
         self.fallback_attempts = 0;
-        warn!("GPU circuit breaker has been reset — GPU sampling re-enabled");
+        self.gpu_fallback_count.store(0, Ordering::Relaxed);
+        self.gpu_attempts.store(0, Ordering::Relaxed);
+        warn!("GPU fallback counters have been reset");
+    }
+
+    /// Returns true if the GPU fallback rate exceeds the threshold (degraded but not disabled).
+    pub fn is_gpu_degraded(&self) -> bool {
+        self.gpu_fallback_ratio() > self.fallback_threshold as f64
+    }
+
+    /// Returns a JSON snapshot of GPU fallback metrics for observability/monitoring.
+    pub fn gpu_metrics(&self) -> serde_json::Value {
+        serde_json::json!({
+            "gpu_fallback_count": self.gpu_fallback_count.load(Ordering::Relaxed),
+            "gpu_attempts": self.gpu_attempts.load(Ordering::Relaxed),
+            "gpu_fallback_ratio": self.gpu_fallback_ratio(),
+            "gpu_degraded": self.is_gpu_degraded(),
+        })
     }
 
     pub fn reset_seed(&mut self, seed: u64) {
@@ -174,15 +188,6 @@ impl Sampler {
             Err(e) => {
                 self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
-                let rate = self.fallback_attempts as f32 / self.total_attempts.max(1) as f32;
-                if rate > self.fallback_threshold {
-                    self.gpu_disabled = true;
-                    warn!(
-                        "GPU circuit breaker TRIPPED at {:.1}% fallback rate (threshold: {:.0}%) — disabling GPU. Call reset_gpu_circuit_breaker() to re-enable.",
-                        rate * 100.0,
-                        self.fallback_threshold * 100.0,
-                    );
-                }
                 if self.allow_gpu_fallback {
                     warn!(
                         "GPU sampling failed: {}, falling back to CPU (fallback count: {})",
@@ -215,12 +220,11 @@ impl Sampler {
         self.total_attempts += 1;
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
 
-        let cb_trip = |sampler: &mut Self| {
+        let log_fallback = |sampler: &Self| {
             let rate = sampler.fallback_attempts as f32 / sampler.total_attempts.max(1) as f32;
             if rate > sampler.fallback_threshold {
-                sampler.gpu_disabled = true;
                 warn!(
-                    "GPU circuit breaker TRIPPED at {:.1}% fallback rate (threshold: {:.0}%) — disabling GPU. Call reset_gpu_circuit_breaker() to re-enable.",
+                    "GPU fallback rate {:.1}% exceeds threshold {:.0}% — continuing to retry GPU",
                     rate * 100.0,
                     sampler.fallback_threshold * 100.0,
                 );
@@ -232,7 +236,7 @@ impl Sampler {
             Err(e) => {
                 self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
-                cb_trip(self);
+                log_fallback(self);
                 if self.allow_gpu_fallback {
                     warn!(
                         "GPU sampling batched failed: {}, falling back to per-sequence (fallback count: {})",
@@ -268,7 +272,7 @@ impl Sampler {
             Err(e) => {
                 self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
-                cb_trip(self);
+                log_fallback(self);
                 if self.allow_gpu_fallback {
                     warn!(
                         "GPU sampling batched call failed: {}, falling back to per-sequence (fallback count: {})",
@@ -307,9 +311,6 @@ impl Sampler {
 
         #[cfg(feature = "gpu")]
         if self.use_gpu {
-            if self.gpu_disabled {
-                return self.sample_cpu(logits);
-            }
             return self.sample_gpu(logits);
         }
 
@@ -344,6 +345,24 @@ impl Sampler {
         }
 
         let mut results = Vec::with_capacity(count);
+
+        // When greedy/argmax, avoid cloning — use max_by directly on logits
+        if self.config.temperature <= 0.0 || self.config.method == SamplingMethod::Greedy {
+            let mut excluded = vec![false; logits.len()];
+            for _ in 0..count {
+                let idx = logits
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !excluded[*i])
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                excluded[idx] = true;
+                results.push(idx);
+            }
+            return Ok(results);
+        }
+
         let mut remaining = logits.to_vec();
 
         for _ in 0..count {
@@ -480,6 +499,10 @@ impl AdvancedSampler {
     }
 
     pub fn sample(&mut self, logits: &[f32]) -> Result<usize> {
+        // Avoid clone when no repetition penalty
+        if (self.repetition_penalty - 1.0).abs() < f32::EPSILON {
+            return self.base.sample(logits);
+        }
         let mut adjusted = logits.to_vec();
         let penalty = self.repetition_penalty - 1.0;
         for &past in &self.history {

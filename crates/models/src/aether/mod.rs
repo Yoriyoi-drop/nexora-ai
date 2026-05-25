@@ -326,14 +326,67 @@ impl NxrAetherModel {
     }
 }
 
+const AETHER_SYSTEM_PROMPT: &str = "You are NXR-ÆTHER (Adaptive Emotional & Holistic Transcendent Empathy Reasoner) [NXR-03 APEX]. Specialties: emotional intelligence, psychological analysis, empathy synthesis, mental health support, and interpersonal communication. Respond with emotional awareness, compassion, and psychological insight.";
+
+fn augment_aether_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+    let text = match &input.data {
+        nexora_shared::base_model::InputData::Text(t) => t.clone(),
+        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+    };
+    let mut augmented = input.clone();
+    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", AETHER_SYSTEM_PROMPT, text));
+    Ok(augmented)
+}
+
 #[async_trait]
 impl NxrModel for NxrAetherModel {
     type Config = AetherConfig;
     type Metrics = AetherMetrics;
     type State = AetherState;
 
-    fn identity(&self) -> &ModelMeta {
-        self.identity.meta()
+    async fn infer(
+        &self,
+        input: &NxrInput,
+    ) -> Result<NxrOutput, nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-ÆTHER model not initialized".to_string(),
+            ));
+        }
+
+        let safety = global_safety();
+        let consent_token = input.metadata.get("consent_token").and_then(|v| v.as_str());
+        safety
+            .pre_inference_check(NxrModelId::Aether, consent_token)
+            .await?;
+
+        if self.config().psychological.enable_profiling {
+            safety.gate.check_consent(consent_token)?;
+        }
+
+        let augmented = augment_aether_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrAetherModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrAetherModel::new());
+        foundation.infer(&augmented).await
+    }
+
+    async fn infer_stream(
+        &self,
+        input: &NxrInput,
+        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+    ) -> Result<(), nexora_shared::base_model::NxrModelError> {
+        if !self.base.is_initialized().await {
+            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
+                "NXR-ÆTHER model not initialized".to_string(),
+            ));
+        }
+
+        let augmented = augment_aether_input(input)?;
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrAetherModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrAetherModel::new());
+        foundation.infer_stream(&augmented, callback).await
     }
 
     fn capabilities(&self) -> &CapabilityVector {
@@ -406,62 +459,10 @@ impl NxrModel for NxrAetherModel {
             safety.gate.check_consent(consent_token)?;
         }
 
-        let start_time = std::time::Instant::now();
-
-        let input_text = match &input.data {
-            nexora_shared::base_model::InputData::Text(text) => text.clone(),
-            _ => {
-                return Err(nexora_shared::base_model::NxrModelError::Inference(
-                    "NXR-ÆTHER only supports text input".to_string(),
-                ))
-            }
-        };
-
-        let result = self.analyze_emotional_content(&input_text).await?;
-        let generation_time_ms = start_time.elapsed().as_millis() as u64;
-        let total_tokens = result.split_whitespace().count();
-
-        let mut extras = std::collections::HashMap::new();
-        #[cfg(feature = "hallucination")]
-        if let Some(report) = self.run_hallucination_check(input).await {
-            extras.insert(
-                "hallucination_risk".to_string(),
-                serde_json::Value::String(format!("{:?}", report.risk_level)),
-            );
-            extras.insert(
-                "hallucination_score".to_string(),
-                serde_json::Value::Number(
-                    serde_json::Number::from_f64(report.score as f64)
-                        .unwrap_or(serde_json::Number::from(0)),
-                ),
-            );
-            extras.insert(
-                "hallucination_action".to_string(),
-                serde_json::Value::String(format!("{:?}", report.action)),
-            );
-        }
-
-        Ok(NxrOutput {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: nexora_shared::base_model::OutputData::Text(result),
-            metadata: nexora_shared::base_model::GenerationMetadata {
-                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
-                total_tokens,
-                generation_time_ms,
-                model_version: self.identity.meta().version.clone(),
-                seed: None,
-                extras,
-            },
-            performance: nexora_shared::base_model::PerformanceMetrics {
-                tokens_per_second: total_tokens as f32 / (generation_time_ms as f32 / 1000.0),
-                memory_usage_gb: 0.0,
-                gpu_utilization: None,
-                cpu_utilization: 0.0,
-                network_usage_mbps: None,
-            },
-        })
+        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrAetherModel> =
+            std::sync::OnceLock::new();
+        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrAetherModel::new());
+        foundation.infer(input).await
     }
 
     async fn infer_stream(
