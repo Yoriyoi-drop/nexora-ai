@@ -2,6 +2,8 @@ use crate::utils::Complex;
 use crate::{DLResult, DeepLearningError};
 use ndarray::{Array2, ArrayD};
 use nexora_autograd::gpu::{GpuContext, GpuTensor};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 // ─── WGSL Shaders ──────────────────────────────────────────────────────────────
 
@@ -90,6 +92,58 @@ fn conv_2d_main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 "#;
 
+// ─── Pipeline Cache ────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+struct CachedPipeline {
+    pipeline: wgpu::ComputePipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    pipeline_layout: wgpu::PipelineLayout,
+}
+
+static PIPELINE_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CachedPipeline>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn get_or_compile_pipeline(
+    ctx: &GpuContext,
+    cache_key: &str,
+    wgsl: &str,
+    entry_point: &str,
+    entries: &[wgpu::BindGroupLayoutEntry],
+) -> Result<CachedPipeline, DeepLearningError> {
+    {
+        let cache = PIPELINE_CACHE.lock().unwrap();
+        if let Some(cached) = cache.get(cache_key) {
+            return Ok(cached.clone());
+        }
+    }
+    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(cache_key),
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl)),
+    });
+    let bind_group_layout = ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(cache_key),
+        entries,
+    });
+    let pipeline_layout = ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some(cache_key),
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
+    });
+    let pipeline = ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(cache_key),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: Some(entry_point),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let cached = CachedPipeline { pipeline, bind_group_layout, pipeline_layout };
+    let mut cache = PIPELINE_CACHE.lock().unwrap();
+    cache.insert(cache_key.to_string(), cached.clone());
+    Ok(cached)
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 fn complex_to_flat(arr: &Array2<Complex>) -> Vec<f32> {
@@ -113,8 +167,10 @@ fn complex_from_slice(data: &[f32], rows: usize, cols: usize) -> Array2<Complex>
 }
 
 /// Helper: compile a WGSL compute shader, create bind group, submit, read back.
+/// Uses pipeline cache to avoid recompilation on subsequent calls with the same cache_key.
 fn run_compute_shader(
     ctx: &GpuContext,
+    cache_key: &str,
     wgsl: &str,
     entry_point: &str,
     entries: &[wgpu::BindGroupEntry],
@@ -123,39 +179,11 @@ fn run_compute_shader(
     output_buf: &wgpu::Buffer,
     output_size: u64,
 ) -> Result<Vec<f32>, DeepLearningError> {
-    // Shader module
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("echo_gpu_shader"),
-        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl)),
-    });
+    let cached = get_or_compile_pipeline(ctx, cache_key, wgsl, entry_point, bind_group_layout_entries)?;
 
-    // Bind group layout
-    let bind_group_layout = ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("echo_gpu_bgl"),
-        entries: bind_group_layout_entries,
-    });
-
-    // Pipeline layout
-    let pipeline_layout = ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("echo_gpu_pipeline_layout"),
-        bind_group_layouts: &[Some(&bind_group_layout)],
-        immediate_size: 0,
-    });
-
-    // Compute pipeline
-    let pipeline = ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("echo_gpu_pipeline"),
-        layout: Some(&pipeline_layout),
-        module: &shader,
-        entry_point: Some(entry_point),
-        compilation_options: Default::default(),
-        cache: None,
-    });
-
-    // Bind group
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("echo_gpu_bg"),
-        layout: &bind_group_layout,
+        label: Some(cache_key),
+        layout: &cached.bind_group_layout,
         entries,
     });
 
@@ -174,7 +202,7 @@ fn run_compute_shader(
 
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-        cpass.set_pipeline(&pipeline);
+        cpass.set_pipeline(&cached.pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
         cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
     }
@@ -275,6 +303,7 @@ pub fn gpu_ifft_2d(
 
     let result_data = run_compute_shader(
         &ctx,
+        "echo_ifft_2d",
         IFFT_2D_WGSL,
         "ifft_2d_main",
         &[
@@ -354,6 +383,7 @@ pub fn gpu_conv_2d(
 
     let result_data = run_compute_shader(
         &ctx,
+        "echo_conv_2d",
         CONV_2D_WGSL,
         "conv_2d_main",
         &[

@@ -139,35 +139,38 @@ impl CryptoUtils {
 
     /// Generate password hash with salt
     ///
-    /// WARNING: Uses SHA-256 which is NOT suitable for password hashing.
-    /// Use Argon2id from `apps/nexora-ai/src/security/mod.rs` instead.
-    /// Kept for backward compatibility but will be removed in a future release.
+    /// Uses PBKDF2-SHA256 with 100,000 iterations for password hashing.
+    /// For production, prefer Argon2id from `apps/nexora-ai/src/security/mod.rs`.
     pub fn hash_password(password: &str, salt: Option<&str>) -> Result<String> {
-        tracing::warn!("hash_password uses weak SHA-256 scheme. Migrate to Argon2id.");
-        let default_salt = Self::generate_uuid();
-        let salt = salt.unwrap_or(&default_salt);
-        let combined = format!("{}:{}", password, salt);
-        let hash = Self::sha256(combined.as_bytes());
-        Ok(format!("{}:{}", hash, salt))
+        let salt_bytes: Vec<u8>;
+        let salt = match salt {
+            Some(s) => s.as_bytes(),
+            None => {
+                salt_bytes = Self::random_bytes(16);
+                &salt_bytes
+            }
+        };
+        let mut hash = vec![0u8; 32];
+        pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, 100_000, &mut hash);
+        let salt_b64 = general_purpose::STANDARD.encode(salt);
+        let hash_b64 = general_purpose::STANDARD.encode(&hash);
+        Ok(format!("$pbkdf2-sha256$100000${}${}", salt_b64, hash_b64))
     }
 
     /// Verify password hash
-    ///
-    /// Kept for backward compatibility but will be removed in a future release.
-    /// Use Argon2id from `apps/nexora-ai/src/security/mod.rs` instead.
     pub fn verify_password(password: &str, hash_with_salt: &str) -> Result<bool> {
-        tracing::warn!("verify_password uses weak SHA-256 scheme. Migrate to Argon2id.");
-        let parts: Vec<&str> = hash_with_salt.split(':').collect();
-        if parts.len() != 2 {
+        let parts: Vec<&str> = hash_with_salt.split('$').collect();
+        if parts.len() < 5 || parts[1] != "pbkdf2-sha256" {
             return Ok(false);
         }
-
-        let stored_hash = parts[0];
-        let salt = parts[1];
-        let computed_hash = Self::hash_password(password, Some(salt))?;
-        let computed_parts: Vec<&str> = computed_hash.split(':').collect();
-
-        Ok(computed_parts[0] == stored_hash)
+        let iterations: u32 = parts[2].parse().map_err(|e| anyhow::anyhow!("Invalid iterations: {}", e))?;
+        let salt = general_purpose::STANDARD.decode(parts[3])
+            .map_err(|e| anyhow::anyhow!("Invalid salt: {}", e))?;
+        let stored_hash = general_purpose::STANDARD.decode(parts[4])
+            .map_err(|e| anyhow::anyhow!("Invalid hash: {}", e))?;
+        let mut computed = vec![0u8; stored_hash.len()];
+        pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, iterations, &mut computed);
+        Ok(computed == stored_hash)
     }
 
     /// Generate API key
@@ -360,10 +363,13 @@ mod tests {
         assert_eq!(decoded, data);
 
         // Test password hashing
-        let password = std::env::var("NEXORA_TEST_PASSWORD").unwrap_or_else(|_| "test_password_do_not_use_in_prod".to_string());
-        let hash = CryptoUtils::hash_password(&password, None).unwrap();
-        let verified = CryptoUtils::verify_password(&password, &hash).unwrap();
+        let password = "test_password_do_not_use_in_prod";
+        let hash = CryptoUtils::hash_password(password, None).unwrap();
+        assert!(hash.starts_with("$pbkdf2-sha256$"));
+        let verified = CryptoUtils::verify_password(password, &hash).unwrap();
         assert!(verified);
+        let wrong = CryptoUtils::verify_password("wrong_password", &hash).unwrap();
+        assert!(!wrong);
 
         // Test secure compare
         assert!(CryptoUtils::secure_compare("hello", "hello"));

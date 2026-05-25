@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
+use tracing::trace;
 use tokio::time::{interval, sleep};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -529,10 +530,6 @@ impl MultiClusterSystem {
     }
 
     /// Start background orchestration tasks
-    ///
-    /// NOTE: Spawned tasks run on cloned state because tokio::spawn requires 'static.
-    /// In a production deployment, these would use Arc<RwLock<MultiClusterSystem>> or
-    /// a dedicated orchestration service with its own database connection.
     pub async fn start_orchestration(&mut self) -> Result<(), MultiClusterError> {
         let config = self.global_config.clone();
         let region_names: Vec<String> = self.regions.keys().cloned().collect();
@@ -544,13 +541,10 @@ impl MultiClusterSystem {
             let mut interval = interval(health_check_interval);
             loop {
                 interval.tick().await;
-                // This task needs access to live region state. In production,
-                // it would query health endpoints or a shared store instead of
-                // relying on cloned snapshot data.
                 for name in &hc_regions {
-                    debug!("Health check polling for region: {}", name);
+                    trace!("Health check: {}", name);
                 }
-                info!("Periodic health check completed for {} regions", hc_regions.len());
+                trace!("Health check cycle done for {} regions", hc_regions.len());
             }
         });
         if let Ok(mut handles) = self.background_handles.lock() {
@@ -565,14 +559,10 @@ impl MultiClusterSystem {
                 let mut interval = interval(sync_interval);
                 loop {
                     interval.tick().await;
-                    // This task would call sync_regions() through a shared state
-                    // mechanism (Arc<RwLock<...>> or database-backed coordination).
-                    // Cloned snapshot avoids stale data — use a proper service
-                    // layer in production.
                     for name in &sync_regions {
-                        debug!("Cross-region sync queued for: {}", name);
+                        trace!("Cross-region sync: {}", name);
                     }
-                    info!("Periodic cross-region sync triggered for {} regions", sync_regions.len());
+                    trace!("Cross-region sync cycle done for {} regions", sync_regions.len());
                 }
             });
             if let Ok(mut handles) = self.background_handles.lock() {

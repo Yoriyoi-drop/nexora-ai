@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use ndarray::{Array1, Array2};
@@ -166,9 +166,9 @@ pub struct CausalLM {
     /// the final logits, eliminating ~4×N_layers synchronous sync transfers.
     pub keep_on_gpu: bool,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: parking_lot::Mutex<Option<GpuWeights>>,
+    pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_cache: parking_lot::Mutex<Option<Vec<super::gqa::GpuKVCacheEntry>>>,
+    pub(crate) gpu_cache: parking_lot::RwLock<Option<Vec<super::gqa::GpuKVCacheEntry>>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -203,8 +203,26 @@ impl Clone for CausalLM {
             precomputed_sin: self.precomputed_sin.clone(),
             injectors: Vec::new(),
             keep_on_gpu: self.keep_on_gpu,
-            gpu_weights: parking_lot::Mutex::new(None),
-            gpu_cache: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
+            gpu_cache: parking_lot::RwLock::new(None),
+        }
+    }
+}
+
+#[cfg(not(feature = "gpu"))]
+impl Clone for CausalLM {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            token_embedding: self.token_embedding.clone(),
+            blocks: self.blocks.clone(),
+            norm: self.norm.clone(),
+            lm_head: self.lm_head.clone(),
+            rope: self.rope.clone(),
+            precomputed_cos: self.precomputed_cos.clone(),
+            precomputed_sin: self.precomputed_sin.clone(),
+            injectors: Vec::new(),
+            keep_on_gpu: self.keep_on_gpu,
         }
     }
 }
@@ -260,9 +278,9 @@ impl CausalLM {
             injectors: Vec::new(),
             keep_on_gpu: false,
             #[cfg(feature = "gpu")]
-            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
-            gpu_cache: parking_lot::Mutex::new(None),
+            gpu_cache: parking_lot::RwLock::new(None),
         }
     }
 
@@ -608,8 +626,7 @@ impl CausalLM {
         use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
         use ndarray::ArrayD;
 
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_some() {
+        if self.gpu_weights.get().is_some() {
             return Ok(());
         }
 
@@ -666,12 +683,12 @@ impl CausalLM {
             });
         }
 
-        *guard = Some(GpuWeights {
+        self.gpu_weights.set(GpuWeights {
             token_embedding,
             lm_head_t,
             norm_weight,
             block_weights,
-        });
+        }).map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("weights already set".into()))?;
 
         Ok(())
     }
@@ -694,8 +711,7 @@ impl CausalLM {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().ok_or_else(|| {
+        let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
         })?;
 
@@ -741,8 +757,7 @@ impl CausalLM {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().ok_or_else(|| {
+        let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
         })?;
 
@@ -831,7 +846,7 @@ impl CausalLM {
                 "forward_gpu_with_cache_provider needs CpuKVCache or GpuKVCache".into(),
             ))?;
 
-        let mut cache_guard = self.gpu_cache.lock();
+        let mut cache_guard = self.gpu_cache.write();
         if cache_guard.is_none() {
             let mut gpu_entries: Vec<super::gqa::GpuKVCacheEntry> =
                 (0..num_layers)
@@ -1080,8 +1095,7 @@ impl CausalLM {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
-        let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().ok_or_else(|| {
+        let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
         })?;
 
@@ -1175,8 +1189,7 @@ impl CausalLM {
         let n_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.head_dim();
         let max_seq = self.config.max_seq_len;
-        let gpu_weights = self.gpu_weights.lock();
-        let gw = gpu_weights.as_ref().ok_or_else(|| {
+        let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after preupload".into())
         })?;
 

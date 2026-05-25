@@ -703,55 +703,100 @@ impl Default for TruthArbitrationConfig {
     }
 }
 
+#[derive(Debug)]
+pub enum ConfigValidationError {
+    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
+    MustBePositive { field: String },
+    MissingField(String),
+}
+
+impl std::fmt::Display for ConfigValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigValidationError::OutOfRange { field, min, max, actual } => {
+                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            }
+            ConfigValidationError::MustBePositive { field } => {
+                write!(f, "{} must be > 0", field)
+            }
+            ConfigValidationError::MissingField(field) => {
+                write!(f, "Missing required field: {}", field)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigValidationError {}
+
 impl OmnisConfig {
     /// Validate configuration
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate()?;
+        self.base.validate().map_err(|e| ConfigValidationError::MissingField(e))?;
 
         // Validate reasoning configuration
         if self.reasoning.max_reasoning_depth == 0 {
-            return Err("max_reasoning_depth must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "max_reasoning_depth".to_string(),
+            });
         }
 
         if self.reasoning.reasoning_timeout_seconds == 0 {
-            return Err("reasoning_timeout_seconds must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "reasoning_timeout_seconds".to_string(),
+            });
         }
 
         // Validate world model configuration
         if self.world_model.update_frequency_ms == 0 {
-            return Err("update_frequency_ms must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "update_frequency_ms".to_string(),
+            });
         }
 
         // Validate agent configurations
         if self.agents.oracle_7.confidence_threshold < 0.0
             || self.agents.oracle_7.confidence_threshold > 1.0
         {
-            return Err("oracle_7 confidence_threshold must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "oracle_7.confidence_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.agents.oracle_7.confidence_threshold as f64,
+            });
         }
 
         if self.agents.synth_prime.quality_threshold < 0.0
             || self.agents.synth_prime.quality_threshold > 1.0
         {
-            return Err("synth_prime quality_threshold must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "synth_prime.quality_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.agents.synth_prime.quality_threshold as f64,
+            });
         }
 
         // Validate meta-reasoning configuration
         if self.meta_reasoning.depth == 0 {
-            return Err("meta_reasoning depth must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "meta_reasoning.depth".to_string(),
+            });
         }
 
         if self.meta_reasoning.reflection_frequency_ms == 0 {
-            return Err("reflection_frequency_ms must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "reflection_frequency_ms".to_string(),
+            });
         }
 
         // Validate truth arbitration configuration
         if self.truth_arbitration.confidence_threshold < 0.0
             || self.truth_arbitration.confidence_threshold > 1.0
         {
-            return Err(
-                "truth_arbitration confidence_threshold must be between 0.0 and 1.0".to_string(),
-            );
+            return Err(ConfigValidationError::OutOfRange {
+                field: "truth_arbitration.confidence_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.truth_arbitration.confidence_threshold as f64,
+            });
         }
 
         Ok(())

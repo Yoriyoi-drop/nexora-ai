@@ -483,7 +483,7 @@ impl NxrModel for NxrOmnisModel {
         // Validate configuration
         config
             .validate()
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
 
         // Initialize architecture
         self.architecture

@@ -513,11 +513,47 @@ impl Default for ResourceAllocationConfig {
     }
 }
 
+#[derive(Debug)]
+pub enum ConfigValidationError {
+    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
+    MustBePositive { field: String },
+    EmptyField { field: String },
+    InvalidRange { field: String, reason: String },
+    IncompatibleConfig { field: String, detail: String },
+}
+
+impl std::fmt::Display for ConfigValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigValidationError::OutOfRange { field, min, max, actual } => {
+                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            }
+            ConfigValidationError::MustBePositive { field } => {
+                write!(f, "{} must be > 0", field)
+            }
+            ConfigValidationError::EmptyField { field } => {
+                write!(f, "{} must not be empty", field)
+            }
+            ConfigValidationError::InvalidRange { field, reason } => {
+                write!(f, "Invalid range for {}: {}", field, reason)
+            }
+            ConfigValidationError::IncompatibleConfig { field, detail } => {
+                write!(f, "Incompatible {}: {}", field, detail)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigValidationError {}
+
 impl NexumConfig {
     /// Validate configuration
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate()?;
+        self.base.validate().map_err(|e| ConfigValidationError::IncompatibleConfig {
+            field: "base".into(),
+            detail: e,
+        })?;
 
         // Validate orchestration configuration
         if let OrchestrationMode::Hybrid {
@@ -526,43 +562,72 @@ impl NexumConfig {
         } = &self.orchestration.orchestration_mode
         {
             if *centralized_weight < 0.0 || *centralized_weight > 1.0 {
-                return Err("centralized_weight must be between 0.0 and 1.0".to_string());
+                return Err(ConfigValidationError::OutOfRange {
+                    field: "centralized_weight".to_string(),
+                    min: 0.0, max: 1.0,
+                    actual: *centralized_weight as f64,
+                });
             }
             if *distributed_weight < 0.0 || *distributed_weight > 1.0 {
-                return Err("distributed_weight must be between 0.0 and 1.0".to_string());
+                return Err(ConfigValidationError::OutOfRange {
+                    field: "distributed_weight".to_string(),
+                    min: 0.0, max: 1.0,
+                    actual: *distributed_weight as f64,
+                });
             }
         }
 
         // Validate consensus configuration
         if !(0.0..=1.0).contains(&self.consensus.consensus_threshold) {
-            return Err("consensus_threshold must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "consensus_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.consensus.consensus_threshold as f64,
+            });
         }
 
         if self.consensus.consensus_timeout_ms == 0 {
-            return Err("consensus_timeout_ms must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "consensus_timeout_ms".to_string(),
+            });
         }
 
         // Validate conflict resolution configuration
         if !(0.0..=1.0).contains(&self.conflict_resolution.conflict_detection_sensitivity) {
-            return Err("conflict_detection_sensitivity must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "conflict_detection_sensitivity".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.conflict_resolution.conflict_detection_sensitivity as f64,
+            });
         }
 
         if self.conflict_resolution.resolution_timeout_ms == 0 {
-            return Err("resolution_timeout_ms must be > 0".to_string());
+            return Err(ConfigValidationError::MustBePositive {
+                field: "resolution_timeout_ms".to_string(),
+            });
         }
 
         if !(0.0..=1.0).contains(&self.conflict_resolution.escalation_threshold) {
-            return Err("escalation_threshold must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "escalation_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.conflict_resolution.escalation_threshold as f64,
+            });
         }
 
         // Validate resource allocation configuration
         if self.resource_allocation.resource_types.is_empty() {
-            return Err("At least one resource type must be specified".into());
+            return Err(ConfigValidationError::EmptyField {
+                field: "resource_types".to_string(),
+            });
         }
 
         for constraint in &self.resource_allocation.resource_constraints {
             if constraint.min_value > constraint.max_value {
-                return Err(format!("Constraint {} has invalid range", constraint.name));
+                return Err(ConfigValidationError::InvalidRange {
+                    field: constraint.name.clone(),
+                    reason: "min_value > max_value".to_string(),
+                });
             }
         }
 
@@ -967,38 +1032,41 @@ impl NexumConfig {
     }
 
     /// Validate configuration for agent count
-    pub fn validate_for_agent_count(&self, agent_count: usize) -> Result<(), String> {
-        // Check scalability level
+    pub fn validate_for_agent_count(&self, agent_count: usize) -> Result<(), ConfigValidationError> {
         match (&self.orchestration.scalability_level, agent_count) {
             (ScalabilityLevel::Small, count) if count > 10 => {
-                return Err(
-                    "Small scalability level not suitable for more than 10 agents".to_string(),
-                );
+                return Err(ConfigValidationError::IncompatibleConfig {
+                    field: "scalability_level".to_string(),
+                    detail: format!("Small not suitable for {} agents (max 10)", count),
+                });
             }
             (ScalabilityLevel::Medium, count) if count > 100 => {
-                return Err(
-                    "Medium scalability level not suitable for more than 100 agents".to_string(),
-                );
+                return Err(ConfigValidationError::IncompatibleConfig {
+                    field: "scalability_level".to_string(),
+                    detail: format!("Medium not suitable for {} agents (max 100)", count),
+                });
             }
             (ScalabilityLevel::Large, count) if count > 1000 => {
-                return Err(
-                    "Large scalability level not suitable for more than 1000 agents".to_string(),
-                );
+                return Err(ConfigValidationError::IncompatibleConfig {
+                    field: "scalability_level".to_string(),
+                    detail: format!("Large not suitable for {} agents (max 1000)", count),
+                });
             }
             _ => {}
         }
 
-        // Check orchestration mode
         match (&self.orchestration.orchestration_mode, agent_count) {
             (OrchestrationMode::Centralized, count) if count > 50 => {
-                return Err(
-                    "Centralized orchestration not recommended for more than 50 agents".to_string(),
-                );
+                return Err(ConfigValidationError::IncompatibleConfig {
+                    field: "orchestration_mode".to_string(),
+                    detail: format!("Centralized not recommended for {} agents (max 50)", count),
+                });
             }
             (OrchestrationMode::Synchronous, _) if agent_count > 20 => {
-                return Err(
-                    "Synchronous communication not recommended for more than 20 agents".to_string(),
-                );
+                return Err(ConfigValidationError::IncompatibleConfig {
+                    field: "orchestration_mode".to_string(),
+                    detail: format!("Synchronous not recommended for {} agents (max 20)", agent_count),
+                });
             }
             _ => {}
         }

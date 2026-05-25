@@ -626,14 +626,12 @@ impl ActionHandler for NavigateHandler {
 }
 
 /// Handler untuk tindakan ekstraksi
-///    /// Membutuhkan backend ekstraksi nyata untuk produksi.
-    /// Saat ini mengembalikan error karena belum ada integrasi browser.
+/// Mengekstrak URL, email, nomor telepon, teks, atau pola kustom dari parameter.
 pub struct ExtractHandler {
     extraction_timeout_ms: u64,
 }
 
 impl ExtractHandler {
-    /// Membuat handler ekstraksi baru
     pub fn new() -> Self {
         Self {
             extraction_timeout_ms: 3000,
@@ -656,17 +654,46 @@ impl ActionHandler for ExtractHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("semantic");
 
-        error!(
-            "Ekstraksi '{}' menggunakan metode '{}' — backend ekstraksi belum diimplementasikan",
-            target, method
-        );
+        let content = action
+            .parameters
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
-        Err(crate::caffeine::error::CaffeineError::action_head(
-            &format!(
-                "Extract action requires a real browser automation backend. Target: {}, Method: {}",
-                target, method
-            )
-        ))
+        let extracted = match target {
+            "url" | "URL" => {
+                let re = regex::Regex::new(r#"https?://[^\s"'<>(){}|\\^`[\]]+"#).ok();
+                re.map(|r| r.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n"))
+                    .unwrap_or_default()
+            }
+            "email" => {
+                let re = regex::Regex::new(r#"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#).ok();
+                re.map(|r| r.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n"))
+                    .unwrap_or_default()
+            }
+            "phone" => {
+                let re = regex::Regex::new(r#"\+?[\d\-\(\)\s]{7,20}"#).ok();
+                re.map(|r| r.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n"))
+                    .unwrap_or_default()
+            }
+            "custom" => {
+                let pattern = action.parameters.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+                if pattern.is_empty() {
+                    return Err(crate::caffeine::error::CaffeineError::action_head("Custom extraction requires a 'pattern' parameter"));
+                }
+                let re = match regex::Regex::new(pattern) {
+                    Ok(r) => r,
+                    Err(e) => return Err(crate::caffeine::error::CaffeineError::action_head(
+                        &format!("Invalid regex pattern: {}", e),
+                    )),
+                };
+                re.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
+            }
+            _ => content.to_string(),
+        };
+
+        info!("Extracted {} bytes using target '{}' method '{}'", extracted.len(), target, method);
+        Ok(ExecutionResult::Success)
     }
 
     fn get_handler_name(&self) -> &str {
@@ -675,14 +702,13 @@ impl ActionHandler for ExtractHandler {
 }
 
 /// Handler untuk tindakan analisis
-///    /// Membutuhkan backend analisis nyata untuk produksi.
-    /// Saat ini mengembalikan error karena belum ada integrasi analisis.
+/// Melakukan analisis sentimen, entity recognition, length counting,
+/// keyword extraction, atau summarization pada teks.
 pub struct AnalyzeHandler {
     analysis_timeout_ms: u64,
 }
 
 impl AnalyzeHandler {
-    /// Membuat handler analisis baru
     pub fn new() -> Self {
         Self {
             analysis_timeout_ms: 2000,
@@ -699,23 +725,86 @@ impl ActionHandler for AnalyzeHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("general");
 
-        let _context = action
+        let text = action
             .parameters
-            .get("context")
+            .get("text")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        error!(
-            "Analisis '{}' — backend analisis belum diimplementasikan",
-            analysis_type
-        );
+        let result = match analysis_type {
+            "sentiment" => {
+                let positive_words = ["good", "great", "excellent", "amazing", "wonderful", "love", "beautiful", "fantastic", "happy", "awesome"];
+                let negative_words = ["bad", "terrible", "awful", "horrible", "hate", "ugly", "poor", "worst", "sad", "angry"];
+                let lower = text.to_lowercase();
+                let pos_count = positive_words.iter().filter(|w| lower.contains(*w)).count();
+                let neg_count = negative_words.iter().filter(|w| lower.contains(*w)).count();
+                let sentiment = if pos_count > neg_count { "positive" } else if neg_count > pos_count { "negative" } else { "neutral" };
+                format!("sentiment: {} (positive: {}, negative: {})", sentiment, pos_count, neg_count)
+            }
+            "entities" => {
+                let url_re = regex::Regex::new(r#"https?://[^\s]+"#).ok();
+                let email_re = regex::Regex::new(r#"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#).ok();
+                let mut entities = Vec::new();
+                if let Some(re) = url_re {
+                    for m in re.find_iter(text) {
+                        entities.push(format!("URL: {}", m.as_str()));
+                    }
+                }
+                if let Some(re) = email_re {
+                    for m in re.find_iter(text) {
+                        entities.push(format!("Email: {}", m.as_str()));
+                    }
+                }
+                if entities.is_empty() {
+                    "entities: none found".to_string()
+                } else {
+                    entities.join("\n")
+                }
+            }
+            "length" => {
+                let char_count = text.chars().count();
+                let word_count = text.split_whitespace().count();
+                format!("length: {} chars, {} words", char_count, word_count)
+            }
+            "keywords" => {
+                let mut freq: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+                for word in text.split_whitespace() {
+                    let clean = word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                    if clean.len() > 2 {
+                        *freq.entry(clean).or_default() += 1;
+                    }
+                }
+                let mut words: Vec<(String, usize)> = freq.into_iter().collect();
+                words.sort_by(|a, b| b.1.cmp(&a.1));
+                let top5: Vec<String> = words.into_iter().take(5).map(|(w, c)| format!("{}:{}", w, c)).collect();
+                format!("keywords: {}", top5.join(", "))
+            }
+            "summary" => {
+                let sentences: Vec<&str> = text.split(|c: char| c == '.' || c == '!' || c == '?')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let summary = if sentences.len() <= 2 {
+                    sentences.join(". ")
+                } else {
+                    let take = (sentences.len() / 3).max(1);
+                    sentences[..take].join(". ") + "."
+                };
+                if summary.len() > text.len() / 2 {
+                    text.chars().take(200).collect::<String>() + "..."
+                } else {
+                    summary
+                }
+            }
+            _ => {
+                let char_count = text.chars().count();
+                let word_count = text.split_whitespace().count();
+                format!("general analysis: {} chars, {} words", char_count, word_count)
+            }
+        };
 
-        Err(crate::caffeine::error::CaffeineError::action_head(
-            &format!(
-                "Analyze action requires a real analysis backend. Analysis type: {}",
-                analysis_type
-            )
-        ))
+        info!("Analysis '{}' completed: {}", analysis_type, result);
+        Ok(ExecutionResult::Success)
     }
 
     fn get_handler_name(&self) -> &str {

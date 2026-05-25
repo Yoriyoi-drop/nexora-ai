@@ -113,37 +113,62 @@ impl MiniTokenizer {
     /// Falls back to byte-level for unknown character sequences.
     pub fn bpe_tokenize(&self, text: &str) -> Vec<u32> {
         let mut ids = vec![1u32];
-        let mut tokens: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
+        let graphemes: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
+        let n = graphemes.len();
+        if n == 0 {
+            ids.push(2);
+            return ids;
+        }
+        let mut token_texts = graphemes;
+        let mut next: Vec<usize> = (1..n).chain(std::iter::once(usize::MAX)).collect();
+        let mut head = 0usize;
+        let mut prev: Vec<usize> = std::iter::once(usize::MAX).chain((0..n - 1)).collect();
+        let mut active = n;
         if !self.merges.is_empty() {
             loop {
-                let mut best_i = None;
-                for i in 0..tokens.len().saturating_sub(1) {
-                    let merged = format!("{}{}", tokens[i], tokens[i + 1]);
-                    if self.bpe_token_to_id.contains_key(&merged) {
-                        best_i = Some(i);
-                        break;
+                let mut best_pos = None;
+                let mut i = head;
+                while i != usize::MAX {
+                    let j = next[i];
+                    if j != usize::MAX {
+                        let merged = format!("{}{}", token_texts[i], token_texts[j]);
+                        if self.bpe_token_to_id.contains_key(&merged) {
+                            best_pos = Some((i, j, merged));
+                            break;
+                        }
                     }
+                    i = next[i];
+                    if i == usize::MAX { break; }
                 }
-                match best_i {
-                    Some(i) => {
-                        let merged = format!("{}{}", tokens[i], tokens[i + 1]);
-                        tokens[i] = merged;
-                        tokens.remove(i + 1);
+                match best_pos {
+                    Some((i, j, merged)) => {
+                        token_texts[i] = merged;
+                        let j_next = next[j];
+                        if j_next != usize::MAX {
+                            prev[j_next] = i;
+                        }
+                        next[i] = j_next;
+                        if j == head {
+                            head = i;
+                        }
+                        active -= 1;
                     }
                     None => break,
                 }
             }
         }
-        for token in &tokens {
-            if let Some(&id) = self.bpe_token_to_id.get(token.as_str()) {
+        let mut i = head;
+        while i != usize::MAX {
+            if let Some(&id) = self.bpe_token_to_id.get(token_texts[i].as_str()) {
                 ids.push(id);
             } else {
-                for &b in token.as_bytes() {
+                for &b in token_texts[i].as_bytes() {
                     if (b as usize) < self.vocab_size {
                         ids.push(b as u32);
                     }
                 }
             }
+            i = next[i];
         }
         ids.push(2);
         ids
@@ -348,22 +373,17 @@ impl CausalLmModel {
         };
         let input_ids = tok.encode(prompt);
 
-        let model_arc = self.model.clone();
-        let (output_ids, _) = tokio::task::spawn_blocking(move || {
-            let guard = model_arc.blocking_read();
-            let m = guard.as_ref().ok_or_else(|| {
-                NxrModelError::NotInitialized("Model not loaded".to_string())
-            })?;
-            Ok::<_, NxrModelError>(m.generate_with_gpu(
-                &input_ids,
-                max_tokens,
-                temperature,
-                50,
-                use_gpu,
-            ))
-        })
-        .await
-        .map_err(|e| NxrModelError::Internal(e.to_string()))??;
+        let guard = self.model.read().await;
+        let m = guard.as_ref().ok_or_else(|| {
+            NxrModelError::NotInitialized("Model not loaded".to_string())
+        })?;
+        let (output_ids, _) = m.generate_with_gpu(
+            &input_ids,
+            max_tokens,
+            temperature,
+            50,
+            use_gpu,
+        );
 
         let tokenizer = self.tokenizer.read().await;
         let tok = tokenizer
@@ -808,23 +828,18 @@ impl NxrModel for CausalLmModel {
         let input_ids = tok.encode(&text);
         let start = std::time::Instant::now();
 
-        let model_arc = self.model.clone();
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-        let (output_ids, _cache) = tokio::task::spawn_blocking(move || {
-            let guard = model_arc.blocking_read();
-            let m = guard.as_ref().ok_or_else(|| {
-                NxrModelError::NotInitialized("Model was reset before generation".to_string())
-            })?;
-            Ok::<_, NxrModelError>(m.generate_with_gpu(
-                &input_ids,
-                max_tokens,
-                temperature,
-                top_k,
-                use_gpu,
-            ))
-        })
-        .await
-        .map_err(|e| NxrModelError::Internal(e.to_string()))??;
+        let guard = self.model.read().await;
+        let m = guard.as_ref().ok_or_else(|| {
+            NxrModelError::NotInitialized("Model was reset before generation".to_string())
+        })?;
+        let (output_ids, _cache) = m.generate_with_gpu(
+            &input_ids,
+            max_tokens,
+            temperature,
+            top_k,
+            use_gpu,
+        );
 
         let elapsed = start.elapsed().as_millis() as u64;
         let generated_text = tok.decode(&output_ids);
@@ -919,23 +934,17 @@ impl NxrModel for CausalLmModel {
         };
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
 
-        let model_arc = self.model.clone();
-        let (mut cache, mut last_id) = tokio::task::spawn_blocking(move || {
-            let guard = model_arc.blocking_read();
-            let m = guard.as_ref().ok_or_else(|| {
-                NxrModelError::NotInitialized("Model not loaded".to_string())
-            })?;
-            let mut c = m.reset_cache();
-            for &tid in &input_ids {
-                if let Err(e) = m.forward(&[tid], &mut c) {
-                    tracing::warn!("Prefill token {} failed: {}", tid, e);
-                }
+        let guard = self.model.read().await;
+        let m = guard.as_ref().ok_or_else(|| {
+            NxrModelError::NotInitialized("Model not loaded".to_string())
+        })?;
+        let mut cache = m.reset_cache();
+        for &tid in &input_ids {
+            if let Err(e) = m.forward(&[tid], &mut cache) {
+                tracing::warn!("Prefill token {} failed: {}", tid, e);
             }
-            let lid = *input_ids.last().unwrap_or(&0);
-            Ok::<_, NxrModelError>((c, lid))
-        })
-        .await
-        .map_err(|e| NxrModelError::Internal(e.to_string()))??;
+        }
+        let mut last_id = *input_ids.last().unwrap_or(&0);
 
         let tokenizer = self.tokenizer.read().await;
         let tok = tokenizer

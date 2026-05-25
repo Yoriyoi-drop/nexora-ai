@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::OnceLock;
 
 use ndarray::{Array1, Array2};
 use rand::Rng;
@@ -339,9 +340,9 @@ pub struct GQA {
     pub wv: Array2<f32>,
     pub wo: Array2<f32>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: parking_lot::Mutex<Option<GqaGpuWeights>>,
+    pub(crate) gpu_weights: OnceLock<GqaGpuWeights>,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_scratch: parking_lot::Mutex<Option<GpuKVCacheEntry>>,
+    pub(crate) gpu_scratch: parking_lot::RwLock<Option<GpuKVCacheEntry>>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -374,8 +375,8 @@ impl Clone for GQA {
             wk: self.wk.clone(),
             wv: self.wv.clone(),
             wo: self.wo.clone(),
-            gpu_weights: parking_lot::Mutex::new(None),
-            gpu_scratch: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
+            gpu_scratch: parking_lot::RwLock::new(None),
         }
     }
 }
@@ -422,9 +423,9 @@ impl GQA {
             wv,
             wo,
             #[cfg(feature = "gpu")]
-            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
-            gpu_scratch: parking_lot::Mutex::new(None),
+            gpu_scratch: parking_lot::RwLock::new(None),
         }
     }
 
@@ -793,8 +794,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_none() {
+        if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
                 let data = arr.as_slice().ok_or_else(|| {
@@ -808,14 +808,14 @@ impl GQA {
             let wk = mk(&self.wk)?;
             let wv = mk(&self.wv)?;
             let wo = mk(&self.wo)?;
-            *guard = Some(GqaGpuWeights {
+            let _ = self.gpu_weights.set(GqaGpuWeights {
                 wq_t: ctx.transpose(&wq)?,
                 wk_t: ctx.transpose(&wk)?,
                 wv_t: ctx.transpose(&wv)?,
                 wo_t: ctx.transpose(&wo)?,
             });
         }
-        let cached = guard.as_ref().ok_or_else(|| {
+        let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
         })?;
 
@@ -833,7 +833,7 @@ impl GQA {
 
         // 5. GPU-side KV cache (no CPU round-trip)
         let (k_repeated, v_repeated) = {
-            let mut scratch_guard = self.gpu_scratch.lock();
+            let mut scratch_guard = self.gpu_scratch.write();
             let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].seq_len() } else { 0 };
 
             // Take existing scratch or create new one (avoids borrow conflicts)
@@ -918,8 +918,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_none() {
+        if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
                 let data = arr.as_slice().ok_or_else(|| {
@@ -933,14 +932,14 @@ impl GQA {
             let wk = mk(&self.wk)?;
             let wv = mk(&self.wv)?;
             let wo = mk(&self.wo)?;
-            *guard = Some(GqaGpuWeights {
+            let _ = self.gpu_weights.set(GqaGpuWeights {
                 wq_t: ctx.transpose(&wq)?,
                 wk_t: ctx.transpose(&wk)?,
                 wv_t: ctx.transpose(&wv)?,
                 wo_t: ctx.transpose(&wo)?,
             });
         }
-        let cached = guard.as_ref().ok_or_else(|| {
+        let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
         })?;
 
@@ -994,8 +993,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_none() {
+        if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
                 let data = arr.as_slice().ok_or_else(|| {
@@ -1009,14 +1007,14 @@ impl GQA {
             let wk = mk(&self.wk)?;
             let wv = mk(&self.wv)?;
             let wo = mk(&self.wo)?;
-            *guard = Some(GqaGpuWeights {
+            let _ = self.gpu_weights.set(GqaGpuWeights {
                 wq_t: ctx.transpose(&wq)?,
                 wk_t: ctx.transpose(&wk)?,
                 wv_t: ctx.transpose(&wv)?,
                 wo_t: ctx.transpose(&wo)?,
             });
         }
-        let cached = guard.as_ref().ok_or_else(|| {
+        let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
         })?;
 
@@ -1084,8 +1082,7 @@ impl GQA {
         let batch_size = 1;
 
         // 1. Lazy-init cached GPU weights
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_none() {
+        if self.gpu_weights.get().is_none() {
             let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
                 let data = arr.as_slice().ok_or_else(|| {
@@ -1099,14 +1096,14 @@ impl GQA {
             let wk = mk(&self.wk)?;
             let wv = mk(&self.wv)?;
             let wo = mk(&self.wo)?;
-            *guard = Some(GqaGpuWeights {
+            let _ = self.gpu_weights.set(GqaGpuWeights {
                 wq_t: ctx.transpose(&wq)?,
                 wk_t: ctx.transpose(&wk)?,
                 wv_t: ctx.transpose(&wv)?,
                 wo_t: ctx.transpose(&wo)?,
             });
         }
-        let cached = guard.as_ref().ok_or_else(|| {
+        let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("GPU weights not initialized after lazy init".into())
         })?;
 
@@ -1132,7 +1129,7 @@ impl GQA {
 
         // 5. GPU-side KV cache (no CPU round-trip)
         let (k_repeated, v_repeated) = {
-            let mut scratch_guard = self.gpu_scratch.lock();
+            let mut scratch_guard = self.gpu_scratch.write();
             let cpu_seq_len = if layer_idx < cache.len() { cache[layer_idx].seq_len() } else { 0 };
 
             let mut gpu_entry = match scratch_guard.take() {
@@ -1290,8 +1287,7 @@ impl GQA {
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
         let ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_some() {
+        if self.gpu_weights.get().is_some() {
             return Ok(());
         }
         let mk = |arr: &ndarray::Array2<f32>| -> Result<GpuTensor, GpuError> {
@@ -1307,12 +1303,12 @@ impl GQA {
         let wk = mk(&self.wk)?;
         let wv = mk(&self.wv)?;
         let wo = mk(&self.wo)?;
-        *guard = Some(GqaGpuWeights {
+        self.gpu_weights.set(GqaGpuWeights {
             wq_t: ctx.transpose(&wq)?,
             wk_t: ctx.transpose(&wk)?,
             wv_t: ctx.transpose(&wv)?,
             wo_t: ctx.transpose(&wo)?,
-        });
+        }).map_err(|_| GpuError::Unsupported("weights already set".into()))?;
         Ok(())
     }
 }

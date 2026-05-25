@@ -1,4 +1,5 @@
 use ndarray::{Array1, Array2};
+use std::sync::OnceLock;
 
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::GpuTensor;
@@ -14,7 +15,7 @@ pub struct RMSNorm {
     pub weight: Array1<f32>,
     pub eps: f32,
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_weights: parking_lot::Mutex<Option<RmsNormGpuWeights>>,
+    pub(crate) gpu_weights: OnceLock<RmsNormGpuWeights>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -33,7 +34,7 @@ impl Clone for RMSNorm {
         Self {
             weight: self.weight.clone(),
             eps: self.eps,
-            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
         }
     }
 }
@@ -45,7 +46,7 @@ impl RMSNorm {
             weight,
             eps,
             #[cfg(feature = "gpu")]
-            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
         }
     }
 
@@ -54,7 +55,7 @@ impl RMSNorm {
             weight,
             eps,
             #[cfg(feature = "gpu")]
-            gpu_weights: parking_lot::Mutex::new(None),
+            gpu_weights: OnceLock::new(),
         }
     }
 
@@ -91,16 +92,15 @@ impl RMSNorm {
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::GpuContext;
         let _ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_some() {
+        if self.gpu_weights.get().is_some() {
             return Ok(());
         }
         let weight_shape = vec![self.weight.len()];
         let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, self.weight.to_vec())
             .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("shape error".into()))?;
-        *guard = Some(RmsNormGpuWeights {
+        self.gpu_weights.set(RmsNormGpuWeights {
             weight: nexora_autograd::gpu::GpuTensor::from_cpu(&weight_arr)?,
-        });
+        }).map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("already set".into()))?;
         Ok(())
     }
 
@@ -113,16 +113,15 @@ impl RMSNorm {
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
-        let mut guard = self.gpu_weights.lock();
-        if guard.is_none() {
+        if self.gpu_weights.get().is_none() {
             let weight_shape = vec![self.weight.len()];
             let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, self.weight.to_vec())
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(format!("shape mismatch for RMS norm weight: {}", e)))?;
-            *guard = Some(RmsNormGpuWeights {
+            let _ = self.gpu_weights.set(RmsNormGpuWeights {
                 weight: GpuTensor::from_cpu(&weight_arr)?,
             });
         }
-        let cached = guard.as_ref()
+        let cached = self.gpu_weights.get()
             .ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("RMS norm weights not initialized".into()))?;
         ctx.rms_norm(x, &cached.weight, self.eps)
     }

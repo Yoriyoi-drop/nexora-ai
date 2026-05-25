@@ -357,7 +357,7 @@ impl NxrModel for NxrAetherModel {
     ) -> Result<(), nexora_shared::base_model::NxrModelError> {
         config
             .validate()
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+            .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
         Ok(())

@@ -762,7 +762,7 @@ impl GpuContext {
             .pipelines
             .get("fill_zero")
             .ok_or_else(|| GpuError::Pipeline("fill_zero not compiled".into()))?;
-        let numel = t.numel() as u32;
+        let numel = u32::try_from(t.numel()).unwrap_or(u32::MAX);
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fill_zero_bg"),
             layout: &pipeline.bind_group_layout,
@@ -781,7 +781,7 @@ impl GpuContext {
             .pipelines
             .get("scale_inplace")
             .ok_or_else(|| GpuError::Pipeline("scale_inplace not compiled".into()))?;
-        let numel = t.numel() as u32;
+        let numel = u32::try_from(t.numel()).unwrap_or(u32::MAX);
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scale_cfg"),
             size: 8,
@@ -815,7 +815,7 @@ impl GpuContext {
             .pipelines
             .get("l2_norm")
             .ok_or_else(|| GpuError::Pipeline("l2_norm not compiled".into()))?;
-        let numel = t.numel() as u32;
+        let numel = u32::try_from(t.numel()).unwrap_or(u32::MAX);
         let out = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("l2_norm_out"),
             size: 4,
@@ -860,8 +860,8 @@ impl GpuContext {
     /// Causal softmax: softmax over last dim with causal mask.
     pub fn causal_softmax(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let shape = input.shape();
-        let batch = shape[0] as u32;
-        let dim = shape[1] as u32;
+        let batch = u32::try_from(shape[0]).unwrap_or(u32::MAX);
+        let dim = u32::try_from(shape[1]).unwrap_or(u32::MAX);
         let out = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("causal_softmax_out"),
             size: (input.numel() * 4) as u64,
@@ -919,7 +919,7 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let shape = logits.shape();
         let batch = shape[0];
-        let vocab = shape[1] as u32;
+        let vocab = u32::try_from(shape[1]).unwrap_or(u32::MAX);
         let numel = logits.numel();
 
         // Working copy of logits (pool-allocated)
@@ -941,7 +941,7 @@ impl GpuContext {
                 .get("temperature_scale")
                 .ok_or_else(|| GpuError::Pipeline("temperature_scale not compiled".into()))?;
             let temp_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-            let temp_cfg: [u32; 4] = [f32::to_bits(temperature), numel as u32, 0, 0];
+            let temp_cfg: [u32; 4] = [f32::to_bits(temperature), u32::try_from(numel).unwrap_or(u32::MAX), 0, 0];
             self.queue.write_buffer(&temp_buf.buffer, 0, bytemuck::cast_slice(&temp_cfg));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("temp_scale_bg"),
@@ -951,7 +951,8 @@ impl GpuContext {
                     wgpu::BindGroupEntry { binding: 1, resource: temp_buf.buffer.as_entire_binding() },
                 ],
             });
-            self.dispatch(pipeline, &bg, ((numel as u32 + 255) / 256, 1, 1));
+            let workgroups = u32::try_from(numel).unwrap_or(u32::MAX);
+            self.dispatch(pipeline, &bg, ((workgroups + 255) / 256, 1, 1));
         }
 
         // Step 2: softmax (via ctx.softmax — uses reusable encoder internally)

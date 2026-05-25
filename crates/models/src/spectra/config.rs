@@ -406,38 +406,87 @@ impl Default for InnovationConfig {
     }
 }
 
+#[derive(Debug)]
+pub enum ConfigValidationError {
+    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
+    EmptyField { field: String },
+    UnsupportedValue { field: String, value: String },
+    MissingField(String),
+}
+
+impl std::fmt::Display for ConfigValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigValidationError::OutOfRange { field, min, max, actual } => {
+                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            }
+            ConfigValidationError::EmptyField { field } => {
+                write!(f, "{} must not be empty", field)
+            }
+            ConfigValidationError::UnsupportedValue { field, value } => {
+                write!(f, "Unsupported {}: {}", field, value)
+            }
+            ConfigValidationError::MissingField(field) => {
+                write!(f, "Missing required field: {}", field)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigValidationError {}
+
 impl SpectraConfig {
     /// Validate configuration
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate()?;
+        self.base.validate().map_err(|e| ConfigValidationError::MissingField(e))?;
 
         // Validate creative configuration
         if !(0.0..=1.0).contains(&self.creative.originality_weight) {
-            return Err("originality_weight must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "originality_weight".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.creative.originality_weight as f64,
+            });
         }
 
         if !(0.0..=1.0).contains(&self.creative.innovation_threshold) {
-            return Err("innovation_threshold must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "innovation_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.creative.innovation_threshold as f64,
+            });
         }
 
         // Validate multimodal configuration
         if self.multimodal.supported_modalities.is_empty() {
-            return Err("At least one modality must be supported".to_string());
+            return Err(ConfigValidationError::EmptyField {
+                field: "supported_modalities".to_string(),
+            });
         }
 
         // Validate style configuration
         if self.style.style_synthesis_depth == 0 {
-            return Err("style_synthesis_depth must be > 0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "style_synthesis_depth".to_string(),
+                min: 1.0, max: 255.0,
+                actual: self.style.style_synthesis_depth as f64,
+            });
         }
 
         // Validate innovation configuration
         if !(0.0..=1.0).contains(&self.innovation.novelty_threshold) {
-            return Err("novelty_threshold must be between 0.0 and 1.0".to_string());
+            return Err(ConfigValidationError::OutOfRange {
+                field: "novelty_threshold".to_string(),
+                min: 0.0, max: 1.0,
+                actual: self.innovation.novelty_threshold as f64,
+            });
         }
 
         if self.innovation.innovation_domains.is_empty() {
-            return Err("At least one innovation domain must be specified".to_string());
+            return Err(ConfigValidationError::EmptyField {
+                field: "innovation_domains".to_string(),
+            });
         }
 
         Ok(())
@@ -661,7 +710,7 @@ impl SpectraConfig {
     }
 
     /// Validate modality
-    pub fn validate_modality(&self, modality: &str) -> Result<(), String> {
+    pub fn validate_modality(&self, modality: &str) -> Result<(), ConfigValidationError> {
         let modality_enum = match modality {
             "text" => Modality::Text,
             "image" => Modality::Image,
@@ -669,7 +718,10 @@ impl SpectraConfig {
             "video" => Modality::Video,
             "3d" => Modality::ThreeD,
             "interactive" => Modality::Interactive,
-            _ => return Err(format!("Unsupported modality: {}", modality)),
+            _ => return Err(ConfigValidationError::UnsupportedValue {
+                field: "modality".to_string(),
+                value: modality.to_string(),
+            }),
         };
 
         if !self
@@ -677,21 +729,27 @@ impl SpectraConfig {
             .supported_modalities
             .contains(&modality_enum)
         {
-            return Err(format!("Modality {} is not supported", modality));
+            return Err(ConfigValidationError::UnsupportedValue {
+                field: "modality".to_string(),
+                value: format!("{} is not supported", modality),
+            });
         }
 
         Ok(())
     }
 
     /// Validate style
-    pub fn validate_style(&self, style_name: &str) -> Result<(), String> {
+    pub fn validate_style(&self, style_name: &str) -> Result<(), ConfigValidationError> {
         if !self
             .style
             .supported_styles
             .iter()
             .any(|s| s.name == style_name)
         {
-            return Err(format!("Style {} is not supported", style_name));
+            return Err(ConfigValidationError::UnsupportedValue {
+                field: "style".to_string(),
+                value: style_name.to_string(),
+            });
         }
 
         Ok(())

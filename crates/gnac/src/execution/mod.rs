@@ -39,25 +39,8 @@ impl ExecutionBackend {
     }
 }
 
-/// Hybrid execution (eager/compiled) — planned but not yet implemented.
-///
-/// Current status:
-///   The `ExecutionMode` enum was removed because the eager/compiled dispatch
-///   path was never wired to a backend. All execution currently uses the
-///   `ExecutionBackend` directly without a mode layer.
-///
-/// What needs to be done:
-///   1. Reintroduce `ExecutionMode` (eager | compiled) in this module.
-///   2. Add a `mode` field to the execution pipeline config.
-///   3. Wire eager mode to run ops immediately through the backend.
-///   4. Wire compiled mode to build a fusion graph first (see `gnac::ir`),
-///      then launch the compiled kernel via the backend.
-///
-/// Files to modify:
-///   - `crates/gnac/src/execution/mod.rs`       — add enum + dispatch
-///   - `crates/gnac/src/execution/backend.rs`   — add compile() method
-///   - `crates/gnac/src/ir/mod.rs`              — fusion graph builder
-///   - `crates/gnac/src/pipeline.rs`            — config plumbing
+/// Execution backend. Currently only CPU is implemented.
+/// CUDA, Vulkan, TPU, and WebGPU targets are declared for future use.
 
 #[cfg(test)]
 mod tests {

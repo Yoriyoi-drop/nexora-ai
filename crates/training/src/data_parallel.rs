@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use ndarray::ArrayD;
 use nexora_autograd::ops::cross_entropy_loss;
@@ -8,8 +8,8 @@ use crate::Trainer;
 
 pub struct DataParallelTrainer {
     pub num_workers: usize,
-    pub workers: Vec<Arc<Mutex<Trainer>>>,
-    pub master: Arc<Mutex<Trainer>>,
+    pub workers: Vec<Trainer>,
+    pub master: Mutex<Trainer>,
 }
 
 impl DataParallelTrainer {
@@ -17,12 +17,12 @@ impl DataParallelTrainer {
     where
         F: Fn() -> Trainer,
     {
-        let master = Arc::new(Mutex::new(create_trainer_fn()));
+        let master = Mutex::new(create_trainer_fn());
         let mut workers = Vec::with_capacity(num_workers);
         for _ in 0..num_workers {
             let mut worker = create_trainer_fn();
             worker.prepare();
-            workers.push(Arc::new(Mutex::new(worker)));
+            workers.push(worker);
         }
         Self {
             num_workers,
@@ -43,8 +43,7 @@ impl DataParallelTrainer {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        for worker_arc in &self.workers {
-            let worker = worker_arc.lock().unwrap();
+        for worker in &self.workers {
             if let Some(wt) = worker.trainable.as_ref() {
                 let w_params = wt.parameters();
                 for (m_data, w) in master_params.iter().zip(w_params.iter()) {
@@ -54,9 +53,9 @@ impl DataParallelTrainer {
         }
     }
 
-    pub fn train_step(&self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
+    pub fn train_step(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
         if self.num_workers == 0 || tokens.is_empty() || targets.is_empty() {
-            let master = self.master.lock().unwrap();
+            let mut master = self.master.lock().unwrap();
             return master.train_batch(tokens, targets);
         }
 
@@ -81,10 +80,9 @@ impl DataParallelTrainer {
                 }
                 let w_tokens = tokens[start..end].to_vec();
                 let w_targets = targets[start..end].to_vec();
-                let worker_arc = self.workers[worker_idx].clone();
+                let worker = &mut self.workers[worker_idx];
 
                 handles.push(s.spawn(move || {
-                    let worker = worker_arc.lock().unwrap();
                     let seq = w_tokens.len();
                     let input_t = Tensor::from_slice(
                         &w_tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
@@ -131,8 +129,7 @@ impl DataParallelTrainer {
         };
 
         let mut all_grads: Vec<Vec<Option<ArrayD<f32>>>> = Vec::with_capacity(self.num_workers);
-        for worker_arc in &self.workers {
-            let worker = worker_arc.lock().unwrap();
+        for worker in &self.workers {
             let w_params = worker
                 .trainable
                 .as_ref()
