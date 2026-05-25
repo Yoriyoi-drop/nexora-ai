@@ -14,6 +14,7 @@ use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
 
 use crate::echo_net_injector::EchoNetInjector;
+use crate::model_agent_manager::global_model_agents;
 use crate::shared::base_model::ValidationResult;
 use crate::shared::{
     CapabilityVector, FinishReason, GenerationMetadata, InputData, ModelMeta, ModelStatistics,
@@ -535,6 +536,113 @@ impl CausalLmModel {
             val_loss: val_loss.as_ref().map(|m| m.avg_loss),
             val_perplexity: val_loss.as_ref().map(|m| m.perplexity),
         })
+    }
+
+    pub async fn run_agent_preprocessing(&self, input: &str) -> String {
+        let model_id = self.meta.id;
+        match model_id {
+            NxrModelId::Axiom => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.axiom.logic_core().evaluate(input).await {
+                        Ok(report) => format!("[Axiom analysis: {}] {}", report, input),
+                        Err(_) => input.to_string(),
+                    }
+                } else {
+                    input.to_string()
+                }
+            }
+            NxrModelId::Cipher => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.cipher.security_guardian().analyze(input).await {
+                        Ok(report) => format!("[Cipher safety: {}] {}", report, input),
+                        Err(_) => input.to_string(),
+                    }
+                } else {
+                    input.to_string()
+                }
+            }
+            NxrModelId::Spectra => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.spectra.analyze(input).await {
+                        Ok(annotation) => format!("{} {}", annotation, input),
+                        Err(_) => input.to_string(),
+                    }
+                } else {
+                    input.to_string()
+                }
+            }
+            NxrModelId::Aether => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.aether.analyze_emotion(input).await {
+                        Ok(annotation) => format!("{} {}", annotation, input),
+                        Err(_) => input.to_string(),
+                    }
+                } else {
+                    input.to_string()
+                }
+            }
+            NxrModelId::Genesis => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.genesis.analyze_creation(input).await {
+                        Ok(annotation) => format!("{} {}", annotation, input),
+                        Err(_) => input.to_string(),
+                    }
+                } else {
+                    input.to_string()
+                }
+            }
+            NxrModelId::Kronos => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.kronos.analyze_temporal(input).await {
+                        Ok(annotation) => format!("{} {}", annotation, input),
+                        Err(_) => input.to_string(),
+                    }
+                } else {
+                    input.to_string()
+                }
+            }
+            _ => input.to_string(),
+        }
+    }
+
+    pub async fn run_agent_postprocessing(&self, output: &str) -> String {
+        let model_id = self.meta.id;
+        match model_id {
+            NxrModelId::Axiom => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.axiom.truth_validator().validate(output).await {
+                        Ok(report) => format!("[Axiom validated: {}] {}", report, output),
+                        Err(_) => output.to_string(),
+                    }
+                } else {
+                    output.to_string()
+                }
+            }
+            NxrModelId::Cipher => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.cipher.encryption_master().sanitize(output).await {
+                        Ok(report) => report,
+                        Err(_) => output.to_string(),
+                    }
+                } else {
+                    output.to_string()
+                }
+            }
+            NxrModelId::Nexum => {
+                if let Some(mgr) = global_model_agents() {
+                    match mgr.nexum.evaluate_alignment(output).await {
+                        Ok(annotation) => format!("{}\n\n{}", output, annotation),
+                        Err(_) => output.to_string(),
+                    }
+                } else {
+                    output.to_string()
+                }
+            }
+            NxrModelId::Vortex => {
+                format!("{}\n\n[Vortex Analysis Pending]", output)
+            }
+            _ => output.to_string(),
+        }
     }
 }
 

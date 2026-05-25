@@ -223,6 +223,21 @@ impl SecurityGuardianAgent {
         }
     }
 
+    pub async fn analyze(&self, input: &str) -> AgentResult<String> {
+        let task_input = SecurityGuardianTaskInput {
+            security_event: "input_safety_check".to_string(),
+            system_logs: vec![input.to_string()],
+            analysis_parameters: HashMap::new(),
+        };
+        let output = self.process(task_input).await?;
+        Ok(format!(
+            "threat: {}, vulnerabilities: {:?}, score: {:.2}",
+            output.threat_assessment,
+            output.detected_vulnerabilities,
+            output.security_score
+        ))
+    }
+
     async fn assess_threat(&self, input: &SecurityGuardianTaskInput) -> AgentResult<String> {
         let threat_level = self.calculate_threat_level(&input.security_event).await?;
         let risk_factors = self.identify_risk_factors(&input).await?;

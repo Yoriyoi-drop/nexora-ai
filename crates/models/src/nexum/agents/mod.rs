@@ -7,6 +7,8 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use nexora_shared::base_model::NxrModelResult;
+
 pub mod alignment_arbiter;
 pub mod consensus_builder;
 pub mod orchestrator_prime;
@@ -797,6 +799,24 @@ impl NexumAgents {
             AgentKind::MergeSynth,
             AgentKind::PriorityGod,
         ]
+    }
+
+    /// Postprocessing: alignment/consensus evaluation of generated output.
+    /// Uses the ConsensusAiAgent to produce an alignment verdict string.
+    pub async fn evaluate_alignment(&self, output: &str) -> NxrModelResult<String> {
+        let opinions = vec![AgentOpinion {
+            agent_id: "nexum-consensus".into(),
+            position: output.to_string(),
+            confidence: 0.85,
+            reasoning: "Alignment evaluation by Nexum consensus agent".to_string(),
+        }];
+        let verdict = self.consensus_ai.evaluate(&opinions);
+        Ok(format!(
+            "[Nexum alignment] consensus: {}, agreement: {:.2}, supporters: {}",
+            if verdict.consensus_reached { "reached" } else { "not reached" },
+            verdict.agreement_level,
+            verdict.supporters.len(),
+        ))
     }
 }
 

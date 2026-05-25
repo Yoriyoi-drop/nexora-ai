@@ -22,12 +22,12 @@ use nexora_shared::{
 };
 
 // Include all Spectra modules
-mod agents;
-mod architecture;
-mod capabilities;
-mod config;
-mod coordinator;
-mod identity;
+pub mod agents;
+pub mod architecture;
+pub mod capabilities;
+pub mod config;
+pub mod coordinator;
+pub mod identity;
 
 // Re-export all components
 pub use agents::*;

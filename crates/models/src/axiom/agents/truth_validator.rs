@@ -217,6 +217,19 @@ impl TruthValidatorAgent {
         }
     }
 
+    pub async fn validate(&self, input: &str) -> AgentResult<String> {
+        let task_input = TruthValidatorTaskInput {
+            statement: input.to_string(),
+            evidence_sources: vec!["model_output".to_string()],
+            validation_type: "logical".to_string(),
+        };
+        let output = self.process(task_input).await?;
+        Ok(format!(
+            "truth_score: {:.2}, result: {}, confidence: {:.2}",
+            output.truth_score, output.validation_result, output.confidence_level
+        ))
+    }
+
     async fn calculate_truth_score(&self, input: &TruthValidatorTaskInput) -> AgentResult<f32> {
         // Simple truth score calculation based on evidence
         let evidence_count = input.evidence_sources.len() as f32;

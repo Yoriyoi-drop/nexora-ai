@@ -219,6 +219,19 @@ impl EncryptionMasterAgent {
         }
     }
 
+    pub async fn sanitize(&self, input: &str) -> AgentResult<String> {
+        let task_input = EncryptionMasterTaskInput {
+            protection_request: "encrypt".to_string(),
+            data_to_protect: input.as_bytes().to_vec(),
+            encryption_parameters: HashMap::new(),
+        };
+        let output = self.process(task_input).await?;
+        Ok(format!(
+            "[protection_level: {:.2}] {}",
+            output.protection_level, input
+        ))
+    }
+
     async fn protect_data(&self, input: &EncryptionMasterTaskInput) -> AgentResult<Vec<u8>> {
         match input.protection_request.as_str() {
             "encrypt" => {

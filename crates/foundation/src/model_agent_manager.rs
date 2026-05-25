@@ -8,6 +8,7 @@ use nexora_models::genesis::agents::GenesisAgents;
 use nexora_models::kronos::agents::KronosAgents;
 use nexora_models::nexum::agents::NexumAgents;
 use nexora_models::omnis::agents::OmnisAgents;
+use nexora_models::spectra::agents::SpectraAgents;
 use nexora_models::swift::agents::SwiftAgents;
 
 use nexora_models::axiom::config::AxiomConfig;
@@ -15,6 +16,7 @@ use nexora_models::cipher::config::CipherConfig;
 use nexora_models::genesis::config::GenesisConfig;
 use nexora_models::kronos::config::KronosConfig;
 use nexora_models::omnis::config::OmnisConfig;
+use nexora_models::spectra::config::SpectraConfig;
 use nexora_models::swift::config::SwiftConfig;
 
 pub struct ModelAgentManager {
@@ -26,6 +28,7 @@ pub struct ModelAgentManager {
     pub kronos: KronosAgents,
     pub cipher: CipherAgents,
     pub aether: AetherAgents,
+    pub spectra: SpectraAgents,
 }
 
 impl ModelAgentManager {
@@ -54,7 +57,9 @@ impl ModelAgentManager {
         let aether = AetherAgents::default();
         info!("NXR-AETHER agents constructed");
 
-        info!("NXR-SPECTRA agents active");
+        let spectra = SpectraAgents::new(&SpectraConfig::default());
+        info!("NXR-SPECTRA agents constructed");
+
         info!("NXR-VORTEX agents active");
 
         Self {
@@ -66,6 +71,7 @@ impl ModelAgentManager {
             kronos,
             cipher,
             aether,
+            spectra,
         }
     }
 }

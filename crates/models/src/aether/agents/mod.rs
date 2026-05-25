@@ -491,6 +491,17 @@ impl AetherAgents {
     pub fn soul_mirror(&mut self) -> &mut SoulMirrorAgent {
         &mut self.soul_mirror
     }
+
+    /// Preprocessing: emotional analysis of input text.
+    /// Returns the emotional narrative as a string annotation.
+    pub async fn analyze_emotion(&self, text: &str) -> NxrModelResult<String> {
+        let sig = self.empath_core.analyze(text)?;
+        let narrative = self.empath_core.emotional_narrative(&sig)?;
+        Ok(format!(
+            "[Aether emotional analysis] {} [Signature] primary: {}, valence: {:.2}, intensity: {:.2}",
+            narrative, sig.primary_emotion, sig.valence, sig.intensity,
+        ))
+    }
 }
 
 impl Default for AetherAgents {

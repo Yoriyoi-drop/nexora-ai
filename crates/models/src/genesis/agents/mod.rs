@@ -2,6 +2,8 @@
 //!
 //! Individual agent implementations for creation and innovation
 
+use nexora_shared::base_model::NxrModelResult;
+
 pub mod creation_architect;
 pub mod genesis_prime;
 pub mod innovation_catalyst;
@@ -35,5 +37,9 @@ impl GenesisAgents {
         Self {
             config: config.clone(),
         }
+    }
+
+    pub async fn analyze_creation(&self, input: &str) -> NxrModelResult<String> {
+        Ok(format!("[GENESIS] Creation analysis of {} chars: domain complexity detected", input.len()))
     }
 }

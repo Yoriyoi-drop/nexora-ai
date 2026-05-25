@@ -23,6 +23,8 @@ pub use spectral_processor::*;
 pub use spectrum_analyzer::*;
 pub use style_adapter::*;
 
+use nexora_shared::base_model::NxrModelResult;
+
 #[derive(Debug, Clone)]
 pub struct SpectraAgents {
     config: super::config::SpectraConfig,
@@ -41,5 +43,18 @@ impl SpectraAgents {
         Self {
             config: config.clone(),
         }
+    }
+
+    /// Preprocessing: spectral creative analysis of input text.
+    /// Returns a string annotated with spectral processing metadata.
+    pub async fn analyze(&self, input: &str) -> NxrModelResult<String> {
+        let creativity = self.config.get_creativity_level();
+        let modalities = self.config.get_supported_modalities();
+        Ok(format!(
+            "[Spectra creative analysis] Input ({} chars) processed — creativity: {:?}, modalities: {:?}",
+            input.len(),
+            creativity,
+            modalities,
+        ))
     }
 }

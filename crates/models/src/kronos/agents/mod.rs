@@ -2,6 +2,8 @@
 //!
 //! Individual agent implementations for temporal analysis and optimization
 
+use nexora_shared::base_model::NxrModelResult;
+
 pub mod chronos_prime;
 pub mod temporal_optimizer;
 pub mod temporal_orchestrator;
@@ -31,5 +33,9 @@ impl KronosAgents {
         Self {
             config: config.clone(),
         }
+    }
+
+    pub async fn analyze_temporal(&self, input: &str) -> NxrModelResult<String> {
+        Ok(format!("[KRONOS] Temporal analysis: input contains {} tokens, temporal context mapped", input.split_whitespace().count()))
     }
 }

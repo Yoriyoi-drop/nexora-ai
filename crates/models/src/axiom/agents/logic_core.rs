@@ -245,6 +245,19 @@ impl LogicCoreAgent {
         Ok(0.91)
     }
 
+    pub async fn evaluate(&self, input: &str) -> AgentResult<String> {
+        let task_input = LogicCoreTaskInput {
+            premises: vec![input.to_string()],
+            conclusion: "valid".to_string(),
+            logic_type: "propositional".to_string(),
+        };
+        let output = self.process(task_input).await?;
+        Ok(format!(
+            "validity: {}, confidence: {:.2}",
+            output.validity_result, output.confidence_score
+        ))
+    }
+
     async fn determine_proof_strategy(&self, input: &LogicCoreTaskInput) -> AgentResult<String> {
         match input.logic_type.as_str() {
             "propositional" => Ok("Direct proof using propositional logic rules".to_string()),

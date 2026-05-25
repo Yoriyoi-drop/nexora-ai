@@ -16,12 +16,16 @@ pub use truth_validator::*;
 #[derive(Debug, Clone)]
 pub struct AxiomAgents {
     config: super::config::AxiomConfig,
+    pub logic_core: LogicCoreAgent,
+    pub truth_validator: TruthValidatorAgent,
 }
 
 impl Default for AxiomAgents {
     fn default() -> Self {
         Self {
             config: super::config::AxiomConfig::default(),
+            logic_core: LogicCoreAgent::default(),
+            truth_validator: TruthValidatorAgent::default(),
         }
     }
 }
@@ -30,6 +34,16 @@ impl AxiomAgents {
     pub fn new(config: &super::config::AxiomConfig) -> Self {
         Self {
             config: config.clone(),
+            logic_core: LogicCoreAgent::default(),
+            truth_validator: TruthValidatorAgent::default(),
         }
+    }
+
+    pub fn logic_core(&self) -> &LogicCoreAgent {
+        &self.logic_core
+    }
+
+    pub fn truth_validator(&self) -> &TruthValidatorAgent {
+        &self.truth_validator
     }
 }
