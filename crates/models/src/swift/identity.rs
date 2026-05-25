@@ -14,9 +14,9 @@ impl SwiftIdentity {
     pub fn new() -> Self {
         let meta = ModelMeta::new(
             NxrModelId::Swift,
-            ModelTier::Pro,
+            ModelTier::Edge,
             "1.0.0".to_string(),
-            "Speed-optimized Workflow Integration & Fast-response Transformer - High-speed model optimized for rapid response, real-time processing, and workflow integration with minimal latency.".to_string(),
+            "Sub-millisecond Weighted Inference & Fast Thought - High-speed model optimized for rapid response, real-time processing, and workflow integration with minimal latency.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
         .with_context_window(0) ;// not loaded
@@ -42,7 +42,7 @@ impl SwiftIdentity {
 
     /// Get model full name
     pub fn fullname(&self) -> &'static str {
-        "Speed-optimized Workflow Integration & Fast-response Transformer"
+        "Sub-millisecond Weighted Inference & Fast Thought"
     }
 
     /// Get model description
@@ -75,10 +75,9 @@ impl SwiftIdentity {
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
         vec![
-            "SPEED-BOOST",
-            "FLOW-MANAGER",
-            "STREAM-PROCESSOR",
-            "EDGE-ADAPTER",
+            "NANO-INFER",
+            "FAST-CACHE",
+            "EDGE-OPT",
         ]
     }
 
@@ -100,12 +99,11 @@ impl SwiftIdentity {
             context_window: "256K tokens",
             accuracy: 97.2,
             reasoning_depth: "Intermediate",
-            agents_count: 4,
+            agents_count: 3,
             specializations: vec![
-                "Speed optimization".to_string(),
-                "Real-time processing".to_string(),
-                "Workflow integration".to_string(),
-                "Edge computing".to_string(),
+                "Ultra-lightweight inference".to_string(),
+                "Intelligent caching".to_string(),
+                "Edge runtime optimization".to_string(),
             ],
         }
     }

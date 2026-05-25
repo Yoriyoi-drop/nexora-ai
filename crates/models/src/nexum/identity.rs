@@ -14,9 +14,9 @@ impl NexumIdentity {
     pub fn new() -> Self {
         let meta = ModelMeta::new(
             NxrModelId::Nexum,
-            ModelTier::Pro,
+            ModelTier::Apex,
             "1.0.0".to_string(),
-            "Neural EXecutive Unified Multi-agent - Multi-agent orchestration and alignment coordination specialist with advanced consensus building and conflict resolution capabilities.".to_string(),
+            "Networked EXpert Unified Mediator - Multi-agent orchestration and alignment coordination specialist with advanced consensus building and conflict resolution capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
         .with_context_window(0) ;// not loaded
@@ -42,7 +42,7 @@ impl NexumIdentity {
 
     /// Get model full name
     pub fn fullname(&self) -> &'static str {
-        "Neural EXecutive Unified Multi-agent"
+        "Networked EXpert Unified Mediator"
     }
 
     /// Get model description
@@ -77,10 +77,12 @@ impl NexumIdentity {
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
         vec![
-            "ORCHESTRATOR-PRIME",
-            "CONSENSUS-BUILDER",
-            "ALIGNMENT-ARBITER",
-            "RESOURCE-OPTIMIZER",
+            "SWARM-CTL",
+            "DELEGATE-X",
+            "CONSENSUS-AI",
+            "TASK-ROUTER",
+            "MERGE-SYNTH",
+            "PRIORITY-GOD",
         ]
     }
 
@@ -103,12 +105,14 @@ impl NexumIdentity {
             context_window: "750K tokens",
             accuracy: 93.2,
             reasoning_depth: "Advanced",
-            agents_count: 4,
+            agents_count: 6,
             specializations: vec![
-                "Multi-agent orchestration".to_string(),
+                "Swarm intelligence control".to_string(),
+                "Intelligent delegation".to_string(),
                 "Consensus building".to_string(),
-                "Conflict resolution".to_string(),
-                "Resource optimization".to_string(),
+                "Task routing".to_string(),
+                "Parallel result merging".to_string(),
+                "Priority management".to_string(),
             ],
         }
     }

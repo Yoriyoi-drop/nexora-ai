@@ -411,9 +411,9 @@ impl AxiomIdentity {
             id: NxrModelId::Axiom,
             name: "NXR-AXIOM".to_string(),
             version: "1.0.0".to_string(),
-            description: "Neural eXecutive AI for Logical and Mathematical Operations - Advanced logical reasoning and mathematical proof system".to_string(),
+            description: "Autonomous eXpert Intelligence for Operations & Management - Enterprise-grade autonomous decision-making with strategic planning, risk analysis, and scenario simulation.".to_string(),
             model_id: NxrModelId::Axiom.to_string(),
-            tier: ModelTier::Master,
+            tier: ModelTier::Ultra,
             uuid: uuid::Uuid::new_v4(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -421,14 +421,14 @@ impl AxiomIdentity {
             context_window: None,
             experimental: false,
             tags: vec![
-                "logical_reasoning".to_string(),
-                "mathematical_proof".to_string(),
-                "formal_verification".to_string(),
-                "automated_reasoning".to_string(),
-                "theorem_proving".to_string(),
-                "mathematical_logic".to_string(),
-                "proof_generation".to_string(),
-                "inference_engine".to_string(),
+                "autonomous_decision_making".to_string(),
+                "strategic_planning".to_string(),
+                "risk_analysis".to_string(),
+                "scenario_simulation".to_string(),
+                "enterprise_intelligence".to_string(),
+                "decision_audit".to_string(),
+                "operations_management".to_string(),
+                "forecasting".to_string(),
             ],
             capabilities: vec![],
         };
@@ -1128,6 +1128,17 @@ impl AxiomIdentity {
             ),
             _ => None,
         }
+    }
+
+    /// Get agent list
+    pub fn agents(&self) -> Vec<&'static str> {
+        vec![
+            "RISK-ORACLE",
+            "STRAT-ENGINE",
+            "FUTURE-SIM",
+            "DECISION-X",
+            "AUDIT-WATCH",
+        ]
     }
 
     /// Check if can handle complexity level

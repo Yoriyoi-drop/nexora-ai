@@ -14,9 +14,9 @@ impl KronosIdentity {
     pub fn new() -> Self {
         let meta = ModelMeta::new(
             NxrModelId::Kronos,
-            ModelTier::Pro,
+            ModelTier::Core,
             "1.0.0".to_string(),
-            "Knowledge Retrieval & Organized Networked Object Storage - Specialized knowledge management and retrieval system with advanced indexing, semantic search, and knowledge graph capabilities.".to_string(),
+            "Knowledge Retrieval & Ontological Neural Optimization System - Specialized knowledge management and retrieval system with advanced indexing, semantic search, and knowledge graph capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
         .with_context_window(0) ;// not loaded
@@ -42,7 +42,7 @@ impl KronosIdentity {
 
     /// Get model full name
     pub fn fullname(&self) -> &'static str {
-        "Knowledge Retrieval & Organized Networked Object Storage"
+        "Knowledge Retrieval & Ontological Neural Optimization System"
     }
 
     /// Get model description
@@ -75,10 +75,11 @@ impl KronosIdentity {
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
         vec![
-            "INDEX-BUILDER",
-            "SEMANTIC-SEARCH",
-            "KNOWLEDGE-GRAPH",
-            "SYNTHESIZER",
+            "GRAPH-MIND",
+            "HYPO-GEN",
+            "SCIENCE-BOT",
+            "FACT-CHECK-X",
+            "CITE-MASTER",
         ]
     }
 
@@ -100,12 +101,13 @@ impl KronosIdentity {
             context_window: "512K tokens",
             accuracy: 97.8,
             reasoning_depth: "Intermediate",
-            agents_count: 4,
+            agents_count: 5,
             specializations: vec![
-                "Knowledge management".to_string(),
-                "Semantic search".to_string(),
-                "Information retrieval".to_string(),
-                "Knowledge synthesis".to_string(),
+                "Knowledge graph traversal".to_string(),
+                "Hypothesis generation".to_string(),
+                "Scientific reasoning".to_string(),
+                "Fact verification".to_string(),
+                "Citation management".to_string(),
             ],
         }
     }

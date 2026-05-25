@@ -14,9 +14,9 @@ impl GenesisIdentity {
     pub fn new() -> Self {
         let meta = ModelMeta::new(
             NxrModelId::Genesis,
-            ModelTier::Pro,
+            ModelTier::Ultra,
             "1.0.0".to_string(),
-            "Generative Evolutionary Neural Architecture for Synthesis & Innovation - Specialized generative AI model for creative synthesis, innovation, and novel content generation across multiple domains.".to_string(),
+            "Generative Evolution Network for Emergent Simulation & Intelligence Synthesis - Specialized generative AI model for creative synthesis, innovation, and novel content generation across multiple domains.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
         .with_context_window(0) ;// not loaded
@@ -42,7 +42,7 @@ impl GenesisIdentity {
 
     /// Get model full name
     pub fn fullname(&self) -> &'static str {
-        "Generative Evolutionary Neural Architecture for Synthesis & Innovation"
+        "Generative Evolution Network for Emergent Simulation & Intelligence Synthesis"
     }
 
     /// Get model description
@@ -74,7 +74,14 @@ impl GenesisIdentity {
 
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
-        vec!["CREATIVE-ENGINE", "INNOVATOR", "SYNTHESIZER", "EVALUATOR"]
+        vec![
+            "SELF-EVOLVE",
+            "ARCH-BUILDER",
+            "META-LEARN",
+            "EMERGE-AI",
+            "GENESIS-CORE",
+            "LOOP-PRIME",
+        ]
     }
 
     /// Get architecture components
@@ -95,12 +102,14 @@ impl GenesisIdentity {
             context_window: "512K tokens",
             accuracy: 97.5,
             reasoning_depth: "Intermediate",
-            agents_count: 4,
+            agents_count: 6,
             specializations: vec![
-                "Creative generation".to_string(),
-                "Innovation synthesis".to_string(),
-                "Cross-domain creativity".to_string(),
-                "Novel content generation".to_string(),
+                "Self-improvement".to_string(),
+                "Architecture search".to_string(),
+                "Meta-learning".to_string(),
+                "Emergent capability monitoring".to_string(),
+                "Self-improvement governance".to_string(),
+                "Improvement loop management".to_string(),
             ],
         }
     }

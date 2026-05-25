@@ -77,10 +77,10 @@ impl AetherIdentity {
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
         vec![
-            "EMPATHY-PRIME",
-            "PSYCHE-ANALYZER",
-            "EMOTION-WEAVER",
-            "CULTURE-ADAPTER",
+            "EMPATH-CORE",
+            "TONE-MAPPER",
+            "CONTEXT-WEAVE",
+            "SOUL-MIRROR",
         ]
     }
 

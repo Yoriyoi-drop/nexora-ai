@@ -16,7 +16,7 @@ impl SpectraIdentity {
             NxrModelId::Spectra,
             ModelTier::Pro,
             "1.0.0".to_string(),
-            "Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture - Creative multimodal synthesis specialist with advanced artistic and creative capabilities.".to_string(),
+            "Spectral Perception & Encoding for Creative Transcendence & Research Analytics - Creative multimodal synthesis specialist with advanced artistic and creative capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
         .with_context_window(0) ;// not loaded
@@ -42,7 +42,7 @@ impl SpectraIdentity {
 
     /// Get model full name
     pub fn fullname(&self) -> &'static str {
-        "Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture"
+        "Spectral Perception & Encoding for Creative Transcendence & Research Analytics"
     }
 
     /// Get model description
@@ -77,10 +77,11 @@ impl SpectraIdentity {
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
         vec![
-            "CREATIVE-MUSE",
-            "ARTISTIC-WEAVER",
-            "STYLE-ADAPTER",
-            "INNOVATION-ENGINE",
+            "VISION-CRAFT",
+            "STYLE-TRANSFER",
+            "HARMONY-GEN",
+            "CANVAS-AI",
+            "NARRATIVE-X",
         ]
     }
 
@@ -103,12 +104,13 @@ impl SpectraIdentity {
             context_window: "1M tokens",
             accuracy: 94.8,
             reasoning_depth: "Advanced",
-            agents_count: 4,
+            agents_count: 5,
             specializations: vec![
-                "Creative synthesis".to_string(),
-                "Multimodal generation".to_string(),
-                "Style adaptation".to_string(),
-                "Artistic composition".to_string(),
+                "Visual generation".to_string(),
+                "Style transfer".to_string(),
+                "Audio/harmony generation".to_string(),
+                "Creative direction".to_string(),
+                "Narrative construction".to_string(),
             ],
         }
     }
