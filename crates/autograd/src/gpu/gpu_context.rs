@@ -460,13 +460,17 @@ impl GpuContext {
         self.compile_softmax()?;
         self.compile_rms_norm()?;
         self.compile_cross_entropy()?;
+        self.compile_cross_entropy_backward()?;
         self.compile_embedding()?;
+        self.compile_embedding_backward()?;
         self.compile_layer_norm()?;
         self.compile_transpose()?;
         self.compile_fused_attention()?;
+        self.compile_fused_attention_backward()?;
         self.compile_fill_zero()?;
         self.compile_fill_zero_u32()?;
         self.compile_scale_inplace()?;
+        self.compile_gradient_allreduce()?;
         self.compile_elementwise_inplace()?;
         self.compile_causal_softmax()?;
         self.compile_l2_norm()?;
@@ -521,6 +525,58 @@ impl GpuContext {
             std::borrow::Cow::Borrowed(SCALE_INPLACE_WGSL),
             "scale_inplace_main",
         )
+    }
+
+    fn compile_gradient_allreduce(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "gradient_allreduce",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            std::borrow::Cow::Borrowed(GRADIENT_ALLREDUCE_WGSL),
+            "gradient_allreduce_main",
+        )
+    }
+
+    /// Average gradients across N model replicas.
+    /// `grad_buffers` must be a flat buffer containing [replica0_grads | replica1_grads | ...]
+    /// where each replica's gradients are `numel` f32 values.
+    /// `out` must be sized for `numel` f32 values.
+    pub fn gradient_allreduce(
+        &self,
+        grad_buffers: &GpuTensor,
+        out: &GpuTensor,
+        num_replicas: u32,
+    ) -> Result<(), GpuError> {
+        let numel = out.numel() as u32;
+        let pipeline = self
+            .pipelines
+            .get("gradient_allreduce")
+            .ok_or_else(|| GpuError::Pipeline("gradient_allreduce not compiled".into()))?;
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gradient_allreduce_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 4] = [numel, num_replicas, 0, 0];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gradient_allreduce_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: grad_buffers.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: out.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+            ],
+        });
+
+        self.dispatch(pipeline, &bind_group, ((numel + 255) / 256, 1, 1));
+        Ok(())
     }
 
     fn compile_causal_softmax(&mut self) -> Result<(), GpuError> {
@@ -3005,6 +3061,72 @@ impl GpuContext {
         })
     }
 
+    fn compile_cross_entropy_backward(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "cross_entropy_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                uniform_binding(4),
+            ],
+            std::borrow::Cow::Borrowed(CROSS_ENTROPY_BACKWARD_WGSL),
+            "cross_entropy_bwd_main",
+        )
+    }
+
+    /// Cross-entropy backward: d_logits = grad * (softmax - one_hot(targets)).
+    /// softmax/grad/d_logits: [batch, classes]. targets: [batch] (u32).
+    pub fn cross_entropy_backward(
+        &self,
+        softmax: &GpuTensor,
+        grad: &GpuTensor,
+        targets: &GpuTensor,
+    ) -> Result<GpuTensor, GpuError> {
+        let shape = softmax.shape();
+        let total = softmax.numel() as u32;
+
+        let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cross_entropy_bwd_out"),
+            size: (total as u64) * 4,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cross_entropy_bwd_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 4] = [shape[0] as u32, shape[1] as u32, 0, 0];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        let pipeline = self
+            .pipelines
+            .get("cross_entropy_backward")
+            .ok_or_else(|| GpuError::Pipeline("cross_entropy_backward not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cross_entropy_bwd_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: softmax.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: targets.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: out_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: cfg_buf.as_entire_binding() },
+            ],
+        });
+
+        self.dispatch(pipeline, &bind_group, ((total + 255) / 256, 1, 1));
+
+        Ok(GpuTensor { shape: shape.clone(), buffer: out_buffer, dtype: GpuDtype::F32, device_id: 0 })
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     //  PHASE 2.4: EMBEDDING
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3021,6 +3143,85 @@ impl GpuContext {
             std::borrow::Cow::Borrowed(EMBEDDING_WGSL),
             "embedding_main",
         )
+    }
+
+    fn compile_embedding_backward(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "embedding_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            std::borrow::Cow::Borrowed(EMBEDDING_BACKWARD_WGSL),
+            "embedding_backward_main",
+        )
+    }
+
+    /// Embedding backward: scatter-add grad into d_weight.
+    /// ids: [N] u32, grad: [N, D] f32, output: d_weight [V, D] f32 (must be zero-initialized).
+    pub fn embedding_backward(
+        &self,
+        ids: &GpuTensor,
+        grad: &GpuTensor,
+        vocab_size: usize,
+    ) -> Result<GpuTensor, GpuError> {
+        let grad_shape = grad.shape();
+        let dim = grad_shape[grad_shape.len() - 1];
+        let num_ids = ids.numel();
+        let d_weight = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("embedding_d_weight"),
+            size: (vocab_size * dim * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        // Zero-init d_weight
+        let d_weight_tmp = GpuTensor {
+            shape: vec![vocab_size, dim],
+            buffer: d_weight,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        self.fill_zero_u32(&d_weight_tmp)?;
+        let d_weight_buf = d_weight_tmp.buffer;
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("embedding_bwd_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 4] = [vocab_size as u32, dim as u32, num_ids as u32, 0];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        let pipeline = self
+            .pipelines
+            .get("embedding_backward")
+            .ok_or_else(|| GpuError::Pipeline("embedding_backward not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("embedding_backward_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: ids.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: d_weight_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+            ],
+        });
+
+        let total_threads = (num_ids * dim) as u32;
+        self.dispatch(pipeline, &bind_group, ((total_threads + 255) / 256, 1, 1));
+
+        Ok(GpuTensor {
+            shape: vec![vocab_size, dim],
+            buffer: d_weight_buf,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
     }
 
     /// Embedding lookup: out[i * dim + d] = weight[tokens[i] * dim + d].
@@ -3408,6 +3609,142 @@ impl GpuContext {
             dtype: GpuDtype::F32,
             device_id: 0,
         })
+    }
+
+    // ── Fused Attention Backward ─────────────────────────────────────
+    // Pure GPU kernel for causal_attention backward.
+    // Input: Q/K/V/dO as [B,H,S,D], Output: dQ/dK/dV as [B,H,S,D].
+    // Allocates dQ/dK/dV internally (caller must ensure zero-init if needed).
+
+    fn compile_fused_attention_backward(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "fused_attention_backward",
+            &[
+                storage_binding(0, true),   // q
+                storage_binding(1, true),   // k
+                storage_binding(2, true),   // v
+                storage_binding(3, true),   // dO
+                storage_binding(4, false),  // dq
+                storage_binding(5, false),  // dk (atomic<u32>)
+                storage_binding(6, false),  // dv (atomic<u32>)
+                uniform_binding(7),         // cfg1
+                uniform_binding(8),         // cfg2
+            ],
+            std::borrow::Cow::Borrowed(FUSED_ATTENTION_BACKWARD_WGSL),
+            "fused_attn_backward_main",
+        )
+    }
+
+    /// Fused attention backward: compute dQ, dK, dV from Q, K, V, dO.
+    /// All shapes: [batch, heads, seq, dim]. Uses causal masking.
+    /// dK/dV are atomically accumulated (must be zero-initialized).
+    pub fn fused_attention_backward(
+        &self,
+        q: &GpuTensor,
+        k: &GpuTensor,
+        v: &GpuTensor,
+        grad: &GpuTensor,
+        scale: f32,
+        causal: bool,
+    ) -> Result<(GpuTensor, GpuTensor, GpuTensor), GpuError> {
+        let shape = q.shape();
+        if shape.len() != 4 {
+            return Err(GpuError::ShapeMismatch(
+                "Fused Attention backward: Q must be 4D [B,H,S,D]".into(),
+            ));
+        }
+        let batch = shape[0] as u32;
+        let heads = shape[1] as u32;
+        let seq_len = shape[2] as u32;
+        let dim = shape[3] as u32;
+        let numel = q.numel();
+        let byte_size = (numel * 4) as u64;
+
+        // Allocate output buffers
+        let dq_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fused_attention_dq"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let dk_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fused_attention_dk_atomic"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let dv_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fused_attention_dv_atomic"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // Zero-init dK and dV (atomic buffers start non-zero from pool)
+        let dk_tmp = GpuTensor {
+            shape: shape.clone(),
+            buffer: dk_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let dv_tmp = GpuTensor {
+            shape: shape.clone(),
+            buffer: dv_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        self.fill_zero_u32(&dk_tmp)?;
+        self.fill_zero_u32(&dv_tmp)?;
+
+        let cfg1_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fused_attn_bwd_cfg1"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // batch_heads = batch * heads (heads treated as flat batch dim in shader)
+        let cfg1: [u32; 4] = [batch * heads, seq_len, dim, f32::to_bits(scale)];
+        self.queue.write_buffer(&cfg1_buf, 0, bytemuck::cast_slice(&cfg1));
+
+        let causal_flag: u32 = if causal { 1 } else { 0 };
+        let cfg2_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fused_attn_bwd_cfg2"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg2: [u32; 4] = [causal_flag, 0, 0, 0];
+        self.queue.write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2));
+
+        let pipeline = self
+            .pipelines
+            .get("fused_attention_backward")
+            .ok_or_else(|| GpuError::Pipeline("fused_attention_backward not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fused_attention_backward_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: q.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: k.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: v.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: grad.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: dq_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: dk_tmp.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 6, resource: dv_tmp.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 7, resource: cfg1_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 8, resource: cfg2_buf.as_entire_binding() },
+            ],
+        });
+
+        let num_wg = batch * heads * seq_len;
+        self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
+
+        let dq = GpuTensor { shape: shape.clone(), buffer: dq_buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let dk = GpuTensor { shape: shape.clone(), buffer: dk_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let dv = GpuTensor { shape: shape.clone(), buffer: dv_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
+
+        Ok((dq, dk, dv))
     }
 }
 
@@ -4124,6 +4461,31 @@ fn cross_entropy_main(
 }
 "#;
 
+const CROSS_ENTROPY_BACKWARD_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> softmax: array<f32>;
+@group(0) @binding(1) var<storage, read> grad: array<f32>;
+@group(0) @binding(2) var<storage, read> targets: array<u32>;
+@group(0) @binding(3) var<storage, read_write> d_logits: array<f32>;
+@group(0) @binding(4) var<uniform> cfg: vec4<u32>;
+
+@compute @workgroup_size(256u)
+fn cross_entropy_bwd_main(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+) {
+    let batch = cfg.x;
+    let classes = cfg.y;
+    let total = batch * classes;
+    let idx = gid.x;
+    if (idx >= total) { return; }
+    let b = idx / classes;
+    let c = idx % classes;
+    let t = targets[b];
+    let p = softmax[idx];
+    let g = grad[b];
+    d_logits[idx] = g * (p - select(0.0, 1.0, c == t));
+}
+"#;
+
 // ── Phase 2.4: Embedding (gather) ────────────────────────────────────────────
 
 const EMBEDDING_WGSL: &str = r#"
@@ -4149,6 +4511,47 @@ fn embedding_main(
     let s = idx / dim;
     let token_id = ids[s];
     output[idx] = weight[token_id * dim + d];
+}
+"#;
+
+const EMBEDDING_BACKWARD_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> ids: array<u32>;
+@group(0) @binding(1) var<storage, read> grad: array<f32>;
+@group(0) @binding(2) var<storage, read_write> d_weight: array<atomic<u32>>;
+@group(0) @binding(3) var<uniform> cfg: vec4<u32>;
+
+fn atomic_add_f32(atom: ptr<storage, atomic<u32>, read_write>, val: f32) {
+    let new_val = val;
+    loop {
+        let old_bits = atomicLoad(atom);
+        let old_val = bitcast<f32>(old_bits);
+        let new_bits = bitcast<u32>(old_val + new_val);
+        let res = atomicCompareExchangeWeak(atom, old_bits, new_bits);
+        if (res.old == old_bits) {
+            break;
+        }
+    }
+}
+
+@compute @workgroup_size(256u)
+fn embedding_backward_main(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+) {
+    let vocab_size = cfg.x;
+    let dim = cfg.y;
+    let num_ids = cfg.z;
+    let total = num_ids * dim;
+
+    let idx = gid.x;
+    if (idx >= total) { return; }
+
+    let d = idx % dim;
+    let s = idx / dim;
+    let token_id = ids[s];
+    if (token_id < vocab_size) {
+        let g = grad[idx];
+        atomic_add_f32(&d_weight[token_id * dim + d], g);
+    }
 }
 "#;
 
@@ -4411,6 +4814,278 @@ fn fused_attention_main(
 }
 "#;
 
+const FUSED_ATTENTION_BACKWARD_WGSL: &str = r#"
+const BLOCK_SIZE = 256u;
+const TILE_SIZE = 32u;
+
+@group(0) @binding(0) var<storage, read> q: array<f32>;
+@group(0) @binding(1) var<storage, read> k: array<f32>;
+@group(0) @binding(2) var<storage, read> v: array<f32>;
+@group(0) @binding(3) var<storage, read> dO: array<f32>;
+@group(0) @binding(4) var<storage, read_write> dq: array<f32>;
+@group(0) @binding(5) var<storage, read_write> dk: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> dv: array<atomic<u32>>;
+@group(0) @binding(7) var<uniform> cfg1: vec4<u32>;
+@group(0) @binding(8) var<uniform> cfg2: vec4<u32>;
+
+var<workgroup> q_scratch: array<f32, BLOCK_SIZE>;
+var<workgroup> kv_scratch: array<f32, BLOCK_SIZE>;
+var<workgroup> score_scratch: array<f32, TILE_SIZE>;
+var<workgroup> exp_scratch: array<f32, TILE_SIZE>;
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
+fn atomic_add_f32(atomic_ref: ptr<storage, atomic<u32>, read_write>, val: f32) {
+    let val_bits = bitcast<u32>(val);
+    var old = atomicLoad(atomic_ref);
+    loop {
+        let old_f = bitcast<f32>(old);
+        let new_f = old_f + val;
+        let new_bits = bitcast<u32>(new_f);
+        let res = atomicCompareExchangeWeak(atomic_ref, old, new_bits);
+        if (res.exchanged) { break; }
+        old = res.old_value;
+    }
+}
+
+@compute @workgroup_size(BLOCK_SIZE)
+fn fused_attn_backward_main(
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wg_id: vec3<u32>,
+) {
+    let batch_heads = cfg1.x;
+    let seq_len = cfg1.y;
+    let dim = cfg1.z;
+    let scale = bitcast<f32>(cfg1.w);
+    let causal = cfg2.x;
+
+    let tid = lid.x;
+    let wg_flat = wg_id.x;
+    let q_pos = wg_flat % seq_len;
+    let head = wg_flat / seq_len;
+    if (head >= batch_heads) { return; }
+    if (tid >= dim) { return; }
+
+    let head_stride = seq_len * dim;
+    let q_off = head * head_stride + q_pos * dim;
+    let base = head * head_stride;
+
+    // Load Q row into workgroup memory
+    q_scratch[tid] = q[q_off + tid];
+    workgroupBarrier();
+
+    // ── Pass 1: find softmax normalization constants + sum(P*dP) ──
+    var m: f32 = -3.402823e+38;
+    var d_norm: f32 = 0.0;
+    var sum_P_dP: f32 = 0.0;
+
+    var tile_start: u32 = 0u;
+    while (tile_start < seq_len) {
+        let tile_end = min(tile_start + TILE_SIZE, seq_len);
+        let tile_size = tile_end - tile_start;
+
+        // Compute scores for this tile
+        for (var ki: u32 = 0u; ki < tile_size; ki++) {
+            let k_pos = tile_start + ki;
+            kv_scratch[tid] = k[base + k_pos * dim + tid];
+            workgroupBarrier();
+            var partial = q_scratch[tid] * kv_scratch[tid];
+            scratch[tid] = partial;
+            workgroupBarrier();
+            var stride = BLOCK_SIZE / 2u;
+            while (stride > 0u) {
+                if (tid < stride) { scratch[tid] = scratch[tid] + scratch[tid + stride]; }
+                workgroupBarrier();
+                stride = stride / 2u;
+            }
+            if (tid == 0u) {
+                var s = scratch[0u] / scale;
+                if (causal == 1u && k_pos > q_pos) { s = -3.402823e+38; }
+                score_scratch[ki] = s;
+            }
+            workgroupBarrier();
+        }
+
+        // Tile max
+        if (tid < tile_size) { scratch[tid] = score_scratch[tid]; }
+        else { scratch[tid] = -3.402823e+38; }
+        workgroupBarrier();
+        var stride = BLOCK_SIZE / 2u;
+        while (stride > 0u) {
+            if (tid < stride) {
+                if (scratch[tid] < scratch[tid + stride]) { scratch[tid] = scratch[tid + stride]; }
+            }
+            workgroupBarrier();
+            stride = stride / 2u;
+        }
+        let tile_max = scratch[0u];
+        workgroupBarrier();
+
+        // Tile exp(score - tile_max) and sum
+        if (tid < tile_size) {
+            let e = exp(score_scratch[tid] - tile_max);
+            exp_scratch[tid] = e;
+            scratch[tid] = e;
+        } else { scratch[tid] = 0.0; }
+        workgroupBarrier();
+        stride = BLOCK_SIZE / 2u;
+        while (stride > 0u) {
+            if (tid < stride) { scratch[tid] = scratch[tid] + scratch[tid + stride]; }
+            workgroupBarrier();
+            stride = stride / 2u;
+        }
+        let tile_sum = scratch[0u];
+        workgroupBarrier();
+
+        // Online softmax: d = old_scale * d + tile_scale * tile_sum
+        let m_new = max(m, tile_max);
+        let old_scale = exp(m - m_new);
+        let tile_scale = exp(tile_max - m_new);
+        let d_prev = d_norm;
+        d_norm = old_scale * d_norm + tile_scale * tile_sum;
+
+        // Compute dP and accumulate sum(P*dP)
+        for (var ki: u32 = 0u; ki < tile_size; ki++) {
+            let k_pos = tile_start + ki;
+            kv_scratch[tid] = v[base + k_pos * dim + tid];
+            workgroupBarrier();
+            let dp_partial = dO[q_off + tid] * kv_scratch[tid];
+            scratch[tid] = dp_partial;
+            workgroupBarrier();
+            var stride2 = BLOCK_SIZE / 2u;
+            while (stride2 > 0u) {
+                if (tid < stride2) { scratch[tid] = scratch[tid] + scratch[tid + stride2]; }
+                workgroupBarrier();
+                stride2 = stride2 / 2u;
+            }
+            if (tid == 0u) {
+                let P_k = tile_scale * exp_scratch[ki] / d_norm;
+                let dP_k = scratch[0u];
+                // Rescale old contributions: old_scale * d_prev / d_norm * sum_P_dP
+                // Add new: P_k * dP_k
+                sum_P_dP = old_scale * d_prev / d_norm * sum_P_dP + P_k * dP_k;
+            }
+            workgroupBarrier();
+        }
+
+        m = m_new;
+        tile_start += TILE_SIZE;
+    }
+
+    // ── Pass 2: recompute, compute dS, accumulate dQ + dK + dV ──
+    m = -3.402823e+38;
+    d_norm = 0.0;
+    var dq_acc: f32 = 0.0;
+
+    tile_start = 0u;
+    while (tile_start < seq_len) {
+        let tile_end = min(tile_start + TILE_SIZE, seq_len);
+        let tile_size = tile_end - tile_start;
+
+        // Recompute scores
+        for (var ki: u32 = 0u; ki < tile_size; ki++) {
+            let k_pos = tile_start + ki;
+            kv_scratch[tid] = k[base + k_pos * dim + tid];
+            workgroupBarrier();
+            var partial = q_scratch[tid] * kv_scratch[tid];
+            scratch[tid] = partial;
+            workgroupBarrier();
+            var stride = BLOCK_SIZE / 2u;
+            while (stride > 0u) {
+                if (tid < stride) { scratch[tid] = scratch[tid] + scratch[tid + stride]; }
+                workgroupBarrier();
+                stride = stride / 2u;
+            }
+            if (tid == 0u) {
+                var s = scratch[0u] / scale;
+                if (causal == 1u && k_pos > q_pos) { s = -3.402823e+38; }
+                score_scratch[ki] = s;
+            }
+            workgroupBarrier();
+        }
+
+        // Tile max
+        if (tid < tile_size) { scratch[tid] = score_scratch[tid]; }
+        else { scratch[tid] = -3.402823e+38; }
+        workgroupBarrier();
+        var stride = BLOCK_SIZE / 2u;
+        while (stride > 0u) {
+            if (tid < stride) {
+                if (scratch[tid] < scratch[tid + stride]) { scratch[tid] = scratch[tid + stride]; }
+            }
+            workgroupBarrier();
+            stride = stride / 2u;
+        }
+        let tile_max = scratch[0u];
+        workgroupBarrier();
+
+        if (tid < tile_size) {
+            let e = exp(score_scratch[tid] - tile_max);
+            exp_scratch[tid] = e;
+            scratch[tid] = e;
+        } else { scratch[tid] = 0.0; }
+        workgroupBarrier();
+        stride = BLOCK_SIZE / 2u;
+        while (stride > 0u) {
+            if (tid < stride) { scratch[tid] = scratch[tid] + scratch[tid + stride]; }
+            workgroupBarrier();
+            stride = stride / 2u;
+        }
+        let tile_sum = scratch[0u];
+        workgroupBarrier();
+
+        let m_new = max(m, tile_max);
+        let old_scale = exp(m - m_new);
+        let tile_scale = exp(tile_max - m_new);
+        d_norm = old_scale * d_norm + tile_scale * tile_sum;
+
+        // For each key in this tile: dQ, dK, dV
+        for (var ki: u32 = 0u; ki < tile_size; ki++) {
+            let k_pos = tile_start + ki;
+            let P_k = tile_scale * exp_scratch[ki] / d_norm;
+
+            // dP_k = dot(dO[q_pos], V[k_pos]) — recompute
+            kv_scratch[tid] = v[base + k_pos * dim + tid];
+            workgroupBarrier();
+            let dp_partial = dO[q_off + tid] * kv_scratch[tid];
+            scratch[tid] = dp_partial;
+            workgroupBarrier();
+            var stride3 = BLOCK_SIZE / 2u;
+            while (stride3 > 0u) {
+                if (tid < stride3) { scratch[tid] = scratch[tid] + scratch[tid + stride3]; }
+                workgroupBarrier();
+                stride3 = stride3 / 2u;
+            }
+            let dP_k = scratch[0u];
+            workgroupBarrier();
+
+            // dS = P_k * (dP_k - sum_P_dP)
+            let dS = P_k * (dP_k - sum_P_dP);
+
+            // Load K for dQ + dK
+            kv_scratch[tid] = k[base + k_pos * dim + tid];
+            workgroupBarrier();
+
+            // dQ[d] += dS * K[k, d] / scale
+            dq_acc += dS * kv_scratch[tid] / scale;
+
+            // dV[k, d] += P_k * dO[q, d]  (atomic)
+            let dv_off = (base + k_pos * dim + tid) as u32;
+            atomic_add_f32(&dv[dv_off], P_k * dO[q_off + tid]);
+
+            // dK[k, d] += dS * Q[q, d] / scale  (atomic)
+            let dk_off = (base + k_pos * dim + tid) as u32;
+            atomic_add_f32(&dk[dk_off], dS * q_scratch[tid] / scale);
+        }
+
+        m = m_new;
+        tile_start += TILE_SIZE;
+    }
+
+    // Write dQ for this (head, q_pos, d)
+    dq[q_off + tid] = dq_acc;
+}
+"#;
+
 const FILL_ZERO_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> buf: array<f32>;
 
@@ -4440,6 +5115,28 @@ fn scale_inplace_main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x < numel) {
         buf[id.x] = buf[id.x] * scale;
     }
+}
+"#;
+
+const GRADIENT_ALLREDUCE_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> grad_buffers: array<f32>;
+@group(0) @binding(1) var<storage, read_write> out_grads: array<f32>;
+@group(0) @binding(2) var<uniform> cfg: vec4<u32>;
+// cfg.x = numel per replica (total float count per gradient set)
+// cfg.y = num_replicas
+
+@compute @workgroup_size(256)
+fn gradient_allreduce_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let numel = cfg.x;
+    let num_replicas = cfg.y;
+    let idx = gid.x;
+    if (idx >= numel) { return; }
+
+    var sum = 0.0;
+    for (var r = 0u; r < num_replicas; r++) {
+        sum += grad_buffers[r * numel + idx];
+    }
+    out_grads[idx] = sum / f32(num_replicas);
 }
 "#;
 

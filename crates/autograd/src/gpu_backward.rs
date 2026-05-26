@@ -366,13 +366,8 @@ pub fn softmax_backward_last_dim(
     let g_2d = grad.reshape(vec![rest, last_dim])?;
 
     // sum_sg = (softmax * grad) summed over last dim → [rest, 1]
-    // Use matmul: ones(1, last_dim) @ (s * g)^T → ... no.
-    // Better: compute sg = s * g elementwise, then reduce using matmul
     let sg = ctx.mul(&s_2d, &g_2d)?;
 
-    // Sum over dim=1 using matmul: [1, last_dim] @ [last_dim, rest] = [1, rest]
-    // But we need it per row, not a single sum.
-    // Actually: [rest, last_dim] . [last_dim, 1] = [rest, 1]
     let ones_col = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(&[last_dim, 1]), 1.0f32))
         .map_err(|e| GpuError::Conversion(format!("softmax_backward ones: {e}")))?;
     let sum_sg = ctx.matmul(&sg, &ones_col)?;
@@ -382,4 +377,61 @@ pub fn softmax_backward_last_dim(
     let dx_2d = ctx.mul(&s_2d, &g_minus_sum)?;
     let dx = dx_2d.reshape(shape.to_vec())?;
     Ok(dx)
+}
+
+// ── Causal Attention backward ───────────────────────────────────────
+// Pure GPU fused kernel. Eliminates 4× to_cpu() from the old CPU fallback.
+// Q/K/V/dO/dQ/dK/dV: [batch, heads, seq, dim]
+// Returns (dQ, dK, dV) all as GpuTensors.
+pub fn attention_backward_gpu(
+    ctx: &GpuContext,
+    q: &GpuTensor,
+    k: &GpuTensor,
+    v: &GpuTensor,
+    grad: &GpuTensor,
+    scale: f32,
+) -> Result<(GpuTensor, GpuTensor, GpuTensor), GpuError> {
+    ctx.fused_attention_backward(q, k, v, grad, scale, true)
+}
+
+// ── Embedding backward ─────────────────────────────────────────────
+// Pure GPU scatter-add via atomic CAS f32.
+// ids: [N] u32, grad: [N, D] f32, output: d_weight [V, D] f32.
+// d_input (grad w.r.t. ids) is always zero (not differentiable).
+pub fn embedding_backward_gpu(
+    ctx: &GpuContext,
+    ids: &GpuTensor,
+    grad: &GpuTensor,
+    vocab_size: usize,
+) -> Result<(GpuTensor, GpuTensor), GpuError> {
+    let d_weight = ctx.embedding_backward(ids, grad, vocab_size)?;
+    let d_input = GpuTensor::from_cpu(&ndarray::ArrayD::zeros(grad.shape()))
+        .map_err(|e| GpuError::Conversion(format!("embedding d_input zeros: {e}")))?;
+    Ok((d_input, d_weight))
+}
+
+// ── CrossEntropy backward ──────────────────────────────────────────
+// Pure GPU: softmax → fused d_logits = grad * (softmax - one_hot(targets)).
+// Eliminates 1× to_cpu() for targets and 1× from_cpu() for one-hot upload.
+pub fn cross_entropy_backward_gpu(
+    ctx: &GpuContext,
+    logits: &GpuTensor,
+    targets: &GpuTensor,
+    grad: &GpuTensor,
+) -> Result<GpuTensor, GpuError> {
+    let softmax = ctx.softmax(logits)?;
+    ctx.cross_entropy_backward(&softmax, grad, targets)
+}
+
+// ── Gradient AllReduce (GPU) ───────────────────────────────────────
+// Average gradients from N model replicas.
+// Takes a flat buffer of [replica_0_grads | replica_1_grads | ...]
+// and writes averaged gradients to `out`.
+pub fn gradient_allreduce_gpu(
+    ctx: &GpuContext,
+    all_grads: &GpuTensor,
+    out: &GpuTensor,
+    num_replicas: u32,
+) -> Result<(), GpuError> {
+    ctx.gradient_allreduce(all_grads, out, num_replicas)
 }

@@ -3,11 +3,11 @@ use tracing::debug;
 
 use crate::server::handlers::metrics_collector;
 
-/// Background metrics collector that periodically syncs GPU and system metrics
+/// Background metrics collector that periodically syncs GPU, system, and cache metrics
 /// into the Prometheus monitoring registry.
 ///
 /// This bridges:
-/// - `observability_snapshot()` GPU atomic counters → Prometheus counters/gauges
+/// - `observability_snapshot()` GPU atomic counters + prefix cache stats → Prometheus counters/gauges
 /// - NVML GPU memory readings → Prometheus gauges
 pub struct BackgroundMetricsCollector {
     interval: Duration,
@@ -71,6 +71,9 @@ impl BackgroundMetricsCollector {
         if total_tokens > 0 {
             collector.set_throughput_tokens(total_tokens);
         }
+
+        let math_fallbacks = nexora_deeplearning::autograd::ops::math::gpu_math_fallback_count();
+        collector.set_gpu_math_fallbacks(math_fallbacks);
 
         match nexora_inference::read_gpu_memory().await {
             Ok((used_bytes, used_pct)) => {

@@ -1268,7 +1268,7 @@ fn run_generation_loop(
 
         let logits_slice: &[f32] = logits_arr.as_slice().unwrap_or(&[]);
 
-        if logits_slice.len() == vocab_size {
+        if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
             last_logits.copy_from_slice(logits_slice);
         } else {
             last_logits = logits_slice.to_vec();

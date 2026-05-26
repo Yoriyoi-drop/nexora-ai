@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use std::sync::atomic::Ordering;
 use tracing::{debug, warn};
 
 use nexora_transformer::KVCacheEntry;

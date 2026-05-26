@@ -778,30 +778,12 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                                 })]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                use crate::gpu_backward::cross_entropy_backward_gpu;
                                 let logits = &saved_gpu[0];
                                 let targets = &saved_gpu[1];
-                                let shape = logits.shape();
-                                let batch = shape[0];
-                                let classes = shape[1];
-                                let softmax = ctx.softmax(logits)
-                                    .map_err(|e| format!("cross entropy gpu backward softmax failed: {e}"))?;
-                                let tgt_cpu = targets.to_cpu().map_err(|e| format!("cross entropy gpu backward to_cpu failed: {e}"))?;
-                                let mut one_hot_data = vec![0.0f32; batch * classes];
-                                for i in 0..batch {
-                                    let t = tgt_cpu[i] as usize;
-                                    if t < classes {
-                                        one_hot_data[i * classes + t] = 1.0;
-                                    }
-                                }
-                                let one_hot_arr = ArrayD::from_shape_vec(vec![batch, classes], one_hot_data)
-                                    .map_err(|e| format!("cross entropy one_hot shape error: {e}"))?;
-                                let one_hot = crate::gpu::GpuTensor::from_cpu(&one_hot_arr)
-                                    .map_err(|e| format!("cross entropy one_hot gpu error: {e}"))?;
-                                let d_logits = ctx.sub(&softmax, &one_hot)
-                                    .map_err(|e| format!("cross entropy gpu backward sub failed: {e}"))?;
-                                let result = ctx.mul(&grad_gpu, &d_logits)
-                                    .map_err(|e| format!("cross entropy gpu backward mul failed: {e}"))?;
-                                Ok(vec![result])
+                                cross_entropy_backward_gpu(ctx, logits, targets, grad_gpu)
+                                    .map_err(|e| format!("cross entropy gpu backward failed: {e}"))
+                                    .map(|d| vec![d])
                             })),
                         );
                     }
@@ -946,29 +928,12 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                                 vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                use crate::gpu_backward::embedding_backward_gpu;
                                 let ids_gpu = &saved_gpu[0];
-                                let ids_cpu = ids_gpu.to_cpu().map_err(|e| format!("embedding gpu backward to_cpu failed: {e}"))?;
-                                let grad_cpu = grad_gpu.to_cpu().map_err(|e| format!("embedding gpu backward to_cpu failed: {e}"))?;
-                                let d = grad_cpu.shape()[1];
-                                let batch_seq = grad_cpu.shape()[0];
-                                let vocab_size = w_shape_gpu[0];
-                                let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
-                                for i in 0..ids_cpu.len() {
-                                    let idx = ids_cpu[i] as usize;
-                                    if idx >= vocab_size {
-                                        tracing::warn!("embedding gpu backward: index {} out of range [0, {})", idx, vocab_size);
-                                        continue;
-                                    }
-                                    for j in 0..d {
-                                        d_weight[[idx, j]] += grad_cpu[[i, j]];
-                                    }
-                                }
-                                let d_input_arr = ArrayD::<f32>::zeros(vec![batch_seq, d]);
-                                let d_input_gpu = crate::gpu::GpuTensor::from_cpu(&d_input_arr)
-                                    .map_err(|e| format!("embedding d_input gpu error: {e}"))?;
-                                let d_weight_gpu = crate::gpu::GpuTensor::from_cpu(&d_weight)
-                                    .map_err(|e| format!("embedding d_weight gpu error: {e}"))?;
-                                Ok(vec![d_input_gpu, d_weight_gpu])
+                                let (d_input, d_weight) = embedding_backward_gpu(
+                                    ctx, ids_gpu, grad_gpu, w_shape_gpu[0],
+                                ).map_err(|e| format!("embedding backward gpu failed: {e}"))?;
+                                Ok(vec![d_input, d_weight])
                             })),
                         );
                     }
@@ -1321,22 +1286,13 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                     attention_backward_cpu(grad, &qs, &ks, &vs, scale)
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    use crate::gpu_backward::attention_backward_gpu;
                                     let gq = &saved_gpu[0];
                                     let gk = &saved_gpu[1];
                                     let gv = &saved_gpu[2];
-                                    let q_cpu = gq.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
-                                    let k_cpu = gk.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
-                                    let v_cpu = gv.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
-                                    let grad_cpu = grad_gpu.to_cpu().map_err(|e| format!("causal attention gpu backward to_cpu failed: {e}"))?;
-                                    let results = attention_backward_cpu(
-                                        &grad_cpu, &q_cpu, &k_cpu, &v_cpu, scale,
-                                    );
-                                    let dq_gpu = crate::gpu::GpuTensor::from_cpu(&results[0])
-                                        .map_err(|e| format!("causal attention dq gpu error: {e}"))?;
-                                    let dk_gpu = crate::gpu::GpuTensor::from_cpu(&results[1])
-                                        .map_err(|e| format!("causal attention dk gpu error: {e}"))?;
-                                    let dv_gpu = crate::gpu::GpuTensor::from_cpu(&results[2])
-                                        .map_err(|e| format!("causal attention dv gpu error: {e}"))?;
+                                    let (dq_gpu, dk_gpu, dv_gpu) = attention_backward_gpu(
+                                        ctx, gq, gk, gv, grad_gpu, scale,
+                                    ).map_err(|e| format!("fused attention backward gpu failed: {e}"))?;
                                     Ok(vec![dq_gpu, dk_gpu, dv_gpu])
                                 })),
                             );

@@ -16,6 +16,10 @@ const GPU_FALLBACK_THRESHOLD: u64 = 100;
 
 static GPU_CIRCUIT_BROKEN: AtomicBool = AtomicBool::new(false);
 
+pub fn gpu_math_fallback_count() -> u64 {
+    GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
+}
+
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
