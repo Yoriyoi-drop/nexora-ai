@@ -5,12 +5,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::gpu::{readback_with_timeout, GpuContext, GpuDtype, GpuError, GpuTensor};
 
+/// Maximum time to wait for GPU readback completion.
+/// This blocks the calling thread — keep short to avoid thread starvation.
+const GPU_READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 // ─── AsyncReadback ─────────────────────────────────────────────────────────────
 
 /// Non-blocking GPU readback — hasil dikirim via channel ketika GPU selesai
 ///
 /// # Blocking warning
-/// `recv()` is a blocking call that may block the calling thread for up to 30s.
+/// `recv()` is a blocking call that may block the calling thread for up to 10s.
 /// Must be called from `tokio::task::spawn_blocking` if invoked from async context.
 pub struct AsyncReadback<T: Send + 'static> {
     pub receiver: mpsc::Receiver<T>,
@@ -23,23 +27,24 @@ impl<T: Send + 'static> AsyncReadback<T> {
         self.receiver.try_recv().ok()
     }
 
-    /// Blocking wait untuk hasil with 30s timeout.
+    /// Blocking wait untuk hasil with 10s timeout.
     ///
     /// ## ⚠️ Must be called from `spawn_blocking` in async context
     /// This method blocks the current thread with `recv_timeout`. If called
     /// directly from an async task without `spawn_blocking`, it will block
     /// the tokio worker thread and cause latency spikes.
     pub fn recv(&self) -> Result<T, GpuError> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = std::time::Instant::now() + GPU_READBACK_TIMEOUT;
         loop {
             match self.receiver.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(val) => return Ok(val),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if std::time::Instant::now() > deadline {
                         return Err(GpuError::Timeout(
-                            "GPU async readback timed out after 30s".into(),
+                            "GPU async readback timed out after 10s".into(),
                         ));
                     }
+                    std::thread::yield_now();
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

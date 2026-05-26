@@ -135,13 +135,9 @@ impl Storage {
         match self {
             Storage::Cpu(arr) => Arc::clone(arr),
             #[cfg(feature = "gpu")]
-            Storage::Gpu(t) => match t.to_cpu() {
-                Ok(data) => Arc::new(data),
-                Err(e) => {
-                    tracing::warn!("GPU readback failed in data_arc: {e}, returning zeros");
-                    Arc::new(ArrayD::zeros(t.shape()))
-                }
-            },
+            Storage::Gpu(t) => Arc::new(t.to_cpu().unwrap_or_else(|e| {
+                panic!("GPU readback failed in data_arc: {e}");
+            })),
         }
     }
 }

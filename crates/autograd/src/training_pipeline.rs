@@ -66,8 +66,7 @@ impl GpuOptimizerState {
                     cpu.iter().copied().collect()
                 }),
                 Err(e) => {
-                    tracing::warn!("GpuOptimizerState::to_cpu GPU readback failed: {e}, returning zeros");
-                    vec![0.0; t.numel()]
+                    panic!("GpuOptimizerState::to_cpu GPU readback failed: {e}");
                 }
             }
         }
@@ -213,8 +212,7 @@ impl GpuCheckpoint {
                     cpu.iter().copied().collect()
                 }),
                 Err(e) => {
-                    tracing::warn!("CheckpointGpu::to_cpu GPU readback failed: {e}, returning zeros");
-                    vec![0.0; t.numel()]
+                    panic!("CheckpointGpu::to_cpu GPU readback failed: {e}");
                 }
             }
         }

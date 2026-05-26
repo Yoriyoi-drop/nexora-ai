@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use ndarray::{ArrayD, IxDyn};
 use tracing::{debug, warn};
@@ -12,13 +12,17 @@ use crate::{tensor::next_tensor_id, Storage};
 
 pub(crate) static GPU_MATH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 
+const GPU_FALLBACK_THRESHOLD: u64 = 100;
+
+static GPU_CIRCUIT_BROKEN: AtomicBool = AtomicBool::new(false);
+
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu {
+        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
@@ -73,6 +77,10 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU add failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                }
                             }
                         }
                     }
@@ -80,6 +88,10 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                 _ => {
                     tracing::warn!("add: non-GPU storage despite on_gpu check — falling back to CPU");
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                    }
                 }
             }
         }
@@ -133,7 +145,7 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu {
+        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
@@ -188,6 +200,10 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU sub failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                }
                             }
                         }
                     }
@@ -195,6 +211,10 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                 _ => {
                     tracing::warn!("sub: non-GPU storage despite on_gpu check — falling back to CPU");
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                    }
                 }
             }
         }
@@ -248,7 +268,7 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu {
+        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
@@ -280,6 +300,10 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU mul failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                }
                             }
                         }
                     }
@@ -287,6 +311,10 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                 _ => {
                     tracing::warn!("mul: non-GPU storage despite on_gpu check — falling back to CPU");
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                    }
                 }
             }
         }
@@ -319,7 +347,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu {
+        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
@@ -352,6 +380,10 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU div failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                }
                             }
                         }
                     }
@@ -359,6 +391,10 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                 _ => {
                     tracing::warn!("div: non-GPU storage despite on_gpu check — falling back to CPU");
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                    }
                 }
             }
         }
@@ -393,37 +429,44 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
 pub fn exp(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let input_storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &input_storage {
-            if let Ok(ctx) = GpuContext::global() {
-                match ctx.exp(gpu_input) {
-                    Ok(gpu_result) => {
-                        let requires_grad = input.requires_grad();
-                        if !requires_grad {
-                            let id = next_tensor_id();
-                            return Tensor::from_gpu(gpu_result, id, false);
+        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        } else {
+            let input_storage = input.storage();
+            if let Storage::Gpu(gpu_input) = &input_storage {
+                if let Ok(ctx) = GpuContext::global() {
+                    match ctx.exp(gpu_input) {
+                        Ok(gpu_result) => {
+                            let requires_grad = input.requires_grad();
+                            if !requires_grad {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let result_cpu = input.data().mapv(|x| x.exp());
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![result_cpu],
+                                vec![gpu_input.clone()],
+                                Box::new(|grad, saved| {
+                                    let result_val = &saved[0];
+                                    let da = grad.clone() * result_val;
+                                    vec![da]
+                                }),
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    let da = crate::gpu_backward::exp_backward(ctx, &saved_gpu[0], grad_gpu)
+                                        .map_err(|e| format!("exp_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
                         }
-                        let result_cpu = input.data().mapv(|x| x.exp());
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![input.clone()],
-                            vec![result_cpu],
-                            vec![gpu_input.clone()],
-                            Box::new(|grad, saved| {
-                                let result_val = &saved[0];
-                                let da = grad.clone() * result_val;
-                                vec![da]
-                            }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let da = crate::gpu_backward::exp_backward(ctx, &saved_gpu[0], grad_gpu)
-                                    .map_err(|e| format!("exp_backward: {e}"))?;
-                                Ok(vec![da])
-                            })),
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
-                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        Err(e) => {
+                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                            GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                            }
+                        }
                     }
                 }
             }
@@ -451,37 +494,44 @@ pub fn exp(input: &Tensor) -> Tensor {
 pub fn ln(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let input_storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &input_storage {
-            if let Ok(ctx) = GpuContext::global() {
-                match ctx.elementwise_unary(gpu_input, ElemOp::Ln) {
-                    Ok(gpu_result) => {
-                        let requires_grad = input.requires_grad();
-                        if !requires_grad {
-                            let id = next_tensor_id();
-                            return Tensor::from_gpu(gpu_result, id, false);
+        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        } else {
+            let input_storage = input.storage();
+            if let Storage::Gpu(gpu_input) = &input_storage {
+                if let Ok(ctx) = GpuContext::global() {
+                    match ctx.elementwise_unary(gpu_input, ElemOp::Ln) {
+                        Ok(gpu_result) => {
+                            let requires_grad = input.requires_grad();
+                            if !requires_grad {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let input_cpu = input.data();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![input_cpu],
+                                vec![gpu_input.clone()],
+                                Box::new(|grad, saved| {
+                                    let input_val = &saved[0];
+                                    let da = grad.clone() / input_val;
+                                    vec![da]
+                                }),
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    let da = crate::gpu_backward::ln_backward(ctx, &saved_gpu[0], grad_gpu)
+                                        .map_err(|e| format!("ln_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
                         }
-                        let input_cpu = input.data();
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![input.clone()],
-                            vec![input_cpu],
-                            vec![gpu_input.clone()],
-                            Box::new(|grad, saved| {
-                                let input_val = &saved[0];
-                                let da = grad.clone() / input_val;
-                                vec![da]
-                            }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let da = crate::gpu_backward::ln_backward(ctx, &saved_gpu[0], grad_gpu)
-                                    .map_err(|e| format!("ln_backward: {e}"))?;
-                                Ok(vec![da])
-                            })),
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
-                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        Err(e) => {
+                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                            GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                            }
+                        }
                     }
                 }
             }
@@ -509,43 +559,50 @@ pub fn ln(input: &Tensor) -> Tensor {
 pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let input_storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &input_storage {
-            if let Ok(_ctx) = GpuContext::global() {
-                let result_arr = input.data().mapv(|x| x.powf(exponent));
-                match GpuTensor::from_cpu(&result_arr) {
-                    Ok(gpu_result) => {
-                        let requires_grad = input.requires_grad();
-                        if !requires_grad {
-                            let id = next_tensor_id();
-                            return Tensor::from_gpu(gpu_result, id, false);
+        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        } else {
+            let input_storage = input.storage();
+            if let Storage::Gpu(gpu_input) = &input_storage {
+                if let Ok(_ctx) = GpuContext::global() {
+                    let result_arr = input.data().mapv(|x| x.powf(exponent));
+                    match GpuTensor::from_cpu(&result_arr) {
+                        Ok(gpu_result) => {
+                            let requires_grad = input.requires_grad();
+                            if !requires_grad {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
+                            let result_cpu = result_arr;
+                            let exponent_val = exponent;
+                            let gpu_result_for_saved = gpu_result.clone();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![exponent_saved, result_cpu],
+                                vec![gpu_input.clone(), gpu_result_for_saved],
+                                Box::new(|grad, saved| {
+                                    let exp = saved[0][IxDyn(&[])];
+                                    let result_val = &saved[1];
+                                    let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                    vec![da]
+                                }),
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    let exponent = exponent_val;
+                                    let da = crate::gpu_backward::powf_backward(ctx, &saved_gpu[0], &saved_gpu[1], exponent, grad_gpu)
+                                        .map_err(|e| format!("powf_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
                         }
-                        let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
-                        let result_cpu = result_arr;
-                        let exponent_val = exponent;
-                        let gpu_result_for_saved = gpu_result.clone();
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![input.clone()],
-                            vec![exponent_saved, result_cpu],
-                            vec![gpu_input.clone(), gpu_result_for_saved],
-                            Box::new(|grad, saved| {
-                                let exp = saved[0][IxDyn(&[])];
-                                let result_val = &saved[1];
-                                let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
-                                vec![da]
-                            }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let exponent = exponent_val;
-                                let da = crate::gpu_backward::powf_backward(ctx, &saved_gpu[0], &saved_gpu[1], exponent, grad_gpu)
-                                    .map_err(|e| format!("powf_backward: {e}"))?;
-                                Ok(vec![da])
-                            })),
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
-                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        Err(e) => {
+                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                            GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                            }
+                        }
                     }
                 }
             }
@@ -574,37 +631,44 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
 pub fn sqrt(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let input_storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &input_storage {
-            if let Ok(ctx) = GpuContext::global() {
-                match ctx.sqrt(gpu_input) {
-                    Ok(gpu_result) => {
-                        let requires_grad = input.requires_grad();
-                        if !requires_grad {
-                            let id = next_tensor_id();
-                            return Tensor::from_gpu(gpu_result, id, false);
+        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        } else {
+            let input_storage = input.storage();
+            if let Storage::Gpu(gpu_input) = &input_storage {
+                if let Ok(ctx) = GpuContext::global() {
+                    match ctx.sqrt(gpu_input) {
+                        Ok(gpu_result) => {
+                            let requires_grad = input.requires_grad();
+                            if !requires_grad {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            let result_cpu = input.data().mapv(|x| x.sqrt());
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![result_cpu.clone()],
+                                vec![gpu_input.clone()],
+                                Box::new(|grad, saved| {
+                                    let result_val = &saved[0];
+                                    let da = grad.clone() / (2.0 * result_val);
+                                    vec![da]
+                                }),
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    let da = crate::gpu_backward::sqrt_backward(ctx, &saved_gpu[0], grad_gpu)
+                                        .map_err(|e| format!("sqrt_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
                         }
-                        let result_cpu = input.data().mapv(|x| x.sqrt());
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![input.clone()],
-                            vec![result_cpu.clone()],
-                            vec![gpu_input.clone()],
-                            Box::new(|grad, saved| {
-                                let result_val = &saved[0];
-                                let da = grad.clone() / (2.0 * result_val);
-                                vec![da]
-                            }),
-                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let da = crate::gpu_backward::sqrt_backward(ctx, &saved_gpu[0], grad_gpu)
-                                    .map_err(|e| format!("sqrt_backward: {e}"))?;
-                                Ok(vec![da])
-                            })),
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
-                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        Err(e) => {
+                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                            GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                            }
+                        }
                     }
                 }
             }
@@ -632,32 +696,39 @@ pub fn sqrt(input: &Tensor) -> Tensor {
 pub fn neg(a: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        let a_storage = a.storage();
-        if let Storage::Gpu(ga) = &a_storage {
-            if let Ok(ctx) = GpuContext::global() {
-                match ctx.elementwise_unary(ga, ElemOp::Neg) {
-                    Ok(gpu_result) => {
-                        let requires_grad = a.requires_grad();
-                        if !requires_grad {
-                            let id = next_tensor_id();
-                            return Tensor::from_gpu(gpu_result, id, false);
+        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        } else {
+            let a_storage = a.storage();
+            if let Storage::Gpu(ga) = &a_storage {
+                if let Ok(ctx) = GpuContext::global() {
+                    match ctx.elementwise_unary(ga, ElemOp::Neg) {
+                        Ok(gpu_result) => {
+                            let requires_grad = a.requires_grad();
+                            if !requires_grad {
+                                let id = next_tensor_id();
+                                return Tensor::from_gpu(gpu_result, id, false);
+                            }
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![a.clone()],
+                                vec![],
+                                vec![ga.clone()],
+                                Box::new(|grad, _saved| vec![-grad.clone()]),
+                                Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                    let da = crate::gpu_backward::neg_backward(ctx, grad_gpu)
+                                        .map_err(|e| format!("neg_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
                         }
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![a.clone()],
-                            vec![],
-                            vec![ga.clone()],
-                            Box::new(|grad, _saved| vec![-grad.clone()]),
-                            Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                let da = crate::gpu_backward::neg_backward(ctx, grad_gpu)
-                                    .map_err(|e| format!("neg_backward: {e}"))?;
-                                Ok(vec![da])
-                            })),
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
-                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        Err(e) => {
+                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
+                            GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                            }
+                        }
                     }
                 }
             }

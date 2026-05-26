@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::super::tensor::Tensor;
 use ndarray::ArrayD;
@@ -7,6 +7,8 @@ use tracing::warn;
 use crate::Storage;
 
 pub(crate) static GPU_MATMUL_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+const GPU_FALLBACK_THRESHOLD: u64 = 50;
+static GPU_CIRCUIT_BROKEN: AtomicBool = AtomicBool::new(false);
 
 pub fn gpu_matmul_fallback_count() -> u64 {
     GPU_MATMUL_FALLBACKS.load(Ordering::Relaxed)
@@ -34,7 +36,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu {
+        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = crate::gpu::GpuContext::global() {
@@ -108,6 +110,10 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU matmul failed, falling back to CPU");
                                 GPU_MATMUL_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                if GPU_MATMUL_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
+                                    tracing::warn!("GPU_MATMUL circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                }
                             }
                         }
                     }

@@ -179,16 +179,14 @@ impl Tensor {
     /// Returns an owned copy of the tensor data (CPU clone or GPU readback).
     pub fn data(&self) -> ArrayD<f32> {
         self.0.read().storage.to_cpu().unwrap_or_else(|e| {
-            tracing::warn!("Tensor::data GPU readback failed: {e}, returning zeros");
-            ArrayD::zeros(self.0.read().storage.shape())
+            panic!("Tensor::data GPU readback failed: {e}");
         })
     }
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
-        self.0.read().grad.as_ref().map(|g| g.to_cpu().unwrap_or_else(|e| {
-            tracing::warn!("Tensor::grad GPU readback failed: {e}, returning zeros");
-            ArrayD::zeros(g.shape())
-        }))
+        self.0.read().grad.as_ref().map(|g| {
+            g.to_cpu().expect("Tensor::grad GPU readback failed")
+        })
     }
 
     /// Returns the gradient storage directly (no CPU readback if on GPU).
@@ -199,23 +197,25 @@ impl Tensor {
     }
 
     /// Move tensor to a specific device.
-    /// Falls back to CPU if GPU transfer fails.
     pub fn to_device(&self, target: &Device) -> Self {
         let inner = self.0.read();
         if inner.device == *target {
             return self.clone();
         }
         let cpu_data = inner.storage.to_cpu().unwrap_or_else(|e| {
-            tracing::warn!("Tensor::to_device GPU readback failed: {e}, using zeros");
-            ArrayD::zeros(inner.storage.shape())
+            panic!("Tensor::to_device GPU readback failed: {e}");
         });
         let requires_grad = inner.requires_grad;
         let grad = inner.grad.clone();
+        let grad_fn_idx = inner.grad_fn_idx;
         drop(inner);
         match target {
             Device::Cpu => {
                 let t = Tensor::new(cpu_data);
                 t.set_requires_grad(requires_grad);
+                if grad_fn_idx.is_some() {
+                    t.0.write().grad_fn_idx = grad_fn_idx;
+                }
                 t
             }
             #[cfg(feature = "gpu")]
@@ -230,18 +230,12 @@ impl Tensor {
                             dtype: DType::F32,
                             grad,
                             requires_grad,
-                            grad_fn_idx: None,
+                            grad_fn_idx,
                         })));
                         t
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "GPU transfer failed ({}), falling back to CPU — model performance may degrade",
-                            e
-                        );
-                        let t = Tensor::new(cpu_data);
-                        t.set_requires_grad(requires_grad);
-                        t
+                        panic!("GPU transfer failed: {e}");
                     }
                 }
             }
@@ -432,8 +426,7 @@ impl Tensor {
             #[cfg(feature = "gpu")]
             Some(Storage::Gpu(gpu)) => {
                 let mut existing = gpu.to_cpu().unwrap_or_else(|e| {
-                    tracing::warn!("accumulate_grad GPU readback failed: {e}, using zeros");
-                    ArrayD::zeros(gpu.shape())
+                    panic!("accumulate_grad GPU readback failed: {e}");
                 });
                 existing += grad;
                 inner.grad = Some(Storage::Cpu(Arc::new(existing)));
@@ -453,15 +446,13 @@ impl Tensor {
             (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => *Arc::make_mut(existing) += g.as_ref(),
             (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
                 let g_cpu = g.to_cpu().unwrap_or_else(|e| {
-                    tracing::warn!("accumulate_grad_storage GPU readback failed: {e}, using zeros");
-                    ArrayD::zeros(g.shape())
+                    panic!("accumulate_grad_storage GPU readback failed: {e}");
                 });
                 *Arc::make_mut(existing) += &g_cpu;
             }
             (Some(Storage::Gpu(existing)), Storage::Cpu(g)) => {
                 let mut e = existing.to_cpu().unwrap_or_else(|err| {
-                    tracing::warn!("accumulate_grad_storage GPU readback failed: {err}, using zeros");
-                    ArrayD::zeros(existing.shape())
+                    panic!("accumulate_grad_storage GPU readback failed: {err}");
                 });
                 e += g.as_ref();
                 inner.grad = Some(Storage::Cpu(Arc::new(e)));
@@ -471,12 +462,10 @@ impl Tensor {
                     let _ = ctx.add_inplace(existing, g);
                 } else {
                     let mut e = existing.to_cpu().unwrap_or_else(|err| {
-                        tracing::warn!("accumulate_grad_storage GPU readback failed: {err}, using zeros");
-                        ArrayD::zeros(existing.shape())
+                        panic!("accumulate_grad_storage GPU readback failed: {err}");
                     });
                     e += &g.to_cpu().unwrap_or_else(|err| {
-                        tracing::warn!("accumulate_grad_storage GPU readback failed: {err}, using zeros");
-                        ArrayD::zeros(g.shape())
+                        panic!("accumulate_grad_storage GPU readback failed: {err}");
                     });
                     inner.grad = Some(Storage::Cpu(Arc::new(e)));
                 }
@@ -536,13 +525,9 @@ impl Tensor {
     #[cfg(feature = "gpu")]
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.write();
-        let current = match inner.storage.to_cpu() {
-            Ok(data) => data,
-            Err(e) => {
-                tracing::warn!("subtract_from_data: GPU readback failed: {e}, skipping");
-                return;
-            }
-        };
+        let current = inner.storage.to_cpu().unwrap_or_else(|e| {
+            panic!("subtract_from_data: GPU readback failed: {e}");
+        });
         let new_data = &current - delta;
         inner.storage = Storage::Cpu(Arc::new(new_data));
     }
