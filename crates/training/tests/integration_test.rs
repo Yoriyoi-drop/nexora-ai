@@ -81,7 +81,7 @@ fn test_checkpoint_save_load_preserves_weights() {
         .map(|t| {
             t.parameters()
                 .iter()
-                .flat_map(|p| p.data().iter().copied())
+                .flat_map(|p| p.data().into_iter())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -90,7 +90,7 @@ fn test_checkpoint_save_load_preserves_weights() {
     let loaded_params: Vec<f32> = trainable_loaded
         .parameters()
         .iter()
-        .flat_map(|p| p.data().iter().copied())
+        .flat_map(|p| p.data().into_iter())
         .collect();
 
     assert_eq!(
@@ -145,7 +145,7 @@ fn test_gradient_accumulation_matches_non_accumulated() {
         .map(|t| {
             t.parameters()
                 .iter()
-                .flat_map(|p| p.data().iter().copied())
+                .flat_map(|p| p.data().into_iter())
                 .collect()
         })
         .unwrap_or_default();
@@ -156,7 +156,7 @@ fn test_gradient_accumulation_matches_non_accumulated() {
         .map(|t| {
             t.parameters()
                 .iter()
-                .flat_map(|p| p.data().iter().copied())
+                .flat_map(|p| p.data().into_iter())
                 .collect()
         })
         .unwrap_or_default();

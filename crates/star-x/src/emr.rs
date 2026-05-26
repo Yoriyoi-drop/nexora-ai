@@ -549,3 +549,190 @@ impl EpisodicMemoryRetention {
         Ok(self.current_size)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_emr_memory_entry_new() {
+        let content = Array1::zeros(4).into_dyn();
+        let entry = EmrMemoryEntry::new(1, content, 100);
+        assert_eq!(entry.id, 1);
+        assert_eq!(entry.timestamp, 100);
+        assert_eq!(entry.access_count, 0);
+    }
+
+    #[test]
+    fn test_emr_memory_entry_update_access() {
+        let content = Array1::zeros(4).into_dyn();
+        let mut entry = EmrMemoryEntry::new(1, content, 100);
+        entry.update_access(200);
+        assert_eq!(entry.access_count, 1);
+        assert_eq!(entry.last_access, 200);
+    }
+
+    #[test]
+    fn test_emr_memory_entry_decay_factor() {
+        let content = Array1::zeros(4).into_dyn();
+        let entry = EmrMemoryEntry::new(1, content, 100);
+        let decay = entry.compute_decay_factor(200, 0.99);
+        assert!((decay - 0.99_f32.powi(100)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_episodic_memory_retention_new() -> DLResult<()> {
+        let emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let (current, max, _avg_priority, utilization, _writes, _reads) = emr.get_memory_stats();
+        assert_eq!(current, 0);
+        assert_eq!(max, 100);
+        assert_eq!(utilization, 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_episodic_memory_retention_zero_hidden() {
+        let result = EpisodicMemoryRetention::new(100, 0, 0.7);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_write_memory() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        let written = emr.write_memory(&state, &gradient, 0.8, 0.7)?;
+        assert!(written);
+        let (current, _, _, _, _, _) = emr.get_memory_stats();
+        assert_eq!(current, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_memory_low_relevance() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.0; 32]).into_dyn();
+        let written = emr.write_memory(&state, &gradient, 0.0, 0.9)?;
+        assert!(!written);
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_memory() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        emr.write_memory(&state, &gradient, 0.9, 0.5)?;
+        let query = Array1::from_vec(vec![0.5; 32]).into_dyn();
+        let retrieved = emr.read_memory(&query)?;
+        assert_eq!(retrieved.shape(), &[32]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_memory_utilization() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(10, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        for _ in 0..5 {
+            emr.write_memory(&state, &gradient, 0.9, 0.5)?;
+        }
+        let util = emr.get_memory_utilization();
+        assert!((util - 0.5).abs() < 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn test_advance_time() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        emr.write_memory(&state, &gradient, 0.9, 0.5)?;
+        emr.advance_time();
+        emr.advance_time();
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_priority_weights() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        emr.set_priority_weights(0.5, 0.3, 0.1, 0.1);
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        let _priority = emr.compute_priority_score(&state, &gradient, 0.8)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_temporal_retrieval() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        emr.write_memory(&state, &gradient, 0.9, 0.5)?;
+        let query = Array1::from_vec(vec![0.5; 32]).into_dyn();
+        let result = emr.temporal_retrieval(&query, 100)?;
+        assert_eq!(result.shape(), &[32]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_associative_retrieval() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        emr.write_memory(&state, &gradient, 0.9, 0.5)?;
+        let query = Array1::from_vec(vec![0.5; 32]).into_dyn();
+        let result = emr.associative_retrieval(&[query])?;
+        assert_eq!(result.shape(), &[32]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_consolidate_memory() -> DLResult<()> {
+        let mut emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        emr.write_memory(&state, &gradient, 0.9, 0.5)?;
+        let count = emr.consolidate_memory()?;
+        assert_eq!(count, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_priority_score() -> DLResult<()> {
+        let emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![1.0; 32]).into_dyn();
+        let gradient = Array1::from_vec(vec![0.1; 32]).into_dyn();
+        let priority = emr.compute_priority_score(&state, &gradient, 0.8)?;
+        assert!(priority >= 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_state_entropy() -> DLResult<()> {
+        let emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let state = Array1::from_vec(vec![0.5, 0.5]).into_dyn();
+        let _entropy = emr.compute_state_entropy(&state)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_similarity() -> DLResult<()> {
+        let emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let a = Array1::from_vec(vec![1.0, 0.0]).into_dyn();
+        let b = Array1::from_vec(vec![1.0, 0.0]).into_dyn();
+        let sim = emr.compute_similarity(&a, &b)?;
+        assert!((sim - 1.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_aggregate_memories_empty() -> DLResult<()> {
+        let emr = EpisodicMemoryRetention::new(100, 32, 0.7)?;
+        let result = emr.aggregate_memories(&[])?;
+        assert_eq!(result.shape(), &[32]);
+        Ok(())
+    }
+}

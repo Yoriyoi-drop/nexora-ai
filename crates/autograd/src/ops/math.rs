@@ -61,7 +61,13 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                         let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
                                         vec![da, db]
                                     }),
-                                    None,
+                                    Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                        let a_shape = a_shape.clone();
+                                        let b_shape = b_shape.clone();
+                                        let (da, db) = crate::gpu_backward::add_backward(ctx, &a_shape, &b_shape, grad_gpu)
+                                            .map_err(|e| format!("add_backward: {e}"))?;
+                                        Ok(vec![da, db])
+                                    })),
                                 );
                             }
                             Err(e) => {
@@ -170,7 +176,13 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                         let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
                                         vec![da, -db]
                                     }),
-                                    None,
+                                    Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                        let a_shape = a_shape.clone();
+                                        let b_shape = b_shape.clone();
+                                        let (da, db) = crate::gpu_backward::sub_backward(ctx, &a_shape, &b_shape, grad_gpu)
+                                            .map_err(|e| format!("sub_backward: {e}"))?;
+                                        Ok(vec![da, db])
+                                    })),
                                 );
                             }
                             Err(e) => {
@@ -258,7 +270,11 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                         let gb = grad.clone();
                                         vec![ga, gb]
                                     }),
-                                    None,
+                                    Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                        let (da, db) = crate::gpu_backward::mul_backward(ctx, &saved_gpu[0], &saved_gpu[1], grad_gpu)
+                                            .map_err(|e| format!("mul_backward: {e}"))?;
+                                        Ok(vec![da, db])
+                                    })),
                                 );
                             }
                             Err(e) => {
@@ -315,17 +331,22 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     return Tensor::from_gpu(gpu_result, id, false);
                                 }
 
+                                let gpu_result_for_saved = gpu_result.clone();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![a.clone(), b.clone()],
                                     vec![],
-                                    vec![ga.clone(), gb.clone()],
+                                    vec![ga.clone(), gb.clone(), gpu_result_for_saved],
                                     Box::new(|grad, _saved| {
                                         let ga = grad.clone();
                                         let gb = -grad.clone();
                                         vec![ga, gb]
                                     }),
-                                    None,
+                                    Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                        let (da, db) = crate::gpu_backward::div_backward(ctx, &saved_gpu[1], &saved_gpu[2], grad_gpu)
+                                            .map_err(|e| format!("div_backward: {e}"))?;
+                                        Ok(vec![da, db])
+                                    })),
                                 );
                             }
                             Err(e) => {
@@ -393,7 +414,11 @@ pub fn exp(input: &Tensor) -> Tensor {
                                 let da = grad.clone() * result_val;
                                 vec![da]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                let da = crate::gpu_backward::exp_backward(ctx, &saved_gpu[0], grad_gpu)
+                                    .map_err(|e| format!("exp_backward: {e}"))?;
+                                Ok(vec![da])
+                            })),
                         );
                     }
                     Err(e) => {
@@ -447,7 +472,11 @@ pub fn ln(input: &Tensor) -> Tensor {
                                 let da = grad.clone() / input_val;
                                 vec![da]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                let da = crate::gpu_backward::ln_backward(ctx, &saved_gpu[0], grad_gpu)
+                                    .map_err(|e| format!("ln_backward: {e}"))?;
+                                Ok(vec![da])
+                            })),
                         );
                     }
                     Err(e) => {
@@ -493,18 +522,25 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                         }
                         let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
                         let result_cpu = result_arr;
+                        let exponent_val = exponent;
+                        let gpu_result_for_saved = gpu_result.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
                             vec![exponent_saved, result_cpu],
-                            vec![gpu_input.clone()],
+                            vec![gpu_input.clone(), gpu_result_for_saved],
                             Box::new(|grad, saved| {
                                 let exp = saved[0][IxDyn(&[])];
                                 let result_val = &saved[1];
                                 let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
                                 vec![da]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                let exponent = exponent_val;
+                                let da = crate::gpu_backward::powf_backward(ctx, &saved_gpu[0], &saved_gpu[1], exponent, grad_gpu)
+                                    .map_err(|e| format!("powf_backward: {e}"))?;
+                                Ok(vec![da])
+                            })),
                         );
                     }
                     Err(e) => {
@@ -559,7 +595,11 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                                 let da = grad.clone() / (2.0 * result_val);
                                 vec![da]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                let da = crate::gpu_backward::sqrt_backward(ctx, &saved_gpu[0], grad_gpu)
+                                    .map_err(|e| format!("sqrt_backward: {e}"))?;
+                                Ok(vec![da])
+                            })),
                         );
                     }
                     Err(e) => {
@@ -608,7 +648,11 @@ pub fn neg(a: &Tensor) -> Tensor {
                             vec![],
                             vec![ga.clone()],
                             Box::new(|grad, _saved| vec![-grad.clone()]),
-                            None,
+                            Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                let da = crate::gpu_backward::neg_backward(ctx, grad_gpu)
+                                    .map_err(|e| format!("neg_backward: {e}"))?;
+                                Ok(vec![da])
+                            })),
                         );
                     }
                     Err(e) => {

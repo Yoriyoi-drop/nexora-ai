@@ -12,6 +12,8 @@ pub mod training_pipeline;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 #[cfg(feature = "gpu")]
+pub mod gpu_backward;
+#[cfg(feature = "gpu")]
 pub mod gpu_adam;
 #[cfg(feature = "gpu")]
 pub mod gpu_async;

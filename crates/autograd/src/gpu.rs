@@ -1082,11 +1082,16 @@ impl GpuContext {
         self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
     }
 
-    /// Sync GPU and CPU (blocking wait). Call after `flush()` before reading results.
+    /// Sync GPU and CPU (blocking wait with 30s timeout).
+    /// Call after `flush()` before reading results.
+    ///
+    /// ## ⚠️ Blocking
+    /// Blocks the current thread for up to 30s. Must be called from
+    /// `spawn_blocking` if used in async context.
     pub fn sync(&self) {
         self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
+            timeout: Some(Duration::from_secs(30)),
         });
     }
 
@@ -1095,11 +1100,15 @@ impl GpuContext {
         let _ = self.device.poll(wgpu::PollType::Poll);
     }
 
-    /// Blocking wait — tunggu semua GPU work selesai
+    /// Blocking wait with 30s timeout — tunggu semua GPU work selesai.
+    ///
+    /// ## ⚠️ Blocking
+    /// Blocks the current thread for up to 30s. Must be called from
+    /// `spawn_blocking` if used in async context.
     pub fn wait_device(&self) {
-        let _ = self.device.poll(wgpu::PollType::Wait {
+        self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
+            timeout: Some(Duration::from_secs(30)),
         });
     }
 

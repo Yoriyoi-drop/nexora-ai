@@ -2,7 +2,8 @@ use uuid::Uuid;
 
 use nexora_isolation::config::IsolationConfig;
 use nexora_isolation::firewall::FirewallAction;
-use nexora_isolation::killswitch::{KillTarget, KillTrigger};
+use nexora_isolation::killswitch::{KillTarget, KillTrigger, KillStatus};
+use nexora_isolation::multicluster::ScalingPolicy;
 use nexora_isolation::layer0_global::ClusterStatus;
 use nexora_isolation::layer1_mode::{ModeId, ModeKind, ModeStatus};
 use nexora_isolation::layer2_agent::{AgentRuntimeSpec, AgentType, PodStatus};
@@ -165,7 +166,8 @@ fn test_kill_switch_blocks_requests() {
     orch.firewall.write().block_agent(agent_id);
 
     // Verify kill event is recorded in history
-    let recent = orch.kill_switch.read().get_recent_kills(5);
+    let ks_guard = orch.kill_switch.read();
+    let recent = ks_guard.get_recent_kills(5);
     let matching: Vec<_> = recent
         .iter()
         .filter(|e| matches!(&e.target, KillTarget::Agent(id) if *id == agent_id))
@@ -191,7 +193,7 @@ fn test_kill_switch_blocks_requests() {
     let ks = &mut *orch.kill_switch.write();
     ks.complete_kill(event.id, vec![agent_id], 42);
     let completed = ks.get_recent_kills(1);
-    assert!(matches!(completed[0].status, killswitch::KillStatus::Completed));
+    assert!(matches!(completed[0].status, KillStatus::Completed));
 }
 
 #[test]
@@ -241,9 +243,9 @@ fn test_quarantine_malicious_pattern() {
     // Resolve quarantine — agent can pass checks again
     {
         let q_lock = &mut *orch.quarantine.write();
-        let active = q_lock.get_active_for_agent(src);
-        for q in active {
-            q_lock.resolve_quarantine(q.id).unwrap();
+        let active_ids: Vec<_> = q_lock.get_active_for_agent(src).iter().map(|q| q.id).collect();
+        for id in active_ids {
+            q_lock.resolve_quarantine(id).unwrap();
         }
         assert!(!q_lock.is_agent_quarantined(src));
     }
@@ -284,7 +286,7 @@ fn test_multi_cluster_isolation() {
             "us-east",
             &mode_a,
             "oracle-group",
-            multicluster::ScalingPolicy::Static { replicas: 3 },
+            ScalingPolicy::Static { replicas: 3 },
         )
         .unwrap();
 
@@ -299,7 +301,7 @@ fn test_multi_cluster_isolation() {
             "eu-west",
             &mode_b,
             "defense-group",
-            multicluster::ScalingPolicy::AutoCpu {
+            ScalingPolicy::AutoCpu {
                 min: 2,
                 max: 10,
                 target_pct: 70.0,

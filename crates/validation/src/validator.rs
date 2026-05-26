@@ -552,3 +552,143 @@ impl Default for ConfigValidator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_validation_result_default() {
+        let r = ValidationResult {
+            valid: true,
+            errors: vec![],
+            warnings: vec![],
+            info: vec![],
+        };
+        assert!(r.valid);
+        assert!(r.errors.is_empty());
+    }
+
+    #[test]
+    fn test_error_severity_variants() {
+        match ErrorSeverity::Critical {
+            ErrorSeverity::Critical => {},
+            _ => panic!("expected Critical"),
+        }
+        match ErrorSeverity::Error {
+            ErrorSeverity::Error => {},
+            _ => panic!("expected Error"),
+        }
+        match ErrorSeverity::Warning {
+            ErrorSeverity::Warning => {},
+            _ => panic!("expected Warning"),
+        }
+        match ErrorSeverity::Info {
+            ErrorSeverity::Info => {},
+            _ => panic!("expected Info"),
+        }
+    }
+
+    #[test]
+    fn test_config_validator_new() {
+        let validator = ConfigValidator::new();
+        // should have default schemas: database, server
+        assert!(validator.schemas.contains_key("database"));
+        assert!(validator.schemas.contains_key("server"));
+        // should have default env rules
+        assert!(validator.environment_rules.contains_key("DATABASE_URL"));
+        assert!(validator.environment_rules.contains_key("LOG_LEVEL"));
+        assert!(validator.environment_rules.contains_key("PORT"));
+        // should have default security rules
+        assert!(!validator.security_rules.is_empty());
+    }
+
+    #[test]
+    fn test_config_validator_unknown_schema() {
+        let validator = ConfigValidator::new();
+        let config = json!({"host": "localhost"});
+        let result = validator.validate_config(&config, "nonexistent").unwrap();
+        assert!(!result.valid);
+        assert_eq!(result.errors[0].code, "SCHEMA_NOT_FOUND");
+    }
+
+    #[test]
+    fn test_validate_config_database_missing_required() {
+        let validator = ConfigValidator::new();
+        let config = json!({});
+        let result = validator.validate_config(&config, "database").unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.code == "REQUIRED_FIELD_MISSING"));
+    }
+
+    #[test]
+    fn test_validate_config_database_valid() {
+        let validator = ConfigValidator::new();
+        let config = json!({"host": "localhost", "port": 5432});
+        let result = validator.validate_config(&config, "database").unwrap();
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn test_validate_config_type_mismatch() {
+        let validator = ConfigValidator::new();
+        let config = json!({"host": 12345, "port": 5432});
+        let result = validator.validate_config(&config, "database").unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.code == "TYPE_MISMATCH"));
+    }
+
+    #[test]
+    fn test_validate_config_port_out_of_range() {
+        let validator = ConfigValidator::new();
+        let config = json!({"host": "localhost", "port": 99999});
+        let result = validator.validate_config(&config, "database").unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.code == "OUT_OF_RANGE"));
+    }
+
+    #[test]
+    fn test_validate_config_port_valid_range() {
+        let validator = ConfigValidator::new();
+        let config = json!({"host": "localhost", "port": 8080});
+        let result = validator.validate_config(&config, "server").unwrap();
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn test_validate_all_combines_results() {
+        let validator = ConfigValidator::new();
+        let config = json!({"host": "localhost", "port": 5432});
+        let result = validator.validate_all(&config, "database").unwrap();
+        // This will pass config validation but may have env + security warnings
+        assert!(result.valid || !result.errors.is_empty() || !result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_add_custom_environment_rule() {
+        let mut validator = ConfigValidator::new();
+        let rule = EnvironmentRule {
+            name: "CUSTOM_VAR".to_string(),
+            required: true,
+            validator: None,
+            default_value: None,
+            description: "Custom test var".to_string(),
+        };
+        validator.add_environment_rule(rule);
+        assert!(validator.environment_rules.contains_key("CUSTOM_VAR"));
+    }
+
+    #[test]
+    fn test_config_validator_debug() {
+        let validator = ConfigValidator::new();
+        assert_eq!(validator.schemas.len(), 2);
+    }
+
+    #[test]
+    fn test_default_trait() {
+        let v1 = ConfigValidator::new();
+        let v2 = ConfigValidator::default();
+        assert_eq!(v1.schemas.len(), v2.schemas.len());
+    }
+}

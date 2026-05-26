@@ -127,12 +127,16 @@ impl OptimizerState {
     pub fn apply_to_adam(&self, adam: &mut Adam, shapes: &[Vec<usize>]) {
         for (i, shape) in shapes.iter().enumerate() {
             if i < self.m.len() {
-                // safe: m[i] length is checked via shapes parameter before calling
                 let m_arr = ArrayD::from_shape_vec(shape.clone(), self.m[i].clone())
-                    .expect("shape mismatch restoring Adam m");
-                // safe: v[i] length is checked via shapes parameter before calling
+                    .unwrap_or_else(|e| {
+                        panic!("Adam m shape mismatch at index {i}: expected shape {shape:?} but data length {} doesn't match product {}: {e}",
+                            self.m[i].len(), shape.iter().product::<usize>())
+                    });
                 let v_arr = ArrayD::from_shape_vec(shape.clone(), self.v[i].clone())
-                    .expect("shape mismatch restoring Adam v");
+                    .unwrap_or_else(|e| {
+                        panic!("Adam v shape mismatch at index {i}: expected shape {shape:?} but data length {} doesn't match product {}: {e}",
+                            self.v[i].len(), shape.iter().product::<usize>())
+                    });
                 if i < adam.m.len() {
                     adam.m[i] = m_arr;
                 }
@@ -302,12 +306,14 @@ impl Checkpoint {
     pub fn restore_params(&self, params: &[Tensor]) {
         for (i, p) in params.iter().enumerate() {
             if i < self.model_params.len() && i < self.model_shapes.len() {
-                // safe: model_params[i] length is verified during save to match model_shapes[i] product
                 let arr = ArrayD::from_shape_vec(
                     self.model_shapes[i].clone(),
                     self.model_params[i].clone(),
                 )
-                .expect("shape mismatch restoring params");
+                .unwrap_or_else(|e| {
+                    panic!("param shape mismatch at index {i}: expected shape {:?} but data length {} doesn't match product {}: {e}",
+                        self.model_shapes[i], self.model_params[i].len(), self.model_shapes[i].iter().product::<usize>())
+                });
                 p.set_data(arr);
             }
         }
@@ -831,7 +837,7 @@ mod tests {
         loop_.on_start();
 
         for _ in 0..5 {
-            let cont = loop_.on_step(0.5, 0.001, 0.1, 32);
+            let cont = loop_.on_step(0.5, 0.001, 0.1, 32).unwrap();
             assert!(cont);
         }
 
@@ -860,9 +866,9 @@ mod tests {
         let mut loop_ = TrainingLoop::new(config);
         loop_.on_start();
 
-        assert!(loop_.on_step(0.5, 0.001, 0.1, 32));
-        assert!(loop_.on_step(0.4, 0.001, 0.1, 32));
-        let cont = loop_.on_step(0.3, 0.001, 0.1, 32);
+        assert!(loop_.on_step(0.5, 0.001, 0.1, 32).unwrap());
+        assert!(loop_.on_step(0.4, 0.001, 0.1, 32).unwrap());
+        let cont = loop_.on_step(0.3, 0.001, 0.1, 32).unwrap();
         assert!(!cont); // max_steps reached
     }
 

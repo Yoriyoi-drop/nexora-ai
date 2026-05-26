@@ -28,22 +28,26 @@ pub fn sum(input: &Tensor) -> Tensor {
                             debug!("shape encoding failed (infallible): {e}");
                             ArrayD::zeros(vec![0])
                         });
-                        return Tensor::from_gpu_with_grad_fn(
-                            gpu_result,
-                            vec![input.clone()],
-                            vec![shape_saved],
-                            vec![],
-                            Box::new(|grad, saved| {
-                                let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-                                let orig_shape: Vec<usize> =
-                                    shape_data.iter().map(|&x| x as usize).collect();
-                                let grad_val = grad.iter().copied().next().unwrap_or(1.0);
-                                vec![ArrayD::from_elem(orig_shape, grad_val)]
-                            }),
-                            None,
-                        );
-                    }
-                    Err(e) => warn!("autograd reduce backward failed: {e}")
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![shape_saved],
+                                vec![],
+                                Box::new(|grad, saved| {
+                                    let shape_data: Vec<f32> = saved[0].iter().copied().collect();
+                                    let orig_shape: Vec<usize> =
+                                        shape_data.iter().map(|&x| x as usize).collect();
+                                    let grad_val = grad.iter().copied().next().unwrap_or(1.0);
+                                    vec![ArrayD::from_elem(orig_shape, grad_val)]
+                                }),
+                                Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                    let da = crate::gpu_backward::sum_backward(ctx, &orig_shape, grad_gpu)
+                                        .map_err(|e| format!("sum_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
+                        }
+                        Err(e) => warn!("autograd reduce backward failed: {e}")
                 }
             }
         }
@@ -151,7 +155,11 @@ pub fn mean(input: &Tensor) -> Tensor {
                                     let grad_val = grad.iter().copied().next().unwrap_or(1.0);
                                     vec![ArrayD::from_elem(orig_shape, grad_val / n)]
                                 }),
-                                None,
+                                Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                    let da = crate::gpu_backward::mean_backward(ctx, &orig_shape, numel, grad_gpu)
+                                        .map_err(|e| format!("mean_backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
                             );
                         }
                     }

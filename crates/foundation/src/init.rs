@@ -165,3 +165,71 @@ pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
     info!("Foundation model(s) registered ✓");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexora_shared::model_identity::NxrModelId;
+
+    #[test]
+    fn test_tier_config_omnis() {
+        let config = tier_config(NxrModelId::Omnis, 50257);
+        assert_eq!(config.hidden_size, 512);
+        assert_eq!(config.num_layers, 16);
+        assert_eq!(config.max_seq_len, 2048);
+        assert_eq!(config.vocab_size, 50257);
+    }
+
+    #[test]
+    fn test_tier_config_axiom() {
+        let config = tier_config(NxrModelId::Axiom, 50257);
+        assert_eq!(config.hidden_size, 384);
+        assert_eq!(config.num_layers, 10);
+    }
+
+    #[test]
+    fn test_tier_config_genesis() {
+        let config = tier_config(NxrModelId::Genesis, 50257);
+        assert_eq!(config.hidden_size, 256);
+        assert_eq!(config.num_layers, 6);
+    }
+
+    #[test]
+    fn test_tier_config_nexum() {
+        let config = tier_config(NxrModelId::Nexum, 50257);
+        assert_eq!(config.hidden_size, 256);
+        assert_eq!(config.num_layers, 6);
+    }
+
+    #[test]
+    fn test_tier_config_low_tier() {
+        for id in &[NxrModelId::Cipher, NxrModelId::Vortex, NxrModelId::Aether,
+                     NxrModelId::Spectra, NxrModelId::Swift, NxrModelId::Kronos] {
+            let config = tier_config(*id, 100);
+            assert_eq!(config.hidden_size, 128, "failed for {:?}", id);
+            assert_eq!(config.num_layers, 3);
+            assert_eq!(config.vocab_size, 100);
+        }
+    }
+
+    #[test]
+    fn test_tier_config_different_vocab_sizes() {
+        let c1 = tier_config(NxrModelId::Swift, 100);
+        let c2 = tier_config(NxrModelId::Swift, 50000);
+        assert_eq!(c1.vocab_size, 100);
+        assert_eq!(c2.vocab_size, 50000);
+        assert_eq!(c1.hidden_size, c2.hidden_size); // same model config
+    }
+
+    #[test]
+    fn test_tier_config_all_have_sane_values() {
+        for id in NxrModelId::all() {
+            let config = tier_config(id, 50257);
+            assert!(config.hidden_size > 0, "hidden_size zero for {:?}", id);
+            assert!(config.num_heads > 0);
+            assert!(config.num_layers > 0);
+            assert!(config.max_seq_len > 0);
+            assert!(config.intermediate_size > 0);
+        }
+    }
+}

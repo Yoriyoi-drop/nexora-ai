@@ -344,3 +344,136 @@ impl crate::traits::Forward for TemporalGatingHierarchy {
         self.process_hierarchical(input, &hidden_state, &chunk_context, &episodic_memory)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::HierarchicalGating;
+    use crate::traits::Forward;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_temporal_gating_hierarchy_new() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let weights = tgh.get_fusion_weights()?;
+        assert!((weights.0 + weights.1 + weights.2 - 1.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_hierarchical() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let input = Array1::zeros(512).into_dyn();
+        let hidden = Array1::zeros(1024).into_dyn();
+        let chunk = Array1::zeros(512).into_dyn();
+        let memory = Array1::zeros(1024).into_dyn();
+        let (micro, meso, macro_out) = tgh.process_hierarchical(&input, &hidden, &chunk, &memory)?;
+        assert_eq!(micro.shape(), &[256]);
+        assert_eq!(meso.shape(), &[512]);
+        assert_eq!(macro_out.shape(), &[1024]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fuse_hierarchical() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let micro = Array1::ones(256).into_dyn();
+        let meso = Array1::ones(512).into_dyn();
+        let macro_out = Array1::ones(1024).into_dyn();
+        let fused = tgh.fuse_hierarchical(&micro, &meso, &macro_out, (1.0, 1.0, 1.0))?;
+        assert_eq!(fused.shape(), &[256]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_to_chunk() -> DLResult<()> {
+        let mut tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let state = Array1::zeros(1024).into_dyn();
+        tgh.add_to_chunk(state)?;
+        let (buf_size, chunk_size) = tgh.get_chunk_stats();
+        assert_eq!(buf_size, 1);
+        assert_eq!(chunk_size, 8);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_chunk_context() -> DLResult<()> {
+        let mut tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let state = Array1::zeros(1024).into_dyn();
+        tgh.add_to_chunk(state)?;
+        let context = tgh.get_chunk_context()?;
+        assert_eq!(context.shape(), &[1024]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_reset_chunk() -> DLResult<()> {
+        let mut tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let state = Array1::zeros(1024).into_dyn();
+        tgh.add_to_chunk(state)?;
+        tgh.reset_chunk();
+        let (buf_size, _) = tgh.get_chunk_stats();
+        assert_eq!(buf_size, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_chunk_context_empty() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let context = tgh.get_chunk_context()?;
+        assert_eq!(context.shape(), &[1024]);
+        assert!(context.iter().all(|&x| x == 0.0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_forward_trait() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let input = Array1::zeros(512).into_dyn();
+        let (micro, meso, macro_out) = tgh.forward(&input)?;
+        assert_eq!(micro.shape(), &[256]);
+        assert_eq!(meso.shape(), &[512]);
+        assert_eq!(macro_out.shape(), &[1024]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_fusion_weights() -> DLResult<()> {
+        let mut tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        tgh.update_fusion_weights(0.5, 0.3, 0.2);
+        let weights = tgh.get_fusion_weights()?;
+        assert!((weights.0 + weights.1 + weights.2 - 1.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_chunk_empty() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let result = tgh.process_chunk(&[])?;
+        assert_eq!(result.shape(), &[512]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_concatenate() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        let input = Array1::from_vec(vec![1.0, 2.0]).into_dyn();
+        let hidden = Array1::from_vec(vec![3.0, 4.0]).into_dyn();
+        let result = tgh.concatenate(&input, &hidden)?;
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], 3.0);
+        assert_eq!(result[1], 4.0);
+        assert_eq!(result[2], 1.0);
+        assert_eq!(result[3], 2.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sigmoid() -> DLResult<()> {
+        let tgh = TemporalGatingHierarchy::new(512, 1024, 256, 512, 1024, 8)?;
+        assert!((tgh.sigmoid(0.0) - 0.5).abs() < 1e-6);
+        assert!((tgh.sigmoid(100.0) - 1.0).abs() < 1e-6);
+        assert!((tgh.sigmoid(-100.0) - 0.0).abs() < 1e-6);
+        Ok(())
+    }
+}

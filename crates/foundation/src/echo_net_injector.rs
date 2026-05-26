@@ -174,3 +174,69 @@ impl LayerInjector for EchoNetInjector {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexora_transformer::LayerInjector;
+
+    #[test]
+    fn test_echo_net_injector_new() {
+        let injector = EchoNetInjector::new(64, 0.1, 10, 0.5).unwrap();
+        assert_eq!(injector.max_window, 10);
+        assert_eq!(injector.alpha, 0.5);
+        assert_eq!(injector.hidden_size, 64);
+    }
+
+    #[test]
+    fn test_echo_net_injector_new_zero_hidden_size() {
+        let result = EchoNetInjector::new(0, 0.1, 10, 0.5);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_echo_net_injector_debug() {
+        let injector = EchoNetInjector::new(64, 0.1, 5, 0.3).unwrap();
+        let debug = format!("{:?}", injector);
+        assert!(debug.contains("max_window"));
+        assert!(debug.contains("alpha"));
+        assert!(debug.contains("hidden_size"));
+    }
+
+    #[test]
+    fn test_echo_net_injector_buffer_empty_on_start() {
+        let injector = EchoNetInjector::new(64, 0.1, 10, 0.5).unwrap();
+        assert!(injector.buffer.is_empty());
+    }
+
+    #[test]
+    fn test_echo_net_injector_after_layer_buffer_grows() {
+        let mut injector = EchoNetInjector::new(64, 0.1, 10, 0.5).unwrap();
+        let mut h = Array2::zeros((1, 64));
+        // No panic on first call (buffer < 2, early return)
+        let result = injector.after_layer(2, &mut h, 0);
+        assert!(result.is_ok());
+        assert_eq!(injector.buffer.len(), 1);
+    }
+
+    #[test]
+    fn test_echo_net_injector_after_layer_two_tokens() {
+        let mut injector = EchoNetInjector::new(64, 0.1, 10, 0.5).unwrap();
+        let mut h1 = Array2::zeros((1, 64));
+        let mut h2 = Array2::ones((1, 64));
+        assert!(injector.after_layer(2, &mut h1, 0).is_ok());
+        assert!(injector.after_layer(2, &mut h2, 1).is_ok());
+        // With 2+ tokens, APSS runs
+        assert!(injector.buffer.len() >= 2);
+    }
+
+    #[test]
+    fn test_echo_net_injector_prune_buffer() {
+        let mut injector = EchoNetInjector::new(64, 0.1, 3, 0.5).unwrap();
+        for pos in 0..5 {
+            let mut h = Array2::from_elem((1, 64), pos as f32);
+            injector.after_layer(2, &mut h, pos).unwrap();
+        }
+        assert!(injector.buffer.len() <= 3);
+    }
+}

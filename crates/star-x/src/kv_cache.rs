@@ -313,6 +313,151 @@ impl StreamingKVCache {
     }
 }
 
+impl std::fmt::Display for KVCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let total_tokens = self.seq_len;
+        if total_tokens == 0 {
+            write!(f, "KV Cache: empty")
+        } else {
+            write!(
+                f,
+                "KV Cache: {} tokens (max_seq_len: {}, is_full: {})",
+                total_tokens,
+                self.max_cache_size,
+                self.is_full(),
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_kv_cache_new() {
+        let cache = KVCache::new(1024, 128, 8);
+        assert_eq!(cache.seq_len(), 0);
+        assert!(!cache.is_full());
+    }
+
+    #[test]
+    fn test_kv_cache_append() -> DLResult<()> {
+        let mut cache = KVCache::new(1024, 128, 8);
+        assert_eq!(cache.seq_len(), 0);
+        cache.append(Array1::zeros(1024), Array1::zeros(1024))?;
+        assert_eq!(cache.seq_len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_kv_cache_append_mismatched() -> DLResult<()> {
+        let mut cache = KVCache::new(1024, 128, 8);
+        let result = cache.append(
+            Array1::zeros(64),
+            Array1::zeros(64),
+        );
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_kv_cache_reset() -> DLResult<()> {
+        let mut cache = KVCache::new(1024, 128, 8);
+        cache.append(Array1::zeros(1024), Array1::zeros(1024))?;
+        assert_eq!(cache.seq_len(), 1);
+        cache.reset();
+        assert_eq!(cache.seq_len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_kv_cache_stats() -> DLResult<()> {
+        let mut cache = KVCache::new(1024, 128, 8);
+        let stats = cache.get_stats();
+        assert_eq!(stats.seq_len, 0);
+        assert_eq!(stats.hit_rate, 0.0);
+        assert!(stats.memory_usage > 0);
+        cache.append(Array1::zeros(1024), Array1::zeros(1024))?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_kv_cache_display_empty() {
+        let cache = KVCache::new(1024, 128, 8);
+        let display = format!("{}", cache);
+        assert!(display.contains("seq=0"));
+    }
+
+    #[test]
+    fn test_streaming_kv_cache_new() {
+        let cache = StreamingKVCache::new(10, 5, 128, 8);
+        let stats = cache.get_streaming_stats();
+        assert_eq!(stats.total_seq_len, 0);
+    }
+
+    #[test]
+    fn test_streaming_kv_cache_append_and_compute() -> DLResult<()> {
+        let mut cache = StreamingKVCache::new(10, 5, 128, 8);
+        let k = Array1::from_vec(vec![1.0; 1024]);
+        let v = Array1::from_vec(vec![2.0; 1024]);
+        cache.append(k, v)?;
+        let stats = cache.get_streaming_stats();
+        assert_eq!(stats.total_seq_len, 1);
+        let query = Array1::from_vec(vec![0.5; 1024]);
+        let output = cache.compute_attention(&query)?;
+        assert_eq!(output.shape(), &[1024]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_kv_cache_reset() -> DLResult<()> {
+        let mut cache = StreamingKVCache::new(10, 5, 128, 8);
+        let k = Array1::from_vec(vec![1.0; 1024]);
+        let v = Array1::from_vec(vec![2.0; 1024]);
+        cache.append(k, v)?;
+        cache.reset();
+        let stats = cache.get_streaming_stats();
+        assert_eq!(stats.total_seq_len, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_kv_cache_append_wrong_kv_size() -> DLResult<()> {
+        let mut cache = KVCache::new(1024, 128, 8);
+        let result = cache.append(
+            Array1::zeros(2048),
+            Array1::zeros(2048),
+        );
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_kv_cache_eviction() -> DLResult<()> {
+        let mut cache = StreamingKVCache::new(3, 3, 128, 8);
+        for i in 0..5 {
+            let k = Array1::from_vec(vec![i as f32; 1024]);
+            let v = Array1::from_vec(vec![i as f32; 1024]);
+            cache.append(k, v)?;
+        }
+        let stats = cache.get_streaming_stats();
+        assert!(stats.total_seq_len > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_kv_cache_is_full() {
+        let mut cache = KVCache::new(2, 128, 8);
+        assert!(!cache.is_full());
+        cache.append(Array1::zeros(1024), Array1::zeros(1024)).unwrap();
+        assert!(!cache.is_full());
+        cache.append(Array1::zeros(1024), Array1::zeros(1024)).unwrap();
+        assert!(cache.is_full());
+    }
+}
+
 /// Streaming cache statistics
 #[derive(Debug, Clone)]
 pub struct StreamingCacheStats {

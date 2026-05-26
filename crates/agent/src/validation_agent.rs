@@ -834,3 +834,212 @@ impl Default for ValidationAgentConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validation_agent_config_default() {
+        let config = ValidationAgentConfig::default();
+        assert!(config.enable_hallucination_detection);
+        assert!(config.enable_fact_checking);
+        assert!(config.enable_content_filtering);
+        assert!(!config.strict_mode);
+        assert!((config.confidence_threshold - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validation_agent_config_clone_debug() {
+        let config = ValidationAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_validation_issue_type_variants() {
+        assert_eq!(ValidationIssueType::Hallucination, ValidationIssueType::Hallucination);
+        assert_eq!(ValidationIssueType::FactualError, ValidationIssueType::FactualError);
+        assert_eq!(ValidationIssueType::Incoherent, ValidationIssueType::Incoherent);
+        assert!(!matches!(ValidationIssueType::Custom("x".into()), ValidationIssueType::Hallucination));
+    }
+
+    #[test]
+    fn test_validation_issue_type_serialize() {
+        let ty = ValidationIssueType::FormatError;
+        let json = serde_json::to_string(&ty).unwrap();
+        assert_eq!(json, "\"FormatError\"");
+    }
+
+    #[test]
+    fn test_severity_level_ordering() {
+        assert!(SeverityLevel::Low < SeverityLevel::Medium);
+        assert!(SeverityLevel::Medium < SeverityLevel::High);
+        assert!(SeverityLevel::High < SeverityLevel::Critical);
+    }
+
+    #[test]
+    fn test_severity_level_serialize() {
+        let json = serde_json::to_string(&SeverityLevel::Critical).unwrap();
+        assert_eq!(json, "\"Critical\"");
+    }
+
+    #[test]
+    fn test_validation_issue_creation() {
+        let issue = ValidationIssue {
+            issue_type: ValidationIssueType::Hallucination,
+            severity: SeverityLevel::High,
+            description: "Uncertain language".into(),
+            location: None,
+            suggested_fix: Some("Be more specific".into()),
+        };
+        assert!(matches!(issue.issue_type, ValidationIssueType::Hallucination));
+        assert_eq!(issue.severity, SeverityLevel::High);
+        assert_eq!(issue.suggested_fix, Some("Be more specific".into()));
+    }
+
+    #[test]
+    fn test_validation_result_new() {
+        let result = ValidationResult {
+            is_valid: true,
+            confidence: 0.95,
+            issues: vec![],
+            metadata: HashMap::new(),
+        };
+        assert!(result.is_valid);
+        assert_eq!(result.confidence, 0.95);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn test_validation_stats_creation() {
+        let stats = ValidationStats {
+            total_rules: 3,
+            hallucination_detection_enabled: true,
+            fact_checking_enabled: true,
+            content_filtering_enabled: true,
+            strict_mode: false,
+            confidence_threshold: 0.8,
+        };
+        assert_eq!(stats.total_rules, 3);
+        assert!(!stats.strict_mode);
+    }
+
+    #[test]
+    fn test_validation_agent_new() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        assert_eq!(agent.name(), "ValidationAgent");
+        assert_eq!(agent.agent_type(), "validation");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_quick_validate_empty_content() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let result = futures::executor::block_on(agent.quick_validate(""));
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_quick_validate_short_content() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let result = futures::executor::block_on(agent.quick_validate("short"));
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_quick_validate_valid_content() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let result = futures::executor::block_on(agent.quick_validate("This is a reasonably long piece of valid content"));
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_quick_validate_ai_disclaimer() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let result = futures::executor::block_on(agent.quick_validate("I don't know the answer to that question"));
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_detect_hallucinations_disabled() {
+        let mut config = ValidationAgentConfig::default();
+        config.enable_hallucination_detection = false;
+        let agent = ValidationAgent::new(config);
+        let context = serde_json::json!({});
+        let issues = futures::executor::block_on(agent.detect_hallucinations("some content", &context)).unwrap();
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_detect_hallucinations_finds_uncertainty() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let context = serde_json::json!({});
+        let issues = futures::executor::block_on(agent.detect_hallucinations("I think this might be the answer", &context)).unwrap();
+        assert!(!issues.is_empty());
+        assert!(issues.iter().any(|i| matches!(i.issue_type, ValidationIssueType::Hallucination)));
+    }
+
+    #[test]
+    fn test_check_content_appropriateness_disabled() {
+        let mut config = ValidationAgentConfig::default();
+        config.enable_content_filtering = false;
+        let agent = ValidationAgent::new(config);
+        let issues = futures::executor::block_on(agent.check_content_appropriateness("violent content")).unwrap();
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_content_appropriateness_finds_issues() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let issues = futures::executor::block_on(agent.check_content_appropriateness("this is violent and illegal")).unwrap();
+        assert!(!issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_coherence_single_sentence() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let issues = futures::executor::block_on(agent.check_coherence("This is a single sentence.")).unwrap();
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_coherence_no_issues() {
+        let config = ValidationAgentConfig::default();
+        let agent = ValidationAgent::new(config);
+        let issues = futures::executor::block_on(agent.check_coherence("This is good. And this is also good.")).unwrap();
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_basic_content_validation_rule_empty() {
+        let rule = BasicContentValidationRule;
+        let result = futures::executor::block_on(rule.validate("", &serde_json::json!({})));
+        assert!(!result.is_valid);
+        assert!((result.confidence - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_basic_content_validation_rule_short() {
+        let rule = BasicContentValidationRule;
+        let result = futures::executor::block_on(rule.validate("Hi", &serde_json::json!({})));
+        assert!(!result.is_valid);
+        assert!(result.confidence < 1.0);
+    }
+
+    #[test]
+    fn test_basic_content_validation_rule_valid() {
+        let rule = BasicContentValidationRule;
+        let result = futures::executor::block_on(rule.validate("This is a valid long content string.", &serde_json::json!({})));
+        assert!(result.is_valid);
+        assert!((result.confidence - 1.0).abs() < f64::EPSILON);
+    }
+}

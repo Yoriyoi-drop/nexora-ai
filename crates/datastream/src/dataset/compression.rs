@@ -104,3 +104,57 @@ impl std::fmt::Display for CompressionError {
 }
 
 impl std::error::Error for CompressionError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compression_none_decompress() {
+        let data = b"hello world";
+        let result = Compression::None.decompress(data).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_compression_none_compress() {
+        let data = b"hello world";
+        let result = Compression::None.compress(data).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_from_ext() {
+        assert_eq!(Compression::from_ext("zst"), Compression::Zstd);
+        assert_eq!(Compression::from_ext("zstd"), Compression::Zstd);
+        assert_eq!(Compression::from_ext("lz4"), Compression::Lz4);
+        assert_eq!(Compression::from_ext("arrow"), Compression::None);
+        assert_eq!(Compression::from_ext(""), Compression::None);
+    }
+
+    #[test]
+    fn test_display() {
+        assert_eq!(format!("{}", Compression::None), "none");
+        assert_eq!(format!("{}", Compression::Zstd), "zstd");
+        assert_eq!(format!("{}", Compression::Lz4), "lz4");
+    }
+
+    #[test]
+    fn test_debug() {
+        assert_eq!(format!("{:?}", Compression::None), "None");
+        assert_eq!(format!("{:?}", Compression::Zstd), "Zstd");
+    }
+
+    #[test]
+    fn test_clone_and_copy() {
+        let a = Compression::Zstd;
+        let b = a;
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_error_display() {
+        let e = CompressionError::Unsupported("foo".into());
+        assert_eq!(format!("{}", e), "Unsupported compression: foo");
+    }
+}

@@ -490,3 +490,128 @@ pub struct LifecycleStats {
     /// Total restarts
     pub total_restarts: u32,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_lifecycle_event_variants() {
+        let agent_id = Uuid::new_v4();
+        let now = Utc::now();
+        let init = AgentLifecycleEvent::Initializing { agent_id, timestamp: now };
+        let ready = AgentLifecycleEvent::Ready { agent_id, timestamp: now };
+        let shutdown = AgentLifecycleEvent::Shutdown { agent_id, timestamp: now };
+        assert!(matches!(init, AgentLifecycleEvent::Initializing { .. }));
+        assert!(matches!(ready, AgentLifecycleEvent::Ready { .. }));
+        assert!(matches!(shutdown, AgentLifecycleEvent::Shutdown { .. }));
+    }
+
+    #[test]
+    fn test_agent_lifecycle_event_error() {
+        let agent_id = Uuid::new_v4();
+        let event = AgentLifecycleEvent::Error {
+            agent_id,
+            error: "crash".into(),
+            timestamp: Utc::now(),
+        };
+        if let AgentLifecycleEvent::Error { error, .. } = &event {
+            assert_eq!(error, "crash");
+        } else {
+            panic!("Expected Error variant");
+        }
+    }
+
+    #[test]
+    fn test_agent_lifecycle_status_creation() {
+        let agent_id = Uuid::new_v4();
+        let now = Utc::now();
+        let status = AgentLifecycleStatus {
+            agent_id,
+            status: AgentStatus::Ready,
+            started_at: now,
+            last_updated: now,
+            restart_count: 0,
+            total_processing_time_ms: 0,
+            last_error: None,
+        };
+        assert_eq!(status.agent_id, agent_id);
+        assert_eq!(status.status, AgentStatus::Ready);
+        assert_eq!(status.restart_count, 0);
+    }
+
+    #[test]
+    fn test_agent_lifecycle_status_with_error() {
+        let status = AgentLifecycleStatus {
+            agent_id: Uuid::new_v4(),
+            status: AgentStatus::Error("oops".into()),
+            started_at: Utc::now(),
+            last_updated: Utc::now(),
+            restart_count: 2,
+            total_processing_time_ms: 500,
+            last_error: Some("oops".into()),
+        };
+        assert_eq!(status.restart_count, 2);
+        assert_eq!(status.last_error, Some("oops".into()));
+    }
+
+    #[test]
+    fn test_lifecycle_stats_default() {
+        let stats = LifecycleStats::default();
+        assert_eq!(stats.total_agents, 0);
+        assert_eq!(stats.ready_agents, 0);
+        assert_eq!(stats.processing_agents, 0);
+        assert_eq!(stats.paused_agents, 0);
+        assert_eq!(stats.error_agents, 0);
+        assert_eq!(stats.total_restarts, 0);
+    }
+
+    #[test]
+    fn test_lifecycle_stats_with_values() {
+        let stats = LifecycleStats {
+            total_agents: 5,
+            ready_agents: 3,
+            processing_agents: 1,
+            paused_agents: 0,
+            error_agents: 1,
+            shutdown_agents: 0,
+            shutting_down_agents: 0,
+            initializing_agents: 0,
+            total_processing_time_ms: 1000,
+            total_restarts: 2,
+        };
+        assert_eq!(stats.total_agents, 5);
+        assert_eq!(stats.total_restarts, 2);
+    }
+
+    #[test]
+    fn test_lifecycle_manager_new() {
+        let config = AgentManagerConfig::default();
+        let manager = LifecycleManager::new(config);
+        let statuses = futures::executor::block_on(manager.get_all_agent_statuses());
+        assert!(statuses.is_empty());
+    }
+
+    #[test]
+    fn test_lifecycle_manager_get_nonexistent_status() {
+        let config = AgentManagerConfig::default();
+        let manager = LifecycleManager::new(config);
+        let status = futures::executor::block_on(manager.get_agent_status(Uuid::new_v4())).unwrap();
+        assert!(status.is_none());
+    }
+
+    #[test]
+    fn test_lifecycle_manager_cleanup_empty() {
+        let config = AgentManagerConfig::default();
+        let manager = LifecycleManager::new(config);
+        let count = futures::executor::block_on(manager.cleanup_old_statuses(1)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_lifecycle_stats_debug_clone() {
+        let stats = LifecycleStats::default();
+        let cloned = stats.clone();
+        assert_eq!(format!("{:?}", stats), format!("{:?}", cloned));
+    }
+}

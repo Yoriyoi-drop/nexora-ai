@@ -51,3 +51,62 @@ pub fn validate_tensor_data_size(data_len: usize, shape: &[usize]) -> Validation
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validation_error_display() {
+        let err = ValidationError { message: "test error".to_string() };
+        assert_eq!(format!("{}", err), "Validation error: test error");
+    }
+
+    #[test]
+    fn test_validation_error_impl_error() {
+        let err = ValidationError { message: "test".to_string() };
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[test]
+    fn test_validate_tensor_shape_empty() {
+        let result = validate_tensor_shape(&[]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_tensor_shape_zero_dim() {
+        let result = validate_tensor_shape(&[2, 0, 3]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("zero"));
+    }
+
+    #[test]
+    fn test_validate_tensor_shape_valid() {
+        assert!(validate_tensor_shape(&[1]).is_ok());
+        assert!(validate_tensor_shape(&[2, 3, 4]).is_ok());
+        assert!(validate_tensor_shape(&[256, 256, 3]).is_ok());
+    }
+
+    #[test]
+    fn test_validate_tensor_data_size_match() {
+        assert!(validate_tensor_data_size(12, &[2, 3, 2]).is_ok());
+        assert!(validate_tensor_data_size(1, &[1]).is_ok());
+        assert!(validate_tensor_data_size(0, &[0]).is_err());
+    }
+
+    #[test]
+    fn test_validate_tensor_data_size_mismatch() {
+        let result = validate_tensor_data_size(10, &[2, 3]);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().message;
+        assert!(msg.contains("10"));
+        assert!(msg.contains("6"));
+    }
+
+    #[test]
+    fn test_validate_tensor_data_size_large() {
+        assert!(validate_tensor_data_size(1000, &[10, 10, 10]).is_ok());
+    }
+}

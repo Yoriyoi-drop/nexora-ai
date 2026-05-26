@@ -1026,3 +1026,129 @@ impl Default for PlannerAgentConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_planner_agent_config_default() {
+        let config = PlannerAgentConfig::default();
+        assert_eq!(config.max_concurrent_plans, 50);
+        assert_eq!(config.default_planning_depth, 3);
+        assert!(config.enable_adaptive_planning);
+        assert_eq!(config.max_plan_complexity, 10);
+    }
+
+    #[test]
+    fn test_planner_agent_config_clone_debug() {
+        let config = PlannerAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_step_type_variants() {
+        assert!(matches!(StepType::DataCollection, StepType::DataCollection));
+        assert!(matches!(StepType::Analysis, StepType::Analysis));
+        assert!(matches!(StepType::Generation, StepType::Generation));
+        assert!(matches!(StepType::Custom("x".into()), StepType::Custom(_)));
+    }
+
+    #[test]
+    fn test_step_type_serialize() {
+        let ty = StepType::Analysis;
+        let json = serde_json::to_string(&ty).unwrap();
+        assert_eq!(json, "\"Analysis\"");
+    }
+
+    #[test]
+    fn test_plan_status_variants() {
+        assert!(matches!(PlanStatus::Ready, PlanStatus::Ready));
+        assert!(matches!(PlanStatus::Executing, PlanStatus::Executing));
+        assert!(matches!(PlanStatus::Completed, PlanStatus::Completed));
+        assert!(matches!(PlanStatus::Failed("x".into()), PlanStatus::Failed(_)));
+        assert!(matches!(PlanStatus::Cancelled, PlanStatus::Cancelled));
+    }
+
+    #[test]
+    fn test_step_status_variants() {
+        assert_eq!(StepStatus::Pending, StepStatus::Pending);
+        assert_eq!(StepStatus::Running, StepStatus::Running);
+        assert_eq!(StepStatus::Completed, StepStatus::Completed);
+        assert_ne!(StepStatus::Skipped, StepStatus::Pending);
+    }
+
+    #[test]
+    fn test_execution_plan_creation() {
+        let now = chrono::Utc::now();
+        let plan = ExecutionPlan {
+            plan_id: Uuid::new_v4(),
+            task_description: "Test task".into(),
+            steps: vec![],
+            current_step_index: 0,
+            status: PlanStatus::Ready,
+            created_at: now,
+            last_updated: now,
+            metadata: HashMap::new(),
+        };
+        assert_eq!(plan.task_description, "Test task");
+        assert!(plan.steps.is_empty());
+    }
+
+    #[test]
+    fn test_plan_step_creation() {
+        let step = PlanStep {
+            step_id: Uuid::new_v4(),
+            description: "Analyze data".into(),
+            step_type: StepType::Analysis,
+            dependencies: vec![],
+            required_capabilities: vec!["analysis".into()],
+            estimated_duration_seconds: 30,
+            status: StepStatus::Pending,
+            result: None,
+            error_message: None,
+        };
+        assert_eq!(step.description, "Analyze data");
+        assert_eq!(step.estimated_duration_seconds, 30);
+        assert!(step.result.is_none());
+    }
+
+    #[test]
+    fn test_planning_stats_creation() {
+        let stats = PlanningStats {
+            active_plans: 2,
+            total_steps: 8,
+            completed_steps: 3,
+            max_concurrent_plans: 10,
+            adaptive_planning_enabled: true,
+        };
+        assert_eq!(stats.active_plans, 2);
+        assert_eq!(stats.completed_steps, 3);
+    }
+
+    #[test]
+    fn test_planner_agent_new() {
+        let config = PlannerAgentConfig::default();
+        let agent = PlannerAgent::new(config);
+        assert_eq!(agent.name(), "PlannerAgent");
+        assert_eq!(agent.agent_type(), "planner");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_planner_agent_health_no_strategies() {
+        let config = PlannerAgentConfig::default();
+        let agent = PlannerAgent::new(config);
+        let healthy = futures::executor::block_on(agent.health_check()).unwrap();
+        assert!(!healthy); // No strategies loaded yet
+    }
+
+    #[test]
+    fn test_planner_agent_list_plans_empty() {
+        let config = PlannerAgentConfig::default();
+        let agent = PlannerAgent::new(config);
+        let plans = futures::executor::block_on(agent.list_active_plans());
+        assert!(plans.is_empty());
+    }
+}

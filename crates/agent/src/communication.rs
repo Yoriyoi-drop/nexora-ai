@@ -578,3 +578,100 @@ impl InterAgentMessage {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_routing_strategy_variants() {
+        let direct = RoutingStrategy::Direct;
+        let broadcast = RoutingStrategy::Broadcast;
+        let topic = RoutingStrategy::Topic("news".into());
+        assert!(matches!(direct, RoutingStrategy::Direct));
+        assert!(matches!(broadcast, RoutingStrategy::Broadcast));
+        assert!(matches!(topic, RoutingStrategy::Topic(_)));
+    }
+
+    #[test]
+    fn test_delivery_status_variants() {
+        let delivered = DeliveryStatus::Delivered;
+        let failed = DeliveryStatus::Failed("timeout".into());
+        assert!(matches!(delivered, DeliveryStatus::Delivered));
+        assert!(matches!(failed, DeliveryStatus::Failed(_)));
+    }
+
+    #[test]
+    fn test_inter_agent_message_new() {
+        let source_id = Uuid::new_v4();
+        let msg = InterAgentMessage::new(source_id, "greeting".into(), serde_json::json!("hello"));
+        assert_eq!(msg.source_agent_id, source_id);
+        assert_eq!(msg.message_type, "greeting");
+        assert_eq!(msg.priority, MessagePriority::Normal);
+        assert_eq!(msg.ttl, Some(10));
+        assert!(msg.destination_agent_id.is_none());
+    }
+
+    #[test]
+    fn test_inter_agent_message_builder() {
+        let source_id = Uuid::new_v4();
+        let dest_id = Uuid::new_v4();
+        let msg = InterAgentMessage::new(source_id, "cmd".into(), serde_json::json!(1))
+            .to(dest_id)
+            .with_priority(MessagePriority::High)
+            .with_ttl(5)
+            .with_metadata("key".into(), serde_json::json!("val"))
+            .with_routing_strategy(RoutingStrategy::Direct);
+        assert_eq!(msg.destination_agent_id, Some(dest_id));
+        assert_eq!(msg.priority, MessagePriority::High);
+        assert_eq!(msg.ttl, Some(5));
+        assert_eq!(msg.metadata.get("key"), Some(&serde_json::json!("val")));
+        assert!(matches!(msg.routing_strategy, RoutingStrategy::Direct));
+    }
+
+    #[test]
+    fn test_inter_agent_message_reply_to() {
+        let source_id = Uuid::new_v4();
+        let original_id = Uuid::new_v4();
+        let msg = InterAgentMessage::new(source_id, "reply".into(), serde_json::json!(true))
+            .reply_to(original_id);
+        assert_eq!(msg.reply_to, Some(original_id));
+    }
+
+    #[test]
+    fn test_message_bus_event_variants() {
+        let agent_id = Uuid::new_v4();
+        let msg_id = Uuid::new_v4();
+        let received = MessageBusEvent::MessageReceived(
+            InterAgentMessage::new(agent_id, "t".into(), serde_json::json!({}))
+        );
+        let delivered = MessageBusEvent::MessageDelivered { message_id: msg_id, agent_id };
+        let failed = MessageBusEvent::MessageFailed { message_id: msg_id, agent_id, error: "err".into() };
+        let subscribed = MessageBusEvent::AgentSubscribed { agent_id };
+        assert!(matches!(received, MessageBusEvent::MessageReceived(_)));
+        assert!(matches!(delivered, MessageBusEvent::MessageDelivered { .. }));
+        assert!(matches!(failed, MessageBusEvent::MessageFailed { .. }));
+        assert!(matches!(subscribed, MessageBusEvent::AgentSubscribed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_message_bus_new() {
+        let bus = MessageBus::new();
+        let pending = bus.get_pending_count().await;
+        assert_eq!(pending, 0);
+    }
+
+    #[tokio::test]
+    async fn test_message_bus_cleanup_old_messages() {
+        let bus = MessageBus::new();
+        let count = bus.cleanup_old_messages(1).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_message_bus_unsubscribe_nonexistent() {
+        let bus = MessageBus::new();
+        let result = bus.unsubscribe(Uuid::new_v4()).await;
+        assert!(result.is_ok());
+    }
+}

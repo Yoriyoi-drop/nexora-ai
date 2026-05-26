@@ -79,3 +79,82 @@ impl Filter for ToxicityFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_threshold() {
+        let f = ToxicityFilter::default();
+        assert_eq!(f.threshold, 0.80);
+    }
+
+    #[test]
+    fn test_clean_text_passes() {
+        let f = ToxicityFilter::default();
+        let (score, reason) = f.score_toxicity("this is a perfectly clean sentence");
+        assert!(score < f.threshold);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn test_slur_triggers() {
+        let f = ToxicityFilter::default();
+        let (score, reason) = f.score_toxicity("that person is a bitch");
+        assert!(score >= f.threshold);
+        assert!(reason.is_some());
+    }
+
+    #[test]
+    fn test_violence_triggers() {
+        let f = ToxicityFilter::default();
+        let (score, _) = f.score_toxicity("go kill yourself");
+        assert!(score >= f.threshold);
+    }
+
+    #[tokio::test]
+    async fn test_filter_rejects_toxic() {
+        let f = ToxicityFilter::default();
+        let s = sample("you are a fucking cunt");
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+        assert_eq!(result.filter_name, "toxicity");
+    }
+
+    #[tokio::test]
+    async fn test_filter_accepts_clean() {
+        let f = ToxicityFilter::default();
+        let s = sample("the quick brown fox jumps over the lazy dog");
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_action_is_reject() {
+        let f = ToxicityFilter::default();
+        assert_eq!(f.action(), FilterAction::Reject);
+    }
+}

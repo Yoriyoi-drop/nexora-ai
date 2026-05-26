@@ -1154,3 +1154,187 @@ pub fn init_blas_with_backend(backend: BlasBackend) -> DLResult<()> {
     let _ = GLOBAL_BLAS.set(ops);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    fn make_identity(m: usize, n: usize) -> Array2<f32> {
+        Array2::from_shape_fn((m, n), |(i, j)| if i == j { 1.0 } else { 0.0 })
+    }
+
+    fn make_ones(m: usize, n: usize) -> Array2<f32> {
+        Array2::from_shape_fn((m, n), |(_, _)| 1.0)
+    }
+
+    #[test]
+    fn test_blas_auto_detect() -> DLResult<()> {
+        let _ops = BlasOperations::auto_detect()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_blas_with_backend_custom_simd() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        assert!(matches!(ops.backend, BlasBackend::CustomSIMD));
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_basic() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(4, 4);
+        let b = make_identity(4, 4);
+        let mut c = Array2::zeros((4, 4));
+        ops.gemm(1.0, a.view(), b.view(), 0.0, c.view_mut())?;
+        assert!((c[[0, 0]] - 1.0).abs() < 1e-5);
+        assert!((c[[0, 1]] - 0.0).abs() < 1e-5);
+        assert!((c[[1, 1]] - 1.0).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_non_square() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_ones(2, 3);
+        let b = make_ones(3, 4);
+        let mut c = Array2::zeros((2, 4));
+        ops.gemm(1.0, a.view(), b.view(), 0.0, c.view_mut())?;
+        for i in 0..2 {
+            for j in 0..4 {
+                assert!((c[[i, j]] - 3.0).abs() < 1e-5);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_shape_mismatch() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(3, 2);
+        let b = make_identity(4, 5);
+        let mut c = Array2::zeros((3, 5));
+        let result = ops.gemm(1.0, a.view(), b.view(), 0.0, c.view_mut());
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemv_basic() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(4, 4);
+        let x = Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0]);
+        let mut y = Array1::zeros(4);
+        ops.gemv(1.0, a.view(), x.view(), 0.0, y.view_mut())?;
+        assert!((y[0] - 1.0).abs() < 1e-5);
+        assert!((y[1] - 2.0).abs() < 1e-5);
+        assert!((y[2] - 3.0).abs() < 1e-5);
+        assert!((y[3] - 4.0).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemv_rectangular() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_ones(2, 3);
+        let x = Array1::from_vec(vec![1.0, 1.0, 1.0]);
+        let mut y = Array1::zeros(2);
+        ops.gemv(1.0, a.view(), x.view(), 0.0, y.view_mut())?;
+        assert!((y[0] - 3.0).abs() < 1e-5);
+        assert!((y[1] - 3.0).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemv_shape_mismatch() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(3, 4);
+        let x = Array1::from_vec(vec![1.0, 2.0]);
+        let mut y = Array1::zeros(3);
+        let result = ops.gemv(1.0, a.view(), x.view(), 0.0, y.view_mut());
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_activation_relu() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(3, 3);
+        let b = make_identity(3, 3);
+        let mut c = Array2::zeros((3, 3));
+        ops.gemm_activation(1.0, a.view(), b.view(), ActivationType::ReLU, c.view_mut())?;
+        assert!((c[[0, 0]] - 1.0).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_activation_sigmoid() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = Array2::from_shape_fn((2, 2), |(i, j)| if i == j { 100.0 } else { 0.0 });
+        let b = Array2::from_shape_fn((2, 2), |(i, j)| if i == j { 1.0 } else { 0.0 });
+        let mut c = Array2::zeros((2, 2));
+        ops.gemm_activation(1.0, a.view(), b.view(), ActivationType::Sigmoid, c.view_mut())?;
+        assert!((c[[0, 0]] - 1.0).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_backend_info() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let info = ops.backend_info();
+        assert!(matches!(info.backend, BlasBackend::CustomSIMD));
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_blas_operations() {
+        let ops = get_blas_operations();
+        assert!(matches!(ops.backend, BlasBackend::CustomSIMD));
+    }
+
+    #[test]
+    fn test_clone() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let cloned = ops.clone();
+        assert!(matches!(cloned.backend, BlasBackend::CustomSIMD));
+        Ok(())
+    }
+
+    #[test]
+    fn test_batched_gemm_fallback() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(2, 2);
+        let b = make_identity(2, 2);
+        let mut c = Array2::zeros((2, 2));
+        let a_batch = vec![a.view()];
+        let b_batch = vec![b.view()];
+        let mut c_batch = vec![c.view_mut()];
+        ops.batched_gemm(1.0, &a_batch, &b_batch, 0.0, &mut c_batch)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_beta() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(2, 2);
+        let b = make_identity(2, 2);
+        let mut c = Array2::from_shape_fn((2, 2), |(_, _)| 5.0);
+        ops.gemm(1.0, a.view(), b.view(), 2.0, c.view_mut())?;
+        assert!((c[[0, 0]] - 11.0).abs() < 1e-5);
+        assert!((c[[0, 1]] - 10.0).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemv_beta() -> DLResult<()> {
+        let ops = BlasOperations::with_backend(BlasBackend::CustomSIMD)?;
+        let a = make_identity(3, 3);
+        let x = Array1::from_vec(vec![1.0, 1.0, 1.0]);
+        let mut y = Array1::from_vec(vec![10.0, 10.0, 10.0]);
+        ops.gemv(1.0, a.view(), x.view(), 0.5, y.view_mut())?;
+        assert!((y[0] - 6.0).abs() < 1e-5);
+        assert!((y[1] - 6.0).abs() < 1e-5);
+        Ok(())
+    }
+}

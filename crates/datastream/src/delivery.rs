@@ -347,3 +347,91 @@ impl TrainingDeliveryLayer {
         Ok(total)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_format() {
+        let layer = TrainingDeliveryLayer::default();
+        assert_eq!(layer.output_format, OutputFormat::JsonLines);
+        assert_eq!(layer.output_dir, PathBuf::from("output"));
+    }
+
+    #[test]
+    fn test_with_format() {
+        let layer = TrainingDeliveryLayer::new()
+            .with_format(OutputFormat::RawText);
+        assert_eq!(layer.output_format, OutputFormat::RawText);
+    }
+
+    #[test]
+    fn test_with_output_dir() {
+        let layer = TrainingDeliveryLayer::new()
+            .with_output_dir(PathBuf::from("/tmp/out"));
+        assert_eq!(layer.output_dir, PathBuf::from("/tmp/out"));
+    }
+
+    #[test]
+    fn test_output_format_debug_and_clone() {
+        let a = OutputFormat::Arrow;
+        let b = a;
+        assert_eq!(a, b);
+        assert_eq!(format!("{:?}", OutputFormat::JsonLines), "JsonLines");
+    }
+
+    #[test]
+    fn test_zero_copy_batch() {
+        let layer = TrainingDeliveryLayer::default();
+        let samples = vec![sample("hello")];
+        let data = layer.zero_copy_batch(&samples);
+        assert!(!data.is_empty());
+
+        // First 4 bytes are the length prefix
+        let len = u32::from_le_bytes(data[0..4].try_into().unwrap());
+        assert!(len > 0);
+    }
+
+    #[test]
+    fn test_zero_copy_batch_empty() {
+        let layer = TrainingDeliveryLayer::default();
+        let data = layer.zero_copy_batch(&[]);
+        assert!(data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_deliver_batch_empty_returns_zero() {
+        let layer = TrainingDeliveryLayer::default();
+        let result = layer.deliver_batch(&[]).await;
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_output_format_partial_eq() {
+        assert_eq!(OutputFormat::JsonLines, OutputFormat::JsonLines);
+        assert_ne!(OutputFormat::JsonLines, OutputFormat::TensorRecords);
+    }
+}

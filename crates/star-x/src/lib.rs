@@ -85,3 +85,90 @@ pub mod traits {
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::ArrayD;
+
+    #[test]
+    fn test_deep_learning_error_shape_mismatch() {
+        let err = DeepLearningError::ShapeMismatch {
+            expected: vec![2, 3],
+            actual: vec![3, 3],
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("Shape mismatch"));
+    }
+
+    #[test]
+    fn test_deep_learning_error_invalid_dimension() {
+        let err = DeepLearningError::InvalidDimension { dim: 42 };
+        assert_eq!(format!("{}", err), "Invalid input dimension: 42");
+    }
+
+    #[test]
+    fn test_deep_learning_error_memory_allocation() {
+        let err = DeepLearningError::MemoryAllocation {
+            reason: "OOM".into(),
+        };
+        assert_eq!(format!("{}", err), "Memory allocation failed: OOM");
+    }
+
+    #[test]
+    fn test_deep_learning_error_computation() {
+        let err = DeepLearningError::Computation {
+            reason: "overflow".into(),
+        };
+        assert_eq!(format!("{}", err), "Computation error: overflow");
+    }
+
+    #[test]
+    fn test_deep_learning_error_configuration() {
+        let err = DeepLearningError::Configuration {
+            reason: "bad param".into(),
+        };
+        assert_eq!(format!("{}", err), "Configuration error: bad param");
+    }
+
+    #[test]
+    fn test_require_contiguous_ok() {
+        let arr = ndarray::Array1::<f32>::zeros(10);
+        let result = require_contiguous(arr.as_slice());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_require_contiguous_err() {
+        let result = require_contiguous::<f32>(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not contiguous"));
+    }
+
+    #[test]
+    fn test_require_contiguous_mut_ok() {
+        let mut arr = ndarray::Array1::<f32>::zeros(10);
+        let result = require_contiguous_mut(arr.as_slice_mut());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_require_contiguous_mut_err() {
+        let result = require_contiguous_mut::<f32>(None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dl_result_type_alias() {
+        let ok_val: DLResult<i32> = Ok(42);
+        assert_eq!(ok_val.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_from_shape_error() {
+        let shape_err = ndarray::Array2::<f32>::zeros((2, 3)).into_shape((2, 4)).unwrap_err();
+        let dl_err: DeepLearningError = shape_err.into();
+        let msg = format!("{}", dl_err);
+        assert!(msg.contains("Shape mismatch"));
+    }
+}

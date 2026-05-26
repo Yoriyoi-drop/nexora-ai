@@ -83,3 +83,60 @@ pub fn get_load_average() -> (f64, f64, f64) {
     }
     (0.0, 0.0, 0.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unix_timestamp_non_zero() {
+        assert!(unix_timestamp() > 1_700_000_000);
+    }
+
+    #[test]
+    fn test_unix_timestamp_millis_greater() {
+        let secs = unix_timestamp();
+        let millis = unix_timestamp_millis();
+        assert!(millis > (secs as u128) * 1000);
+    }
+
+    #[test]
+    fn test_format_duration_zero() {
+        assert_eq!(format_duration(0), "0h 0m 0s");
+    }
+
+    #[test]
+    fn test_format_duration_exact() {
+        assert_eq!(format_duration(3661), "1h 1m 1s");
+    }
+
+    #[test]
+    fn test_format_duration_one_hour() {
+        assert_eq!(format_duration(3600), "1h 0m 0s");
+    }
+
+    #[test]
+    fn test_format_duration_one_day() {
+        assert_eq!(format_duration(86400), "24h 0m 0s");
+    }
+
+    #[test]
+    fn test_get_process_memory_mb_type() {
+        let mem: f64 = get_process_memory_mb();
+        assert!(!mem.is_nan());
+    }
+
+    #[test]
+    fn test_get_cpu_usage_type() {
+        let cpu: f64 = get_cpu_usage_percent();
+        assert!(!cpu.is_nan());
+    }
+
+    #[test]
+    fn test_get_load_average_type() {
+        let (l1, l5, l15): (f64, f64, f64) = get_load_average();
+        assert!(!l1.is_nan());
+        assert!(!l5.is_nan());
+        assert!(!l15.is_nan());
+    }
+}

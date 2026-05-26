@@ -107,3 +107,77 @@ impl Default for SacaAetherIntegration {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_saca_aether_config_default() {
+        let config = SacaAetherConfig::default();
+        assert!(config.enable_emotional_reasoning);
+        assert!((config.empathy_threshold - 0.7).abs() < 1e-6);
+        assert!(config.cultural_adaptation);
+    }
+
+    #[test]
+    fn test_enhanced_reasoning_result_new() {
+        let result = EnhancedReasoningResult::new();
+        assert!(result.emotional_analysis.is_none());
+        assert!(result.emotional_context.is_none());
+    }
+
+    #[test]
+    fn test_analyze_emotional_context_positive() {
+        let integration = SacaAetherIntegration::new();
+        let context = integration.analyze_emotional_context("I feel great and happy today");
+        assert!(context.starts_with("positive"));
+    }
+
+    #[test]
+    fn test_analyze_emotional_context_negative() {
+        let integration = SacaAetherIntegration::new();
+        let context = integration.analyze_emotional_context("I feel sad and angry");
+        assert!(context.starts_with("negative"));
+    }
+
+    #[test]
+    fn test_analyze_emotional_context_urgent() {
+        let integration = SacaAetherIntegration::new();
+        let context = integration.analyze_emotional_context("This is urgent and critical");
+        assert!(context.starts_with("urgent"));
+    }
+
+    #[test]
+    fn test_analyze_emotional_context_analytical() {
+        let integration = SacaAetherIntegration::new();
+        let context = integration.analyze_emotional_context("Please analyze and evaluate this");
+        assert!(context.starts_with("analytical"));
+    }
+
+    #[test]
+    fn test_analyze_emotional_context_neutral() {
+        let integration = SacaAetherIntegration::new();
+        let context = integration.analyze_emotional_context("The weather is nice");
+        assert!(context.starts_with("neutral"));
+    }
+
+    #[test]
+    fn test_analyze_emotional_context_empty() {
+        let integration = SacaAetherIntegration::new();
+        let context = integration.analyze_emotional_context("");
+        assert!(context.starts_with("neutral"));
+    }
+
+    #[test]
+    fn test_saca_aether_config_debug() {
+        let config = SacaAetherConfig::default();
+        let _debug = format!("{:?}", config);
+    }
+
+    #[test]
+    fn test_enhanced_reasoning_result_debug() {
+        let result = EnhancedReasoningResult::new();
+        let _debug = format!("{:?}", result);
+    }
+}

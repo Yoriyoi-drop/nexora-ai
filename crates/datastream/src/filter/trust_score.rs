@@ -127,3 +127,90 @@ impl Filter for TrustScoreFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(name: &str, category: SourceCategory) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: "some content".into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: name.into(),
+                url: Some(format!("https://{}", name)),
+                trust_score: 0.5,
+                category,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_defaults() {
+        let f = TrustScoreFilter::default();
+        assert_eq!(f.default_trust, 0.5);
+        assert_eq!(f.min_trust, 0.2);
+    }
+
+    #[test]
+    fn test_wikipedia_high_trust() {
+        let f = TrustScoreFilter::default();
+        let score = f.source_trust("wikipedia.org");
+        assert_eq!(score, 0.95);
+    }
+
+    #[test]
+    fn test_unknown_source_uses_default() {
+        let f = TrustScoreFilter::default();
+        let score = f.source_trust("unknown-site.example.com");
+        assert_eq!(score, 0.5);
+    }
+
+    #[test]
+    fn test_category_trust() {
+        let f = TrustScoreFilter::default();
+        assert_eq!(f.category_trust(&SourceCategory::Arxiv), 0.97);
+        assert_eq!(f.category_trust(&SourceCategory::SEOFarm), 0.12);
+        assert_eq!(f.category_trust(&SourceCategory::SocialMedia), 0.35);
+    }
+
+    #[tokio::test]
+    async fn test_high_trust_source_passes() {
+        let f = TrustScoreFilter::default();
+        let s = sample("wikipedia.org", SourceCategory::Wikipedia);
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_low_trust_source_rejected() {
+        let f = TrustScoreFilter::new(0.8);
+        let s = sample("some-spam-blog.com", SourceCategory::WebCrawl);
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn test_url_based_trust() {
+        let f = TrustScoreFilter::default();
+        let score = f.source_trust("https://en.wikipedia.org/wiki/Main_Page");
+        assert_eq!(score, 0.95);
+    }
+
+    #[tokio::test]
+    async fn test_score_delta_reflects_trust() {
+        let f = TrustScoreFilter::default();
+        let s = sample("arxiv.org", SourceCategory::Arxiv);
+        let result = f.evaluate(&s).await;
+        assert!(result.score_delta > 0.0);
+    }
+}

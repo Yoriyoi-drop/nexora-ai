@@ -58,6 +58,7 @@ pub struct Sampler {
     fallback_threshold: f32,
     total_attempts: u64,
     fallback_attempts: u64,
+    gpu_degraded_warned: bool,
 }
 
 impl Sampler {
@@ -77,6 +78,7 @@ impl Sampler {
             fallback_threshold: 0.2,
             total_attempts: 0,
             fallback_attempts: 0,
+            gpu_degraded_warned: false,
         }
     }
 
@@ -96,6 +98,7 @@ impl Sampler {
             fallback_threshold: 0.2,
             total_attempts: 0,
             fallback_attempts: 0,
+            gpu_degraded_warned: false,
         }
     }
 
@@ -136,6 +139,24 @@ impl Sampler {
     /// Returns true if the GPU fallback rate exceeds the threshold (degraded but not disabled).
     pub fn is_gpu_degraded(&self) -> bool {
         self.gpu_fallback_ratio() > self.fallback_threshold as f64
+    }
+
+    /// Same as `is_gpu_degraded()` but also emits an `error!` log on first detection
+    /// so operations/alerting can catch it. Returns true if newly degraded.
+    pub fn check_gpu_health_and_alert(&mut self) -> bool {
+        let degraded = self.is_gpu_degraded();
+        if degraded && !self.gpu_degraded_warned {
+            self.gpu_degraded_warned = true;
+            error!(
+                "GPU DEGRADED: fallback rate {:.1}% exceeds threshold {:.0}%. \
+                 Inference is now running primarily on CPU. Check GPU health.",
+                self.gpu_fallback_ratio() * 100.0,
+                self.fallback_threshold * 100.0,
+            );
+        } else if !degraded {
+            self.gpu_degraded_warned = false;
+        }
+        degraded
     }
 
     /// Returns a JSON snapshot of GPU fallback metrics for observability/monitoring.
@@ -188,6 +209,7 @@ impl Sampler {
             Err(e) => {
                 self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                self.check_gpu_health_and_alert();
                 if self.allow_gpu_fallback {
                     warn!(
                         "GPU sampling failed: {}, falling back to CPU (fallback count: {})",
@@ -220,7 +242,8 @@ impl Sampler {
         self.total_attempts += 1;
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
 
-        let log_fallback = |sampler: &Self| {
+        let log_fallback = |sampler: &mut Sampler| {
+            sampler.check_gpu_health_and_alert();
             let rate = sampler.fallback_attempts as f32 / sampler.total_attempts.max(1) as f32;
             if rate > sampler.fallback_threshold {
                 warn!(

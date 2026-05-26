@@ -177,3 +177,89 @@ impl Default for CaffeineSpectraIntegration {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_caffeine_spectra_config_default() {
+        let config = CaffeineSpectraConfig::default();
+        assert!(config.enable_creative_synthesis);
+        assert!((config.creativity_level - 0.9).abs() < 1e-6);
+        assert!(config.style_adaptation);
+    }
+
+    #[test]
+    fn test_multimodal_inputs_new() {
+        let inputs = MultimodalInputs {
+            text: Some("hello".to_string()),
+            image: None,
+            audio: None,
+        };
+        assert_eq!(inputs.text, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_enhanced_multimodal_result_new() {
+        let result = EnhancedMultimodalResult::new();
+        assert!(result.caffeine_processing.is_none());
+        assert!(result.spectra_synthesis.is_none());
+        assert!(result.combined_insights.is_empty());
+    }
+
+    #[test]
+    fn test_enhanced_multimodal_result_summary_empty() {
+        let result = EnhancedMultimodalResult::new();
+        assert_eq!(result.summary(), "EnhancedMultimodalResult()");
+    }
+
+    #[test]
+    fn test_enhanced_multimodal_result_combine_results() {
+        let mut result = EnhancedMultimodalResult::new();
+        result.combine_results();
+        assert!(result.combined_insights.is_empty()); // nothing to combine
+    }
+
+    #[test]
+    fn test_combine_multimodal_inputs() {
+        let integration = CaffeineSpectraIntegration::new();
+        let inputs = MultimodalInputs {
+            text: Some("Hello".to_string()),
+            image: Some("image.png".to_string()),
+            audio: None,
+        };
+        let combined = integration.combine_multimodal_inputs(&inputs);
+        assert!(combined.contains("Hello"));
+        assert!(combined.contains("image.png"));
+    }
+
+    #[test]
+    fn test_combine_multimodal_inputs_empty() {
+        let integration = CaffeineSpectraIntegration::new();
+        let inputs = MultimodalInputs {
+            text: None,
+            image: None,
+            audio: None,
+        };
+        let combined = integration.combine_multimodal_inputs(&inputs);
+        assert!(combined.is_empty());
+    }
+
+    #[test]
+    fn test_multimodal_inputs_debug() {
+        let inputs = MultimodalInputs {
+            text: Some("hi".to_string()),
+            image: None,
+            audio: None,
+        };
+        let debug = format!("{:?}", inputs);
+        assert!(debug.contains("hi"));
+    }
+
+    #[test]
+    fn test_enhanced_multimodal_result_debug() {
+        let result = EnhancedMultimodalResult::new();
+        let _debug = format!("{:?}", result);
+    }
+}

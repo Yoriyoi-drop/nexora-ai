@@ -389,3 +389,118 @@ impl IntentMapping {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_info_creation() {
+        let agent_id = Uuid::new_v4();
+        let now = Utc::now();
+        let info = AgentInfo {
+            agent_id,
+            agent_type: "test".into(),
+            config: AgentConfig::default(),
+            status: AgentStatus::Ready,
+            registered_at: now,
+            last_updated: now,
+            restart_attempts: 0,
+        };
+        assert_eq!(info.agent_id, agent_id);
+        assert_eq!(info.agent_type, "test");
+        assert_eq!(info.restart_attempts, 0);
+    }
+
+    #[test]
+    fn test_agent_info_clone_debug() {
+        let info = AgentInfo {
+            agent_id: Uuid::new_v4(),
+            agent_type: "test".into(),
+            config: AgentConfig::default(),
+            status: AgentStatus::Initializing,
+            registered_at: Utc::now(),
+            last_updated: Utc::now(),
+            restart_attempts: 0,
+        };
+        let cloned = info.clone();
+        assert_eq!(format!("{:?}", info), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_intent_mapping_default() {
+        let mapping = IntentMapping::default();
+        assert!(mapping.intent_pattern.is_empty());
+        assert!(mapping.agent_type.is_empty());
+        assert_eq!(mapping.priority, 50);
+        assert!(mapping.active);
+    }
+
+    #[test]
+    fn test_intent_mapping_new() {
+        let mapping = IntentMapping::new("greeting".into(), "chat".into());
+        assert_eq!(mapping.intent_pattern, "greeting");
+        assert_eq!(mapping.agent_type, "chat");
+        assert_eq!(mapping.priority, 50);
+        assert!(mapping.active);
+    }
+
+    #[test]
+    fn test_intent_mapping_builder() {
+        let mapping = IntentMapping::new("help".into(), "support".into())
+            .with_priority(90)
+            .with_active(false);
+        assert_eq!(mapping.priority, 90);
+        assert!(!mapping.active);
+    }
+
+    #[test]
+    fn test_intent_mapping_serialize() {
+        let mapping = IntentMapping::new("test".into(), "agent".into());
+        let json = serde_json::to_string(&mapping).unwrap();
+        let deserialized: IntentMapping = serde_json::from_str(&json).unwrap();
+        assert_eq!(mapping.intent_pattern, deserialized.intent_pattern);
+    }
+
+    #[test]
+    fn test_agent_registry_new() {
+        let registry = AgentRegistry::new();
+        let count = futures::executor::block_on(registry.agent_count());
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_agent_registry_list_empty() {
+        let registry = AgentRegistry::new();
+        let agents = futures::executor::block_on(registry.list_agents()).unwrap();
+        assert!(agents.is_empty());
+    }
+
+    #[test]
+    fn test_agent_registry_intent_mappings_empty() {
+        let registry = AgentRegistry::new();
+        let mappings = futures::executor::block_on(registry.get_intent_mappings());
+        assert!(mappings.is_empty());
+    }
+
+    #[test]
+    fn test_agent_registry_get_agents_by_type_empty() {
+        let registry = AgentRegistry::new();
+        let agents = futures::executor::block_on(registry.get_agents_by_type("nonexistent")).unwrap();
+        assert!(agents.is_empty());
+    }
+
+    #[test]
+    fn test_intent_mapping_regex_fallback() {
+        let registry = AgentRegistry::new();
+        let result = registry.intent_matches("hello world", "hello");
+        assert!(result);
+    }
+
+    #[test]
+    fn test_agent_registry_cleanup_dead_empty() {
+        let registry = AgentRegistry::new();
+        let count = futures::executor::block_on(registry.cleanup_dead_agents(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+}

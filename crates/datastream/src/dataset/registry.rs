@@ -137,3 +137,68 @@ impl std::fmt::Display for RegistryError {
 }
 
 impl std::error::Error for RegistryError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_registry_new() {
+        let reg = DatasetRegistry::new();
+        assert!(reg.list_datasets().is_empty());
+    }
+
+    #[test]
+    fn test_registry_get_nonexistent() {
+        let reg = DatasetRegistry::new();
+        assert!(reg.get("nonexistent").is_none());
+        assert!(reg.latest("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_register_nonexistent_path() {
+        let mut reg = DatasetRegistry::new();
+        let result = reg.register(Path::new("/nonexistent/path"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_registry_nonexistent_path() {
+        let result = DatasetRegistry::load_registry(Path::new("/nonexistent/registry.json"));
+        assert!(result.is_ok());
+        let reg = result.unwrap();
+        assert!(reg.list_datasets().is_empty());
+    }
+
+    #[test]
+    fn test_registry_error_display() {
+        let e = RegistryError::NoManifest(PathBuf::from("manifest.json"));
+        assert!(format!("{}", e).contains("No manifest.json"));
+    }
+
+    #[test]
+    fn test_dataset_info_defaults() {
+        let info = DatasetInfo {
+            name: "test".into(),
+            version: "1.0".into(),
+            path: PathBuf::from("/data"),
+            total_samples: 1000,
+            format: "arrow".into(),
+            compression: None,
+            created_at: "now".into(),
+        };
+        assert_eq!(info.name, "test");
+        assert_eq!(info.total_samples, 1000);
+    }
+
+    #[test]
+    fn test_with_registry_path_and_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        let reg = DatasetRegistry::new().with_registry_path(path.clone());
+        let result = reg.save_registry();
+        assert!(result.is_ok());
+        assert!(path.exists());
+    }
+}

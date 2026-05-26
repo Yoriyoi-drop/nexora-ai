@@ -159,3 +159,85 @@ impl Default for AtqsSwiftIntegration {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_atqs_swift_config_default() {
+        let config = AtqsSwiftConfig::default();
+        assert!(config.enable_edge_optimization);
+        assert_eq!(config.target_latency_ms, 1);
+        assert_eq!(config.edge_compression_level, 4);
+    }
+
+    #[test]
+    fn test_edge_optimized_compression_new() {
+        let result = EdgeOptimizedCompression::new();
+        assert!(result.atqs_compression.is_none());
+        assert!(result.swift_optimization.is_none());
+        assert!(result.combined_insights.is_empty());
+        assert!(result.edge_recommendations.is_empty());
+    }
+
+    #[test]
+    fn test_edge_optimized_compression_summary_empty() {
+        let result = EdgeOptimizedCompression::new();
+        assert_eq!(result.summary(), "");
+    }
+
+    #[test]
+    fn test_edge_optimized_compression_summary_with_recommendations() {
+        let mut result = EdgeOptimizedCompression::new();
+        result.edge_recommendations.push("test rec".to_string());
+        let summary = result.summary();
+        assert!(summary.contains("test rec"));
+        assert!(summary.contains("Edge Deployment Recommendations"));
+    }
+
+    #[test]
+    fn test_combine_results_with_config_only() {
+        let mut result = EdgeOptimizedCompression::new();
+        let config = AtqsSwiftConfig::default();
+        result.combine_results(&config);
+        assert!(result.edge_recommendations.len() >= 2);
+        assert!(result.edge_recommendations[0].contains("4-bit quantization"));
+    }
+
+    #[test]
+    fn test_combine_results_with_custom_config() {
+        let mut result = EdgeOptimizedCompression::new();
+        let config = AtqsSwiftConfig {
+            enable_edge_optimization: false,
+            target_latency_ms: 10,
+            edge_compression_level: 6,
+        };
+        result.combine_results(&config);
+        // With target_latency > 1 and compression_level > 4, no recommendations added
+        assert!(result.edge_recommendations.is_empty());
+    }
+
+    #[test]
+    fn test_atqs_swift_config_debug() {
+        let config = AtqsSwiftConfig::default();
+        let _debug = format!("{:?}", config);
+    }
+
+    #[test]
+    fn test_edge_optimized_compression_debug() {
+        let result = EdgeOptimizedCompression::new();
+        let _debug = format!("{:?}", result);
+    }
+
+    #[test]
+    fn test_atqs_swift_config_custom_values() {
+        let config = AtqsSwiftConfig {
+            enable_edge_optimization: false,
+            target_latency_ms: 100,
+            edge_compression_level: 8,
+        };
+        assert!(!config.enable_edge_optimization);
+        assert_eq!(config.target_latency_ms, 100);
+    }
+}

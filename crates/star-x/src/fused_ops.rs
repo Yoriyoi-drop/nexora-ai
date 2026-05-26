@@ -584,3 +584,226 @@ unsafe fn horizontal_sum_avx2(v: __m256) -> f32 {
 
     _mm_cvtss_f32(v32_sum)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    fn make_identity_weights(dim: usize) -> Array2<f32> {
+        Array2::from_shape_fn((dim, dim), |(i, j)| if i == j { 1.0 } else { 0.0 })
+    }
+
+    #[test]
+    fn test_fused_linear_activation_new_valid() {
+        let weights = Array2::from_shape_fn((8, 4), |_| 0.1);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::ReLU);
+        assert!(fla.is_ok());
+    }
+
+    #[test]
+    fn test_fused_linear_activation_new_shape_mismatch() {
+        let weights = Array2::from_shape_fn((8, 4), |_| 0.1);
+        let bias = Array1::from_vec(vec![0.0; 5]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::ReLU);
+        assert!(fla.is_err());
+    }
+
+    #[test]
+    fn test_fused_linear_activation_forward_relu() -> DLResult<()> {
+        let weights = make_identity_weights(4);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::ReLU)?;
+        let input = Array1::from_vec(vec![1.0, -2.0, 3.0, -4.0]).into_dyn();
+        let output = fla.forward(&input)?;
+        assert_eq!(output.shape(), &[4]);
+        assert_eq!(output[0], 1.0);
+        assert_eq!(output[1], 0.0);
+        assert_eq!(output[2], 3.0);
+        assert_eq!(output[3], 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_linear_activation_forward_gelu() -> DLResult<()> {
+        let weights = make_identity_weights(4);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::GELU)?;
+        let input = Array1::from_vec(vec![0.0, 1.0, -1.0, 2.0]).into_dyn();
+        let output = fla.forward(&input)?;
+        assert_eq!(output.shape(), &[4]);
+        assert!(output[0] < 0.5);
+        assert!(output[1] > 0.3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_linear_activation_forward_sigmoid() -> DLResult<()> {
+        let weights = make_identity_weights(4);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::Sigmoid)?;
+        let input = Array1::from_vec(vec![0.0, 100.0, -100.0, 1.0]).into_dyn();
+        let output = fla.forward(&input)?;
+        assert!((output[0] - 0.5).abs() < 1e-5);
+        assert!((output[1] - 1.0).abs() < 1e-5);
+        assert!(output[2].abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_linear_activation_forward_tanh() -> DLResult<()> {
+        let weights = make_identity_weights(4);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::Tanh)?;
+        let input = Array1::from_vec(vec![0.0, 100.0, -100.0, 2.0]).into_dyn();
+        let output = fla.forward(&input)?;
+        assert!((output[0] - 0.0).abs() < 1e-5);
+        assert!((output[1] - 1.0).abs() < 1e-5);
+        assert!((output[2] - (-1.0)).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_linear_activation_forward_swish() -> DLResult<()> {
+        let weights = make_identity_weights(4);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::Swish)?;
+        let input = Array1::from_vec(vec![0.0, 100.0, -100.0, 2.0]).into_dyn();
+        let output = fla.forward(&input)?;
+        assert!((output[0] - 0.0).abs() < 1e-5);
+        assert!((output[1] - 100.0).abs() < 1e-5);
+        assert!(output[2].abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_linear_activation_wrong_input_size() -> DLResult<()> {
+        let weights = Array2::from_shape_fn((4, 4), |_| 0.1);
+        let bias = Array1::from_vec(vec![0.0; 4]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::ReLU)?;
+        let input = Array1::zeros(8).into_dyn();
+        let result = fla.forward(&input);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_attention_softmax_new() -> DLResult<()> {
+        let dim = 8;
+        let w = make_identity_weights(dim);
+        let fas = FusedAttentionSoftmax::new(w.clone(), w.clone(), w.clone(), w.clone(), 4, 2)?;
+        // Forward with zeros should return zeros
+        let input = Array1::zeros(dim).into_dyn();
+        let output = fas.forward(&input)?;
+        assert_eq!(output.shape(), &[dim]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_attention_softmax_new_invalid_dims() {
+        let w = make_identity_weights(8);
+        let w2 = Array2::from_shape_fn((4, 4), |_| 1.0);
+        let result = FusedAttentionSoftmax::new(w.clone(), w2, w.clone(), w.clone(), 4, 2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fused_element_wise_add() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Add(5.0)]);
+        let input = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert_eq!(output[0], 6.0);
+        assert_eq!(output[1], 7.0);
+        assert_eq!(output[2], 8.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_mul() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Mul(3.0)]);
+        let input = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert_eq!(output[0], 3.0);
+        assert_eq!(output[1], 6.0);
+        assert_eq!(output[2], 9.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_relu() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Relu]);
+        let input = Array1::from_vec(vec![-1.0, 0.0, 2.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert_eq!(output[0], 0.0);
+        assert_eq!(output[1], 0.0);
+        assert_eq!(output[2], 2.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_sigmoid() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Sigmoid]);
+        let input = Array1::from_vec(vec![0.0, 100.0, -100.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert!((output[0] - 0.5).abs() < 1e-5);
+        assert!((output[1] - 1.0).abs() < 1e-5);
+        assert!(output[2].abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_tanh() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Tanh]);
+        let input = Array1::from_vec(vec![0.0, 100.0, -100.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert!((output[0] - 0.0).abs() < 1e-5);
+        assert!((output[1] - 1.0).abs() < 1e-5);
+        assert!((output[2] - (-1.0)).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_swish() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Swish]);
+        let input = Array1::from_vec(vec![0.0, 100.0, -100.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert!((output[0] - 0.0).abs() < 1e-5);
+        assert!((output[1] - 100.0).abs() < 1e-5);
+        assert!(output[2].abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_pow() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Pow(2.0)]);
+        let input = Array1::from_vec(vec![2.0, 3.0, 4.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert_eq!(output[0], 4.0);
+        assert_eq!(output[1], 9.0);
+        assert_eq!(output[2], 16.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fused_element_wise_chained() -> DLResult<()> {
+        let fe = FusedElementWise::new(vec![ElementWiseOp::Add(1.0), ElementWiseOp::Mul(2.0)]);
+        let input = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let output = fe.forward(&input)?;
+        assert_eq!(output[0], 4.0);
+        assert_eq!(output[1], 6.0);
+        assert_eq!(output[2], 8.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gelu_approx() -> DLResult<()> {
+        let weights = make_identity_weights(2);
+        let bias = Array1::from_vec(vec![0.0; 2]);
+        let fla = FusedLinearActivation::new(weights, bias, ActivationType::GELU)?;
+        let output = fla.forward(&Array1::from_vec(vec![0.0, 1.0]).into_dyn())?;
+        assert!(!output[0].is_nan());
+        assert!(!output[1].is_nan());
+        Ok(())
+    }
+}

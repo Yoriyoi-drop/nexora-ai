@@ -71,3 +71,73 @@ pub fn write_arrow_file(samples: &[DataSample], path: &Path) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+    use std::path::Path;
+
+    fn sample() -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: "hello world".into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.8,
+                category: SourceCategory::Other,
+                fetch_timestamp: 12345,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_write_arrow_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.arrow");
+        let samples = vec![sample()];
+        let result = write_arrow_file(&samples, &path);
+        assert!(result.is_ok());
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_write_arrow_empty_samples() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.arrow");
+        let result = write_arrow_file(&[], &path);
+        assert!(result.is_ok());
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_write_multiple_samples() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("multi.arrow");
+        let samples = vec![sample(), sample(), sample()];
+        let result = write_arrow_file(&samples, &path);
+        assert!(result.is_ok());
+
+        // Verify we can read it back
+        let read_result = arrow::ipc::reader::FileReader::try_new(
+            std::fs::File::open(&path).unwrap(), None
+        );
+        assert!(read_result.is_ok());
+    }
+
+    #[test]
+    fn test_write_arrow_invalid_path() {
+        let path = Path::new("/nonexistent/dir/output.arrow");
+        let samples = vec![sample()];
+        let result = write_arrow_file(&samples, path);
+        assert!(result.is_err());
+    }
+}

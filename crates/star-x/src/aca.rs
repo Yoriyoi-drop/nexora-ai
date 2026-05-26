@@ -625,3 +625,164 @@ impl AdaptiveComputeAllocation {
         level
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_compute_level_conversion() {
+        assert_eq!(ComputeLevel::Micro.as_usize(), 0);
+        assert_eq!(ComputeLevel::Meso.as_usize(), 1);
+        assert_eq!(ComputeLevel::Full.as_usize(), 2);
+        assert_eq!(
+            ComputeLevel::from_usize(0) as usize,
+            ComputeLevel::Micro as usize
+        );
+        assert_eq!(
+            ComputeLevel::from_usize(1) as usize,
+            ComputeLevel::Meso as usize
+        );
+        assert_eq!(
+            ComputeLevel::from_usize(5) as usize,
+            ComputeLevel::Full as usize
+        );
+    }
+
+    #[test]
+    fn test_adaptive_compute_allocation_new() -> DLResult<()> {
+        let _aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_adaptive_compute_allocation_invalid_thresholds() {
+        let result = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compute_complexity() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let input = Array1::zeros(512).into_dyn();
+        let complexity = aca.compute_complexity(&input)?;
+        assert!(complexity >= 0.0 && complexity <= 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_importance() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let input = Array1::zeros(512).into_dyn();
+        let hidden = Array1::zeros(1024).into_dyn();
+        let importance = aca.compute_importance(&input, &hidden)?;
+        assert!(importance >= 0.0 && importance <= 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_determine_compute_level() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let input = Array1::zeros(512).into_dyn();
+        let hidden = Array1::zeros(1024).into_dyn();
+        let level = aca.determine_compute_level(&input, &hidden)?;
+        assert!(level <= 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_compute_cost() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        assert_eq!(aca.get_compute_cost(ComputeLevel::Micro), 0.3);
+        assert_eq!(aca.get_compute_cost(ComputeLevel::Meso), 0.6);
+        assert_eq!(aca.get_compute_cost(ComputeLevel::Full), 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_routing_strategy() -> DLResult<()> {
+        let mut aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        aca.set_routing_strategy(RoutingStrategy::Threshold);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_compute_thresholds() -> DLResult<()> {
+        let mut aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        aca.set_compute_thresholds(vec![0.2, 0.5, 0.8])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_compute_thresholds_invalid() -> DLResult<()> {
+        let mut aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        assert!(aca.set_compute_thresholds(vec![0.1, 0.2]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_allocate_compute_full() -> DLResult<()> {
+        let mut aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let input = Array1::zeros(512).into_dyn();
+        let relevance = Array1::from_vec(vec![0.9; 512]).into_dyn();
+        let level = aca.allocate_compute(&input, &relevance, 512, 1024);
+        assert_eq!(level, ComputeLevel::Full);
+        Ok(())
+    }
+
+    #[test]
+    fn test_allocate_compute_low() -> DLResult<()> {
+        let mut aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let input = Array1::zeros(512).into_dyn();
+        let relevance = Array1::from_vec(vec![0.1; 512]).into_dyn();
+        let level = aca.allocate_compute(&input, &relevance, 512, 1024);
+        assert_eq!(level, ComputeLevel::Micro);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_allocation_recommendations() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let recommendations = aca.get_allocation_recommendations();
+        assert!(!recommendations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_routing_with_feedback() -> DLResult<()> {
+        let mut aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        aca.update_routing_with_feedback(0.5, 0.7)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_batch_determine_levels() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let inputs = vec![Array1::zeros(512).into_dyn(), Array1::zeros(512).into_dyn()];
+        let hidden = vec![Array1::zeros(1024).into_dyn(), Array1::zeros(1024).into_dyn()];
+        let levels = aca.batch_determine_levels(&inputs, &hidden)?;
+        assert_eq!(levels.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_batch_determine_levels_mismatch() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let inputs = vec![Array1::zeros(512).into_dyn()];
+        let hidden = vec![];
+        let result = aca.batch_determine_levels(&inputs, &hidden);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_memory_constrained_allocation() -> DLResult<()> {
+        let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
+        let inputs = vec![Array1::zeros(512).into_dyn()];
+        let hidden = vec![Array1::zeros(1024).into_dyn()];
+        let levels = aca.memory_constrained_allocation(&inputs, &hidden, 100)?;
+        assert_eq!(levels.len(), 1);
+        Ok(())
+    }
+}

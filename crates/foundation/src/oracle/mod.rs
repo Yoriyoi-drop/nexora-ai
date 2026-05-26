@@ -108,3 +108,60 @@ impl Default for OracleVortexIntegration {
 pub mod prelude {
     pub use nexora_oracle::prelude::*;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oracle_vortex_config_default() {
+        let config = OracleVortexConfig::default();
+        assert!(config.enable_vortex_analysis);
+        assert_eq!(config.analysis_depth, 8);
+        assert_eq!(config.integration_frequency_ms, 1000);
+    }
+
+    #[test]
+    fn test_enhanced_code_analysis_new() {
+        let analysis = EnhancedCodeAnalysis::new();
+        assert!(analysis.oracle_analysis.is_none());
+        assert!(analysis.vortex_analysis.is_none());
+        assert!(analysis.combined_insights.is_empty());
+    }
+
+    #[test]
+    fn test_enhanced_code_analysis_summary_empty() {
+        let analysis = EnhancedCodeAnalysis::new();
+        assert_eq!(analysis.summary(), "");
+    }
+
+    #[test]
+    fn test_enhanced_code_analysis_summary_with_insights() {
+        let mut analysis = EnhancedCodeAnalysis::new();
+        analysis.combined_insights.push("test insight".to_string());
+        assert_eq!(analysis.summary(), "test insight");
+    }
+
+    #[test]
+    fn test_enhanced_code_analysis_debug() {
+        let analysis = EnhancedCodeAnalysis::new();
+        let _debug = format!("{:?}", analysis);
+    }
+
+    #[test]
+    fn test_oracle_vortex_config_debug() {
+        let config = OracleVortexConfig::default();
+        let _debug = format!("{:?}", config);
+    }
+
+    #[test]
+    fn test_oracle_vortex_config_custom() {
+        let config = OracleVortexConfig {
+            enable_vortex_analysis: false,
+            analysis_depth: 4,
+            integration_frequency_ms: 500,
+        };
+        assert!(!config.enable_vortex_analysis);
+        assert_eq!(config.analysis_depth, 4);
+    }
+}

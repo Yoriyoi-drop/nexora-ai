@@ -83,3 +83,46 @@ impl Default for DatasetConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dataset_split_as_str() {
+        assert_eq!(DatasetSplit::Train.as_str(), "train");
+        assert_eq!(DatasetSplit::Val.as_str(), "val");
+        assert_eq!(DatasetSplit::Test.as_str(), "test");
+        assert_eq!(DatasetSplit::Instruction.as_str(), "instruction");
+    }
+
+    #[test]
+    fn test_dataset_split_from_str() {
+        assert_eq!(DatasetSplit::from_str("train"), Some(DatasetSplit::Train));
+        assert_eq!(DatasetSplit::from_str("val"), Some(DatasetSplit::Val));
+        assert_eq!(DatasetSplit::from_str("validation"), Some(DatasetSplit::Val));
+        assert_eq!(DatasetSplit::from_str("rl"), Some(DatasetSplit::Reinforcement));
+        assert_eq!(DatasetSplit::from_str("unknown"), None);
+    }
+
+    #[test]
+    fn test_dataset_config_default() {
+        let cfg = DatasetConfig::default();
+        assert_eq!(cfg.batch_size, 8);
+        assert_eq!(cfg.shuffle_buffer, 10000);
+        assert_eq!(cfg.seq_length, 128);
+        assert!(!cfg.resume);
+        assert_eq!(cfg.split, DatasetSplit::Train);
+    }
+
+    #[test]
+    fn test_dataset_split_debug() {
+        assert_eq!(format!("{:?}", DatasetSplit::Train), "Train");
+        assert_eq!(format!("{:?}", DatasetSplit::Synthetic), "Synthetic");
+    }
+
+    #[test]
+    fn test_re_exports() {
+        let _ = DatasetSplit::Train;
+    }
+}

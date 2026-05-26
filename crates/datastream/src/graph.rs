@@ -490,3 +490,179 @@ impl ExecutionResult {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use async_trait::async_trait;
+    use uuid::Uuid;
+
+    fn dummy_filter(name: &str, always_pass: bool) -> FilterArc {
+        let name = name.to_string();
+        Arc::new(DummyFilter { name, always_pass })
+    }
+
+    #[derive(Debug)]
+    struct DummyFilter {
+        name: String,
+        always_pass: bool,
+    }
+
+    #[async_trait]
+    impl Filter for DummyFilter {
+        fn name(&self) -> &str { &self.name }
+        async fn evaluate(&self, sample: &DataSample) -> FilterResult {
+            FilterResult {
+                passed: self.always_pass,
+                sample_id: sample.id,
+                filter_name: self.name.clone(),
+                reason: None,
+                score_delta: if self.always_pass { 0.1 } else { -0.5 },
+            }
+        }
+    }
+
+    fn sample() -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: "test".into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_graph_new() {
+        let g = ExecutionGraph::new();
+        assert!(g.nodes.is_empty());
+        assert!(g.entry_points.is_empty());
+    }
+
+    #[test]
+    fn test_add_node() {
+        let mut g = ExecutionGraph::new();
+        g.add_node("filter1", dummy_filter("f1", true), vec![], false, 0);
+        assert_eq!(g.nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_finalize_empty_graph() {
+        let mut g = ExecutionGraph::new();
+        g.finalize();
+        assert!(g.entry_points.is_empty());
+    }
+
+    #[test]
+    fn test_finalize_single_node() {
+        let mut g = ExecutionGraph::new();
+        g.add_node("only", dummy_filter("only", true), vec![], false, 0);
+        g.finalize();
+        assert_eq!(g.entry_points, vec!["only"]);
+        assert_eq!(g.exit_points, vec!["only"]);
+    }
+
+    #[test]
+    fn test_finalize_with_dependency() {
+        let mut g = ExecutionGraph::new();
+        g.add_node("a", dummy_filter("a", true), vec![], false, 0);
+        g.add_node("b", dummy_filter("b", true), vec!["a".into()], false, 0);
+        g.finalize();
+        assert_eq!(g.entry_points, vec!["a"]);
+        assert_eq!(g.exit_points, vec!["b"]);
+    }
+
+    #[test]
+    fn test_topological_order() {
+        let mut g = ExecutionGraph::new();
+        g.add_node("a", dummy_filter("a", true), vec![], false, 0);
+        g.add_node("b", dummy_filter("b", true), vec!["a".into()], false, 0);
+        g.add_node("c", dummy_filter("c", true), vec!["a".into()], false, 0);
+        g.finalize();
+        let order = g.topological_order();
+        assert_eq!(order[0], "a");
+        assert!(order.contains(&"b".to_string()));
+        assert!(order.contains(&"c".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_execute_accepts() {
+        let mut g = ExecutionGraph::new();
+        g.add_node("pass", dummy_filter("pass", true), vec![], false, 0);
+        g.finalize();
+        let (_, rx) = tokio::sync::watch::channel(false);
+        let result = g.execute(sample(), rx).await;
+        assert!(result.is_accepted());
+    }
+
+    #[tokio::test]
+    async fn test_execute_rejects() {
+        let mut g = ExecutionGraph::new();
+        g.add_node("fail", dummy_filter("fail", false), vec![], false, 0);
+        g.finalize();
+        let (_, rx) = tokio::sync::watch::channel(false);
+        let result = g.execute(sample(), rx).await;
+        assert!(!result.is_accepted());
+        match result {
+            ExecutionResult::Rejected { ref filter_name, .. } => {
+                assert_eq!(filter_name, "fail");
+            }
+            _ => panic!("Expected Rejected"),
+        }
+    }
+
+    #[test]
+    fn test_execution_result_score() {
+        let sample = sample();
+        let results = vec![FilterResult {
+            passed: true,
+            sample_id: sample.id,
+            filter_name: "test".into(),
+            reason: None,
+            score_delta: 0.5,
+        }];
+        let accepted = ExecutionResult::Accepted { sample, results };
+        assert_eq!(accepted.score(), 0.5);
+    }
+
+    #[test]
+    fn test_execution_result_cancelled_score() {
+        assert_eq!(ExecutionResult::Cancelled.score(), 0.0);
+    }
+
+    #[test]
+    fn test_execution_result_sample() {
+        let s = sample();
+        let accepted = ExecutionResult::Accepted {
+            sample: s.clone(),
+            results: vec![],
+        };
+        assert!(accepted.sample().is_some());
+        assert_eq!(ExecutionResult::Cancelled.sample(), None);
+    }
+
+    #[test]
+    fn test_graph_node_debug() {
+        let node = GraphNode {
+            id: "test".into(),
+            filter: dummy_filter("test", true),
+            depends_on: vec![],
+            children: vec![],
+            concurrent: false,
+            priority: 1,
+        };
+        let debug = format!("{:?}", node);
+        assert!(debug.contains("test"));
+    }
+}

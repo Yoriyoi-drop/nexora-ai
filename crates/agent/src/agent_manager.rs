@@ -548,3 +548,104 @@ impl Clone for AgentManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_manager_config_default() {
+        let config = AgentManagerConfig::default();
+        assert_eq!(config.max_concurrent_agents, 100);
+        assert_eq!(config.default_timeout_seconds, 30);
+        assert_eq!(config.health_check_interval_seconds, 3600);
+        assert!(config.auto_restart_failed_agents);
+        assert_eq!(config.max_restart_attempts, 3);
+    }
+
+    #[test]
+    fn test_agent_manager_config_clone_debug() {
+        let config = AgentManagerConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_manager_command_spawn_agent() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::SpawnAgent {
+            agent_type: "test".into(),
+            config: AgentConfig::default(),
+            response_tx: tx,
+        };
+        assert!(matches!(cmd, ManagerCommand::SpawnAgent { .. }));
+    }
+
+    #[test]
+    fn test_manager_command_stop_agent() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::StopAgent {
+            agent_id: Uuid::new_v4(),
+            response_tx: tx,
+        };
+        assert!(matches!(cmd, ManagerCommand::StopAgent { .. }));
+    }
+
+    #[test]
+    fn test_manager_command_send_message() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::SendMessage {
+            agent_id: Uuid::new_v4(),
+            message: AgentMessage::new("test", serde_json::json!({})),
+            response_tx: tx,
+        };
+        assert!(matches!(cmd, ManagerCommand::SendMessage { .. }));
+    }
+
+    #[test]
+    fn test_manager_command_get_status() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::GetStatus {
+            agent_id: Uuid::new_v4(),
+            response_tx: tx,
+        };
+        assert!(matches!(cmd, ManagerCommand::GetStatus { .. }));
+    }
+
+    #[test]
+    fn test_manager_command_list_agents() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::ListAgents { response_tx: tx };
+        assert!(matches!(cmd, ManagerCommand::ListAgents { .. }));
+    }
+
+    #[test]
+    fn test_manager_command_health_check() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::HealthCheck { response_tx: tx };
+        assert!(matches!(cmd, ManagerCommand::HealthCheck { .. }));
+    }
+
+    #[test]
+    fn test_manager_command_shutdown() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = ManagerCommand::Shutdown { response_tx: tx };
+        assert!(matches!(cmd, ManagerCommand::Shutdown { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_agent_manager_new() {
+        let config = AgentManagerConfig::default();
+        let manager = AgentManager::new(config.clone());
+        assert_eq!(manager.config.max_concurrent_agents, config.max_concurrent_agents);
+        let _sender = manager.command_sender();
+    }
+
+    #[tokio::test]
+    async fn test_agent_manager_get_memory_store() {
+        let manager = AgentManager::new(AgentManagerConfig::default());
+        let store = manager.get_memory_store();
+        // Memory store should be valid Arc<MemoryLayers>
+        assert!(std::sync::Arc::strong_count(&store) >= 1);
+    }
+}

@@ -562,3 +562,72 @@ impl From<ManifestError> for LoaderError {
         LoaderError::Manifest(e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_streaming_config_default() {
+        let cfg = StreamingConfig::default();
+        assert_eq!(cfg.batch_size, 8);
+        assert_eq!(cfg.prefetch_batches, 4);
+        assert_eq!(cfg.num_workers, 2);
+        assert_eq!(cfg.shuffle_buffer, 10000);
+        assert!(!cfg.resume);
+        assert_eq!(cfg.progress_report_interval_secs, 5);
+    }
+
+    #[test]
+    fn test_is_arrow_file() {
+        assert!(is_arrow_file(Path::new("data.arrow")));
+        assert!(!is_arrow_file(Path::new("data.txt")));
+        assert!(!is_arrow_file(Path::new("data")));
+    }
+
+    #[test]
+    fn test_estimate_samples_small_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tiny.arrow");
+        std::fs::write(&path, b"a").unwrap();
+        assert_eq!(estimate_samples(&path), Some(0));
+    }
+
+    #[test]
+    fn test_estimate_samples_normal_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("normal.arrow");
+        // 1000 bytes / 200 avg = 5
+        std::fs::write(&path, vec![0u8; 1000]).unwrap();
+        assert_eq!(estimate_samples(&path), Some(5));
+    }
+
+    #[test]
+    fn test_estimate_samples_nonexistent() {
+        let result = estimate_samples(Path::new("/nonexistent/file.arrow"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_loader_error_display() {
+        let e = LoaderError::NoShards("/data".into());
+        assert_eq!(format!("{}", e), "No shards found in /data");
+
+        let io = LoaderError::Io("permission denied".into());
+        assert_eq!(format!("{}", io), "IO error: permission denied");
+    }
+
+    #[test]
+    fn test_streaming_config_default_with_cache_dir() {
+        let mut cfg = StreamingConfig::default();
+        cfg.cache_dir = Some(PathBuf::from("/tmp/cache"));
+        assert_eq!(cfg.cache_dir.unwrap(), PathBuf::from("/tmp/cache"));
+    }
+
+    #[test]
+    fn test_loader_error_from_manifest_error() {
+        let manifest_err = ManifestError::NotFound("missing".into());
+        let loader_err: LoaderError = manifest_err.into();
+        assert!(matches!(loader_err, LoaderError::Manifest(_)));
+    }
+}

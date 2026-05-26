@@ -596,3 +596,183 @@ impl Default for AgentMetrics {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_global_state_default() {
+        let state = GlobalState::default();
+        assert!(state.system_config.is_empty());
+        assert!(state.counters.is_empty());
+        assert!(state.flags.is_empty());
+    }
+
+    #[test]
+    fn test_global_state_serialize_roundtrip() {
+        let state = GlobalState::default();
+        let json = serde_json::to_string(&state).unwrap();
+        let deserialized: GlobalState = serde_json::from_str(&json).unwrap();
+        assert_eq!(state.counters.len(), deserialized.counters.len());
+    }
+
+    #[test]
+    fn test_session_status_variants() {
+        assert_eq!(SessionStatus::Active, SessionStatus::Active);
+        assert_eq!(SessionStatus::Closed, SessionStatus::Closed);
+        assert_ne!(SessionStatus::Active, SessionStatus::Closed);
+    }
+
+    #[test]
+    fn test_session_status_serialize() {
+        let json = serde_json::to_string(&SessionStatus::Active).unwrap();
+        assert_eq!(json, "\"Active\"");
+    }
+
+    #[test]
+    fn test_session_state_creation() {
+        let session_id = Uuid::new_v4();
+        let state = SessionState {
+            session_id,
+            user_id: Some(Uuid::new_v4()),
+            data: HashMap::new(),
+            metadata: HashMap::new(),
+            created_at: Utc::now(),
+            last_activity: Utc::now(),
+            status: SessionStatus::Active,
+        };
+        assert_eq!(state.session_id, session_id);
+        assert_eq!(state.status, SessionStatus::Active);
+    }
+
+    #[test]
+    fn test_agent_specific_state_creation() {
+        let agent_id = Uuid::new_v4();
+        let state = AgentSpecificState {
+            agent_id,
+            agent_type: "planner".into(),
+            private_data: HashMap::new(),
+            shared_data: HashMap::new(),
+            metrics: AgentMetrics::default(),
+            last_updated: Utc::now(),
+        };
+        assert_eq!(state.agent_id, agent_id);
+        assert_eq!(state.agent_type, "planner");
+    }
+
+    #[test]
+    fn test_agent_metrics_default() {
+        let metrics = AgentMetrics::default();
+        assert_eq!(metrics.total_requests, 0);
+        assert_eq!(metrics.total_errors, 0);
+        assert_eq!(metrics.avg_response_time_ms, 0.0);
+        assert!(metrics.last_request_at.is_none());
+    }
+
+    #[test]
+    fn test_agent_metrics_with_values() {
+        let metrics = AgentMetrics {
+            total_requests: 100,
+            total_errors: 2,
+            avg_response_time_ms: 45.5,
+            memory_usage_bytes: 1024,
+            cpu_usage_percent: 15.0,
+            last_request_at: Some(Utc::now()),
+        };
+        assert_eq!(metrics.total_requests, 100);
+        assert!(metrics.last_request_at.is_some());
+    }
+
+    #[test]
+    fn test_state_change_event_variants() {
+        let session_id = Uuid::new_v4();
+        let agent_id = Uuid::new_v4();
+        let created = StateChangeEvent::SessionCreated { session_id };
+        let closed = StateChangeEvent::SessionClosed { session_id };
+        let registered = StateChangeEvent::AgentRegistered { agent_id };
+        assert!(matches!(created, StateChangeEvent::SessionCreated { .. }));
+        assert!(matches!(closed, StateChangeEvent::SessionClosed { .. }));
+        assert!(matches!(registered, StateChangeEvent::AgentRegistered { .. }));
+    }
+
+    #[test]
+    fn test_state_change_event_clone_debug() {
+        let event = StateChangeEvent::SessionCreated { session_id: Uuid::new_v4() };
+        let cloned = event.clone();
+        assert_eq!(format!("{:?}", event), format!("{:?}", cloned));
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_new() {
+        let state = AgentState::new();
+        let global = state.get_global_state().await;
+        assert!(global.system_config.is_empty());
+        let sessions = state.get_active_sessions().await;
+        assert!(sessions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_global_config() {
+        let state = AgentState::new();
+        state.set_global_config("key".into(), serde_json::json!("val")).await.unwrap();
+        let val = state.get_global_config("key").await;
+        assert_eq!(val, Some(serde_json::json!("val")));
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_global_counter() {
+        let state = AgentState::new();
+        let val = state.increment_global_counter("requests".into(), 1).await.unwrap();
+        assert_eq!(val, 1);
+        let val = state.increment_global_counter("requests".into(), 5).await.unwrap();
+        assert_eq!(val, 6);
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_global_flag() {
+        let state = AgentState::new();
+        state.set_global_flag("enabled".into(), true).await.unwrap();
+        let flag = state.get_global_flag("enabled").await;
+        assert_eq!(flag, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_session() {
+        let state = AgentState::new();
+        let session_id = Uuid::new_v4();
+        state.create_session(session_id, None).await.unwrap();
+        let session = state.get_session_state(session_id).await;
+        assert!(session.is_some());
+        assert_eq!(session.unwrap().status, SessionStatus::Active);
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_close_session() {
+        let state = AgentState::new();
+        let session_id = Uuid::new_v4();
+        state.create_session(session_id, None).await.unwrap();
+        state.close_session(session_id).await.unwrap();
+        let session = state.get_session_state(session_id).await.unwrap();
+        assert_eq!(session.status, SessionStatus::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_register_unregister() {
+        let state = AgentState::new();
+        let agent_id = Uuid::new_v4();
+        state.register_agent(agent_id, "test".into()).await.unwrap();
+        let agent = state.get_agent_state(agent_id).await;
+        assert!(agent.is_some());
+        state.unregister_agent(agent_id).await.unwrap();
+        let agent = state.get_agent_state(agent_id).await;
+        assert!(agent.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_agent_state_cleanup_old_sessions() {
+        let state = AgentState::new();
+        let count = state.cleanup_old_sessions(0).await.unwrap();
+        assert_eq!(count, 0);
+    }
+}

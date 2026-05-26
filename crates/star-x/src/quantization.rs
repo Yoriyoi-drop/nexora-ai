@@ -680,3 +680,144 @@ pub fn create_mixed_precision_engine(
 ) -> DLResult<MixedPrecisionEngine> {
     MixedPrecisionEngine::new(base_precision)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    #[test]
+    fn test_quantized_tensor_new() {
+        let qt = QuantizedTensor::new(vec![0, 1, 2, 3], vec![2, 2], QuantPrecision::INT8, 1.0, 0);
+        assert_eq!(qt.shape(), &[2, 2]);
+        assert_eq!(qt.precision() as i32, QuantPrecision::INT8 as i32);
+        assert_eq!(qt.scale(), 1.0);
+        assert_eq!(qt.zero_point(), 0);
+        assert_eq!(qt.data(), &[0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_quantization_engine_new() -> DLResult<()> {
+        let engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let stats = engine.get_stats();
+        assert_eq!(stats.memory_saved, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantize_dynamic() -> DLResult<()> {
+        let engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let tensor = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let quantized = engine.quantize_dynamic(&tensor)?;
+        assert_eq!(quantized.shape(), &[2, 3]);
+        assert_eq!(quantized.data().len(), 6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantize_fp16() -> DLResult<()> {
+        let tensor = Array2::from_shape_vec((2, 2), vec![1.0, 2.0, 3.0, 4.0])?;
+        let mut engine = QuantizationEngine::new(QuantPrecision::FP16, QuantMethod::GPTQ)?;
+        let quantized = engine.quantize_weights_gptq(&tensor)?;
+        assert_eq!(quantized.precision() as i32, QuantPrecision::FP16 as i32);
+        Ok(())
+    }
+
+    #[test]
+    fn test_dequantize_roundtrip() -> DLResult<()> {
+        let tensor = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
+        let mut engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let quantized = engine.quantize_weights_gptq(&tensor)?;
+        let dequantized = engine.dequantize(&quantized)?;
+        assert_eq!(dequantized.shape(), tensor.shape());
+        Ok(())
+    }
+
+    #[test]
+    fn test_f32_to_f16_and_back() {
+        let val = 3.14159f32;
+        let fp16 = f32_to_f16(val);
+        let back = f16_to_f32(fp16);
+        assert!((val - back).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_f16_nan() {
+        let nan_f16 = f32_to_f16(f32::NAN);
+        let back = f16_to_f32(nan_f16);
+        assert!(back.is_nan());
+    }
+
+    #[test]
+    fn test_f16_infinity() {
+        let inf_f16 = f32_to_f16(f32::INFINITY);
+        let back = f16_to_f32(inf_f16);
+        assert!(back.is_infinite());
+    }
+
+    #[test]
+    fn test_f32_to_bf16_and_back() {
+        let val = 3.14159f32;
+        let bf16 = f32_to_bf16(val);
+        let back = bf16_to_f32(bf16);
+        assert!((val - back).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_quantize_int4_roundtrip() -> DLResult<()> {
+        let tensor =
+            Array2::from_shape_vec((2, 4), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])?;
+        let mut engine = QuantizationEngine::new(QuantPrecision::INT4, QuantMethod::GPTQ)?;
+        let quantized = engine.quantize_weights_gptq(&tensor)?;
+        assert_eq!(quantized.precision() as i32, QuantPrecision::INT4 as i32);
+        let dequantized = engine.dequantize(&quantized)?;
+        assert_eq!(dequantized.shape(), tensor.shape());
+        Ok(())
+    }
+
+    #[test]
+    fn test_mixed_precision_engine() -> DLResult<()> {
+        let mut engine = MixedPrecisionEngine::new(QuantPrecision::FP16)?;
+        engine.set_layer_precision(0, QuantPrecision::INT8);
+        engine.set_layer_precision(2, QuantPrecision::INT4);
+        assert_eq!(
+            engine.get_layer_precision(0) as i32,
+            QuantPrecision::INT8 as i32
+        );
+        assert_eq!(
+            engine.get_layer_precision(1) as i32,
+            QuantPrecision::FP16 as i32
+        );
+        assert_eq!(
+            engine.get_layer_precision(2) as i32,
+            QuantPrecision::INT4 as i32
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_engines() -> DLResult<()> {
+        let _engine = create_quantization_engine(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let _mixed = create_mixed_precision_engine(QuantPrecision::FP16)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantize_bf16() -> DLResult<()> {
+        let tensor = Array2::from_shape_vec((1, 4), vec![1.0, 2.0, 3.0, 4.0])?;
+        let mut engine = QuantizationEngine::new(QuantPrecision::BF16, QuantMethod::GPTQ)?;
+        let quantized = engine.quantize_weights_gptq(&tensor)?;
+        assert_eq!(quantized.precision() as i32, QuantPrecision::BF16 as i32);
+        Ok(())
+    }
+
+    #[test]
+    fn test_calculate_memory_savings() -> DLResult<()> {
+        let engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let tensor = Array2::from_shape_vec((100, 100), vec![0.5; 10000])?;
+        let quantized = engine.quantize_dynamic(&tensor)?;
+        let stats = engine.get_stats();
+        assert!(stats.memory_saved > 0);
+        Ok(())
+    }
+}

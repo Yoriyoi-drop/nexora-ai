@@ -453,3 +453,156 @@ impl AdaptiveGradientResonance {
         self.apply_resonance(current_state, previous_state, clamped_resonance)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_adaptive_gradient_resonance_new() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let stats = agr.get_resonance_stats();
+        assert_eq!(stats.3, 0);
+        assert_eq!(stats.4, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_adaptive_gradient_resonance_invalid_initial() {
+        let result = AdaptiveGradientResonance::new(1.5, 0.9, 0.99);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compute_resonance() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let current = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let previous = Array1::from_vec(vec![0.5, 1.0, 1.5]).into_dyn();
+        let resonance = agr.compute_resonance(&current, &previous)?;
+        assert!(resonance >= 0.0 && resonance <= 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_resonance() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let candidate = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let previous = Array1::from_vec(vec![0.5, 1.0, 1.5]).into_dyn();
+        let resonated = agr.apply_resonance(&candidate, &previous, 0.1)?;
+        assert_eq!(resonated.shape(), &[3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_stability() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let history = vec![0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1];
+        assert!(agr.check_stability(&history));
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_stability_short_history() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let history = vec![0.1, 0.2];
+        assert!(agr.check_stability(&history));
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_stability_score() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let score = agr.get_stability_score();
+        assert!(score >= 0.0 && score <= 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_frequency_aware_resonance() -> DLResult<()> {
+        let mut agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let current = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let previous = Array1::from_vec(vec![0.5, 1.0, 1.5]).into_dyn();
+        let result = agr.frequency_aware_resonance(&current, &previous)?;
+        assert_eq!(result.shape(), &[3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_multi_scale_resonance() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let current = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let prev = Array1::from_vec(vec![0.5, 1.0, 1.5]).into_dyn();
+        let result = agr.multi_scale_resonance(&current, &[prev])?;
+        assert_eq!(result.shape(), &[3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_multi_scale_resonance_empty() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let current = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let result = agr.multi_scale_resonance(&current, &[])?;
+        assert_eq!(result, current);
+        Ok(())
+    }
+
+    #[test]
+    fn test_gradient_feedback_resonance() -> DLResult<()> {
+        let mut agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let candidate = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let previous = Array1::from_vec(vec![0.5, 1.0, 1.5]).into_dyn();
+        let result = agr.gradient_feedback_resonance(&candidate, &previous, 0.5)?;
+        assert_eq!(result.shape(), &[3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_predictive_resonance() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let current = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let previous = Array1::from_vec(vec![0.5, 1.0, 1.5]).into_dyn();
+        let result = agr.predictive_resonance(&current, &previous, 0.5)?;
+        assert_eq!(result.shape(), &[3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_reset_statistics() -> DLResult<()> {
+        let mut agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        agr.reset_statistics();
+        let stats = agr.get_resonance_stats();
+        assert_eq!(stats.3, 0);
+        assert_eq!(stats.4, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_adaptation_params() -> DLResult<()> {
+        let mut agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        agr.set_adaptation_params(0.6, 0.02, 0.02, 0.4);
+        let score = agr.get_stability_score();
+        assert!(score >= 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_detect_explosion_and_vanishing() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        assert!(agr.detect_explosion(100.0, 1.0));
+        assert!(!agr.detect_explosion(2.0, 1.0));
+        assert!(agr.detect_vanishing(0.01, 1.0));
+        assert!(!agr.detect_vanishing(0.5, 1.0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_resonance_shape_mismatch() -> DLResult<()> {
+        let agr = AdaptiveGradientResonance::new(0.1, 0.9, 0.99)?;
+        let candidate = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let previous = Array1::from_vec(vec![1.0, 2.0]).into_dyn();
+        let result = agr.apply_resonance(&candidate, &previous, 0.1);
+        assert!(result.is_err());
+        Ok(())
+    }
+}

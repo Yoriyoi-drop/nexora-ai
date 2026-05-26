@@ -355,7 +355,7 @@ impl Tensor {
 
     pub fn from_slice(data: &[f32], shape: &[usize]) -> Self {
         let arr = ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
-            .expect("from_slice: data.len() must equal product of shape dimensions");
+            .unwrap_or_else(|e| panic!("from_slice: data.len()={} product(shape)={:?} did not match: {}", data.len(), shape, e));
         #[cfg(feature = "gpu")]
         if is_gpu_auto_create() {
             if crate::gpu::GpuContext::global().is_ok() {

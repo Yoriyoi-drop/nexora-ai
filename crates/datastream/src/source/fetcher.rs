@@ -351,3 +351,71 @@ pub fn build_registry() -> super::SourceRegistry {
     reg.register(Box::new(RedditProvider::default()));
     reg
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hackernews_provider_metadata() {
+        let p = HackerNewsProvider;
+        assert_eq!(p.name(), "hackernews");
+        assert_eq!(p.url(), "https://news.ycombinator.com");
+        assert_eq!(p.category(), SourceCategory::News);
+        assert!((p.default_trust_score() - 0.70).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_wikipedia_provider_metadata() {
+        let p = WikipediaProvider;
+        assert_eq!(p.name(), "wikipedia");
+        assert_eq!(p.url(), "https://en.wikipedia.org");
+        assert_eq!(p.category(), SourceCategory::Wikipedia);
+        assert!((p.default_trust_score() - 0.95).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_reddit_provider_defaults() {
+        let p = RedditProvider::default();
+        assert_eq!(p.subreddits.len(), 6);
+        assert!(p.subreddits.contains(&"rust".to_string()));
+        assert_eq!(p.limit, 25);
+    }
+
+    #[test]
+    fn test_reddit_provider_metadata() {
+        let p = RedditProvider::default();
+        assert_eq!(p.name(), "reddit");
+        assert_eq!(p.category(), SourceCategory::Reddit);
+        assert!((p.default_trust_score() - 0.55).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_urlencoding() {
+        assert_eq!(urlencoding("hello world"), "hello%20world");
+        assert_eq!(urlencoding("a&b?c=d"), "a%26b%3Fc%3Dd");
+        assert_eq!(urlencoding("normal"), "normal");
+    }
+
+    #[test]
+    fn test_build_registry() {
+        let reg = build_registry();
+        assert_eq!(reg.names().len(), 3);
+    }
+
+    #[test]
+    fn test_sample_data_empty() {
+        assert!(HackerNewsProvider.sample_data().is_empty());
+        assert!(WikipediaProvider.sample_data().is_empty());
+        assert!(RedditProvider::default().sample_data().is_empty());
+    }
+
+    #[test]
+    fn test_wikipedia_extract_works_without_network() {
+        // Just verify the URL encoding produces valid output
+        let _title = "Artificial intelligence";
+        let _encoded = urlencoding("Artificial intelligence");
+        // The actual fetch requires network, so we only test urlencoding
+        assert_eq!(_encoded, "Artificial%20intelligence");
+    }
+}

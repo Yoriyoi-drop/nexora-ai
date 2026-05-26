@@ -110,3 +110,77 @@ impl Filter for CurriculumRanker {
         FilterAction::Accept
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str, domain: Domain) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![domain],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_curriculum() {
+        let c = CurriculumRanker::default();
+        assert_eq!(c.curriculum.len(), 6);
+    }
+
+    #[test]
+    fn test_rank_conversation() {
+        let c = CurriculumRanker::default();
+        let s = sample("hello", Domain::Conversation);
+        let (level, rank) = c.rank(&s, Domain::Conversation);
+        assert_eq!(level, CurriculumLevel::BasicGrammar);
+        assert_eq!(rank, 1);
+    }
+
+    #[test]
+    fn test_rank_planning() {
+        let c = CurriculumRanker::default();
+        let s = sample("plan", Domain::Planning);
+        let (level, rank) = c.rank(&s, Domain::Planning);
+        assert_eq!(level, CurriculumLevel::MultiHopLogic);
+        assert_eq!(rank, 6);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_assigns_level() {
+        let c = CurriculumRanker::default();
+        let s = sample("code", Domain::Code);
+        let result = c.evaluate(&s).await;
+        assert!(result.passed);
+        assert!(result.reason.unwrap().contains("curriculum_level"));
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_general_domain() {
+        let c = CurriculumRanker::default();
+        let s = sample("general content here", Domain::General);
+        let result = c.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_action_is_accept() {
+        let c = CurriculumRanker::default();
+        assert_eq!(c.action(), FilterAction::Accept);
+    }
+}

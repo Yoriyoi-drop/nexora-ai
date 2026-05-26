@@ -159,3 +159,78 @@ fn detect_split(fname: &str) -> String {
         "train".into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_scanner_default() {
+        let s = ShardScanner::default();
+        assert!(s.recursive);
+        assert_eq!(s.allowed_extensions.len(), 4);
+    }
+
+    #[test]
+    fn test_scanner_new() {
+        let s = ShardScanner::new();
+        assert!(s.recursive);
+    }
+
+    #[test]
+    fn test_scanner_with_recursive_false() {
+        let s = ShardScanner::new().with_recursive(false);
+        assert!(!s.recursive);
+    }
+
+    #[test]
+    fn test_scan_nonexistent_path() {
+        let s = ShardScanner::default();
+        let result = s.scan(Path::new("/nonexistent/path"));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_classify_shard_arrow() {
+        let path = std::env::temp_dir().join("test_shard.arrow");
+        // Create a minimal file so metadata works
+        std::fs::write(&path, b"some data").ok();
+        let s = ShardScanner::default();
+        let result = s.classify_shard(&path);
+        assert!(result.is_some());
+        let shard = result.unwrap();
+        assert_eq!(shard.compression, Compression::None);
+        assert!(!shard.path.to_string_lossy().is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_classify_shard_unknown_ext() {
+        let path = std::env::temp_dir().join("test.txt");
+        std::fs::write(&path, b"data").ok();
+        let s = ShardScanner::default();
+        let result = s.classify_shard(&path);
+        assert!(result.is_none());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_detect_split() {
+        assert_eq!(detect_split("train_shard_001"), "train");
+        assert_eq!(detect_split("val_shard"), "val");
+        assert_eq!(detect_split("test_data"), "test");
+        assert_eq!(detect_split("reinforcement_data"), "reinforcement");
+        assert_eq!(detect_split("unknown"), "train");
+    }
+
+    #[test]
+    fn test_scan_file() {
+        let path = std::env::temp_dir().join("single.arrow");
+        std::fs::write(&path, b"data").ok();
+        let s = ShardScanner::default();
+        let results = s.scan_file(&path);
+        assert_eq!(results.len(), 1);
+        std::fs::remove_file(&path).ok();
+    }
+}

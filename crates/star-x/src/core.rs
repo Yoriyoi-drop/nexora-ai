@@ -419,3 +419,156 @@ impl Default for StarXMetics {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_star_x_parameters_new() {
+        let params = StarXParameters::new();
+        assert_eq!(params.parameter_count(), 0);
+        assert_eq!(params.gradient_norm(), 0.0);
+    }
+
+    #[test]
+    fn test_star_x_parameters_register() -> DLResult<()> {
+        let mut params = StarXParameters::new();
+        params.register_parameter("weight1".into(), vec![2, 3])?;
+        assert_eq!(params.parameter_count(), 6);
+        assert!(params.get_parameter("weight1").is_some());
+        assert!(params.get_gradient("weight1").is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_star_x_parameters_zero_gradients() -> DLResult<()> {
+        let mut params = StarXParameters::new();
+        params.register_parameter("w1".into(), vec![2, 2])?;
+        if let Some(g) = params.get_gradient_mut("w1") {
+            g.fill(1.0);
+        }
+        let grad_norm_before = params.gradient_norm();
+        assert!(grad_norm_before > 0.0);
+        params.zero_gradients();
+        assert_eq!(params.gradient_norm(), 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_star_x_parameters_default() {
+        let params: StarXParameters = Default::default();
+        assert_eq!(params.parameter_count(), 0);
+    }
+
+    #[test]
+    fn test_star_x_parameters_get_mut() -> DLResult<()> {
+        let mut params = StarXParameters::new();
+        params.register_parameter("w1".into(), vec![3])?;
+        assert!(params.get_parameter_mut("w1").is_some());
+        assert!(params.get_parameter_mut("nonexistent").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_star_x_config_default() {
+        let config = StarXConfig::default();
+        assert_eq!(config.model_dim, 512);
+        assert_eq!(config.num_layers, 6);
+        assert_eq!(config.num_heads, 8);
+        assert_eq!(config.max_sequence_length, 2048);
+        assert_eq!(config.sparsity_ratio, 0.1);
+        assert_eq!(config.compute_levels, 3);
+    }
+
+    #[test]
+    fn test_star_x_state_new() {
+        let config = StarXConfig::default();
+        let state = StarXState::new(&config);
+        assert_eq!(state.temporal_position, 0);
+        assert_eq!(state.hidden_state.shape(), &[512]);
+        assert_eq!(state.compute_level, 0);
+    }
+
+    #[test]
+    fn test_star_x_state_reset() {
+        let config = StarXConfig::default();
+        let mut state = StarXState::new(&config);
+        state.temporal_position = 42;
+        state.compute_level = 99;
+        state.reset();
+        assert_eq!(state.temporal_position, 0);
+        assert_eq!(state.compute_level, 0);
+    }
+
+    #[test]
+    fn test_star_x_metrics_default() {
+        let metrics = StarXMetics::default();
+        assert_eq!(metrics.loss, 0.0);
+        assert_eq!(metrics.accuracy, 0.0);
+        assert_eq!(metrics.sparsity_ratio, 0.0);
+    }
+
+    #[test]
+    fn test_harmonic_encoding() {
+        let encoding = core_utils::harmonic_encoding(0, 16, 64);
+        assert_eq!(encoding.shape(), &[64]);
+    }
+
+    #[test]
+    fn test_harmonic_encoding_first_position() {
+        let encoding = core_utils::harmonic_encoding(0, 8, 32);
+        assert_eq!(encoding.shape(), &[32]);
+        assert!((encoding[0] - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_top_k_sparse() {
+        let scores =
+            ndarray::ArrayD::from_shape_vec(vec![5], vec![0.1, 0.5, 0.3, 0.9, 0.2]).unwrap();
+        let mask = core_utils::top_k_sparse(&scores, 2);
+        let count: usize = mask.iter().map(|&x| if x > 0.0 { 1 } else { 0 }).sum();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_top_k_sparse_all() {
+        let scores =
+            ndarray::ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let mask = core_utils::top_k_sparse(&scores, 5);
+        let count: usize = mask.iter().map(|&x| if x > 0.0 { 1 } else { 0 }).sum();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_compute_entropy_uniform() {
+        let probs = vec![0.5, 0.5];
+        let entropy = core_utils::compute_entropy(&probs);
+        assert!((entropy - (2.0 * 0.5_f32 * 0.5_f32.ln()).abs()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_compute_entropy_certain() {
+        let probs = vec![1.0, 0.0];
+        let entropy = core_utils::compute_entropy(&probs);
+        assert!((entropy - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_normalize() {
+        let mut tensor =
+            ndarray::ArrayD::from_shape_vec(vec![3], vec![3.0, 4.0, 0.0]).unwrap();
+        let norm = core_utils::normalize(&mut tensor);
+        assert!((norm - 5.0).abs() < 1e-6);
+        let sum_sq: f32 = tensor.iter().map(|x| x * x).sum();
+        assert!((sum_sq - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_normalize_zero() {
+        let mut tensor = ndarray::ArrayD::from_shape_vec(vec![4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
+        let norm = core_utils::normalize(&mut tensor);
+        assert!((norm - 0.0).abs() < 1e-6);
+        assert!(tensor.iter().all(|&x| (x - 0.0).abs() < 1e-6));
+    }
+}

@@ -291,3 +291,193 @@ pub struct MigrationStep {
     pub to_version: String,
     pub description: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_config_migrator_new() {
+        let migrator = ConfigMigrator::new();
+        let versions = migrator.get_migration_versions();
+        assert_eq!(versions, vec!["1.0.0", "1.1.0", "1.2.0", "2.0.0"]);
+    }
+
+    #[test]
+    fn test_default_trait() {
+        let m1 = ConfigMigrator::new();
+        let m2 = ConfigMigrator::default();
+        assert_eq!(m1.get_migration_versions(), m2.get_migration_versions());
+    }
+
+    #[test]
+    fn test_get_config_version_default() {
+        let migrator = ConfigMigrator::new();
+        let config = json!({});
+        let version = migrator.get_config_version(&config).unwrap();
+        assert_eq!(version, "1.0.0");
+    }
+
+    #[test]
+    fn test_get_config_version_existing() {
+        let migrator = ConfigMigrator::new();
+        let config = json!({"version": "2.0.0"});
+        let version = migrator.get_config_version(&config).unwrap();
+        assert_eq!(version, "2.0.0");
+    }
+
+    #[test]
+    fn test_should_migrate_older_to_newer() {
+        let migrator = ConfigMigrator::new();
+        assert!(migrator.should_migrate("1.0.0", "2.0.0").unwrap());
+    }
+
+    #[test]
+    fn test_should_migrate_newer_to_older() {
+        let migrator = ConfigMigrator::new();
+        assert!(!migrator.should_migrate("2.0.0", "1.0.0").unwrap());
+    }
+
+    #[test]
+    fn test_should_migrate_same_version() {
+        let migrator = ConfigMigrator::new();
+        assert!(!migrator.should_migrate("1.0.0", "1.0.0").unwrap());
+    }
+
+    #[test]
+    fn test_should_migrate_invalid_version() {
+        let migrator = ConfigMigrator::new();
+        assert!(!migrator.should_migrate("abc", "1.0.0").unwrap());
+    }
+
+    #[test]
+    fn test_update_config_version() {
+        let migrator = ConfigMigrator::new();
+        let mut config = json!({"host": "localhost"});
+        migrator.update_config_version(&mut config, "2.0.0").unwrap();
+        assert_eq!(config.get("version").unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn test_migrate_1_1_0_adds_ssl() {
+        let migrator = ConfigMigrator::new();
+        let config = json!({"database": {"host": "localhost"}});
+        let result = ConfigMigrator::migrate_1_1_0(config).unwrap();
+        assert_eq!(result["database"]["ssl_mode"], "prefer");
+        assert!(result["database"]["ssl_cert"].is_null());
+    }
+
+    #[test]
+    fn test_migrate_1_2_0_adds_timeouts() {
+        let migrator = ConfigMigrator::new();
+        let config = json!({"server": {"port": 8080}});
+        let result = ConfigMigrator::migrate_1_2_0(config).unwrap();
+        assert_eq!(result["server"]["timeout_seconds"], 30);
+        assert_eq!(result["server"]["read_timeout"], 10);
+    }
+
+    #[test]
+    fn test_migrate_2_0_0_restructure() {
+        let config = json!({
+            "database": {"host": "localhost", "port": 5432},
+            "server": {"port": 8080},
+            "logging": {"level": "info"}
+        });
+        let result = ConfigMigrator::migrate_2_0_0(config).unwrap();
+        assert!(result.get("database").unwrap().get("connection").is_some());
+        assert!(result.get("database").unwrap().get("pool_size").is_some());
+        assert!(result.get("server").unwrap().get("http").is_some());
+        assert_eq!(result["version"], "2.0.0");
+    }
+
+    #[test]
+    fn test_migrate_2_0_0_adds_default_logging() {
+        let config = json!({"database": {"host": "localhost"}});
+        let result = ConfigMigrator::migrate_2_0_0(config).unwrap();
+        assert_eq!(result["logging"]["level"], "info");
+    }
+
+    #[test]
+    fn test_migrate_to_latest_from_1_0_0() {
+        let migrator = ConfigMigrator::new();
+        let config = json!({"database": {"host": "localhost", "port": 5432}});
+        let result = migrator.migrate_to_latest(config).unwrap();
+        assert_eq!(result.get("version").unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn test_migrate_to_version() {
+        let migrator = ConfigMigrator::new();
+        let config = json!({});
+        let result = migrator.migrate_to_version(config, "1.1.0").unwrap();
+        assert!(result.get("version").is_some());
+    }
+
+    #[test]
+    fn test_validate_migration_path_valid() {
+        let migrator = ConfigMigrator::new();
+        assert!(migrator.validate_migration_path("1.0.0", "2.0.0").unwrap());
+    }
+
+    #[test]
+    fn test_validate_migration_path_invalid() {
+        let migrator = ConfigMigrator::new();
+        // Can't go backwards
+        assert!(!migrator.validate_migration_path("2.0.0", "1.0.0").unwrap());
+    }
+
+    #[test]
+    fn test_get_migration_description() {
+        let migrator = ConfigMigrator::new();
+        let desc = migrator.get_migration_description("1.1.0");
+        assert_eq!(desc, Some("Add database SSL options".to_string()));
+    }
+
+    #[test]
+    fn test_get_migration_description_not_found() {
+        let migrator = ConfigMigrator::new();
+        assert!(migrator.get_migration_description("9.9.9").is_none());
+    }
+
+    #[test]
+    fn test_get_migration_versions() {
+        let migrator = ConfigMigrator::new();
+        assert_eq!(migrator.get_migration_versions().len(), 4);
+    }
+
+    #[test]
+    fn test_generate_migration_plan() {
+        let migrator = ConfigMigrator::new();
+        let plan = migrator.generate_migration_plan("1.0.0", "2.0.0").unwrap();
+        assert_eq!(plan.from_version, "1.0.0");
+        assert_eq!(plan.to_version, "2.0.0");
+        assert!(plan.total_steps > 0);
+        assert!(!plan.steps.is_empty());
+    }
+
+    #[test]
+    fn test_generate_migration_plan_same_version() {
+        let migrator = ConfigMigrator::new();
+        let plan = migrator.generate_migration_plan("2.0.0", "2.0.0").unwrap();
+        assert_eq!(plan.total_steps, 0);
+    }
+
+    #[test]
+    fn test_migrate_1_0_0_passthrough() {
+        let config = json!({"key": "value"});
+        let result = ConfigMigrator::migrate_1_0_0(config).unwrap();
+        assert_eq!(result["key"], "value");
+    }
+
+    #[test]
+    fn test_migration_step_debug_impl() {
+        let step = MigrationStep {
+            from_version: "1.0.0".to_string(),
+            to_version: "1.1.0".to_string(),
+            description: "test".to_string(),
+        };
+        assert_eq!(step.from_version, "1.0.0");
+        assert_eq!(step.to_version, "1.1.0");
+    }
+}

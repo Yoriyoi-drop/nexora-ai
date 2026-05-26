@@ -99,3 +99,78 @@ impl Filter for PerplexityFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_defaults() {
+        let f = PerplexityFilter::default();
+        assert_eq!(f.min_perplexity, 1.5);
+        assert_eq!(f.max_perplexity, 5000.0);
+    }
+
+    #[test]
+    fn test_short_text_fallback() {
+        let f = PerplexityFilter::default();
+        let ppl = f.estimate_perplexity("hi");
+        assert_eq!(ppl, 100.0);
+    }
+
+    #[test]
+    fn test_longer_text_has_perplexity() {
+        let f = PerplexityFilter::default();
+        let text = "the quick brown fox jumps over the lazy dog near the river bank and then runs away into the forest where many animals live together in harmony";
+        let ppl = f.estimate_perplexity(text);
+        assert!(ppl >= 1.0);
+        assert!(ppl <= 10000.0);
+    }
+
+    #[tokio::test]
+    async fn test_normal_text_passes() {
+        let f = PerplexityFilter::default();
+        let text = "the cat sat on the mat and then the dog came along to play with them both outside in the garden where the flowers are blooming beautifully today";
+        let s = sample(text);
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_extreme_perplexity_fails() {
+        let f = PerplexityFilter::new(1000.0, 2000.0);
+        let text = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp";
+        let s = sample(text);
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn test_new_constructor() {
+        let f = PerplexityFilter::new(2.0, 100.0);
+        assert_eq!(f.min_perplexity, 2.0);
+        assert_eq!(f.max_perplexity, 100.0);
+    }
+}

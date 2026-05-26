@@ -191,3 +191,103 @@ impl Filter for DedupFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_values() {
+        let f = DedupFilter::default();
+        assert_eq!(f.ngram_size, 13);
+        assert_eq!(f.hash_count, 13);
+        assert_eq!(f.similarity_threshold, 0.5);
+        assert!(f.exact_reject_on_seen);
+    }
+
+    #[test]
+    fn test_fingerprint_short_text() {
+        let f = DedupFilter::default();
+        let fp = f.fingerprint("hello world");
+        assert_eq!(fp.len(), 1);
+    }
+
+    #[test]
+    fn test_fingerprint_long_text() {
+        let f = DedupFilter::default();
+        let words: Vec<&str> = (0..100).map(|i| match i % 3 {
+            0 => "foo",
+            1 => "bar",
+            _ => "baz",
+        }).collect();
+        let text = words.join(" ");
+        let fp = f.fingerprint(&text);
+        assert_eq!(fp.len(), f.hash_count);
+    }
+
+    #[tokio::test]
+    async fn test_exact_duplicate_rejected() {
+        let f = DedupFilter::default();
+        let s1 = sample("unique text for testing");
+        let r1 = f.evaluate(&s1).await;
+        assert!(r1.passed);
+
+        let s2 = sample("unique text for testing");
+        let r2 = f.evaluate(&s2).await;
+        assert!(!r2.passed);
+        assert_eq!(r2.reason.unwrap(), "exact_duplicate");
+    }
+
+    #[tokio::test]
+    async fn test_unique_text_passes() {
+        let f = DedupFilter::default();
+        let r1 = f.evaluate(&sample("first document here")).await;
+        let r2 = f.evaluate(&sample("second document entirely different")).await;
+        assert!(r1.passed);
+        assert!(r2.passed);
+    }
+
+    #[tokio::test]
+    async fn test_reset_clears_state() {
+        let mut f = DedupFilter::default();
+        assert!(f.evaluate(&sample("test text")).await.passed);
+        assert!(!f.evaluate(&sample("test text")).await.passed);
+        f.reset().await;
+        assert!(f.evaluate(&sample("test text")).await.passed);
+    }
+
+    #[test]
+    fn test_with_capacity() {
+        let f = DedupFilter::with_capacity(1000);
+        assert_eq!(f.seen_hashes.try_lock().unwrap().capacity(), 1000);
+    }
+
+    #[test]
+    fn test_hash_text_consistency() {
+        let h1 = hash_text("the same text");
+        let h2 = hash_text("the same text");
+        assert_eq!(h1, h2);
+    }
+}

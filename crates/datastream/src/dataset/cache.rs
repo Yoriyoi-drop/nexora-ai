@@ -238,3 +238,106 @@ impl TokenizerCache {
         self.memory_cache.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: uuid::Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_dataset_cache_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DatasetCache::new(dir.path().join("cache"));
+        assert!(cache.cache_dir().exists());
+        assert!(!cache.is_mmap_registered("test"));
+    }
+
+    #[test]
+    fn test_tokenizer_cache_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = TokenizerCache::new(dir.path().join("tokens"));
+        assert_eq!(cache.memory_usage(), 0);
+        assert!(cache.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_tokenizer_cache_insert_and_get() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cache = TokenizerCache::new(dir.path().join("tokens"));
+        cache.insert("hello".into(), vec![1, 2, 3]);
+        assert_eq!(cache.memory_usage(), 1);
+        let result = cache.get("hello");
+        assert!(result.is_some());
+        assert_eq!(*result.unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_tokenizer_cache_lru_eviction() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cache = TokenizerCache::new(dir.path().join("tokens"));
+        cache.max_memory_entries = 2;
+        cache.insert("a".into(), vec![1]);
+        cache.insert("b".into(), vec![2]);
+        assert_eq!(cache.memory_usage(), 2);
+        cache.insert("c".into(), vec![3]);
+        assert_eq!(cache.memory_usage(), 2);
+        // "a" should have been evicted
+        assert!(cache.get("a").is_none());
+    }
+
+    #[test]
+    fn test_tokenizer_cache_save_to_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cache = TokenizerCache::new(dir.path().join("tokens"));
+        cache.insert("text".into(), vec![10, 20, 30]);
+
+        let samples = vec![sample("text")];
+        // The sample doesn't have token_ids set, so save should produce an empty file
+        let result = cache.save_to_disk("test_shard", &samples);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_dataset_cache_token_cache_method() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DatasetCache::new(dir.path().join("cache"));
+        let tc = cache.token_cache();
+        assert!(tc.read().memory_usage() == 0);
+    }
+
+    #[tokio::test]
+    async fn test_register_mmap() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DatasetCache::new(dir.path().join("cache"));
+        let shard = ShardPath {
+            path: dir.path().join("test.arrow"),
+            compression: crate::dataset::compression::Compression::None,
+            size_bytes: 100,
+            split: "train".into(),
+        };
+        let path_str = shard.path.to_string_lossy().to_string();
+        assert!(!cache.is_mmap_registered(&path_str));
+        cache.register_mmap(&shard).await;
+        assert!(cache.is_mmap_registered(&path_str));
+    }
+}

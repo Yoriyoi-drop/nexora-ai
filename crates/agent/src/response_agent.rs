@@ -881,3 +881,138 @@ impl Default for ResponseAgentConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_response_agent_config_default() {
+        let config = ResponseAgentConfig::default();
+        assert_eq!(config.default_format, "json");
+        assert!(config.enable_caching);
+        assert_eq!(config.cache_duration_seconds, 3600);
+        assert!(!config.enable_compression);
+        assert_eq!(config.max_response_size_bytes, 10000);
+    }
+
+    #[test]
+    fn test_response_agent_config_clone_debug() {
+        let config = ResponseAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_formatted_response_creation() {
+        let resp = FormattedResponse {
+            content: "Hello".into(),
+            format: "text".into(),
+            metadata: HashMap::new(),
+            size_bytes: 5,
+            timestamp: chrono::Utc::now(),
+        };
+        assert_eq!(resp.content, "Hello");
+        assert_eq!(resp.format, "text");
+        assert_eq!(resp.size_bytes, 5);
+    }
+
+    #[test]
+    fn test_response_agent_new() {
+        let config = ResponseAgentConfig::default();
+        let agent = ResponseAgent::new(config);
+        assert_eq!(agent.name(), "ResponseAgent");
+        assert_eq!(agent.agent_type(), "response");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_create_text_response() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let resp = agent.create_text_response("test content".into(), None);
+        assert_eq!(resp.format, "text");
+        assert_eq!(resp.content, "test content");
+        assert_eq!(resp.size_bytes, 12);
+    }
+
+    #[test]
+    fn test_create_json_response() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let data = serde_json::json!({"key": "value"});
+        let resp = agent.create_json_response(data, None).unwrap();
+        assert_eq!(resp.format, "json");
+        assert!(resp.size_bytes > 0);
+    }
+
+    #[test]
+    fn test_create_markdown_response() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let resp = agent.create_markdown_response("# Header".into(), None);
+        assert_eq!(resp.format, "markdown");
+        assert_eq!(resp.content, "# Header");
+    }
+
+    #[test]
+    fn test_create_html_response() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let resp = agent.create_html_response("<p>Hello</p>".into(), None);
+        assert_eq!(resp.format, "html");
+        assert!(resp.content.contains("<!DOCTYPE html>"));
+        assert!(resp.content.contains("<p>Hello</p>"));
+    }
+
+    #[test]
+    fn test_create_error_response() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let resp = agent.create_error_response("not found".into(), Some(404));
+        assert_eq!(resp.format, "text");
+        assert!(resp.content.contains("404"));
+        assert!(resp.content.contains("not found"));
+    }
+
+    #[test]
+    fn test_create_error_response_no_code() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let resp = agent.create_error_response("fail".into(), None);
+        assert!(resp.content.contains("fail"));
+        assert!(!resp.content.contains("Error: fail") == false);
+    }
+
+    #[test]
+    fn test_create_streaming_response() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let chunks = vec!["Hello ".into(), "World".into()];
+        let resp = agent.create_streaming_response(chunks).unwrap();
+        assert_eq!(resp.content, "Hello World");
+        assert_eq!(resp.metadata.get("chunk_count"), Some(&serde_json::json!(2)));
+    }
+
+    #[test]
+    fn test_validate_response_empty_content() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let resp = FormattedResponse {
+            content: "   ".into(),
+            format: "json".into(),
+            metadata: HashMap::new(),
+            size_bytes: 3,
+            timestamp: chrono::Utc::now(),
+        };
+        let valid = agent.validate_response(&resp).unwrap();
+        assert!(!valid);
+    }
+
+    #[test]
+    fn test_response_stats() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let stats = agent.get_response_stats();
+        assert_eq!(stats.default_format, "json");
+        assert!(stats.caching_enabled);
+    }
+
+    #[test]
+    fn test_get_available_formats_empty() {
+        let agent = ResponseAgent::new(ResponseAgentConfig::default());
+        let formats = agent.get_available_formats();
+        assert!(formats.is_empty());
+    }
+}

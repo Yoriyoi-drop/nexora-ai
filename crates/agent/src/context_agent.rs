@@ -1122,3 +1122,113 @@ impl std::str::FromStr for ContextSource {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_agent_config_default() {
+        let config = ContextAgentConfig::default();
+        assert_eq!(config.max_context_length, 4096);
+        assert!(matches!(config.retention_policy, ContextRetentionPolicy::KeepAll));
+        assert_eq!(config.context_sources.len(), 4);
+        assert!(matches!(config.merge_strategy, ContextMergeStrategy::Concatenate));
+    }
+
+    #[test]
+    fn test_context_agent_config_clone_debug() {
+        let config = ContextAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_retention_policy_variants() {
+        let keep_all = ContextRetentionPolicy::KeepAll;
+        let keep_last = ContextRetentionPolicy::KeepLast(10);
+        let time_window = ContextRetentionPolicy::TimeWindow(24);
+        let threshold = ContextRetentionPolicy::RelevanceThreshold(0.7);
+        assert!(matches!(keep_all, ContextRetentionPolicy::KeepAll));
+        assert!(matches!(keep_last, ContextRetentionPolicy::KeepLast(_)));
+        assert!(matches!(time_window, ContextRetentionPolicy::TimeWindow(_)));
+        assert!(matches!(threshold, ContextRetentionPolicy::RelevanceThreshold(_)));
+    }
+
+    #[test]
+    fn test_context_source_variants() {
+        assert_eq!(ContextSource::Session, ContextSource::Session);
+        assert!(matches!(ContextSource::External("api".into()), ContextSource::External(_)));
+    }
+
+    #[test]
+    fn test_context_source_from_str() {
+        assert_eq!("Session".parse::<ContextSource>().unwrap(), ContextSource::Session);
+        assert_eq!("UserMemory".parse::<ContextSource>().unwrap(), ContextSource::UserMemory);
+        assert!("Unknown".parse::<ContextSource>().is_err());
+    }
+
+    #[test]
+    fn test_merge_strategy_variants() {
+        let concat = ContextMergeStrategy::Concatenate;
+        let weighted = ContextMergeStrategy::Weighted(HashMap::new());
+        let priority = ContextMergeStrategy::Priority(vec![]);
+        let semantic = ContextMergeStrategy::Semantic;
+        assert!(matches!(concat, ContextMergeStrategy::Concatenate));
+        assert!(matches!(weighted, ContextMergeStrategy::Weighted(_)));
+        assert!(matches!(priority, ContextMergeStrategy::Priority(_)));
+        assert!(matches!(semantic, ContextMergeStrategy::Semantic));
+    }
+
+    #[test]
+    fn test_matrix_result_type() {
+        let ok_result: MemoryResult<i32> = Ok(42);
+        assert!(ok_result.is_ok());
+    }
+
+    #[test]
+    fn test_context_agent_new() {
+        let memory_store = Arc::new(nexora_memory::MemoryLayers::new());
+        let config = ContextAgentConfig::default();
+        let agent = ContextAgent::new(memory_store, config);
+        assert_eq!(agent.name(), "ContextAgent");
+        assert_eq!(agent.agent_type(), "context");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_estimate_token_count() {
+        let memory_store = Arc::new(nexora_memory::MemoryLayers::new());
+        let config = ContextAgentConfig::default();
+        let agent = ContextAgent::new(memory_store, config);
+        let value = serde_json::json!({"test": "hello world"});
+        let count = agent.estimate_token_count(&value);
+        assert!(count > 0);
+    }
+
+    #[test]
+    fn test_merged_context_creation() {
+        let ctx = MergedContext {
+            context: serde_json::json!({}),
+            contributions: HashMap::new(),
+            size_tokens: 100,
+            metadata: HashMap::new(),
+        };
+        assert_eq!(ctx.size_tokens, 100);
+    }
+
+    #[test]
+    fn test_memory_query_creation() {
+        let query = MemoryQuery {
+            user_id: None,
+            session_id: None,
+            memory_type: "episodic".into(),
+            query_text: "find something".into(),
+            limit: Some(10),
+            offset: None,
+            filters: HashMap::new(),
+        };
+        assert_eq!(query.memory_type, "episodic");
+        assert_eq!(query.limit, Some(10));
+    }
+}

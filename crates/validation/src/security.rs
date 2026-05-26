@@ -436,3 +436,250 @@ impl SecurityValidator for AuthenticationConfigValidator {
         "AuthenticationConfigValidator"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_security_validator_impl_new() {
+        let validator = SecurityValidatorImpl::new();
+        // Should have 5 default rules
+        assert_eq!(validator.rules.len(), 5);
+    }
+
+    #[test]
+    fn test_database_ssl_no_database_config() {
+        let validator = DatabaseSSLValidator;
+        let config = json!({});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_database_ssl_disabled() {
+        let validator = DatabaseSSLValidator;
+        let config = json!({"database": {"ssl_mode": "disable"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "SSL_DISABLED"));
+    }
+
+    #[test]
+    fn test_database_ssl_enabled() {
+        let validator = DatabaseSSLValidator;
+        let config = json!({"database": {"ssl_mode": "require"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_database_ssl_missing_cert() {
+        let validator = DatabaseSSLValidator;
+        let config = json!({"database": {"ssl_cert": null}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "SSL_CERT_MISSING"));
+    }
+
+    #[test]
+    fn test_database_ssl_cert_present() {
+        let validator = DatabaseSSLValidator;
+        let config = json!({"database": {"ssl_cert": "/path/to/cert.pem"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_api_key_strength_no_api_config() {
+        let validator = APIKeyStrengthValidator;
+        let config = json!({});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_api_key_too_short() {
+        let validator = APIKeyStrengthValidator;
+        let config = json!({"api": {"key": "short"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "API_KEY_TOO_SHORT"));
+    }
+
+    #[test]
+    fn test_api_key_default_value() {
+        let validator = APIKeyStrengthValidator;
+        let config = json!({"api": {"key": "test-key"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "API_KEY_DEFAULT_VALUE"));
+    }
+
+    #[test]
+    fn test_api_key_strong() {
+        let validator = APIKeyStrengthValidator;
+        let config = json!({"api": {"key": "aB3$xYz1!qR7#mN9@pL2&kD5*"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_api_key_not_complex() {
+        let validator = APIKeyStrengthValidator;
+        let config = json!({"api": {"key": "abcdefghijklmnopqrstuvwxyz123456"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "API_KEY_NOT_COMPLEX"));
+    }
+
+    #[test]
+    fn test_is_complex_key() {
+        let validator = APIKeyStrengthValidator;
+        assert!(validator.is_complex_key("aB3$xYz1!"));
+        assert!(!validator.is_complex_key("abcdefgh"));
+        assert!(validator.is_complex_key("ABCdef123"));
+        assert!(!validator.is_complex_key("12345678"));
+    }
+
+    #[test]
+    fn test_allowed_hosts_no_server_config() {
+        let validator = AllowedHostsValidator;
+        let config = json!({});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_allowed_hosts_localhost() {
+        let validator = AllowedHostsValidator;
+        let config = json!({"server": {"host": "127.0.0.1"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "LOCALHOST_HOST"));
+    }
+
+    #[test]
+    fn test_allowed_hosts_wildcard() {
+        let validator = AllowedHostsValidator;
+        let config = json!({"server": {"host": "*.example.com"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "WILDCARD_HOST"));
+    }
+
+    #[test]
+    fn test_allowed_hosts_ssl_disabled() {
+        let validator = AllowedHostsValidator;
+        let config = json!({"server": {"host": "example.com", "ssl": false}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "SSL_DISABLED"));
+    }
+
+    #[test]
+    fn test_allowed_hosts_production_ok() {
+        let validator = AllowedHostsValidator;
+        let config = json!({"server": {"host": "api.example.com", "ssl": true}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_encryption_settings_no_config() {
+        let validator = EncryptionSettingsValidator;
+        let config = json!({});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_encryption_weak_algorithm() {
+        let validator = EncryptionSettingsValidator;
+        let config = json!({"encryption": {"algorithm": "des"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "WEAK_ENCRYPTION"));
+    }
+
+    #[test]
+    fn test_encryption_strong_algorithm() {
+        let validator = EncryptionSettingsValidator;
+        let config = json!({"encryption": {"algorithm": "aes-256-gcm"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_encryption_key_too_small() {
+        let validator = EncryptionSettingsValidator;
+        let config = json!({"encryption": {"key_size": 64}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "KEY_SIZE_TOO_SMALL"));
+    }
+
+    #[test]
+    fn test_encryption_key_ok() {
+        let validator = EncryptionSettingsValidator;
+        let config = json!({"encryption": {"key_size": 256}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_encryption_deprecated_mode() {
+        let validator = EncryptionSettingsValidator;
+        let config = json!({"encryption": {"mode": "ecb"}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "DEPRECATED_MODE"));
+    }
+
+    #[test]
+    fn test_authentication_no_config() {
+        let validator = AuthenticationConfigValidator;
+        let config = json!({});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_authentication_short_password() {
+        let validator = AuthenticationConfigValidator;
+        let config = json!({"authentication": {"password_policy": {"min_length": 4}}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "PASSWORD_MIN_LENGTH"));
+    }
+
+    #[test]
+    fn test_authentication_password_length_ok() {
+        let validator = AuthenticationConfigValidator;
+        let config = json!({"authentication": {"password_policy": {"min_length": 12}}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_authentication_complexity_not_required() {
+        let validator = AuthenticationConfigValidator;
+        let config = json!({"authentication": {"password_policy": {"require_complexity": false}}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "PASSWORD_COMPLEXITY_REQUIRED"));
+    }
+
+    #[test]
+    fn test_authentication_session_too_long() {
+        let validator = AuthenticationConfigValidator;
+        let config = json!({"authentication": {"session": {"timeout": 9999}}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.iter().any(|e| e.code == "SESSION_TIMEOUT_TOO_LONG"));
+    }
+
+    #[test]
+    fn test_authentication_session_ok() {
+        let validator = AuthenticationConfigValidator;
+        let config = json!({"authentication": {"session": {"timeout": 60}}});
+        let errors = validator.validate(&config).unwrap();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_security_validators_have_names() {
+        assert_eq!(DatabaseSSLValidator.name(), "DatabaseSSLValidator");
+        assert_eq!(APIKeyStrengthValidator.name(), "APIKeyStrengthValidator");
+        assert_eq!(AllowedHostsValidator.name(), "AllowedHostsValidator");
+        assert_eq!(EncryptionSettingsValidator.name(), "EncryptionSettingsValidator");
+        assert_eq!(AuthenticationConfigValidator.name(), "AuthenticationConfigValidator");
+    }
+}

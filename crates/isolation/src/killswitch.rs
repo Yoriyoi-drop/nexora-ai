@@ -27,7 +27,7 @@ pub struct KillEvent {
     pub execution_time_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum KillTarget {
     Agent(Uuid),
     Mode(ModeId),

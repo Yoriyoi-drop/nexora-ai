@@ -31,3 +31,25 @@ pub use token::TokenFilter;
 pub use toxicity::ToxicityFilter;
 pub use traits::{Filter, ParallelFilter};
 pub use trust_score::TrustScoreFilter;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_re_exports() {
+        let _ = super::ToxicityFilter::default();
+        let _ = super::PromptInjectionFilter::default();
+        let _ = super::DedupFilter::default();
+        let _ = super::QualityFilter::default();
+        let _ = super::LengthFilter::default();
+        let _ = super::PerplexityFilter::default();
+        let _ = super::EntropyFilter::default();
+        let _ = super::CurriculumRanker::default();
+        let _ = super::DomainClassifier::default();
+        let _ = super::LanguageFilter::default();
+        let _ = super::RegexFilter::default();
+        let _ = super::TokenFilter::default();
+        let _ = super::TrustScoreFilter::default();
+        let _ = super::SemanticDedupFilter::default();
+        let _ = super::CustomFilter::new("test");
+    }
+}

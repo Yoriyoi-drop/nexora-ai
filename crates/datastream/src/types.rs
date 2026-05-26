@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DataSample {
     pub id: Uuid,
     pub text: String,
@@ -15,7 +15,7 @@ pub struct DataSample {
     pub curriculum_level: Option<CurriculumLevel>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceInfo {
     pub name: String,
     pub url: Option<String>,
@@ -82,7 +82,7 @@ impl Domain {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SampleStats {
     pub char_count: usize,
     pub word_count: usize,
@@ -128,7 +128,7 @@ pub enum FilterAction {
     Flag,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BatchConfig {
     pub max_batch_size: usize,
     pub max_wait_ms: u64,
@@ -215,5 +215,102 @@ impl Default for TrustScoreMap {
         m.insert("bbc.com".to_string(), 0.82);
         m.insert("nature.com".to_string(), 0.96);
         Self(m)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sample_stats_default() {
+        let stats = SampleStats::default();
+        assert_eq!(stats.char_count, 0);
+        assert_eq!(stats.word_count, 0);
+        assert_eq!(stats.token_count, 0);
+        assert_eq!(stats.line_count, 0);
+        assert_eq!(stats.entropy, 0.0);
+        assert_eq!(stats.perplexity, 0.0);
+        assert_eq!(stats.quality_score, 0.0);
+    }
+
+    #[test]
+    fn test_batch_config_default() {
+        let cfg = BatchConfig::default();
+        assert_eq!(cfg.max_batch_size, 64);
+        assert_eq!(cfg.max_wait_ms, 100);
+        assert_eq!(cfg.prefetch_count, 4);
+        assert!(cfg.enable_dynamic);
+    }
+
+    #[test]
+    fn test_pipeline_metrics_default() {
+        let m = PipelineMetrics::default();
+        assert_eq!(m.samples_in, 0);
+        assert_eq!(m.samples_accepted, 0);
+        assert!(m.filter_breakdown.is_empty());
+    }
+
+    #[test]
+    fn test_trust_score_map_default() {
+        let map = TrustScoreMap::default();
+        assert!(map.0.contains_key("wikipedia.org"));
+        assert!(map.0.contains_key("arxiv.org"));
+        assert_eq!(*map.0.get("arxiv.org").unwrap(), 0.97);
+    }
+
+    #[test]
+    fn test_domain_curriculum_level() {
+        assert_eq!(
+            Domain::Conversation.curriculum_level(),
+            CurriculumLevel::BasicGrammar
+        );
+        assert_eq!(
+            Domain::Reasoning.curriculum_level(),
+            CurriculumLevel::AgenticPlanning
+        );
+        assert_eq!(
+            Domain::Science.curriculum_level(),
+            CurriculumLevel::ChainOfThought
+        );
+    }
+
+    #[test]
+    fn test_curriculum_level_repr() {
+        assert_eq!(CurriculumLevel::BasicGrammar as u8, 1);
+        assert_eq!(CurriculumLevel::MultiHopLogic as u8, 6);
+    }
+
+    #[test]
+    fn test_filter_action_variants() {
+        let accept = FilterAction::Accept;
+        let reject = FilterAction::Reject;
+        let reroute = FilterAction::Reroute(Domain::Code);
+        let flag = FilterAction::Flag;
+        assert!(matches!(accept, FilterAction::Accept));
+        assert!(matches!(reject, FilterAction::Reject));
+        assert!(matches!(reroute, FilterAction::Reroute(Domain::Code)));
+        assert!(matches!(flag, FilterAction::Flag));
+    }
+
+    #[test]
+    fn test_source_category_variants() {
+        assert_eq!(format!("{:?}", SourceCategory::Arxiv), "Arxiv");
+        assert_eq!(format!("{:?}", SourceCategory::WebCrawl), "WebCrawl");
+    }
+
+    #[test]
+    fn test_filter_result_fields() {
+        let id = Uuid::new_v4();
+        let r = FilterResult {
+            passed: true,
+            sample_id: id,
+            filter_name: "test".into(),
+            reason: None,
+            score_delta: 0.5,
+        };
+        assert!(r.passed);
+        assert_eq!(r.sample_id, id);
+        assert_eq!(r.score_delta, 0.5);
     }
 }

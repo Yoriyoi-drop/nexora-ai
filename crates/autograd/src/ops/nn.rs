@@ -33,11 +33,12 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                     let id = next_tensor_id();
                                     return Tensor::from_gpu(gpu_result, id, false);
                                 }
+                                let gpu_saved = gpu_result.clone();
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![input.clone()],
                                     vec![soft_cpu],
-                                    vec![],
+                                    vec![gpu_saved],
                                     Box::new(move |grad, saved| {
                                         let soft = &saved[0];
                                         let g_vec: Vec<f32> = grad.iter().copied().collect();
@@ -61,7 +62,11 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                             ArrayD::zeros(vec![0])
                                         })]
                                     }),
-                                    None,
+                                    Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                        let da = crate::gpu_backward::softmax_backward_last_dim(ctx, &saved_gpu[0], grad_gpu)
+                                            .map_err(|e| format!("softmax_backward: {e}"))?;
+                                        Ok(vec![da])
+                                    })),
                                 );
                             }
                             Err(e) => warn!("autograd nn backward failed: {e}")
@@ -192,11 +197,19 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                             let id = crate::tensor::next_tensor_id();
                                             return Tensor::from_gpu(gpu_result, id, false);
                                         }
+                                        let gpu_soft_saved = soft_2d.clone().reshape(orig_shape.clone());
+                                        let gpu_soft_saved = match gpu_soft_saved {
+                                            Ok(r) => r,
+                                            Err(e) => {
+                                                warn!("log_softmax soft reshape back failed: {e}");
+                                                return Tensor::new(input.data());
+                                            }
+                                        };
                                         return Tensor::from_gpu_with_grad_fn(
                                             gpu_result,
                                             vec![input.clone()],
                                             vec![soft_cpu],
-                                            vec![],
+                                            vec![gpu_soft_saved],
                                             Box::new(move |grad, saved| {
                                                 let soft = &saved[0];
                                                 let g_vec: Vec<f32> = grad.iter().copied().collect();
@@ -223,7 +236,27 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                                     ArrayD::zeros(vec![0])
                                                 })]
                                             }),
-                                            None,
+                                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                                let soft = &saved_gpu[0];
+                                                let shape = soft.shape();
+                                                let last_dim = shape[shape.len() - 1];
+                                                let rest: usize = shape[..shape.len() - 1].iter().product();
+                                                let s_2d = soft.reshape(vec![rest, last_dim])
+                                                    .map_err(|e| format!("log_softmax_backward reshape soft: {e}"))?;
+                                                let g_2d = grad_gpu.reshape(vec![rest, last_dim])
+                                                    .map_err(|e| format!("log_softmax_backward reshape grad: {e}"))?;
+                                                let ones_col = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(ndarray::IxDyn(&[last_dim, 1]), 1.0f32))
+                                                    .map_err(|e| format!("log_softmax_backward ones: {e}"))?;
+                                                let sum_g = ctx.matmul(&g_2d, &ones_col)
+                                                    .map_err(|e| format!("log_softmax_backward matmul: {e}"))?;
+                                                let soft_times_sum = ctx.mul(&s_2d, &sum_g)
+                                                    .map_err(|e| format!("log_softmax_backward mul: {e}"))?;
+                                                let dx_2d = ctx.sub(&g_2d, &soft_times_sum)
+                                                    .map_err(|e| format!("log_softmax_backward sub: {e}"))?;
+                                                let da = dx_2d.reshape(shape.to_vec())
+                                                    .map_err(|e| format!("log_softmax_backward reshape out: {e}"))?;
+                                                Ok(vec![da])
+                                            })),
                                         );
                                     }
                                     Err(e) => warn!("autograd nn backward failed: {e}")

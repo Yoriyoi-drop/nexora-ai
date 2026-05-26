@@ -583,3 +583,76 @@ pub fn create_hierarchical_sliding_window(
 ) -> DLResult<HierarchicalSlidingWindow> {
     HierarchicalSlidingWindow::new(hidden_dim, num_heads, window_size, stride, num_levels)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_sliding_window_attention_new() -> DLResult<()> {
+        let swa = SlidingWindowAttention::new(1024, 8, 128, 64, 3)?;
+        assert_eq!(swa.get_window_utilization(), 0.0);
+        assert_eq!(swa.get_cache_hit_rate(), 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliding_window_attention_invalid_dim() {
+        let result = SlidingWindowAttention::new(1024, 3, 128, 64, 3);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_forward_zero_len() -> DLResult<()> {
+        let swa = SlidingWindowAttention::new(512, 8, 64, 32, 1)?;
+        let input = Array1::zeros(0).into_dyn();
+        let result = swa.forward(&input);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliding_window_forward() -> DLResult<()> {
+        let swa = SlidingWindowAttention::new(512, 8, 64, 32, 1)?;
+        let input = Array1::zeros(512).into_dyn();
+        let result = swa.forward(&input)?;
+        assert_eq!(result.shape(), &[512]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_hierarchical_sliding_window_new() -> DLResult<()> {
+        let _hsw = HierarchicalSlidingWindow::new(1024, 8, 128, 64, 3)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_sliding_window_attention() -> DLResult<()> {
+        let _swa = create_sliding_window_attention(512, 8, 64, 32)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_hierarchical_sliding_window() -> DLResult<()> {
+        let _hsw = create_hierarchical_sliding_window(512, 8, 64, 32, 2)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_xavier_init_values() {
+        let w = SlidingWindowAttention::xavier_init(100, 200);
+        assert_eq!(w.shape(), &[100, 200]);
+        let mean_abs = w.iter().map(|x| x.abs()).sum::<f32>() / w.len() as f32;
+        assert!(mean_abs > 0.0);
+    }
+
+    #[test]
+    fn test_hierarchical_sliding_window_forward_short() -> DLResult<()> {
+        let hsw = HierarchicalSlidingWindow::new(512, 8, 64, 32, 3)?;
+        let input = Array1::zeros(512).into_dyn();
+        let result = hsw.forward(&input)?;
+        assert_eq!(result.shape(), &[512]);
+        Ok(())
+    }
+}

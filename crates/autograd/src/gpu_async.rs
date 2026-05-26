@@ -8,6 +8,10 @@ use crate::gpu::{readback_with_timeout, GpuContext, GpuDtype, GpuError, GpuTenso
 // ─── AsyncReadback ─────────────────────────────────────────────────────────────
 
 /// Non-blocking GPU readback — hasil dikirim via channel ketika GPU selesai
+///
+/// # Blocking warning
+/// `recv()` is a blocking call that may block the calling thread for up to 30s.
+/// Must be called from `tokio::task::spawn_blocking` if invoked from async context.
 pub struct AsyncReadback<T: Send + 'static> {
     pub receiver: mpsc::Receiver<T>,
     ready: Arc<AtomicBool>,
@@ -19,7 +23,12 @@ impl<T: Send + 'static> AsyncReadback<T> {
         self.receiver.try_recv().ok()
     }
 
-    /// Blocking wait untuk hasil with 30s timeout
+    /// Blocking wait untuk hasil with 30s timeout.
+    ///
+    /// ## ⚠️ Must be called from `spawn_blocking` in async context
+    /// This method blocks the current thread with `recv_timeout`. If called
+    /// directly from an async task without `spawn_blocking`, it will block
+    /// the tokio worker thread and cause latency spikes.
     pub fn recv(&self) -> Result<T, GpuError> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
@@ -31,7 +40,6 @@ impl<T: Send + 'static> AsyncReadback<T> {
                             "GPU async readback timed out after 30s".into(),
                         ));
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -305,20 +313,19 @@ pub struct CpuReadback {
 
 impl CpuReadback {
     /// Poll until done, then return the CPU data.
-    pub fn poll(self, ctx: &GpuContext) -> Vec<f32> {
+    /// Returns an error if GPU readback fails (e.g. device loss or timeout).
+    pub fn poll(self, ctx: &GpuContext) -> Result<Vec<f32>, GpuError> {
         let slice = self.staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        // safe: device polling ensures readback completes; only fails on GPU loss
-        readback_with_timeout(&ctx.device, &rx)
-            .expect("GPU readback failed in CpuReadback::poll");
+        readback_with_timeout(&ctx.device, &rx)?;
         let mapped = slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&*mapped).to_vec();
         drop(mapped);
         self.staging.unmap();
-        result
+        Ok(result)
     }
 
     pub fn shape(&self) -> &[usize] {

@@ -174,3 +174,81 @@ impl Default for CorruptedShardRecovery {
         Self::new(CorruptedShardAction::Warn)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dataset_schema_text() {
+        let schema = DatasetSchema::text();
+        assert_eq!(schema.fields.len(), 1);
+        assert_eq!(schema.fields[0].name, "text");
+        assert_eq!(schema.fields[0].dtype, "utf8");
+        assert!(!schema.fields[0].nullable);
+    }
+
+    #[test]
+    fn test_dataset_schema_tokenized() {
+        let schema = DatasetSchema::tokenized();
+        assert_eq!(schema.fields.len(), 3);
+        assert_eq!(schema.fields[1].name, "tokens");
+        assert_eq!(schema.fields[1].dtype, "list<int32>");
+    }
+
+    #[test]
+    fn test_corrupted_shard_action_default() {
+        assert_eq!(CorruptedShardAction::default(), CorruptedShardAction::Warn);
+    }
+
+    #[test]
+    fn test_corrupted_shard_recovery_new() {
+        let r = CorruptedShardRecovery::new(CorruptedShardAction::Fail);
+        assert_eq!(r.action, CorruptedShardAction::Fail);
+        assert_eq!(r.total_failures(), 0);
+    }
+
+    #[test]
+    fn test_corrupted_shard_recovery_skip() {
+        let mut r = CorruptedShardRecovery::new(CorruptedShardAction::Skip);
+        let result = r.handle_failure(Path::new("test.arrow"), "corrupted");
+        assert!(result.is_ok());
+        assert_eq!(r.total_failures(), 1);
+        assert_eq!(r.skipped_shards().len(), 1);
+    }
+
+    #[test]
+    fn test_corrupted_shard_recovery_fail() {
+        let mut r = CorruptedShardRecovery::new(CorruptedShardAction::Fail);
+        let result = r.handle_failure(Path::new("test.arrow"), "fatal");
+        assert!(result.is_err());
+        assert_eq!(r.total_failures(), 1);
+    }
+
+    #[test]
+    fn test_corrupted_shard_recovery_warn_max_failures() {
+        let mut r = CorruptedShardRecovery::new(CorruptedShardAction::Warn);
+        r.max_failures = 3;
+        for i in 0..3 {
+            let result = r.handle_failure(Path::new(&format!("{}.arrow", i)), "error");
+            assert_eq!(result.is_ok(), i < 2); // third failure should Err
+        }
+        assert_eq!(r.total_failures(), 3);
+    }
+
+    #[test]
+    fn test_schema_validation() {
+        let validation = SchemaValidation {
+            valid: true,
+            issues: vec![],
+        };
+        assert!(validation.valid);
+        assert!(validation.issues.is_empty());
+    }
+
+    #[test]
+    fn test_schema_issue_missing_column() {
+        let issue = SchemaIssue::MissingColumn { field: "text".into() };
+        assert!(matches!(issue, SchemaIssue::MissingColumn { .. }));
+    }
+}

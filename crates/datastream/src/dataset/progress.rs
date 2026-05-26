@@ -234,3 +234,117 @@ impl std::fmt::Display for ResumeError {
 }
 
 impl std::error::Error for ResumeError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_progress_tracker_new() {
+        let p = ProgressTracker::new(1000, 5);
+        assert_eq!(p.total_samples, 1000);
+        assert_eq!(p.total_epochs, 5);
+        assert_eq!(p.current_epoch, 0);
+        assert_eq!(p.samples_processed, 0);
+    }
+
+    #[test]
+    fn test_start_epoch() {
+        let mut p = ProgressTracker::new(1000, 5);
+        p.start_epoch(3);
+        assert_eq!(p.current_epoch, 3);
+    }
+
+    #[test]
+    fn test_add_samples() {
+        let mut p = ProgressTracker::new(1000, 1);
+        p.add_samples(100, 5);
+        assert_eq!(p.samples_processed, 100);
+        assert_eq!(p.batches_processed, 5);
+    }
+
+    #[test]
+    fn test_eta_zero_speed() {
+        let p = ProgressTracker::new(1000, 1);
+        assert_eq!(p.eta(), Duration::from_secs(0));
+    }
+
+    #[test]
+    fn test_streaming_stats_new() {
+        let s = StreamingStats::new();
+        assert_eq!(s.read_speed, 0.0);
+        assert!(!s.gpu_starvation);
+        assert_eq!(s.gpu_wait_ratio, 0.0);
+    }
+
+    #[test]
+    fn test_gpu_wait_below_threshold() {
+        let mut s = StreamingStats::new();
+        s.report_gpu_wait(0.1, 1.0);
+        assert!(!s.gpu_starvation);
+        assert!((s.gpu_wait_ratio() - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_gpu_starvation_detected() {
+        let mut s = StreamingStats::new();
+        s.report_gpu_wait(0.4, 1.0);
+        assert!(s.gpu_starvation);
+    }
+
+    #[test]
+    fn test_reset_starvation_counters() {
+        let mut s = StreamingStats::new();
+        s.report_gpu_wait(0.5, 1.0);
+        assert!(s.gpu_starvation);
+        s.reset_starvation_counters();
+        assert_eq!(s.gpu_wait_ratio(), 0.5);
+    }
+
+    #[test]
+    fn test_detect_bottleneck_gpu_starvation() {
+        let mut s = StreamingStats::new();
+        s.report_gpu_wait(0.5, 1.0);
+        let bottleneck = s.detect_bottleneck();
+        assert!(bottleneck.unwrap().contains("GPU STARVATION"));
+    }
+
+    #[test]
+    fn test_detect_bottleneck_low_speed() {
+        let s = StreamingStats::new();
+        let bottleneck = s.detect_bottleneck();
+        assert!(bottleneck.unwrap().contains("BOTTLENECK"));
+    }
+
+    #[test]
+    fn test_resume_state_json_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("resume.json");
+        let state = ResumeState {
+            epoch: 2,
+            shard_index: 5,
+            sample_offset: 1000,
+            optimizer_state: None,
+            best_val_loss: Some(0.5),
+        };
+        state.save(&path).unwrap();
+        let loaded = ResumeState::load(&path).unwrap();
+        assert_eq!(loaded.epoch, 2);
+        assert_eq!(loaded.shard_index, 5);
+        assert_eq!(loaded.sample_offset, 1000);
+        assert_eq!(loaded.best_val_loss, Some(0.5));
+    }
+
+    #[test]
+    fn test_resume_state_load_nonexistent() {
+        let result = ResumeState::load(std::path::Path::new("/nonexistent.json"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resume_error_display() {
+        let e = ResumeError::Io("file not found".into());
+        assert_eq!(format!("{}", e), "Resume IO: file not found");
+    }
+}

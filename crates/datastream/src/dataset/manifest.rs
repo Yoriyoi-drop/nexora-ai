@@ -73,3 +73,87 @@ impl std::fmt::Display for ManifestError {
 }
 
 impl std::error::Error for ManifestError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_manifest_from_nonexistent_path() {
+        let result = DatasetManifest::from_path(Path::new("/nonexistent/manifest.json"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shard_info_default() {
+        let shard = ShardInfo {
+            path: "data.arrow".into(),
+            split: "train".into(),
+            samples: 1000,
+            size_bytes: 50000,
+            compression: None,
+            checksum: None,
+        };
+        assert_eq!(shard.split, "train");
+        assert_eq!(shard.samples, 1000);
+    }
+
+    #[test]
+    fn test_shards_for_split() {
+        let manifest = DatasetManifest {
+            name: "test".into(),
+            version: "1.0".into(),
+            format: "arrow".into(),
+            compression: None,
+            total_samples: 3000,
+            total_shards: 3,
+            shards: vec![
+                ShardInfo {
+                    path: "train1.arrow".into(),
+                    split: "train".into(),
+                    samples: 1000,
+                    size_bytes: 50000,
+                    compression: None,
+                    checksum: None,
+                },
+                ShardInfo {
+                    path: "val1.arrow".into(),
+                    split: "val".into(),
+                    samples: 500,
+                    size_bytes: 25000,
+                    compression: None,
+                    checksum: None,
+                },
+                ShardInfo {
+                    path: "train2.arrow".into(),
+                    split: "train".into(),
+                    samples: 2000,
+                    size_bytes: 100000,
+                    compression: None,
+                    checksum: None,
+                },
+            ],
+            features: vec![],
+            schema: std::collections::HashMap::new(),
+            created_at: "now".into(),
+            checksum: None,
+        };
+
+        let train_shards = manifest.shards_for_split("train");
+        assert_eq!(train_shards.len(), 2);
+        assert_eq!(manifest.total_for_split("train"), 3000);
+
+        let val_shards = manifest.shards_for_split("val");
+        assert_eq!(val_shards.len(), 1);
+        assert_eq!(manifest.total_for_split("val"), 500);
+    }
+
+    #[test]
+    fn test_manifest_display_errors() {
+        let io_err = ManifestError::Io("disk full".into());
+        assert_eq!(format!("{}", io_err), "IO error: disk full");
+
+        let parse_err = ManifestError::Parse("invalid json".into());
+        assert_eq!(format!("{}", parse_err), "Parse error: invalid json");
+    }
+}

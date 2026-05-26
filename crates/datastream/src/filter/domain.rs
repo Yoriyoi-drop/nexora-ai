@@ -147,3 +147,92 @@ impl Filter for DomainClassifier {
         FilterAction::Accept
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_has_patterns() {
+        let d = DomainClassifier::default();
+        assert!(!d.code_patterns.is_empty());
+        assert!(!d.reasoning_patterns.is_empty());
+        assert!(!d.knowledge_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_code_detection() {
+        let d = DomainClassifier::default();
+        let domains = d.classify("fn hello() { println!(\"world\"); }");
+        assert!(domains.iter().any(|(dom, _)| *dom == Domain::Code));
+    }
+
+    #[test]
+    fn test_reasoning_detection() {
+        let d = DomainClassifier::default();
+        let domains = d.classify("therefore the conclusion follows because the premise is logically sound");
+        assert!(domains.iter().any(|(dom, _)| *dom == Domain::Reasoning));
+    }
+
+    #[test]
+    fn test_math_detection() {
+        let d = DomainClassifier::default();
+        let domains = d.classify("the equation $x^2 + y^2 = z^2$ is known as the theorem of pythagoras");
+        assert!(domains.iter().any(|(dom, _)| *dom == Domain::Math));
+    }
+
+    #[test]
+    fn test_instruction_detection() {
+        let d = DomainClassifier::default();
+        let domains = d.classify("please explain how quantum computing works");
+        assert!(domains.iter().any(|(dom, _)| *dom == Domain::Instruction));
+    }
+
+    #[test]
+    fn test_short_text_falls_back_to_conversation() {
+        let d = DomainClassifier::default();
+        let domains = d.classify("hello how are you");
+        assert!(domains.iter().any(|(dom, _)| *dom == Domain::Conversation));
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_returns_domains() {
+        let d = DomainClassifier::default();
+        let s = sample("fn test() { return 42; } and therefore we conclude this is code with reasoning");
+        let result = d.evaluate(&s).await;
+        assert!(result.passed);
+        assert!(result.reason.unwrap().contains("domains:"));
+    }
+
+    #[test]
+    fn test_score_patterns() {
+        let d = DomainClassifier::default();
+        let score = d.score_patterns(
+            "fn main() { println!(\"hi\"); }",
+            &default_code_patterns(),
+        );
+        assert!(score > 0.0);
+    }
+}

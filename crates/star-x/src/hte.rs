@@ -467,3 +467,120 @@ impl crate::traits::Forward for HarmonicTemporalEncoding {
         self.compute_harmonic_encoding(self.current_position)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::Forward;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_harmonic_temporal_encoding_new() -> DLResult<()> {
+        let _hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_harmonic_temporal_encoding_invalid_encoding_dim() {
+        let result = HarmonicTemporalEncoding::new(10, 3, 128);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compute_harmonic_encoding() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let encoded = hte.compute_harmonic_encoding(0)?;
+        assert_eq!(encoded.shape(), &[64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_relative_encoding() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let encoded = hte.compute_relative_encoding(0, 1)?;
+        assert_eq!(encoded.shape(), &[64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_adapt_frequencies() -> DLResult<()> {
+        let mut hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        hte.adapt_frequencies(0.5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_caching() -> DLResult<()> {
+        let mut hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        hte.cache_encoding(0)?;
+        let a = hte.get_cached_encoding(0).cloned();
+        hte.cache_encoding(0)?;
+        let b = hte.get_cached_encoding(0).cloned();
+        assert_eq!(a, b);
+        Ok(())
+    }
+
+    #[test]
+    fn test_forward_trait() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let input = Array1::zeros(64).into_dyn();
+        let output = hte.forward(&input)?;
+        assert_eq!(output.shape(), &[64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_clear_cache() -> DLResult<()> {
+        let mut hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        hte.cache_encoding(0)?;
+        hte.clear_cache();
+        assert!(hte.get_cached_encoding(0).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_different_times_different_encodings() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let a = hte.compute_harmonic_encoding(0)?;
+        let b = hte.compute_harmonic_encoding(1)?;
+        assert!(a != b);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_decay_encoding() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let encoded = hte.compute_decay_encoding(0, 0.9)?;
+        assert_eq!(encoded.shape(), &[64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_periodic_encoding() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let encoded = hte.compute_periodic_encoding(0, 10)?;
+        assert_eq!(encoded.shape(), &[64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_temporal_stats() -> DLResult<()> {
+        let hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        let (_avg_freq, _avg_amp, _avg_phase) = hte.get_temporal_stats();
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_amplitude_modulation() -> DLResult<()> {
+        let mut hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        hte.update_amplitude_modulation(0.1, 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn test_adjust_phase_shift() -> DLResult<()> {
+        let mut hte = HarmonicTemporalEncoding::new(64, 3, 128)?;
+        hte.adjust_phase_shift(0.5);
+        Ok(())
+    }
+}

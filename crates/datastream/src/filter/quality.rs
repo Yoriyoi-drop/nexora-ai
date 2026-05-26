@@ -113,3 +113,85 @@ impl Filter for QualityFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_thresholds() {
+        let f = QualityFilter::default();
+        assert_eq!(f.min_quality_score, 0.3);
+        assert_eq!(f.max_repetition_ratio, 0.4);
+        assert_eq!(f.min_unique_word_ratio, 0.2);
+    }
+
+    #[test]
+    fn test_high_quality_text() {
+        let f = QualityFilter::default();
+        let text = "The quick brown fox jumps over the lazy dog near the riverbank. This sentence has varied vocabulary and mixed case. Quality content should pass the filter with good scores.";
+        let s = sample(text);
+        let (score, reason) = f.compute_quality(&s);
+        assert!(score >= f.min_quality_score);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn test_too_much_uppercase() {
+        let f = QualityFilter::default();
+        let text = "THIS IS ALL UPPERCASE AND SHOULD BE REJECTED BECAUSE IT HAS NO LOWERCASE CONTENT WHATSOEVER";
+        let s = sample(text);
+        let (score, reason) = f.compute_quality(&s);
+        assert_eq!(score, 0.0);
+        assert!(reason.unwrap().contains("uppercase"));
+    }
+
+    #[test]
+    fn test_too_repetitive() {
+        let f = QualityFilter::default();
+        let text = "word word word word word word word word word word word word";
+        let s = sample(text);
+        let (score, reason) = f.compute_quality(&s);
+        assert_eq!(score, 0.0);
+        assert!(reason.unwrap().contains("repetition"));
+    }
+
+    #[tokio::test]
+    async fn test_filter_passes_good_quality() {
+        let f = QualityFilter::default();
+        let text = "The quick brown fox jumps over the lazy dog. This sentence has varied vocabulary and good structure for a quality assessment test.";
+        let s = sample(text);
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_filter_rejects_low_quality() {
+        let f = QualityFilter::default();
+        let s = sample("AAAA BBBB CCCC DDDD EEEE FFFF GGGG HHHH");
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+    }
+}

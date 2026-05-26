@@ -942,3 +942,124 @@ impl Default for MemoryAgentConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_agent_config_default() {
+        let config = MemoryAgentConfig::default();
+        assert_eq!(config.default_query_limit, 100);
+        assert!(config.enable_compression);
+        assert_eq!(config.compression_threshold, 1000);
+        assert_eq!(config.cache_duration_seconds, 3600);
+        assert!(config.enable_cleanup);
+    }
+
+    #[test]
+    fn test_memory_agent_config_clone_debug() {
+        let config = MemoryAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_memory_query_creation() {
+        let query = MemoryQuery {
+            user_id: Some(Uuid::new_v4()),
+            session_id: None,
+            memory_type: "episodic".into(),
+            query_text: "find memories".into(),
+            limit: Some(50),
+            offset: None,
+            filters: HashMap::new(),
+        };
+        assert_eq!(query.memory_type, "episodic");
+        assert_eq!(query.limit, Some(50));
+    }
+
+    #[test]
+    fn test_memory_operation_result() {
+        let result = MemoryOperationResult {
+            operation: "store".into(),
+            success: true,
+            affected_count: 1,
+            data: serde_json::json!({"id": "abc"}),
+            metadata: HashMap::new(),
+        };
+        assert!(result.success);
+        assert_eq!(result.affected_count, 1);
+        assert_eq!(result.operation, "store");
+    }
+
+    #[test]
+    fn test_memory_stats_default() {
+        let stats = MemoryStats::default();
+        assert_eq!(stats.total_count, 0);
+        assert_eq!(stats.episodic_count, 0);
+        assert_eq!(stats.semantic_count, 0);
+        assert_eq!(stats.working_count, 0);
+    }
+
+    #[test]
+    fn test_memory_stats_with_values() {
+        let stats = MemoryStats {
+            total_count: 100,
+            episodic_count: 40,
+            semantic_count: 30,
+            working_count: 20,
+            user_count: 5,
+            procedural_count: 5,
+        };
+        assert_eq!(stats.total_count, 100);
+        assert_eq!(stats.episodic_count, 40);
+    }
+
+    #[test]
+    fn test_memory_agent_new() {
+        let store = Arc::new(RwLock::new(nexora_memory::MemoryLayers::new()));
+        let config = MemoryAgentConfig::default();
+        let agent = MemoryAgent::new(store, config);
+        assert_eq!(agent.name(), "MemoryAgent");
+        assert_eq!(agent.agent_type(), "memory");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_memory_agent_initialize() {
+        let store = Arc::new(RwLock::new(nexora_memory::MemoryLayers::new()));
+        let config = MemoryAgentConfig::default();
+        let mut agent = MemoryAgent::new(store, config);
+        let result = futures::executor::block_on(agent.initialize(AgentConfig::default()));
+        assert!(result.is_ok());
+        assert_eq!(agent.status(), AgentStatus::Ready);
+    }
+
+    #[test]
+    fn test_memory_result_type() {
+        let ok: MemoryResult<i32> = Ok(7);
+        assert!(ok.is_ok());
+    }
+
+    #[test]
+    fn test_memory_agent_cleanup_disabled() {
+        use std::sync::Arc;
+        let store = Arc::new(RwLock::new(nexora_memory::MemoryLayers::new()));
+        let mut config = MemoryAgentConfig::default();
+        config.enable_cleanup = false;
+        let agent = MemoryAgent::new(store, config);
+        let count = futures::executor::block_on(agent.cleanup_old_memories(1)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_memory_agent_compress_disabled() {
+        let store = Arc::new(RwLock::new(nexora_memory::MemoryLayers::new()));
+        let mut config = MemoryAgentConfig::default();
+        config.enable_compression = false;
+        let agent = MemoryAgent::new(store, config);
+        let count = futures::executor::block_on(agent.compress_memories(None)).unwrap();
+        assert_eq!(count, 0);
+    }
+}

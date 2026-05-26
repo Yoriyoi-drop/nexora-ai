@@ -401,3 +401,116 @@ impl Drop for PooledTensorDyn {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tensor_pool_new() -> DLResult<()> {
+        let pool = TensorPool::new()?;
+        let stats = pool.get_stats();
+        assert!(!stats.pool_1d_sizes.is_empty());
+        assert!(!stats.pool_2d_sizes.is_empty());
+        assert!(!stats.pool_dyn_sizes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_tensor_pool_get_return_1d() -> DLResult<()> {
+        let pool = TensorPool::new()?;
+        let tensor = pool.get_1d(64)?;
+        assert_eq!(tensor.len(), 64);
+        pool.return_1d(tensor)?;
+        let tensor2 = pool.get_1d(64)?;
+        assert_eq!(tensor2.len(), 64);
+        Ok(())
+    }
+
+    #[test]
+    fn test_tensor_pool_get_return_2d() -> DLResult<()> {
+        let pool = TensorPool::new()?;
+        let tensor = pool.get_2d(64, 64)?;
+        assert_eq!(tensor.shape(), &[64, 64]);
+        pool.return_2d(tensor)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_tensor_pool_get_return_dyn() -> DLResult<()> {
+        let pool = TensorPool::new()?;
+        let tensor = pool.get_dyn(&[64, 64])?;
+        assert_eq!(tensor.shape(), &[64, 64]);
+        pool.return_dyn(tensor)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_tensor_pool_clear_all() -> DLResult<()> {
+        let pool = TensorPool::new()?;
+        let tensor = pool.get_1d(64)?;
+        pool.return_1d(tensor)?;
+        pool.clear_all();
+        let stats = pool.get_stats();
+        assert!(stats.pool_1d_sizes.iter().all(|(_, len)| *len == 0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_tensor_pool_get_zeros() -> DLResult<()> {
+        let pool = TensorPool::new()?;
+        let tensor = pool.get_1d(64)?;
+        assert!(tensor.iter().all(|&x| x == 0.0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_global_pool() {
+        let _pool = global_pool();
+    }
+
+    #[test]
+    fn test_pooled_tensor_1d() -> DLResult<()> {
+        let pooled = PooledTensor1D::new(64)?;
+        assert_eq!(pooled.get().len(), 64);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pooled_tensor_2d() -> DLResult<()> {
+        let pooled = PooledTensor2D::new(64, 64)?;
+        assert_eq!(pooled.get().shape(), &[64, 64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pooled_tensor_dyn() -> DLResult<()> {
+        let pooled = PooledTensorDyn::new(&[64, 64])?;
+        assert_eq!(pooled.get().shape(), &[64, 64]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pooled_tensor_into_inner() -> DLResult<()> {
+        let pooled = PooledTensor1D::new(64)?;
+        let inner = pooled.into_inner();
+        assert_eq!(inner.len(), 64);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pooled_tensor_mut() -> DLResult<()> {
+        let mut pooled = PooledTensor1D::new(10)?;
+        pooled.get_mut().fill(3.14);
+        assert!((pooled.get()[0] - 3.14).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pool_stats_default() {
+        let stats = PoolStats::default();
+        assert!(stats.pool_1d_sizes.is_empty());
+        assert!(stats.pool_2d_sizes.is_empty());
+        assert!(stats.pool_dyn_sizes.is_empty());
+    }
+}

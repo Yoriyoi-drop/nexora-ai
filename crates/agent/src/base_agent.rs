@@ -289,3 +289,142 @@ impl AgentContext {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_config_default() {
+        let config = AgentConfig::default();
+        assert_eq!(config.agent_id, "default");
+        assert_eq!(config.agent_type, "unknown");
+        assert_eq!(config.max_concurrent_tasks, 1);
+        assert_eq!(config.timeout_seconds, 30);
+    }
+
+    #[test]
+    fn test_agent_config_serialize_roundtrip() {
+        let config = AgentConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config.agent_id, deserialized.agent_id);
+    }
+
+    #[test]
+    fn test_agent_status_variants() {
+        assert_ne!(AgentStatus::Ready, AgentStatus::Initializing);
+        assert_eq!(AgentStatus::Error("msg".into()), AgentStatus::Error("msg".into()));
+        assert_ne!(AgentStatus::Shutdown, AgentStatus::ShuttingDown);
+    }
+
+    #[test]
+    fn test_agent_status_debug_clone() {
+        let status = AgentStatus::Processing;
+        let cloned = status.clone();
+        assert_eq!(format!("{:?}", status), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_agent_status_serialize() {
+        let status = AgentStatus::Error("test error".into());
+        let json = serde_json::to_string(&status).unwrap();
+        let deserialized: AgentStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(status, deserialized);
+    }
+
+    #[test]
+    fn test_message_priority_default() {
+        assert_eq!(MessagePriority::Normal, MessagePriority::Normal);
+        assert_ne!(MessagePriority::High, MessagePriority::Normal);
+    }
+
+    #[test]
+    fn test_agent_message_new() {
+        let msg = AgentMessage::new("test_type", serde_json::json!({"key": "value"}));
+        assert_eq!(msg.message_type, "test_type");
+        assert_eq!(msg.priority, MessagePriority::Normal);
+        assert!(msg.sender.is_none());
+    }
+
+    #[test]
+    fn test_agent_message_builder() {
+        let sender_id = Uuid::new_v4();
+        let msg = AgentMessage::new("type", serde_json::json!(42))
+            .with_priority(MessagePriority::High)
+            .with_sender(sender_id)
+            .with_metadata("source", serde_json::json!("test"));
+        assert_eq!(msg.priority, MessagePriority::High);
+        assert_eq!(msg.sender, Some(sender_id));
+        assert_eq!(msg.metadata.get("source"), Some(&serde_json::json!("test")));
+    }
+
+    #[test]
+    fn test_agent_response_success() {
+        let req_id = Uuid::new_v4();
+        let resp = AgentResponse::success(req_id, serde_json::json!("payload"), 42);
+        assert_eq!(resp.status, ResponseStatus::Success);
+        assert_eq!(resp.request_id, req_id);
+        assert_eq!(resp.processing_time_ms, 42);
+    }
+
+    #[test]
+    fn test_agent_response_error() {
+        let req_id = Uuid::new_v4();
+        let resp = AgentResponse::error(req_id, "something failed", 10);
+        assert!(matches!(resp.status, ResponseStatus::Error(_)));
+        if let ResponseStatus::Error(msg) = &resp.status {
+            assert_eq!(msg, "something failed");
+        }
+    }
+
+    #[test]
+    fn test_agent_response_with_metadata() {
+        let req_id = Uuid::new_v4();
+        let resp = AgentResponse::success(req_id, serde_json::json!(true), 5)
+            .with_metadata("trace_id", serde_json::json!("abc"));
+        assert_eq!(resp.metadata.get("trace_id"), Some(&serde_json::json!("abc")));
+    }
+
+    #[test]
+    fn test_agent_context_new() {
+        let session_id = Uuid::new_v4();
+        let ctx = AgentContext::new(session_id);
+        assert_eq!(ctx.session_id, session_id);
+        assert!(ctx.user_id.is_none());
+        assert!(ctx.parameters.is_empty());
+    }
+
+    #[test]
+    fn test_agent_context_with_user_id() {
+        let session_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let ctx = AgentContext::new(session_id).with_user_id(user_id);
+        assert_eq!(ctx.user_id, Some(user_id));
+    }
+
+    #[test]
+    fn test_agent_context_with_parameter() {
+        let ctx = AgentContext::new(Uuid::new_v4())
+            .with_parameter("key", serde_json::json!("value"));
+        assert_eq!(ctx.parameters.get("key"), Some(&serde_json::json!("value")));
+    }
+
+    #[test]
+    fn test_agent_stats_default() {
+        let stats = AgentStats::default();
+        assert_eq!(stats.messages_processed, 0);
+        assert_eq!(stats.errors, 0);
+        assert_eq!(stats.avg_processing_time_ms, 0.0);
+        assert_eq!(stats.uptime_seconds, 0);
+    }
+
+    #[test]
+    fn test_response_status_serialize() {
+        let status = ResponseStatus::Success;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"Success\"");
+        let deserialized: ResponseStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, ResponseStatus::Success);
+    }
+}

@@ -647,3 +647,141 @@ impl crate::traits::Forward for SparseCausalAttention {
         Ok(output)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_sparse_causal_attention_new() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        assert_eq!(sca.get_sparsity_ratio(), 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sparse_causal_attention_invalid_dim() {
+        let result = SparseCausalAttention::new(1024, 3, 64, 0.1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_sparsity_level() -> DLResult<()> {
+        let mut sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        sca.set_sparsity_level(0.5)?;
+        assert!(sca.get_sparsity_ratio() >= 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_sparsity_level_invalid() -> DLResult<()> {
+        let mut sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        assert!(sca.set_sparsity_level(1.5).is_err());
+        assert!(sca.set_sparsity_level(-0.1).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_and_combine_heads() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        let input = Array1::zeros(1024).into_dyn();
+        let heads = sca.split_heads(&input)?;
+        assert_eq!(heads.len(), 8);
+        assert_eq!(heads[0].shape(), &[128]);
+        let combined = sca.combine_heads(&heads)?;
+        assert_eq!(combined.shape(), &[1024]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_heads_wrong_size() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        let input = Array1::from_vec(vec![1.0, 2.0, 3.0]).into_dyn();
+        let result = sca.split_heads(&input);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_dynamic_sparse_routing() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        let scores = vec![0.1, 0.5, 0.3, 0.9, 0.2];
+        let indices = sca.dynamic_sparse_routing(&scores, 3)?;
+        assert_eq!(indices.len(), 3);
+        assert_eq!(indices[0], 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_dynamic_sparse_routing_all() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        let scores = vec![0.1, 0.5, 0.3];
+        let indices = sca.dynamic_sparse_routing(&scores, 5)?;
+        assert_eq!(indices.len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_adaptive_k_selection() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1).unwrap();
+        let k = sca.adaptive_k_selection(100, 0.5);
+        assert!(k >= 1 && k <= 100);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_attention_stats() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        let (sparsity, entropy, efficiency) = sca.get_attention_stats();
+        assert_eq!(sparsity, 0.0);
+        assert_eq!(entropy, 0.0);
+        assert_eq!(efficiency, 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_enable_disable_cache() -> DLResult<()> {
+        let mut sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        assert!(!sca.use_cache);
+        sca.enable_cache(2048);
+        assert!(sca.use_cache);
+        assert!(sca.kv_cache.is_some());
+        sca.disable_cache();
+        assert!(!sca.use_cache);
+        assert!(sca.kv_cache.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_enable_streaming_cache() -> DLResult<()> {
+        let mut sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        sca.enable_streaming_cache(128, 10);
+        assert!(sca.use_cache);
+        assert!(sca.streaming_cache.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_reset_cache() -> DLResult<()> {
+        let mut sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        sca.enable_cache(2048);
+        sca.reset_cache();
+        assert!(sca.kv_cache.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_temporal_distance_weight() -> DLResult<()> {
+        let mut sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        sca.set_temporal_distance_weight(0.5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_entropy_regularization() -> DLResult<()> {
+        let sca = SparseCausalAttention::new(1024, 8, 64, 0.1)?;
+        assert_eq!(sca.get_entropy_regularization(), 0.1);
+        Ok(())
+    }
+}

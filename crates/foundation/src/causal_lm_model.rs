@@ -1350,4 +1350,82 @@ mod tests {
             Some(64)
         );
     }
+
+    #[test]
+    fn test_mini_tokenizer_new() {
+        let tok = MiniTokenizer::new(50257);
+        assert_eq!(tok.vocab_size, 50257);
+        assert!(tok.bpe_token_to_id.is_empty());
+    }
+
+    #[test]
+    fn test_mini_tokenizer_encode_decode_byte_level() {
+        let tok = MiniTokenizer::new(256);
+        let ids = tok.encode("abc");
+        assert_eq!(ids.first(), Some(&1)); // BOS
+        assert_eq!(ids.last(), Some(&2));  // EOS
+        assert_eq!(ids.len(), 5); // BOS + a + b + c + EOS
+
+        let decoded = tok.decode(&ids);
+        assert_eq!(decoded, "abc");
+    }
+
+    #[test]
+    fn test_mini_tokenizer_encode_empty_string() {
+        let tok = MiniTokenizer::new(256);
+        let ids = tok.encode("");
+        assert_eq!(ids, vec![1, 2]); // just BOS + EOS
+    }
+
+    #[test]
+    fn test_mini_tokenizer_decode_skips_bos_eos() {
+        let tok = MiniTokenizer::new(256);
+        let decoded = tok.decode(&[1, 65, 66, 67, 2]);
+        assert_eq!(decoded, "ABC");
+    }
+
+    #[test]
+    fn test_mini_tokenizer_encode_vocab_too_small() {
+        let tok = MiniTokenizer::new(10);
+        let ids = tok.encode("hello"); // 'h'=104 > 9, gets skipped except 1
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_mini_tokenizer_train_bpe() {
+        let mut tok = MiniTokenizer::new(260);
+        let texts = vec!["hello".to_string(), "help".to_string(), "helicopter".to_string()];
+        tok.train_bpe(&texts, 2);
+        assert!(tok.merges.len() <= 2);
+        assert!(!tok.bpe_token_to_id.is_empty() || tok.merges.len() == 2);
+    }
+
+    #[test]
+    fn test_mini_tokenizer_bpe_roundtrip() {
+        let mut tok = MiniTokenizer::new(260);
+        let texts = vec!["test".to_string(), "testing".to_string()];
+        tok.train_bpe(&texts, 1);
+
+        if !tok.merges.is_empty() {
+            let ids = tok.encode("test");
+            let decoded = tok.decode(&ids);
+            assert_eq!(decoded, "test");
+        }
+    }
+
+    #[test]
+    fn test_mini_tokenizer_decode_unknown_bpe_id() {
+        let tok = MiniTokenizer::new(260);
+        // unknown BPE id (>= 256) should be silently skipped
+        let decoded = tok.decode(&[65, 66, 300, 67]);
+        assert_eq!(decoded, "ABC");
+    }
+
+    #[test]
+    fn test_mini_tokenizer_vocab_size_limits_merges() {
+        let mut tok = MiniTokenizer::new(257); // only room for 1 merge token
+        let texts = vec!["ab".to_string(); 100];
+        tok.train_bpe(&texts, 10);
+        assert!(tok.merges.len() <= 1);
+    }
 }

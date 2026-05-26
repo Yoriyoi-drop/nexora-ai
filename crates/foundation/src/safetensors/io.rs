@@ -120,3 +120,125 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::arr0;
+    use std::io::Write;
+
+    #[test]
+    fn test_tensor_entry_serde() {
+        let entry = TensorEntry {
+            dtype: "F32".to_string(),
+            shape: vec![2, 3],
+            data_offsets: [0, 24],
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let back: TensorEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.dtype, "F32");
+        assert_eq!(back.shape, vec![2, 3]);
+    }
+
+    #[test]
+    fn test_safetensors_header_serde() {
+        let mut tensors = HashMap::new();
+        tensors.insert("weight".to_string(), TensorEntry {
+            dtype: "F32".to_string(),
+            shape: vec![3, 3],
+            data_offsets: [0, 36],
+        });
+        let header = SafetensorsHeader { tensors };
+        let json = serde_json::to_string(&header).unwrap();
+        let back: SafetensorsHeader = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tensors.len(), 1);
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let dir = std::env::temp_dir().join("safetensors_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test.safetensors");
+
+        let tensor = ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        save_safetensors(&path, &[("weights", tensor)]).unwrap();
+
+        let loaded = load_safetensors(&path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        let loaded_t = loaded.get("weights").unwrap();
+        assert_eq!(loaded_t.shape(), &[2, 3]);
+        assert!((loaded_t[ndarray::IxDyn(&[0, 0])] - 1.0).abs() < 1e-6);
+        assert!((loaded_t[ndarray::IxDyn(&[1, 2])] - 6.0).abs() < 1e-6);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_save_and_load_multiple_tensors() {
+        let dir = std::env::temp_dir().join("safetensors_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("multi.safetensors");
+
+        let w = ArrayD::from_shape_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let b = ArrayD::from_shape_vec(vec![2], vec![0.1, 0.2]).unwrap();
+        save_safetensors(&path, &[("weight", w), ("bias", b)]).unwrap();
+
+        let loaded = load_safetensors(&path).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded.contains_key("weight"));
+        assert!(loaded.contains_key("bias"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_invalid_file() {
+        let result = load_safetensors("/tmp/nonexistent_safetensors_file_12345");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_too_small_file() {
+        let dir = std::env::temp_dir().join("safetensors_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("small.safetensors");
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(b"abcd").unwrap();
+        drop(f);
+
+        let result = load_safetensors(&path);
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_save_empty_tensor_list() {
+        let dir = std::env::temp_dir().join("safetensors_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("empty.safetensors");
+        let result = save_safetensors(&path, &[]);
+        assert!(result.is_ok());
+        let loaded = load_safetensors(&path).unwrap();
+        assert!(loaded.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_tensor_entry_debug() {
+        let entry = TensorEntry {
+            dtype: "F32".to_string(),
+            shape: vec![1],
+            data_offsets: [0, 4],
+        };
+        let _debug = format!("{:?}", entry);
+    }
+
+    #[test]
+    fn test_safetensors_header_debug() {
+        let header = SafetensorsHeader {
+            tensors: HashMap::new(),
+        };
+        let _debug = format!("{:?}", header);
+    }
+}

@@ -331,3 +331,85 @@ pub async fn dynamic_batcher(
 
     BatchedReceiver::new(batch_rx, handle)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BatchConfig, SourceCategory};
+
+    #[test]
+    fn test_stream_intake_engine_new() {
+        let cfg = BatchConfig {
+            max_batch_size: 32,
+            max_wait_ms: 50,
+            prefetch_count: 2,
+            enable_dynamic: true,
+        };
+        let engine = StreamIntakeEngine::new(cfg.clone());
+        assert_eq!(engine.batch_config.max_batch_size, 32);
+        assert_eq!(engine.batch_config.prefetch_count, 2);
+    }
+
+    #[test]
+    fn test_default_uses_default_config() {
+        let engine = StreamIntakeEngine::default();
+        assert_eq!(engine.batch_config, BatchConfig::default());
+    }
+
+    #[test]
+    fn test_with_prefetch_updates_semaphore() {
+        let engine = StreamIntakeEngine::default().with_prefetch(8);
+        assert_eq!(engine.batch_config.prefetch_count, 8);
+    }
+
+    #[test]
+    fn test_prepare_samples_assigns_nil_ids() {
+        let engine = StreamIntakeEngine::default();
+        let sample = DataSample {
+            id: Uuid::nil(),
+            text: "hello".into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        };
+        let prepared = engine.prepare_samples(vec![sample]);
+        assert_eq!(prepared.len(), 1);
+        assert!(!prepared[0].id.is_nil());
+    }
+
+    #[test]
+    fn test_batched_receiver_new() {
+        let (tx, rx) = mpsc::channel::<Vec<DataSample>>(16);
+        let handle = tokio::spawn(async move {
+            tx.send(vec![]).await.ok();
+        });
+        let br = BatchedReceiver::new(rx, handle);
+        assert!(!br.rx.is_closed());
+    }
+
+    #[test]
+    fn test_dynamic_batcher_function_exists() {
+        let cfg = BatchConfig::default();
+        let (tx, rx) = mpsc::channel::<DataSample>(16);
+        let _fut = dynamic_batcher(rx, cfg);
+        // Just verifying the function signature compiles
+        drop(tx);
+    }
+
+    #[test]
+    fn test_prepare_samples_empty_input() {
+        let engine = StreamIntakeEngine::default();
+        let prepared = engine.prepare_samples(vec![]);
+        assert!(prepared.is_empty());
+    }
+}

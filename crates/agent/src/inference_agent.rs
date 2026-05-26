@@ -721,3 +721,114 @@ impl Default for InferenceAgentConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inference_agent_config_default() {
+        let config = InferenceAgentConfig::default();
+        assert_eq!(config.max_concurrent_sessions, 10);
+        assert_eq!(config.default_timeout_seconds, 60);
+        assert!(config.enable_streaming);
+        assert_eq!(config.cleanup_interval_seconds, 300);
+        assert_eq!(config.max_session_age_seconds, 3600);
+    }
+
+    #[test]
+    fn test_inference_agent_config_clone_debug() {
+        let config = InferenceAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_inference_session_status_variants() {
+        assert!(matches!(InferenceSessionStatus::Initializing, InferenceSessionStatus::Initializing));
+        assert!(matches!(InferenceSessionStatus::Ready, InferenceSessionStatus::Ready));
+        assert!(matches!(InferenceSessionStatus::Running, InferenceSessionStatus::Running));
+        assert!(matches!(InferenceSessionStatus::Completed, InferenceSessionStatus::Completed));
+        assert!(matches!(InferenceSessionStatus::Failed("".into()), InferenceSessionStatus::Failed(_)));
+        assert!(matches!(InferenceSessionStatus::Timeout, InferenceSessionStatus::Timeout));
+        assert!(matches!(InferenceSessionStatus::Cancelled, InferenceSessionStatus::Cancelled));
+    }
+
+    #[test]
+    fn test_inference_session_status_serialize() {
+        let status = InferenceSessionStatus::Running;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"Running\"");
+    }
+
+    #[test]
+    fn test_inference_session_creation() {
+        let session = InferenceSession {
+            session_id: Uuid::new_v4(),
+            model_id: "gpt-4".into(),
+            status: InferenceSessionStatus::Ready,
+            created_at: chrono::Utc::now(),
+            last_activity: chrono::Utc::now(),
+            tokens_generated: 0,
+            processing_time_ms: 0,
+            metadata: HashMap::new(),
+        };
+        assert_eq!(session.model_id, "gpt-4");
+        assert_eq!(session.tokens_generated, 0);
+    }
+
+    #[test]
+    fn test_inference_stats_creation() {
+        let stats = InferenceStats {
+            active_sessions: 3,
+            total_tokens_generated: 1500,
+            total_processing_time_ms: 500,
+            max_concurrent_sessions: 10,
+            streaming_enabled: true,
+        };
+        assert_eq!(stats.active_sessions, 3);
+        assert_eq!(stats.total_tokens_generated, 1500);
+    }
+
+    #[test]
+    fn test_inference_agent_new() {
+        let config = InferenceAgentConfig::default();
+        let agent = InferenceAgent::new(config);
+        assert_eq!(agent.name(), "InferenceAgent");
+        assert_eq!(agent.agent_type(), "inference");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_inference_agent_no_engine_start_fails() {
+        let config = InferenceAgentConfig::default();
+        let agent = InferenceAgent::new(config);
+        let result = agent.start_inference_session("test".into(), serde_json::json!({}));
+        assert!(futures::executor::block_on(result).is_err());
+    }
+
+    #[test]
+    fn test_inference_agent_list_active_sessions_empty() {
+        let config = InferenceAgentConfig::default();
+        let agent = InferenceAgent::new(config);
+        let sessions = futures::executor::block_on(agent.list_active_sessions());
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn test_inference_agent_get_inference_stats_empty() {
+        let config = InferenceAgentConfig::default();
+        let agent = InferenceAgent::new(config);
+        let stats = futures::executor::block_on(agent.get_inference_stats());
+        assert_eq!(stats.active_sessions, 0);
+        assert_eq!(stats.total_tokens_generated, 0);
+    }
+
+    #[test]
+    fn test_inference_agent_cleanup_old_sessions_empty() {
+        let config = InferenceAgentConfig::default();
+        let agent = InferenceAgent::new(config);
+        let count = futures::executor::block_on(agent.cleanup_old_sessions()).unwrap();
+        assert_eq!(count, 0);
+    }
+}

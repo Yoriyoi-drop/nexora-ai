@@ -120,7 +120,7 @@ pub struct NamingConventions {
 }
 
 /// Naming Style
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NamingStyle {
     /// Camel case
     CamelCase,
@@ -3152,7 +3152,7 @@ mod tests {
 
     #[test]
     fn test_code_quality_standards() {
-        let standards = CodeQualityStandards::default();
+        let standards = CodeSentinelConfig::default().code_quality_standards;
         assert_eq!(standards.complexity_limits.max_cyclomatic_complexity, 10);
         assert_eq!(standards.style_guidelines.naming_conventions.variable_naming, NamingStyle::SnakeCase);
     }

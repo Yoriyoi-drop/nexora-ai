@@ -118,3 +118,94 @@ impl Filter for LanguageFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_default_allows_common_languages() {
+        let f = LanguageFilter::default();
+        assert!(f.allowed_languages.contains("en"));
+        assert!(f.allowed_languages.contains("fr"));
+        assert!(f.allowed_languages.contains("zh"));
+        assert_eq!(f.min_alpha_ratio, 0.5);
+    }
+
+    #[test]
+    fn test_detect_english() {
+        let f = LanguageFilter::default();
+        let lang = f.detect_language("The quick brown fox jumps over the lazy dog");
+        assert_eq!(lang, Some("en".to_string()));
+    }
+
+    #[test]
+    fn test_detect_indonesian() {
+        let f = LanguageFilter::default();
+        let lang = f.detect_language("yang dan di dalam untuk dengan pada adalah");
+        assert_eq!(lang, Some("id".to_string()));
+    }
+
+    #[test]
+    fn test_detect_german() {
+        let f = LanguageFilter::default();
+        let lang = f.detect_language("der die und das ist nicht wahr");
+        assert_eq!(lang, Some("de".to_string()));
+    }
+
+    #[test]
+    fn test_empty_text_returns_none() {
+        let f = LanguageFilter::default();
+        assert!(f.detect_language("").is_none());
+    }
+
+    #[test]
+    fn test_low_alpha_ratio_returns_none() {
+        let f = LanguageFilter::default();
+        assert!(f.detect_language("12345!!!!!@@@@@#####$$$$$").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_filter_passes_english() {
+        let f = LanguageFilter::default();
+        let s = sample("This is a normal English sentence that should pass the language filter");
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_filter_fails_garbage() {
+        let f = LanguageFilter::default();
+        let s = sample("!!!!@@@@####$$$$%%%%^^^^&&&&****(((())))");
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn test_new_with_languages() {
+        let f = LanguageFilter::new(vec!["en".into(), "fr".into()]);
+        assert_eq!(f.allowed_languages.len(), 2);
+    }
+}

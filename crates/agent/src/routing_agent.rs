@@ -619,3 +619,120 @@ impl Default for RoutingAgentConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_routing_agent_config_default() {
+        let config = RoutingAgentConfig::default();
+        assert!(config.enable_load_balancing);
+        assert!(config.enable_fallback);
+        assert_eq!(config.cache_duration_seconds, 300);
+        assert_eq!(config.max_routing_attempts, 3);
+    }
+
+    #[test]
+    fn test_routing_agent_config_clone_debug() {
+        let config = RoutingAgentConfig::default();
+        let cloned = config.clone();
+        assert_eq!(format!("{:?}", config), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_routing_condition_variants() {
+        let intent = RoutingCondition::IntentMatch("hello".into());
+        let pattern = RoutingCondition::PatternMatch("regex".into());
+        let capability = RoutingCondition::RequiresCapability(ModelCapability::TextGeneration);
+        let content = RoutingCondition::ContentType("json".into());
+        assert!(matches!(intent, RoutingCondition::IntentMatch(_)));
+        assert!(matches!(pattern, RoutingCondition::PatternMatch(_)));
+        assert!(matches!(capability, RoutingCondition::RequiresCapability(_)));
+        assert!(matches!(content, RoutingCondition::ContentType(_)));
+    }
+
+    #[test]
+    fn test_routing_action_variants() {
+        let direct = RoutingAction::RouteToSpecialist("gpt4".into());
+        let load_balance = RoutingAction::LoadBalance(vec!["a".into(), "b".into()]);
+        let reject = RoutingAction::Reject("denied".into());
+        assert!(matches!(direct, RoutingAction::RouteToSpecialist(_)));
+        assert!(matches!(load_balance, RoutingAction::LoadBalance(_)));
+        assert!(matches!(reject, RoutingAction::Reject(_)));
+    }
+
+    #[test]
+    fn test_logic_operator_variants() {
+        assert!(matches!(LogicOperator::And, LogicOperator::And));
+        assert!(matches!(LogicOperator::Or, LogicOperator::Or));
+        assert!(matches!(LogicOperator::Not, LogicOperator::Not));
+    }
+
+    #[test]
+    fn test_routing_decision_creation() {
+        let decision = RoutingDecision {
+            selected_specialists: vec!["gpt4".into()],
+            rule_id: Some("rule-1".into()),
+            confidence: 0.95,
+            reasoning: "Direct match".into(),
+            metadata: HashMap::new(),
+        };
+        assert_eq!(decision.selected_specialists, vec!["gpt4"]);
+        assert_eq!(decision.confidence, 0.95);
+        assert_eq!(decision.rule_id, Some("rule-1".into()));
+    }
+
+    #[test]
+    fn test_routing_stats_creation() {
+        let stats = RoutingStats {
+            total_rules: 5,
+            active_rules: 3,
+            available_specialists: 10,
+            load_balancing_enabled: true,
+            fallback_enabled: true,
+        };
+        assert_eq!(stats.total_rules, 5);
+        assert_eq!(stats.active_rules, 3);
+        assert_eq!(stats.available_specialists, 10);
+    }
+
+    #[test]
+    fn test_routing_agent_new() {
+        let models = Arc::new(HashMap::new());
+        let config = RoutingAgentConfig::default();
+        let agent = RoutingAgent::new(models, config);
+        assert_eq!(agent.name(), "RoutingAgent");
+        assert_eq!(agent.agent_type(), "routing");
+        assert_eq!(agent.status(), AgentStatus::Initializing);
+    }
+
+    #[test]
+    fn test_routing_agent_health_no_specialists() {
+        let models = Arc::new(HashMap::new());
+        let config = RoutingAgentConfig::default();
+        let agent = RoutingAgent::new(models, config);
+        let healthy = futures::executor::block_on(agent.health_check()).unwrap();
+        assert!(!healthy);
+    }
+
+    #[test]
+    fn test_routing_agent_extract_text_from_content() {
+        let models = Arc::new(HashMap::new());
+        let config = RoutingAgentConfig::default();
+        let agent = RoutingAgent::new(models, config);
+        let content = serde_json::json!({"text": "hello world"});
+        let text = agent.extract_text_from_content(&content);
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn test_routing_agent_extract_text_fallback() {
+        let models = Arc::new(HashMap::new());
+        let config = RoutingAgentConfig::default();
+        let agent = RoutingAgent::new(models, config);
+        let content = serde_json::json!(42);
+        let text = agent.extract_text_from_content(&content);
+        assert!(!text.is_empty());
+    }
+}

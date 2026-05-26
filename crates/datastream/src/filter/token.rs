@@ -107,3 +107,84 @@ impl Filter for TokenFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_defaults() {
+        let f = TokenFilter::default();
+        assert_eq!(f.min_tokens, 10);
+        assert_eq!(f.max_tokens, 2048);
+        assert!(f.tokenizer.is_none());
+    }
+
+    #[test]
+    fn test_estimates_tokens_without_tokenizer() {
+        let f = TokenFilter::default();
+        let count = f.count_tokens("hello world this is a test");
+        assert!(count >= 1);
+    }
+
+    #[test]
+    fn test_blocked_tokens_detected() {
+        let f = TokenFilter::default();
+        assert!(f.has_blocked_tokens("some text with <|endoftext|>").is_some());
+    }
+
+    #[test]
+    fn test_no_blocked_tokens() {
+        let f = TokenFilter::default();
+        assert!(f.has_blocked_tokens("clean text without special tokens").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_blocked_token_rejects() {
+        let f = TokenFilter::default();
+        let s = sample("contains <|endoftext|> token");
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("blocked_token"));
+    }
+
+    #[tokio::test]
+    async fn test_sufficient_tokens_passes() {
+        let f = TokenFilter::default();
+        let text = (0..50).map(|i| format!("word{}", i)).collect::<Vec<_>>().join(" ");
+        let s = sample(&text);
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_too_few_tokens_fails() {
+        let f = TokenFilter::default();
+        let s = sample("hello");
+        let result = f.evaluate(&s).await;
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("too_few_tokens"));
+    }
+}

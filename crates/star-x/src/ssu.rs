@@ -511,3 +511,169 @@ impl SelectiveStateUpdate {
         (actual_savings, theoretical_savings)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::SelectiveUpdate;
+    use ndarray::Array1;
+
+    #[test]
+    fn test_selective_state_update_new() -> DLResult<()> {
+        let _ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_relevance() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let tgh_out = Array1::zeros(128).into_dyn();
+        let sca_out = Array1::zeros(128).into_dyn();
+        let relevance = ssu.compute_relevance(&tgh_out, &sca_out)?;
+        assert_eq!(relevance.shape(), &[128]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_relevance_shape_mismatch() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let tgh_out = Array1::zeros(128).into_dyn();
+        let sca_out = Array1::zeros(64).into_dyn();
+        let result = ssu.compute_relevance(&tgh_out, &sca_out);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_selective_update_skip() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.9, 0.3)?;
+        let prev = Array1::from_vec(vec![1.0; 128]).into_dyn();
+        let cand = Array1::from_vec(vec![2.0; 128]).into_dyn();
+        let relevance = Array1::from_vec(vec![0.1; 128]).into_dyn();
+        let result = ssu.selective_update(&prev, &cand, &relevance, 0.9)?;
+        // All relevance below threshold -> keep previous state
+        assert_eq!(result[0], 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_selective_update_apply() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let prev = Array1::from_vec(vec![1.0; 128]).into_dyn();
+        let cand = Array1::from_vec(vec![2.0; 128]).into_dyn();
+        let relevance = Array1::from_vec(vec![0.9; 128]).into_dyn();
+        let result = ssu.selective_update(&prev, &cand, &relevance, 0.5)?;
+        let expected = 0.3 * 2.0 + 0.7 * 1.0;
+        assert!((result[0] - expected).abs() < 1e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_selective_update_shape_mismatch() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let prev = Array1::zeros(128).into_dyn();
+        let cand = Array1::zeros(64).into_dyn();
+        let relevance = Array1::zeros(128).into_dyn();
+        let result = ssu.selective_update(&prev, &cand, &relevance, 0.5);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_update_frequency_initial() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        assert!((ssu.get_update_frequency() - 0.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_update_threshold() -> DLResult<()> {
+        let mut ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        ssu.set_update_threshold(0.7)?;
+        let stats = ssu.get_detailed_stats();
+        assert!((stats.2 - 0.7).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_update_threshold_invalid() -> DLResult<()> {
+        let mut ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        assert!(ssu.set_update_threshold(1.5).is_err());
+        assert!(ssu.set_update_threshold(-0.1).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_relevance_alpha() -> DLResult<()> {
+        let mut ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        ssu.set_relevance_alpha(0.8);
+        let stats = ssu.get_detailed_stats();
+        assert!((stats.3 - 0.8).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_reset_statistics() -> DLResult<()> {
+        let mut ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        ssu.reset_statistics();
+        let (freq, avg_rel, threshold, alpha, updates, skipped) = ssu.get_detailed_stats();
+        assert_eq!(freq, 0.0);
+        assert_eq!(avg_rel, 0.0);
+        assert_eq!(updates, 0);
+        assert_eq!(skipped, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_block_selective_update() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let prev = Array1::from_vec(vec![1.0; 128]).into_dyn();
+        let cand = Array1::from_vec(vec![2.0; 128]).into_dyn();
+        let relevance = Array1::from_vec(vec![0.1; 128]).into_dyn();
+        let result = ssu.block_selective_update(&prev, &cand, &relevance, 32, 0.5)?;
+        assert_eq!(result.shape(), &[128]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_hierarchical_selective_update() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let prev = Array1::from_vec(vec![1.0; 128]).into_dyn();
+        let cand = Array1::from_vec(vec![2.0; 128]).into_dyn();
+        let relevance = Array1::from_vec(vec![0.3; 128]).into_dyn();
+        let result = ssu.hierarchical_selective_update(&prev, &cand, &relevance, &[0.2, 0.6, 0.9])?;
+        assert_eq!(result.shape(), &[128]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_temporal_coherence_update() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let prev = Array1::from_vec(vec![1.0; 128]).into_dyn();
+        let cand = Array1::from_vec(vec![2.0; 128]).into_dyn();
+        let relevance = Array1::from_vec(vec![0.3; 128]).into_dyn();
+        let result = ssu.temporal_coherence_update(&prev, &cand, &relevance, 0.5, 0.3)?;
+        assert_eq!(result.shape(), &[128]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_savings_initial() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let (actual, theoretical) = ssu.compute_savings();
+        assert!((actual - 0.0).abs() < 1e-6);
+        assert!((theoretical - 0.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_detailed_stats() -> DLResult<()> {
+        let ssu = SelectiveStateUpdate::new(64, 128, 0.5, 0.3)?;
+        let (freq, avg_rel, threshold, alpha, _updates, _skipped) = ssu.get_detailed_stats();
+        assert!((freq - 0.0).abs() < 1e-6);
+        assert!((avg_rel - 0.0).abs() < 1e-6);
+        assert!((threshold - 0.5).abs() < 1e-6);
+        assert!((alpha - 0.3).abs() < 1e-6);
+        Ok(())
+    }
+}

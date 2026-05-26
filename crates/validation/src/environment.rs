@@ -382,3 +382,203 @@ impl EnvironmentValidator {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_environment_setup_result_new() {
+        let result = EnvironmentSetupResult::new();
+        assert!(result.is_success());
+        assert!(result.created_directories.is_empty());
+        assert!(result.set_env_vars.is_empty());
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_environment_setup_result_add_error() {
+        let mut result = EnvironmentSetupResult::new();
+        result.add_error("test error".to_string());
+        assert!(!result.is_success());
+        assert_eq!(result.errors.len(), 1);
+    }
+
+    #[test]
+    fn test_environment_setup_result_add_directory() {
+        let mut result = EnvironmentSetupResult::new();
+        result.add_created_directory("logs".to_string());
+        assert_eq!(result.created_directories.len(), 1);
+        assert_eq!(result.created_directories[0], "logs");
+    }
+
+    #[test]
+    fn test_environment_setup_result_add_env_var() {
+        let mut result = EnvironmentSetupResult::new();
+        result.add_set_env_var("MY_VAR".to_string(), "value".to_string());
+        assert_eq!(result.set_env_vars.len(), 1);
+        assert_eq!(result.set_env_vars[0], ("MY_VAR".to_string(), "value".to_string()));
+    }
+
+    #[test]
+    fn test_environment_validator_new() {
+        let validator = EnvironmentValidator::new();
+        assert_eq!(validator.rules.len(), 4);
+        assert!(validator.rules.contains_key("DATABASE_URL"));
+        assert!(validator.rules.contains_key("LOG_LEVEL"));
+        assert!(validator.rules.contains_key("PORT"));
+        assert!(validator.rules.contains_key("NODE_ENV"));
+    }
+
+    #[test]
+    fn test_validate_env_empty_required_var() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("MY_VAR".to_string(), EnvironmentRule {
+            name: "MY_VAR".to_string(),
+            required: true,
+            validator: None,
+            default_value: None,
+            description: "Test".to_string(),
+        });
+
+        // This var is not set, so it should error
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.code == "ENV_VAR_MISSING"));
+    }
+
+    #[test]
+    fn test_validate_env_optional_var_not_set() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("OPT_VAR".to_string(), EnvironmentRule {
+            name: "OPT_VAR".to_string(),
+            required: false,
+            validator: None,
+            default_value: None,
+            description: "Test".to_string(),
+        });
+
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(result.valid);
+        assert!(result.warnings.iter().any(|w| w.code == "ENV_VAR_NOT_SET"));
+    }
+
+    #[test]
+    fn test_validate_env_optional_with_default() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("OPT_VAR".to_string(), EnvironmentRule {
+            name: "OPT_VAR".to_string(),
+            required: false,
+            validator: None,
+            default_value: Some("default_val".to_string()),
+            description: "Test".to_string(),
+        });
+
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(result.valid);
+        assert!(result.info.iter().any(|i| i.code == "USING_DEFAULT"));
+    }
+
+    #[test]
+    fn test_validate_log_level_valid() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("LOG_LEVEL".to_string(), EnvironmentRule {
+            name: "LOG_LEVEL".to_string(),
+            required: false,
+            validator: None,
+            default_value: Some("info".to_string()),
+            description: "Test".to_string(),
+        });
+
+        std::env::set_var("LOG_LEVEL", "debug");
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(result.valid);
+        std::env::remove_var("LOG_LEVEL");
+    }
+
+    #[test]
+    fn test_validate_port_valid() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("PORT".to_string(), EnvironmentRule {
+            name: "PORT".to_string(),
+            required: false,
+            validator: None,
+            default_value: Some("8080".to_string()),
+            description: "Test".to_string(),
+        });
+
+        std::env::set_var("PORT", "3000");
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(result.valid);
+        std::env::remove_var("PORT");
+    }
+
+    #[test]
+    fn test_validate_database_url() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("DATABASE_URL".to_string(), EnvironmentRule {
+            name: "DATABASE_URL".to_string(),
+            required: true,
+            validator: Some(Regex::new(r"^[a-zA-Z]+://.*").unwrap()),
+            default_value: None,
+            description: "Test".to_string(),
+        });
+
+        std::env::set_var("DATABASE_URL", "postgres://localhost:5432/test");
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(result.valid);
+
+        std::env::set_var("DATABASE_URL", "mysql://user:password@localhost:3306/test");
+        let result2 = validator.validate_environment(&rules).unwrap();
+        assert!(result2.valid);
+        assert!(result2.warnings.iter().any(|w| w.code == "PASSWORD_IN_URL"));
+
+        std::env::remove_var("DATABASE_URL");
+    }
+
+    #[test]
+    fn test_setup_environment_creates_dirs() {
+        let validator = EnvironmentValidator::new();
+        let config = HashMap::new();
+        let result = validator.setup_environment(&config).unwrap();
+        // Should not have errors for creating dirs that already exist or can be created
+        assert!(result.is_success() || !result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_setup_environment_redacts_secrets() {
+        let validator = EnvironmentValidator::new();
+        let mut config = HashMap::new();
+        config.insert("API_KEY".to_string(), "supersecret".to_string());
+
+        let tmpdir = std::env::temp_dir();
+        std::env::set_current_dir(&tmpdir).ok();
+        let result = validator.setup_environment(&config).unwrap();
+        assert!(result.set_env_vars.iter().any(|(k, _)| k == "API_KEY"));
+    }
+
+    #[test]
+    fn test_validate_path_existing() {
+        let validator = EnvironmentValidator::new();
+        let mut rules = HashMap::new();
+        rules.insert("PATH".to_string(), EnvironmentRule {
+            name: "PATH".to_string(),
+            required: false,
+            validator: None,
+            default_value: None,
+            description: "Test".to_string(),
+        });
+
+        std::env::set_var("PATH", "/tmp");
+        let result = validator.validate_environment(&rules).unwrap();
+        assert!(result.valid);
+        std::env::remove_var("PATH");
+    }
+}

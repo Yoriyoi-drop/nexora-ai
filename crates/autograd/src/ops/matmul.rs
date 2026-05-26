@@ -51,15 +51,6 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                 let b_gpu = gb.clone();
                                 // Saved GPU tensors needed for backward
                                 let saved_gpu = vec![a_gpu.clone(), b_gpu.clone()];
-                                let gpu_backward: crate::tape::GpuBackwardFn =
-                                    Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                        let ga = &saved_gpu[0];
-                                        let gb = &saved_gpu[1];
-                                        match ctx.matmul_backward(ga, gb, grad_gpu) {
-                                            Ok((da, db)) => Ok(vec![da, db]),
-                                            Err(e) => Err(format!("GPU matmul backward failed: {e}")),
-                                        }
-                                    });
                                 // CPU backward fallback
                                 let cpu_backward: Box<
                                     dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>,
@@ -107,7 +98,11 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a.data(), b.data()],
                                     saved_gpu,
                                     cpu_backward,
-                                    Some(gpu_backward),
+                                    Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                        let (da, db) = crate::gpu_backward::matmul_backward(ctx, &saved_gpu[0], &saved_gpu[1], grad_gpu)
+                                            .map_err(|e| format!("GPU matmul backward failed: {e}"))?;
+                                        Ok(vec![da, db])
+                                    })),
                                 );
                             }
                             Err(e) => {

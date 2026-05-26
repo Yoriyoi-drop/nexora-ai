@@ -148,3 +148,106 @@ impl Filter for SemanticDedupFilter {
         FilterAction::Reject
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use uuid::Uuid;
+
+    fn sample(text: &str) -> DataSample {
+        DataSample {
+            id: Uuid::new_v4(),
+            text: text.into(),
+            token_ids: None,
+            metadata: std::collections::HashMap::new(),
+            source: SourceInfo {
+                name: "test".into(),
+                url: None,
+                trust_score: 0.5,
+                category: SourceCategory::Other,
+                fetch_timestamp: 0,
+            },
+            stats: SampleStats::default(),
+            domains: vec![],
+            score: None,
+            curriculum_level: None,
+        }
+    }
+
+    #[test]
+    fn test_defaults() {
+        let f = SemanticDedupFilter::default();
+        assert_eq!(f.similarity_threshold, 0.92);
+        assert_eq!(f.max_signatures, 100_000);
+        assert_eq!(f.min_hash_permutations, 128);
+    }
+
+    #[test]
+    fn test_minhash_signature_short_text() {
+        let f = SemanticDedupFilter::default();
+        let sig = f.minhash_signature("hello");
+        assert_eq!(sig.len(), 4);
+        assert_eq!(sig, vec![0; 4]);
+    }
+
+    #[test]
+    fn test_minhash_signature_normal_text() {
+        let f = SemanticDedupFilter::default();
+        let sig = f.minhash_signature("the quick brown fox jumps over the lazy dog near the river");
+        assert!(!sig.is_empty());
+        assert!(!sig.iter().all(|&x| x == 0));
+    }
+
+    #[test]
+    fn test_jaccard_identical() {
+        let a = vec![1, 2, 3, 4];
+        let b = vec![1, 2, 3, 4];
+        assert!((SemanticDedupFilter::jaccard_similarity(&a, &b) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_jaccard_disjoint() {
+        let a = vec![1, 2, 3];
+        let b = vec![4, 5, 6];
+        assert_eq!(SemanticDedupFilter::jaccard_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn test_jaccard_empty() {
+        assert_eq!(SemanticDedupFilter::jaccard_similarity(&[], &[]), 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_first_sample_passes() {
+        let f = SemanticDedupFilter::default();
+        let s = sample("this is a completely unique piece of text for testing purposes");
+        let result = f.evaluate(&s).await;
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_similar_sample_detected() {
+        let f = SemanticDedupFilter::new(0.2);
+        let s1 = sample("the quick brown fox jumps over the lazy dog near the river bank");
+        let s2 = sample("the quick brown fox jumps over the lazy dog near the river bank");
+        assert!(f.evaluate(&s1).await.passed);
+        let result = f.evaluate(&s2).await;
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("semantic_duplicate"));
+    }
+
+    #[test]
+    fn test_new_with_threshold() {
+        let f = SemanticDedupFilter::new(0.5);
+        assert_eq!(f.similarity_threshold, 0.5);
+    }
+
+    #[test]
+    fn test_debug_format() {
+        let f = SemanticDedupFilter::default();
+        let debug = format!("{:?}", f);
+        assert!(debug.contains("SemanticDedupFilter"));
+        assert!(debug.contains("similarity_threshold"));
+    }
+}
