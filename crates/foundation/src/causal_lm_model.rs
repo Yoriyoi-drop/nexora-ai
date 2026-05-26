@@ -760,131 +760,17 @@ impl NxrModel for CausalLmModel {
     }
 
     async fn infer(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
-        let tok = {
-            let tokenizer = self.tokenizer.read().await;
-            tokenizer
-                .as_ref()
-                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?
-                .clone()
-        };
+        #[cfg(not(feature = "legacy-fastpath"))]
+        {
+            return Err(NxrModelError::NotInitialized(
+                "Legacy inference path disabled. Use inference engine via generate_text() or chat().".to_string()
+            ));
+        }
 
-        let text = match &input.data {
-            InputData::Text(t) => t.clone(),
-            InputData::Tokens(t) => {
-                let decoded = tok.decode(t);
-                let elapsed = std::time::Instant::now();
-                let total = t.len() as u64;
-                let dur = elapsed.elapsed().as_millis() as u64;
-                let tp_s = if dur > 0 { total as f32 / (dur as f32 / 1000.0) } else { 0.0 };
-                return Ok(NxrOutput {
-                    id: uuid::Uuid::new_v4(),
-                    input_id: input.id,
-                    timestamp: chrono::Utc::now(),
-                    data: OutputData::Tokens(
-                        t.iter()
-                            .enumerate()
-                            .map(|(i, &tid)| {
-                                let t = tok.decode(&[tid]);
-                                TokenOutput {
-                                    token_id: tid,
-                                    text: t,
-                                    log_prob: 0.0,
-                                    position: i,
-                                }
-                            })
-                            .collect(),
-                    ),
-                    metadata: GenerationMetadata {
-                        finish_reason: FinishReason::MaxTokens,
-                        total_tokens: t.len(),
-                        generation_time_ms: dur,
-                        model_version: "0.1.0".to_string(),
-                        seed: None,
-                        extras: Default::default(),
-                    },
-                    performance: PerformanceMetrics {
-                        tokens_per_second: tp_s,
-                        memory_usage_gb: 0.0,
-                        gpu_utilization: None,
-                        cpu_utilization: 0.0,
-                        network_usage_mbps: None,
-                    },
-                });
-            }
-            _ => {
-                return Err(NxrModelError::Inference(
-                    "Unsupported input type".to_string(),
-                ))
-            }
-        };
-
-        let max_tokens = input
-            .parameters
-            .get("max_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(100) as usize;
-        let temperature = input
-            .parameters
-            .get("temperature")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.7) as f32;
-        let top_k = input
-            .parameters
-            .get("top_k")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize;
-
-        let input_ids = tok.encode(&text);
-        let start = std::time::Instant::now();
-
-        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-        let guard = self.model.read().await;
-        let m = guard.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model was reset before generation".to_string())
-        })?;
-        let (output_ids, _cache) = m.generate_with_gpu(
-            &input_ids,
-            max_tokens,
-            temperature,
-            top_k,
-            use_gpu,
-        );
-
-        let elapsed = start.elapsed().as_millis() as u64;
-        let generated_text = tok.decode(&output_ids);
-
-        let mut stats = self.statistics.write().await;
-        stats.total_requests += 1;
-        stats.successful_requests += 1;
-        stats.total_tokens_generated += output_ids.len() as u64;
-
-        let tokens_per_second = if elapsed > 0 {
-            output_ids.len() as f32 / (elapsed as f32 / 1000.0)
-        } else {
-            0.0
-        };
-
-        Ok(NxrOutput {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: OutputData::Text(generated_text),
-            metadata: GenerationMetadata {
-                finish_reason: FinishReason::MaxTokens,
-                total_tokens: output_ids.len(),
-                generation_time_ms: elapsed,
-                model_version: "0.1.0".to_string(),
-                seed: None,
-                extras: Default::default(),
-            },
-            performance: PerformanceMetrics {
-                tokens_per_second,
-                memory_usage_gb: 0.0,
-                gpu_utilization: None,
-                cpu_utilization: 0.0,
-                network_usage_mbps: None,
-            },
-        })
+        #[cfg(feature = "legacy-fastpath")]
+        {
+            return self.infer_legacy(input).await;
+        }
     }
 
     async fn infer_stream(
@@ -892,110 +778,20 @@ impl NxrModel for CausalLmModel {
         input: &NxrInput,
         callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
     ) -> NxrModelResult<()> {
-        let text = match &input.data {
-            InputData::Text(t) => t.clone(),
-            InputData::Tokens(t) => {
-                let decoded = {
-                    let tokenizer = self.tokenizer.read().await;
-                    let tok = tokenizer
-                        .as_ref()
-                        .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-                    tok.decode(t)
-                };
-                callback(NxrStreamChunk {
-                    id: uuid::Uuid::new_v4(),
-                    input_id: input.id,
-                    timestamp: chrono::Utc::now(),
-                    data: StreamChunkData::TextDelta(decoded),
-                    is_final: true,
-                });
-                return Ok(());
-            }
-            _ => {
-                return Err(NxrModelError::Inference(
-                    "Unsupported input type".to_string(),
-                ))
-            }
-        };
-
-        let max_tokens = input
-            .parameters
-            .get("max_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(100) as usize;
-        let temperature = input
-            .parameters
-            .get("temperature")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.7) as f32;
-        let top_k = input
-            .parameters
-            .get("top_k")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize;
-
-        let (input_ids, _tok) = {
-            let tokenizer = self.tokenizer.read().await;
-            let tok = tokenizer
-                .as_ref()
-                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-            (tok.encode(&text), ())
-        };
-        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-
-        let guard = self.model.read().await;
-        let m = guard.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
-        let mut cache = m.reset_cache();
-        for &tid in &input_ids {
-            if let Err(e) = m.forward(&[tid], &mut cache) {
-                tracing::warn!("Prefill token {} failed: {}", tid, e);
-            }
+        #[cfg(not(feature = "legacy-fastpath"))]
+        {
+            return Err(NxrModelError::NotInitialized(
+                "Legacy streaming inference disabled. Use inference engine via generate_text_stream().".to_string()
+            ));
         }
-        let mut last_id = *input_ids.last().unwrap_or(&0);
 
-        let tokenizer = self.tokenizer.read().await;
-        let tok = tokenizer
-            .as_ref()
-            .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-        for _ in 0..max_tokens {
-            let model = self.model.read().await;
-            let m = model
-                .as_ref()
-                .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
-            let vs = m.config.vocab_size;
-            let logits = match m.forward(&[last_id], &mut cache) {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("Generation step forward failed: {}", e);
-                    Array1::zeros(vs)
-                }
-            };
-            drop(model);
-            let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
-            let token_text = tok.decode(&[next_id]);
-            callback(NxrStreamChunk {
-                id: uuid::Uuid::new_v4(),
-                input_id: input.id,
-                timestamp: chrono::Utc::now(),
-                data: StreamChunkData::TextDelta(token_text),
-                is_final: false,
-            });
-            if next_id == 0 || next_id == 2 {
-                break;
-            }
-            last_id = next_id;
+        #[cfg(feature = "legacy-fastpath")]
+        {
+            return self.infer_stream_legacy(input, callback).await;
         }
-        callback(NxrStreamChunk {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: StreamChunkData::Status("done".to_string()),
-            is_final: true,
-        });
-        Ok(())
     }
+
+    /* infer_stream_legacy moved to separate impl block below */
 
     async fn update_config(&mut self, config: Self::Config) -> NxrModelResult<()> {
         self.config = config;
@@ -1161,6 +957,249 @@ impl NxrModel for CausalLmModel {
             active_connections: 0,
             queue_size: 0,
         })
+    }
+}
+
+// ── Legacy fast path: original CausalLM::generate_with_gpu inference ──
+// These are the OLD inference methods used before the inference engine was wired.
+// Disable `legacy-fastpath` feature to force all inference through the engine.
+#[cfg(feature = "legacy-fastpath")]
+impl CausalLmModel {
+    async fn infer_legacy(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
+        let tok = {
+            let tokenizer = self.tokenizer.read().await;
+            tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?
+                .clone()
+        };
+
+        let text = match &input.data {
+            InputData::Text(t) => t.clone(),
+            InputData::Tokens(t) => {
+                let decoded = tok.decode(t);
+                let elapsed = std::time::Instant::now();
+                let total = t.len() as u64;
+                let dur = elapsed.elapsed().as_millis() as u64;
+                let tp_s = if dur > 0 { total as f32 / (dur as f32 / 1000.0) } else { 0.0 };
+                return Ok(NxrOutput {
+                    id: uuid::Uuid::new_v4(),
+                    input_id: input.id,
+                    timestamp: chrono::Utc::now(),
+                    data: OutputData::Tokens(
+                        t.iter()
+                            .enumerate()
+                            .map(|(i, &tid)| {
+                                let t = tok.decode(&[tid]);
+                                TokenOutput {
+                                    token_id: tid,
+                                    text: t,
+                                    log_prob: 0.0,
+                                    position: i,
+                                }
+                            })
+                            .collect(),
+                    ),
+                    metadata: GenerationMetadata {
+                        finish_reason: FinishReason::MaxTokens,
+                        total_tokens: t.len(),
+                        generation_time_ms: dur,
+                        model_version: "0.1.0".to_string(),
+                        seed: None,
+                        extras: Default::default(),
+                    },
+                    performance: PerformanceMetrics {
+                        tokens_per_second: tp_s,
+                        memory_usage_gb: 0.0,
+                        gpu_utilization: None,
+                        cpu_utilization: 0.0,
+                        network_usage_mbps: None,
+                    },
+                });
+            }
+            _ => {
+                return Err(NxrModelError::Inference(
+                    "Unsupported input type".to_string(),
+                ))
+            }
+        };
+
+        let max_tokens = input
+            .parameters
+            .get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100) as usize;
+        let temperature = input
+            .parameters
+            .get("temperature")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.7) as f32;
+        let top_k = input
+            .parameters
+            .get("top_k")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(50) as usize;
+
+        let input_ids = tok.encode(&text);
+        let start = std::time::Instant::now();
+
+        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
+        let guard = self.model.read().await;
+        let m = guard.as_ref().ok_or_else(|| {
+            NxrModelError::NotInitialized("Model was reset before generation".to_string())
+        })?;
+        let (output_ids, _cache) = m.generate_with_gpu(
+            &input_ids,
+            max_tokens,
+            temperature,
+            top_k,
+            use_gpu,
+        );
+
+        let elapsed = start.elapsed().as_millis() as u64;
+        let generated_text = tok.decode(&output_ids);
+
+        let mut stats = self.statistics.write().await;
+        stats.total_requests += 1;
+        stats.successful_requests += 1;
+        stats.total_tokens_generated += output_ids.len() as u64;
+
+        let tokens_per_second = if elapsed > 0 {
+            output_ids.len() as f32 / (elapsed as f32 / 1000.0)
+        } else {
+            0.0
+        };
+
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: OutputData::Text(generated_text),
+            metadata: GenerationMetadata {
+                finish_reason: FinishReason::MaxTokens,
+                total_tokens: output_ids.len(),
+                generation_time_ms: elapsed,
+                model_version: "0.1.0".to_string(),
+                seed: None,
+                extras: Default::default(),
+            },
+            performance: PerformanceMetrics {
+                tokens_per_second,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
+    }
+
+    async fn infer_stream_legacy(
+        &self,
+        input: &NxrInput,
+        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+    ) -> NxrModelResult<()> {
+        let text = match &input.data {
+            InputData::Text(t) => t.clone(),
+            InputData::Tokens(t) => {
+                let decoded = {
+                    let tokenizer = self.tokenizer.read().await;
+                    let tok = tokenizer
+                        .as_ref()
+                        .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+                    tok.decode(t)
+                };
+                callback(NxrStreamChunk {
+                    id: uuid::Uuid::new_v4(),
+                    input_id: input.id,
+                    timestamp: chrono::Utc::now(),
+                    data: StreamChunkData::TextDelta(decoded),
+                    is_final: true,
+                });
+                return Ok(());
+            }
+            _ => {
+                return Err(NxrModelError::Inference(
+                    "Unsupported input type".to_string(),
+                ))
+            }
+        };
+
+        let max_tokens = input
+            .parameters
+            .get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100) as usize;
+        let temperature = input
+            .parameters
+            .get("temperature")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.7) as f32;
+        let top_k = input
+            .parameters
+            .get("top_k")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(50) as usize;
+
+        let (input_ids, tok) = {
+            let tokenizer = self.tokenizer.read().await;
+            let tok = tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+            (tok.encode(&text), tok.clone())
+        };
+        let model_arc = {
+            let guard = self.model.read().await;
+            guard.clone().ok_or_else(|| {
+                NxrModelError::NotInitialized("Model not loaded".to_string())
+            })?
+        };
+        let callback = callback.clone();
+        let input_id = input.id;
+
+        tokio::task::spawn_blocking(move || {
+            let mut cache = model_arc.reset_cache();
+            for &tid in &input_ids {
+                if let Err(e) = model_arc.forward(&[tid], &mut cache) {
+                    tracing::warn!("Prefill token {} failed: {}", tid, e);
+                }
+            }
+            let mut last_id = *input_ids.last().unwrap_or(&0);
+
+            for _ in 0..max_tokens {
+                let vs = model_arc.config.vocab_size;
+                let logits = match model_arc.forward(&[last_id], &mut cache) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        tracing::warn!("Generation step forward failed: {}", e);
+                        Array1::zeros(vs)
+                    }
+                };
+                let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
+                let token_text = tok.decode(&[next_id]);
+                callback(NxrStreamChunk {
+                    id: uuid::Uuid::new_v4(),
+                    input_id,
+                    timestamp: chrono::Utc::now(),
+                    data: StreamChunkData::TextDelta(token_text),
+                    is_final: false,
+                });
+                if next_id == 0 || next_id == 2 {
+                    break;
+                }
+                last_id = next_id;
+            }
+            callback(NxrStreamChunk {
+                id: uuid::Uuid::new_v4(),
+                input_id,
+                timestamp: chrono::Utc::now(),
+                data: StreamChunkData::Status("done".to_string()),
+                is_final: true,
+            });
+        })
+        .await
+        .map_err(|e| NxrModelError::Inference(format!("Stream generation task failed: {e}")))?;
+
+        Ok(())
     }
 }
 

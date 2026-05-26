@@ -7,6 +7,7 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-SPECTRA Architecture Implementation
+#[deprecated(note = "Simulated architecture — not a real neural network. Uses keyword matching and template responses, not tensor computation. Gated behind `simulated-models` feature (default: off).")]
 pub struct SpectraArchitecture {
     /// Configuration
     config: SpectraConfig,

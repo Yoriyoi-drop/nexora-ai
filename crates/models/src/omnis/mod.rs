@@ -4,6 +4,10 @@
 //! Flagship model with maximum capabilities
 
 pub mod agents;
+/// Simulated architecture — NOT a real neural network.
+/// Uses keyword matching and template responses, not tensor computation.
+/// Gated behind `simulated-models` feature (default: off).
+#[cfg(feature = "simulated-models")]
 pub mod architecture;
 pub mod capabilities;
 pub mod config;
@@ -30,9 +34,11 @@ use nexora_shared::{
 use nexora_vogp::VOGPConfig;
 
 use self::{
-    agents::OmnisAgents, architecture::OmnisArchitecture, capabilities::OmnisCapabilities,
+    agents::OmnisAgents, capabilities::OmnisCapabilities,
     config::OmnisConfig, identity::OmnisIdentity,
 };
+#[cfg(feature = "simulated-models")]
+use self::architecture::OmnisArchitecture;
 
 /// NXR-OMNIS Model Implementation
 pub struct NxrOmnisModel {
@@ -40,7 +46,8 @@ pub struct NxrOmnisModel {
     base: nexora_shared::base_model::BaseNxrModel<OmnisConfig, OmnisMetrics, OmnisState>,
     /// Model identity
     identity: OmnisIdentity,
-    /// Architecture implementation
+    /// Architecture implementation (simulated — see architecture module docs)
+    #[cfg(feature = "simulated-models")]
     architecture: OmnisArchitecture,
     /// Agent system
     agents: OmnisAgents,
@@ -245,6 +252,7 @@ impl NxrOmnisModel {
                 initial_metrics,
             ),
             identity,
+            #[cfg(feature = "simulated-models")]
             architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
@@ -284,6 +292,7 @@ impl NxrOmnisModel {
                 initial_metrics,
             ),
             identity,
+            #[cfg(feature = "simulated-models")]
             architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
@@ -532,7 +541,8 @@ impl NxrModel for NxrOmnisModel {
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
 
-        // Initialize architecture
+        // Initialize architecture (simulated — only with `simulated-models` feature)
+        #[cfg(feature = "simulated-models")]
         self.architecture
             .initialize(&config)
             .await
@@ -596,7 +606,8 @@ impl NxrModel for NxrOmnisModel {
             errors.push("Model not initialized".to_string());
         }
 
-        // Validate architecture
+        // Validate architecture (simulated — only with `simulated-models` feature)
+        #[cfg(feature = "simulated-models")]
         if let Err(e) = self.architecture.validate().await {
             errors.push(format!("Architecture validation failed: {}", e));
         }

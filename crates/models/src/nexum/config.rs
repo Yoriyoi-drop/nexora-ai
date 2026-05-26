@@ -1075,6 +1075,7 @@ impl NexumConfig {
     }
 
     /// Get resource requirements for agent count
+    #[cfg(feature = "simulated-models")]
     pub fn get_resource_requirements_for_agent_count(
         &self,
         agent_count: usize,

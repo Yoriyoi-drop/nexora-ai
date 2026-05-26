@@ -7,6 +7,7 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-KRONOS Architecture Implementation
+#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrKronosModel (CausalLM-backed) instead.")]
 pub struct KronosArchitecture {
     /// Configuration
     config: KronosConfig,

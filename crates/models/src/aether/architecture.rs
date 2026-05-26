@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// NXR-ÆTHER Architecture Implementation
+#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrAetherModel (CausalLM-backed) instead.")]
 pub struct AetherArchitecture {
     /// Configuration
     _config: AetherConfig,

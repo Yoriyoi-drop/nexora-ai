@@ -37,6 +37,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .route("/train/metrics", post(post_train_metrics))
         .route("/process", post(process_request))
         .route("/generate", post(generate_text))
+        .route("/generate/stream", post(generate_text_stream))
         .route("/chat", post(chat))
         .route("/code/analyze", post(analyze_code))
         .route("/code/generate", post(generate_code))
@@ -57,7 +58,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .layer(middleware::from_fn(request_logging_layer))
         .layer(TraceLayer::new_for_http());
 
-    info!("Router configured with 15 endpoints");
+    info!("Router configured with 16 endpoints");
     Ok(app)
 }
 

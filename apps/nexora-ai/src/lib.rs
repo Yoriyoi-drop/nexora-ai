@@ -26,10 +26,11 @@ pub use server::{NexoraServer, ServerConfig};
 
 // --- Foundation model integration ---
 use nexora_foundation::shared::{
-    base_model::{InputData, NxrInput},
     model_identity::NxrModelId,
     model_registry::global_registry,
 };
+use nexora_tokenizer::{BpeConfig, BpeTokenizer};
+use tokio::sync::Mutex;
 /// Create an InferenceEngine sharing the model from the registry via with_model().
 /// This avoids InferenceEngine::new() which creates a separate uninitialized CausalLM.
 pub async fn create_inference_engine(
@@ -53,11 +54,21 @@ pub async fn create_inference_engine(
         .await
         .ok_or_else(|| NexoraError::model(format!("Model {} not loaded", model_id)))?;
 
-    Ok(nexora_inference::InferenceEngineStruct::with_model(
+    let tokenizer = Arc::new(Mutex::new(BpeTokenizer::new(BpeConfig {
+        vocab_size: model_arc.config.vocab_size,
+        ..Default::default()
+    })));
+
+    let mut engine = nexora_inference::InferenceEngineStruct::with_model(
         model_arc,
-        None,
+        Some(tokenizer),
         config,
-    ))
+    );
+    engine.initialize().await.map_err(|e| {
+        NexoraError::system(format!("Failed to initialize inference engine: {}", e))
+    })?;
+
+    Ok(engine)
 }
 
 /// Nexora AI System - Main orchestrator for all AI components
@@ -77,6 +88,9 @@ pub struct NexoraAI {
 
     /// Active model ID currently in use
     active_model_id: NxrModelId,
+
+    /// Inference engine (primary path — wraps CausalLM + BpeTokenizer + scheduler)
+    inference_engine: Arc<nexora_inference::InferenceEngineStruct>,
 
     /// System configuration
     config: NexoraConfig,
@@ -210,9 +224,27 @@ impl NexoraAI {
             "history": { "steps": [], "losses": [], "lrs": [], "val_losses": [] }
         })));
 
+        // Initialize inference engine (primary generation path)
+        let engine_config = nexora_inference::InferenceConfig {
+            default_model_id: active_model_id.to_string(),
+            max_concurrent_requests: 4,
+            enable_streaming: true,
+            use_gpu: false,
+            ..Default::default()
+        };
+        let inference_engine = Arc::new(
+            create_inference_engine(&registry, &active_model_id, engine_config)
+                .await
+                .map_err(|e| {
+                    NexoraError::system(format!("Failed to initialize inference engine: {}", e))
+                })?,
+        );
+        info!("Inference engine ready (model: {})", active_model_id);
+
         Ok(Self {
             registry: registry.clone(),
             active_model_id,
+            inference_engine,
             config,
             start_time: Utc::now(),
             system_info_cache,
@@ -276,6 +308,55 @@ impl NexoraAI {
             .map_err(|e| NexoraError::processing(format!("Request processing failed: {}", e)))
     }
 
+    /// Generate text via streaming inference engine, returns a Receiver of tokens
+    pub async fn generate_text_stream(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+    ) -> NexoraResult<tokio::sync::mpsc::Receiver<Arc<nexora_inference::GeneratedToken>>> {
+        if prompt.trim().is_empty() {
+            return Err(NexoraError::validation("prompt", "Prompt cannot be empty"));
+        }
+        if max_tokens == 0 {
+            return Err(NexoraError::validation(
+                "max_tokens",
+                "Max tokens must be greater than 0",
+            ));
+        }
+        if !(0.0..=2.0).contains(&temperature) {
+            return Err(NexoraError::validation(
+                "temperature",
+                "Temperature must be between 0.0 and 2.0",
+            ));
+        }
+
+        info!(
+            "Streaming text via inference engine ({} model): prompt={}, max_tokens={}, temperature={}",
+            self.active_model_id,
+            prompt.len(),
+            max_tokens,
+            temperature
+        );
+
+        let request = nexora_inference::InferenceRequest {
+            request_id: uuid::Uuid::new_v4(),
+            model_id: self.active_model_id.to_string(),
+            prompt: prompt.to_string(),
+            max_tokens: max_tokens as u32,
+            temperature,
+            top_k: 50,
+            top_p: 1.0,
+            streaming: true,
+            ..Default::default()
+        };
+
+        self.inference_engine
+            .submit_streaming_request(request)
+            .await
+            .map_err(|e| NexoraError::model(format!("Streaming inference failed: {}", e)))
+    }
+
     /// Generate text using foundation model inference
     pub async fn generate_text(
         &self,
@@ -300,45 +381,35 @@ impl NexoraAI {
         }
 
         info!(
-            "Generating text via {} model: prompt={}, max_tokens={}, temperature={}",
+            "Generating text via inference engine ({} model): prompt={}, max_tokens={}, temperature={}",
             self.active_model_id,
             prompt.len(),
             max_tokens,
             temperature
         );
 
-        let model_id = self.model_id();
-        let model =
-            self.registry.get_model(&model_id).await.map_err(|e| {
-                NexoraError::model(format!("Model {} not available: {}", model_id, e))
-            })?;
-
-        let input = NxrInput {
-            id: uuid::Uuid::new_v4(),
-            timestamp: Utc::now(),
-            data: InputData::Text(prompt.to_string()),
-            parameters: [
-                ("max_tokens".to_string(), serde_json::json!(max_tokens)),
-                ("temperature".to_string(), serde_json::json!(temperature)),
-            ]
-            .into(),
-            metadata: std::collections::HashMap::new(),
+        let request = nexora_inference::InferenceRequest {
+            request_id: uuid::Uuid::new_v4(),
+            model_id: self.active_model_id.to_string(),
+            prompt: prompt.to_string(),
+            max_tokens: max_tokens as u32,
+            temperature,
+            top_k: 50,
+            top_p: 1.0,
+            streaming: false,
+            ..Default::default()
         };
 
-        let output = model
-            .infer(&input)
+        let response = self
+            .inference_engine
+            .generate_internal(request)
             .await
             .map_err(|e| NexoraError::model(format!("Inference failed: {}", e)))?;
 
-        let result = match output.data {
-            nexora_foundation::shared::base_model::OutputData::Text(text) => text,
-            _ => format!("{:?}", output.data),
-        };
-
-        Ok(result)
+        Ok(response.text)
     }
 
-    /// Chat conversation using foundation model inference
+    /// Chat conversation using inference engine
     pub async fn chat(
         &self,
         message: &str,
@@ -352,45 +423,34 @@ impl NexoraAI {
         }
 
         info!(
-            "Chat via {} model: {} chars, conversation_id: {:?}",
+            "Chat via inference engine ({} model): {} chars, conversation_id: {:?}",
             self.active_model_id,
             message.len(),
             conversation_id
         );
 
-        let model_id = self.model_id();
-        let model =
-            self.registry.get_model(&model_id).await.map_err(|e| {
-                NexoraError::model(format!("Model {} not available: {}", model_id, e))
-            })?;
-
-        let mut metadata = std::collections::HashMap::new();
-        if let Some(conv_id) = &conversation_id {
-            metadata.insert("conversation_id".to_string(), serde_json::json!(conv_id));
-        }
-
-        let input = NxrInput {
-            id: uuid::Uuid::new_v4(),
-            timestamp: Utc::now(),
-            data: InputData::Text(message.to_string()),
-            parameters: [("mode".to_string(), serde_json::json!("chat"))].into(),
-            metadata,
+        let request = nexora_inference::InferenceRequest {
+            request_id: uuid::Uuid::new_v4(),
+            model_id: self.active_model_id.to_string(),
+            prompt: message.to_string(),
+            max_tokens: 1024,
+            temperature: 0.7,
+            top_k: 50,
+            top_p: 0.95,
+            streaming: false,
+            ..Default::default()
         };
 
-        let output = model
-            .infer(&input)
+        let response = self
+            .inference_engine
+            .generate_internal(request)
             .await
             .map_err(|e| NexoraError::model(format!("Chat inference failed: {}", e)))?;
 
-        let result = match output.data {
-            nexora_foundation::shared::base_model::OutputData::Text(text) => text,
-            _ => format!("{:?}", output.data),
-        };
-
-        Ok(result)
+        Ok(response.text)
     }
 
-    /// Analyze code using foundation model + ORACLE
+    /// Analyze code using inference engine
     pub async fn analyze_code(&self, code: &str, language: &str) -> NexoraResult<String> {
         if code.trim().is_empty() {
             return Err(NexoraError::validation("code", "Code cannot be empty"));
@@ -402,49 +462,22 @@ impl NexoraAI {
             ));
         }
 
-        info!(
-            "Analyzing {} code ({} chars) via foundation model",
-            language,
-            code.len()
-        );
-
-        let model_id = self.model_id();
-        let model =
-            self.registry.get_model(&model_id).await.map_err(|e| {
-                NexoraError::model(format!("Model {} not available: {}", model_id, e))
-            })?;
-
         let prompt = format!(
             "Analyze this {} code and return its structure:\n```{}\n{}\n```",
             language, language, code
         );
 
-        let input = NxrInput {
-            id: uuid::Uuid::new_v4(),
-            timestamp: Utc::now(),
-            data: InputData::Text(prompt),
-            parameters: [
-                ("mode".to_string(), serde_json::json!("code_analysis")),
-                ("language".to_string(), serde_json::json!(language)),
-            ]
-            .into(),
-            metadata: std::collections::HashMap::new(),
-        };
+        info!(
+            "Analyzing {} code ({} chars, prompt={}) via inference engine",
+            language,
+            code.len(),
+            prompt.len()
+        );
 
-        let output = model
-            .infer(&input)
-            .await
-            .map_err(|e| NexoraError::model(format!("Code analysis failed: {}", e)))?;
-
-        let result = match output.data {
-            nexora_foundation::shared::base_model::OutputData::Text(text) => text,
-            _ => "Analysis complete".to_string(),
-        };
-
-        Ok(result)
+        self.generate_text(&prompt, 2048, 0.3).await
     }
 
-    /// Generate code using foundation model inference
+    /// Generate code using inference engine
     pub async fn generate_code(&self, description: &str, language: &str) -> NexoraResult<String> {
         if description.trim().is_empty() {
             return Err(NexoraError::validation(
@@ -459,45 +492,19 @@ impl NexoraAI {
             ));
         }
 
-        info!(
-            "Generating {} code via {} model: {}",
-            language, self.active_model_id, description
-        );
-
-        let model_id = self.model_id();
-        let model =
-            self.registry.get_model(&model_id).await.map_err(|e| {
-                NexoraError::model(format!("Model {} not available: {}", model_id, e))
-            })?;
-
         let prompt = format!(
             "Generate {} code. Task: {}\nReturn ONLY the code with no explanation.",
             language, description
         );
 
-        let input = NxrInput {
-            id: uuid::Uuid::new_v4(),
-            timestamp: Utc::now(),
-            data: InputData::Text(prompt),
-            parameters: [
-                ("mode".to_string(), serde_json::json!("code_generation")),
-                ("language".to_string(), serde_json::json!(language)),
-            ]
-            .into(),
-            metadata: std::collections::HashMap::new(),
-        };
+        info!(
+            "Generating {} code via inference engine ({} model): prompt={}",
+            language,
+            self.active_model_id,
+            prompt.len()
+        );
 
-        let output = model
-            .infer(&input)
-            .await
-            .map_err(|e| NexoraError::model(format!("Code generation failed: {}", e)))?;
-
-        let result = match output.data {
-            nexora_foundation::shared::base_model::OutputData::Text(text) => text,
-            _ => "// Code generation complete".to_string(),
-        };
-
-        Ok(result)
+        self.generate_text(&prompt, 2048, 0.2).await
     }
 
     /// Get training model information from registry

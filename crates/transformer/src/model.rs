@@ -93,6 +93,28 @@ fn sample_token_gpu(
     }
 }
 
+/// Sample a token from GPU-resident logits — zero CPU round-trip for logits.
+/// Takes logits that are ALREADY on GPU, returns sampled token as GPU tensor (still on GPU).
+#[cfg(feature = "gpu")]
+fn sample_token_gpu_keep_gpu(
+    logits_gpu: &nexora_autograd::gpu::GpuTensor,
+    temperature: f32,
+    top_k: usize,
+    top_p: f32,
+    seed: u64,
+) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+    use nexora_autograd::gpu::GpuContext;
+
+    let ctx = GpuContext::global()?;
+    ctx.gpu_sample(
+        logits_gpu,
+        temperature,
+        u32::try_from(top_k).unwrap_or(u32::MAX),
+        top_p,
+        seed,
+    )
+}
+
 pub fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32 {
     if temperature <= 0.0 {
         let mut best = 0;
@@ -900,6 +922,118 @@ impl CausalLM {
         Ok(Array1::from_vec(logits_flat))
     }
 
+    /// GPU forward pass: returns logits as `GpuTensor` (still on GPU, zero readback).
+    /// Same as `forward_gpu_with_cache` but skips `to_cpu()` on the logits.
+    /// Use with `generate_gpu_keep_gpu` to eliminate PCIe round-trip per token.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache_keep_gpu(
+        &self,
+        input_ids: &[u32],
+        cache: &mut [super::gqa::GpuKVCacheEntry],
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        self.preupload_weights_gpu()?;
+
+        let ctx = GpuContext::global()?;
+        let batch_size = 1;
+        let hidden_size = self.config.hidden_size;
+        let gw = self.gpu_weights.get().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported(
+                "GPU weights not initialized after preupload".into(),
+            )
+        })?;
+
+        let mut h = match input_ids.last() {
+            Some(&token_id) => {
+                let tid = token_id as usize;
+                if tid >= self.config.vocab_size {
+                    return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                        "Token ID {} out of range [0, {})",
+                        tid, self.config.vocab_size
+                    )));
+                }
+                let row_bytes = (hidden_size * 4) as u64;
+                let offset = (tid * hidden_size * 4) as u64;
+                let h = GpuTensor::zeros(&[batch_size, hidden_size])?;
+                ctx.batch_dispatch(|enc| {
+                    enc.copy_buffer_to_buffer(
+                        gw.token_embedding.buffer(),
+                        offset,
+                        h.buffer(),
+                        0,
+                        row_bytes,
+                    );
+                    Ok(())
+                })?;
+                h
+            }
+            None => GpuTensor::zeros(&[batch_size, hidden_size])?,
+        };
+
+        let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
+        let half = self.config.head_dim() / 2;
+        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            Array1::zeros(half)
+        };
+
+        let cos_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(vec![1, half], cos_slice.to_vec())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+        )?;
+        let sin_gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(vec![1, half], sin_slice.to_vec())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+        )?;
+
+        for (layer_idx, block) in self.blocks.iter().enumerate() {
+            h = block.forward_gpu_with_cache_precomputed_rope(
+                &h, cache, layer_idx, &cos_gpu, &sin_gpu,
+            )?;
+
+            for (target_layer, injector) in &self.injectors {
+                if *target_layer == layer_idx {
+                    let h_cpu = h.to_cpu()?;
+                    let dims = h_cpu.shape().to_vec();
+                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
+                        nexora_autograd::gpu::GpuError::Unsupported(format!(
+                            "injector reshape [{}x{}]: {}",
+                            dims[0], dims[1], e
+                        ))
+                    })?;
+                    let mut guard = injector.lock().map_err(|e| {
+                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                    })?;
+                    guard.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
+                        nexora_autograd::gpu::GpuError::Unsupported(format!(
+                            "injector after_layer: {}",
+                            e
+                        ))
+                    })?;
+                    let h_dyn = h_2d.into_dyn();
+                    h = GpuTensor::from_cpu(&h_dyn)?;
+                }
+            }
+        }
+
+        h = self.norm.forward_gpu(&h)?;
+
+        let logits = ctx.matmul(&h, &gw.lm_head_t)?;
+
+        Ok(logits)
+    }
+
     /// GPU forward via [`KVCacheProvider`].
     /// Routes to `GpuKVCache` for true zero-copy GPU→GPU cache,
     /// or auto-converts `CpuKVCache` to GPU cache to avoid O(n²) round-trip.
@@ -1173,6 +1307,124 @@ impl CausalLM {
                     ndarray::ArrayD::zeros(vec![0])
                 });
                 let v_cpu: ndarray::ArrayD<f32> = entry.v_view().to_cpu().unwrap_or_else(|e| {
+                    tracing::warn!("KV cache GPU readback v failed: {e}");
+                    ndarray::ArrayD::zeros(vec![0])
+                });
+                let kv_dim = entry.kv_heads * entry.head_dim;
+                KVCacheEntry {
+                    k: k_cpu.into_iter().collect(),
+                    v: v_cpu.into_iter().collect(),
+                    kv_dim,
+                }
+            })
+            .collect();
+
+        (output, cpu_cache)
+    }
+
+    /// GPU-RESIDENT generation loop: logits NEVER leave GPU during the loop.
+    /// Forward → `forward_gpu_with_cache_keep_gpu` (returns GpuTensor, no to_cpu).
+    /// Sample  → `sample_token_gpu_keep_gpu` (takes GpuTensor, returns GpuTensor).
+    /// Readback: only 4 bytes per token (token ID), plus one bulk readback at the end.
+    /// Eliminates ~`vocab_size * 4` bytes per token PCIe traffic (e.g. 128KB/token for 32K vocab).
+    #[cfg(feature = "gpu")]
+    fn generate_gpu_keep_gpu_impl(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+        top_p: f32,
+        seed: u64,
+    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        // Prefill: feed all prompt tokens through the GPU-forward path.
+        // We still use the CPU forward for prefill (batched matmul isn't ready
+        // for GPU-only KV cache). After prefill, switch to the GPU-resident loop.
+        let mut output: Vec<u32> = Vec::with_capacity(max_tokens);
+        let mut last_id = *prompt_ids.last().unwrap_or(&0);
+        let mut gpu_cache: Vec<super::gqa::GpuKVCacheEntry> = match (0..self.config.num_layers)
+            .map(|_| {
+                super::gqa::GpuKVCacheEntry::new(
+                    self.config.num_kv_heads,
+                    self.config.head_dim(),
+                    self.config.max_seq_len,
+                )
+            })
+            .collect()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to create GPU KV cache: {e}, falling back to CPU generation");
+                return self.generate(prompt_ids, max_tokens, temperature, top_k);
+            }
+        };
+
+        // Prefill prompt tokens into GPU cache (one-by-one for correctness)
+        for &id in prompt_ids {
+            let _ = match self.forward_gpu_with_cache_keep_gpu(&[id], &mut gpu_cache) {
+                Ok(_) => (),
+                Err(e) => {
+                    tracing::warn!("GPU prefill failed at token {id}: {e}, falling back");
+                    return self.generate(prompt_ids, max_tokens, temperature, top_k);
+                }
+            };
+        }
+
+        let mut rng_seed = seed;
+
+        // GPU-resident generation loop
+        for _ in 0..max_tokens {
+            let logits_gpu = match self.forward_gpu_with_cache_keep_gpu(&[last_id], &mut gpu_cache)
+            {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::warn!("GPU forward failed at step: {e}, falling back");
+                    break;
+                }
+            };
+
+            let token_gpu = match sample_token_gpu_keep_gpu(
+                &logits_gpu,
+                temperature,
+                top_k,
+                top_p,
+                rng_seed,
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("GPU sampling failed: {e}, falling back");
+                    break;
+                }
+            };
+
+            // Read back only 4 bytes per token
+            let raw = match token_gpu.to_cpu_raw_bytes() {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("GPU token readback failed: {e}, falling back");
+                    break;
+                }
+            };
+            let token = u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]);
+
+            output.push(token);
+            last_id = token;
+            rng_seed = rng_seed.wrapping_add(1);
+
+            if token == 2 {
+                break;
+            }
+        }
+
+        // One-time GPU readback: convert GpuKVCacheEntry -> KVCacheEntry
+        let cpu_cache: Vec<KVCacheEntry> = gpu_cache
+            .iter()
+            .map(|entry| {
+                let k_cpu = entry.k_view().to_cpu().unwrap_or_else(|e| {
+                    tracing::warn!("KV cache GPU readback k failed: {e}");
+                    ndarray::ArrayD::zeros(vec![0])
+                });
+                let v_cpu = entry.v_view().to_cpu().unwrap_or_else(|e| {
                     tracing::warn!("KV cache GPU readback v failed: {e}");
                     ndarray::ArrayD::zeros(vec![0])
                 });
@@ -1864,13 +2116,38 @@ impl CausalLM {
                 sample_token(&logits, temperature, top_k)
             };
             output.push(next_id);
-            if next_id == 0 {
+            // EOS token is 2 in MiniTokenizer; also stop on padding (0)
+            if next_id == 0 || next_id == 2 {
                 break;
             }
             last_id = next_id;
         }
 
         (output, cache.entries)
+    }
+
+    /// GPU-resident generation: logits stay GPU-native in the loop.
+    /// Only 4 bytes per token read back (token ID), not full vocab_size vector.
+    /// Falls back to `generate_with_gpu` if GPU unavailable or on error.
+    #[cfg(feature = "gpu")]
+    pub fn generate_with_gpu_keep_gpu(
+        &self,
+        prompt_ids: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        top_k: usize,
+        top_p: f32,
+        seed: u64,
+    ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        use nexora_autograd::gpu::GpuContext;
+
+        match GpuContext::global() {
+            Ok(_) => self.generate_gpu_keep_gpu_impl(prompt_ids, max_tokens, temperature, top_k, top_p, seed),
+            Err(_) => {
+                tracing::warn!("GPU context unavailable for GPU-resident generation, falling back to generate_with_gpu");
+                self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, true)
+            }
+        }
     }
 }
 

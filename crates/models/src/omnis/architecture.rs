@@ -1,12 +1,20 @@
 //! NXR-OMNIS Architecture
 //!
-//! Implementation of the MoE + Transformer-XL hybrid architecture
+//! SIMULATED — this is NOT a real neural network.
+//! Uses keyword matching and template responses, not tensor computation.
+//! Gated behind `simulated-models` feature (default: off).
+//! Use `foundation::NxrOmnisModel` (CausalLM-backed) instead.
 
 use super::config::OmnisConfig;
 use nexora_shared::base_model::{NxrModelError, NxrModelResult};
 use std::collections::HashMap;
 
 /// NXR-OMNIS Architecture Implementation
+///
+/// SIMULATED — this is NOT a real neural network.
+/// Uses keyword matching and template responses, not tensor computation.
+/// Prefer `foundation::NxrOmnisModel` (CausalLM-backed) instead.
+#[deprecated(note = "Simulated architecture using keyword matching, not a real neural network. Use foundation::NxrOmnisModel (CausalLM-backed) instead.")]
 pub struct OmnisArchitecture {
     /// Configuration
     config: OmnisConfig,

@@ -1,3 +1,7 @@
+//! THIS IS A SIMULATED ARCHITECTURE — not a real neural network.
+//! Gated behind `simulated-models` feature (default: off).
+//! NXR-NEXUM uses keyword matching and template orchestration, not tensor computation.
+//!
 //! NXR-NEXUM Architecture
 //!
 //! Implementation of the Multi-Agent Orchestration Architecture

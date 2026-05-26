@@ -4,6 +4,10 @@
 //! Strategic decision-making and autonomous operations specialist
 
 pub mod agents;
+/// Simulated architecture — NOT a real neural network.
+/// Uses keyword matching and template responses, not tensor computation.
+/// Gated behind `simulated-models` feature (default: off).
+#[cfg(feature = "simulated-models")]
 pub mod architecture;
 pub mod capabilities;
 pub mod config;
@@ -27,13 +31,18 @@ use nexora_shared::{
 };
 
 use self::{
-    agents::AxiomAgents, architecture::AxiomArchitecture, capabilities::AxiomCapabilities,
+    agents::AxiomAgents, capabilities::AxiomCapabilities,
     config::AxiomConfig, identity::AxiomIdentity,
 };
+
+#[cfg(feature = "simulated-models")]
+use self::architecture::AxiomArchitecture;
 
 pub struct NxrAxiomModel {
     base: nexora_shared::base_model::BaseNxrModel<AxiomConfig, AxiomMetrics, AxiomState>,
     identity: AxiomIdentity,
+    /// Architecture implementation (simulated — see architecture module docs)
+    #[cfg(feature = "simulated-models")]
     architecture: AxiomArchitecture,
     agents: AxiomAgents,
     capabilities: AxiomCapabilities,
@@ -140,6 +149,7 @@ impl NxrAxiomModel {
                 initial_metrics,
             ),
             identity,
+            #[cfg(feature = "simulated-models")]
             architecture: AxiomArchitecture::new(&config),
             agents: AxiomAgents::new(&config),
             capabilities,
@@ -408,6 +418,8 @@ impl NxrModel for NxrAxiomModel {
         config
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
+        // Initialize architecture (simulated — only with `simulated-models` feature)
+        #[cfg(feature = "simulated-models")]
         self.architecture
             .initialize(&config)
             .await

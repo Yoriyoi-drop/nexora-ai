@@ -1118,3 +1118,86 @@ memastikan GPU benar-benar dipakai (minimalisasi to_cpu, true batching, mixed pr
 | Session: 508 lines dead code | Documented TODO untuk integrasi | `inference/src/engine.rs:624` |
 | BLAA `#[deprecated]` padahal client functional | Deprecated dihapus | `inference/blaa_integration.rs:25` |
 | GNAC: 4 backend return error generik | Error per-variant (CUDA/Vulkan/TPU/WebGPU) | `gnac/execution/compiled.rs` |
+
+---
+
+## Amnesty — Bekukan Feature Baru (26 May 2026)
+
+### Masalah
+
+10 model arsitektur di `crates/models/src/*/architecture.rs` (total ~12K+ LOC) adalah **keyword-matching/template engines**, bukan neural network. Tidak ada tensor operations satupun. Setiap model:
+- `OmnisArchitecture` (1024 LOC): `select_experts()` pakai `input.contains('math')`
+- `AxiomArchitecture` (1213 LOC): `logical_reason()` split whitespace + count keywords
+- `CipherArchitecture` (1639 LOC): `vulnerability_scan()` substring match SQL/XSS/command injection
+- `VortexArchitecture` (1716 LOC): `select_experts()` keyword match, `hypotheses()` hardcoded template
+- `AetherArchitecture` (2427 LOC): `detect_emotions()` word stem matching, semua response `format!()` template
+- `SwiftArchitecture` (797 LOC): `process_item()` wrap string `[pre:][inf:][post:]`, metrics hardcoded
+- `KronosArchitecture` (744 LOC): semua method return placeholder hasil
+- `SpectraArchitecture` (2210 LOC): content generator return `format!("...based on: {prompt}")`
+- `GenesisArchitecture` (545 LOC): semua method return hardcoded default
+- `NexumArchitecture` (dir module): keyword-based orchestration
+
+### Konteks Tambahan
+
+Untungnya, arsitektur ini **TIDAK dipakai di runtime**. Aplikasi memanggil `CausalLmModel` (di `crates/foundation/src/causal_lm_model.rs`) yang benar-benar memanggil `CausalLM` transformer untuk SEMUA model ID (Omnis, Vortex, dll). Perbedaan hanya `TransformerConfig` ukuran.
+
+Namun, arsitektur fiksi ini:
+1. Dikompilasi di setiap build → 12K+ LOC dead code memperlambat kompilasi
+2. Memberi kesan sistem punya 10 arsitektur neural network berbeda
+3. Menyembunyikan kenyataan bahwa hanya ada 1 arsitektur real: CausalLM
+4. `model_agent_manager.rs` dan foundation integration modules masih mengimpornya
+
+### Fix: Feature Gate `simulated-models`
+
+**File diubah:**
+- `crates/models/Cargo.toml` — tambah feature `simulated-models` (default: off)
+- `crates/models/src/lib.rs` — doc jelas real vs simulated + modul tetap available
+- `crates/models/src/omnis/mod.rs` — gate `architecture` submodule + field + init + validate
+- `crates/models/src/aether/mod.rs` — gate architecture module
+- `crates/models/src/axiom/mod.rs` — gate architecture module + field + init + validate
+- `crates/models/src/cipher/mod.rs` — gate architecture module + field + init + validate
+- `crates/models/src/genesis/mod.rs` — gate architecture module + field + init + validate
+- `crates/models/src/kronos/mod.rs` — gate architecture module + field + init + validate
+- `crates/models/src/nexum/mod.rs` — gate `architecture` dir module + re-export
+- `crates/models/src/spectra/mod.rs` — gate architecture module + re-export
+- `crates/models/src/swift/mod.rs` — gate architecture module + field + init
+- `crates/models/src/vortex/mod.rs` — gate architecture module + field + init + validate
+- `crates/models/src/nexum/config.rs` — gate `ResourceRequirements` function
+
+Semua `*Architecture` struct dapat `#[deprecated(note = "...")]`.
+
+**Dengan feature default off:**
+- ~12K LOC tidak dikompilasi → build lebih cepat
+- Kode nyata (CausalLM, foundation, inference) tetap berfungsi
+- Legacy code tetap tersedia via `--features simulated-models`
+- Setiap `*Architecture` kasih `#[deprecated]` warning di kompilasi
+- Binary size berkurang secara signifikan
+
+**Status: ✅ Selesai | 0 errors di cargo check**
+
+---
+
+## Roadmap — Urutan Prioritas
+
+### Fase 1: Pondasi (35% → 55% → 70%) ← **SEKARANG**
+1. ✅ Audit production readiness (14 critical/high bugs fixed)
+2. ✅ **Amnesty — bekukan feature baru** (simulated-models gate, semua fake path explicit)
+3. ⬜ Golden Path v1: Tokenizer → Transformer → KV Cache → Sampler → Streaming
+4. ⬜ GPU architecture fix: tahan tensor di GPU, minimalkan `to_cpu()`, lazy execution
+5. ⬜ True Continuous Batching: shared prefill, padded batch matmul, token scheduler
+6. ⬜ Observability: Prometheus metrics, GPU health, fallback counter, cache hit ratio
+7. ⬜ Hapus `.unwrap()` dari jalur kritikal
+
+### Fase 2: Optimasi (70% → 80%)
+- Quantization real (bukan fake), mixed precision, stress test
+- Multi-backend (wgpu stable path selesai dulu baru tambah backend lain)
+- Speculative decoding jika terbukti improve latency
+
+### Fase 3: Scale (80% → 90%)
+- Distributed inference
+- Advanced agent orchestration (setelah NN real stabil)
+- Production hardening (SRE runbook, auto-scaling, failover)
+
+---
+
+*Dokumen ini adalah living document — update setiap ada batch fix atau perubahan readiness.*

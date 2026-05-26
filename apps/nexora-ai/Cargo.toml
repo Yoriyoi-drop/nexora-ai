@@ -58,9 +58,10 @@ openblas-src = { version = "0.10.16", optional = true }
 mimalloc = { version = "0.1", optional = true }
 
 [features]
-default = ["gpu"]
+default = ["gpu", "legacy-fastpath"]
 production = ["mimalloc"]
 blas = ["blas-src", "openblas-src"]
+legacy-fastpath = []
 gpu = [
     "nexora-deeplearning/gpu",
     "nexora-transformer/gpu",

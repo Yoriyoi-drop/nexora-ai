@@ -1,4 +1,12 @@
-use axum::{extract::Path, response::Html, response::IntoResponse, Extension, Json};
+use axum::{
+    extract::Path,
+    http::StatusCode,
+    response::sse::{Event, Sse},
+    response::Html,
+    response::IntoResponse,
+    Extension, Json,
+};
+use futures::stream::{self, Stream};
 use nexora_monitoring::MetricsCollector;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -222,6 +230,69 @@ pub async fn generate_text(
             }))
         }
     }
+}
+
+pub async fn generate_text_stream(
+    Extension(nexora): Extension<Arc<NexoraAI>>,
+    Json(payload): Json<Value>,
+) -> Result<
+    Sse<impl Stream<Item = Result<Event, anyhow::Error>>>,
+    (StatusCode, Json<Value>),
+> {
+    let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    if prompt.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Prompt cannot be empty" })),
+        ));
+    }
+
+    let max_tokens = payload
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(512) as usize;
+
+    let temperature = payload
+        .get("temperature")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.7) as f32;
+
+    info!(
+        "Streaming text generation: prompt={}, max_tokens={}, temperature={}",
+        prompt.len(),
+        max_tokens,
+        temperature
+    );
+
+    let rx = nexora
+        .generate_text_stream(prompt, max_tokens, temperature)
+        .await
+        .map_err(|e| {
+            error!("Streaming inference init failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    let stream = stream::unfold(rx, |mut rx| async move {
+        match rx.recv().await {
+            Some(token) => {
+                let data = serde_json::json!({
+                    "token": token.token_text.to_string(),
+                    "position": token.position,
+                });
+                let event = Event::default().data(data.to_string());
+                Some((Ok::<_, anyhow::Error>(event), rx))
+            }
+            None => {
+                let event = Event::default().data("[DONE]");
+                Some((Ok(event), rx))
+            }
+        }
+    });
+
+    Ok(Sse::new(stream))
 }
 
 pub async fn chat(
