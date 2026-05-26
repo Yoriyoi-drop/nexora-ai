@@ -13,7 +13,7 @@
 //! Ini mengubah distribusi resonansi kembali ke representasi token yang dapat digunakan
 //! untuk output atau layer berikutnya.
 
-use crate::utils::Complex;
+use crate::utils::{Complex, HolographicFFT};
 use crate::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use nexora_autograd::{Tensor, TensorOps};
@@ -407,33 +407,25 @@ impl InverseSpectralCollapse {
             }
         }
 
-        // CPU fallback: simple inverse FFT
-        let mut collapsed = Array2::zeros(context.dim());
+        // CPU path: proper 2D IFFT via Cooley-Tukey O(N² log N), bukan O(N⁴)
+        let (nrows, ncols) = context.dim();
+        let (krows, kcols) = self.collapse_kernel.dim();
 
-        // Simple inverse FFT implementation (for demonstration)
-        // In practice, would use optimized FFT library
-        for i in 0..context.nrows() {
-            for j in 0..context.ncols() {
-                let mut sum = Complex::new(0.0, 0.0);
-
-                for ki in 0..context.nrows() {
-                    for kj in 0..context.ncols() {
-                        let phase = 2.0
-                            * PI
-                            * (i as f32 * ki as f32 / context.nrows() as f32
-                                + j as f32 * kj as f32 / context.ncols() as f32);
-                        let kernel_val = self.collapse_kernel[[
-                            ki % self.collapse_kernel.nrows(),
-                            kj % self.collapse_kernel.ncols(),
-                        ]];
-
-                        sum =
-                            sum + context[[ki, kj]] * kernel_val * Complex::from_polar(1.0, phase);
-                    }
-                }
-
-                collapsed[[i, j]] = sum * self.config.collapse_strength;
+        // Element-wise multiply with collapse kernel (repeated modulo)
+        let mut modulated = Array2::zeros(context.dim());
+        for i in 0..nrows {
+            for j in 0..ncols {
+                let kv = self.collapse_kernel[[i % krows, j % kcols]];
+                modulated[[i, j]] = context[[i, j]] * kv;
             }
+        }
+
+        // O(N² log N) 2D IFFT via row-column Cooley-Tukey
+        let mut collapsed = HolographicFFT::ifft_2d(&modulated)?;
+
+        // Apply collapse strength
+        for val in collapsed.iter_mut() {
+            *val = *val * self.config.collapse_strength;
         }
 
         Ok(collapsed)

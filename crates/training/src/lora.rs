@@ -97,12 +97,14 @@ impl LoRALayer {
     pub fn merge_weights(&self, original: &mut Array2<f32>) {
         let a_data = self.lora_a.data();
         let b_data = self.lora_b.data();
-        let a_2d = a_data
-            .into_dimensionality::<ndarray::Ix2>()
-            .expect("lora_a must be 2D");
-        let b_2d = b_data
-            .into_dimensionality::<ndarray::Ix2>()
-            .expect("lora_b must be 2D");
+        let a_2d = match a_data.into_dimensionality::<ndarray::Ix2>() {
+            Ok(a) => a,
+            Err(_) => return,
+        };
+        let b_2d = match b_data.into_dimensionality::<ndarray::Ix2>() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
         let delta = b_2d.dot(&a_2d).mapv(|v| v * self.scaling);
         for i in 0..original.shape()[0] {
             for j in 0..original.shape()[1] {
@@ -187,8 +189,14 @@ impl LoRAModel {
             let target = parts[1];
             let a_data = layer.lora_a.data();
             let b_data = layer.lora_b.data();
-            let a_2d = a_data.into_dimensionality::<ndarray::Ix2>().expect("lora_a must be 2D");
-            let b_2d = b_data.into_dimensionality::<ndarray::Ix2>().expect("lora_b must be 2D");
+            let a_2d = match a_data.into_dimensionality::<ndarray::Ix2>() {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+            let b_2d = match b_data.into_dimensionality::<ndarray::Ix2>() {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
             let delta = b_2d.dot(&a_2d).mapv(|v| v * layer.scaling);
             match target {
                 "wq" => {

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
+
+use nexora_transformer::KVCacheEntry;
 
 #[derive(Debug, Clone)]
 pub struct PrefixCacheConfig {
@@ -29,6 +30,7 @@ pub struct PrefixMatch {
     pub prefix_len: usize,
     pub node_id: u64,
     pub cached_value: Vec<f32>,
+    pub cached_kv_cache: Vec<KVCacheEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,7 @@ struct RadixNode {
     children: HashMap<u64, u64>,
     label: Option<Vec<u32>>,
     value: Option<Vec<f32>>,
+    kvcache: Option<Vec<KVCacheEntry>>,
     access_count: u64,
     last_access: Instant,
     created_at: Instant,
@@ -52,6 +55,7 @@ impl RadixNode {
             children: HashMap::new(),
             label,
             value: None,
+            kvcache: None,
             access_count: 0,
             last_access: Instant::now(),
             created_at: Instant::now(),
@@ -93,11 +97,18 @@ impl PrefixCache {
     }
 
     pub async fn insert(&self, tokens: &[u32], value: Vec<f32>) {
+        self.insert_with_kvcache(tokens, value, None).await;
+    }
+
+    pub async fn insert_with_kvcache(&self, tokens: &[u32], value: Vec<f32>, kvcache: Option<Vec<KVCacheEntry>>) {
         if tokens.is_empty() {
             return;
         }
 
-        let value_size = value.len() * std::mem::size_of::<f32>();
+        let kv_size = kvcache.as_ref().map(|kv| {
+            kv.iter().map(|e| (e.k.len() + e.v.len()) * std::mem::size_of::<f32>()).sum::<usize>()
+        }).unwrap_or(0);
+        let value_size = value.len() * std::mem::size_of::<f32>() + kv_size;
         let entry_size = tokens.len() * std::mem::size_of::<u32>() + value_size + 64;
         if entry_size > self.config.max_cache_size / 1024 {
             warn!("Prefix cache entry too large: {} bytes", entry_size);
@@ -141,6 +152,7 @@ impl PrefixCache {
                         RadixNode::new(new_id, Some(current_id), Some(vec![token]), depth);
                     if tokens.last().map_or(false, |t| token == *t) {
                         new_node.value = Some(value.clone());
+                        new_node.kvcache = kvcache.clone();
                     }
                     if let Some(parent) = nodes.get_mut(&current_id) {
                         parent.children.insert(token as u64, new_id);
@@ -159,6 +171,7 @@ impl PrefixCache {
             if node.value.is_none() {
                 self.total_memory.fetch_add(value_size, Ordering::Relaxed);
                 node.value = Some(value);
+                node.kvcache = kvcache;
             }
         }
     }
@@ -194,27 +207,31 @@ impl PrefixCache {
             }
         }
 
-        let cached_value = if last_cached_id != self.root_id {
+        let (cached_value, cached_kv_cache) = if last_cached_id != self.root_id {
             self.hits.fetch_add(1, Ordering::Relaxed);
             match nodes.get(&last_cached_id) {
-                Some(n) => n.value.clone().unwrap_or_else(|| {
-                    warn!("prefix_cache: hit node {} has no cached value", last_cached_id);
-                    Vec::new()
-                }),
+                Some(n) => (
+                    n.value.clone().unwrap_or_else(|| {
+                        warn!("prefix_cache: hit node {} has no cached value", last_cached_id);
+                        Vec::new()
+                    }),
+                    n.kvcache.clone().unwrap_or_default(),
+                ),
                 None => {
                     warn!("prefix_cache: hit node {} not found in cache", last_cached_id);
-                    Vec::new()
+                    (Vec::new(), Vec::new())
                 }
             }
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
 
         PrefixMatch {
             prefix_len: last_cached_len,
             node_id: last_cached_id,
             cached_value,
+            cached_kv_cache,
         }
     }
 

@@ -29,7 +29,7 @@ pub mod token_loop;
 // Re-export main types
 pub use beam_search::{BeamHypothesis, BeamSearchConfig};
 pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
-pub use continuous_batching::{SequentialBatchingEngine, StepResult};
+pub use continuous_batching::{ContinuousBatchingEngine, ContinuousBatchingConfig, SequentialBatchingEngine, StepResult};
 pub use decoding::{DecodingConfig, DecodingStrategy};
 pub use engine::{InferenceConfig, InferenceEngine as InferenceEngineStruct};
 pub use inference_trait::InferenceEngine;

@@ -101,6 +101,53 @@ impl HolographicFFT {
 
         Ok(result)
     }
+
+    /// 2D IFFT pada complex array, output tetap complex.
+    /// Menggunakan row-column decomposition dengan Cooley-Tukey O(N² log N).
+    pub fn ifft_2d(input: &Array2<Complex>) -> DLResult<Array2<Complex>> {
+        let (rows, cols) = input.dim();
+        if rows == 0 || cols == 0 {
+            return Ok(Array2::zeros((rows, cols)));
+        }
+
+        let mut result = input.clone();
+
+        // IFFT pada setiap row: conj → fft → conj/scale
+        for i in 0..rows {
+            let mut row: Vec<Complex> = result.slice(s![i, ..]).to_vec();
+            for c in &mut row {
+                c.imag = -c.imag;
+            }
+            Self::fft_recursive(&mut row);
+            let n = row.len() as f32;
+            for c in &mut row {
+                c.real /= n;
+                c.imag = -c.imag / n;
+            }
+            for j in 0..cols {
+                result[[i, j]] = row[j];
+            }
+        }
+
+        // IFFT pada setiap column
+        for j in 0..cols {
+            let mut col: Vec<Complex> = (0..rows).map(|i| result[[i, j]]).collect();
+            for c in &mut col {
+                c.imag = -c.imag;
+            }
+            Self::fft_recursive(&mut col);
+            let n = col.len() as f32;
+            for c in &mut col {
+                c.real /= n;
+                c.imag = -c.imag / n;
+            }
+            for i in 0..rows {
+                result[[i, j]] = col[i];
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 /// Complex number operations

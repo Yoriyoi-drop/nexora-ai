@@ -337,6 +337,15 @@ impl Sampler {
             return self.sample_gpu(logits);
         }
 
+        #[cfg(feature = "gpu")]
+        if !self.use_gpu && !self.gpu_degraded_warned {
+            self.gpu_degraded_warned = true;
+            error!(
+                "GPU sampler unavailable: running on CPU. \
+                 Inference latency will be significantly higher. Check GPU health."
+            );
+        }
+
         self.sample_cpu(logits)
     }
 

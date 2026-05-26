@@ -6,6 +6,9 @@ use super::super::engine::ExecuteEngine;
 use super::{ParallelExecutionStrategy, SequentialExecutionStrategy};
 use crate::saca::{error::*, types::*};
 
+const PARALLEL_THRESHOLD_HIGH: usize = 5;
+const PARALLEL_THRESHOLD_LOW: usize = 2;
+
 /// Adaptive execution strategy
 pub struct AdaptiveExecutionStrategy;
 
@@ -35,16 +38,11 @@ impl AdaptiveExecutionStrategy {
     ) -> ExecutionMode {
         let candidate_count = candidates.len();
 
-        // Use parallel for many candidates
-        if candidate_count > 5 {
+        if candidate_count > PARALLEL_THRESHOLD_HIGH {
             ExecutionMode::Parallel
-        }
-        // Use sequential for few candidates
-        else if candidate_count <= 2 {
+        } else if candidate_count <= PARALLEL_THRESHOLD_LOW {
             ExecutionMode::Sequential
-        }
-        // Use hybrid for medium number
-        else {
+        } else {
             ExecutionMode::Hybrid
         }
     }
@@ -58,7 +56,7 @@ impl AdaptiveExecutionStrategy {
         let mut candidates = candidates;
 
         // Execute first few candidates sequentially to get baseline
-        let sequential_count = candidates.len().min(2);
+        let sequential_count = candidates.len().min(PARALLEL_THRESHOLD_LOW);
         let sequential_candidates: Vec<_> = candidates.drain(..sequential_count).collect();
 
         let sequential_results =

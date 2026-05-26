@@ -22,6 +22,9 @@ pub enum GpuDtype {
     F32,
     F16,
     Bf16,
+    /// Packed int8: 4 signed 8-bit values per u32 element.
+    /// Used for quantized weight storage in GPU memory.
+    I8,
 }
 
 // SAFETY:

@@ -19,8 +19,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                     if let Ok(ctx) = crate::gpu::GpuContext::global() {
                         match ctx.softmax(&gpu_2d) {
                             Ok(gpu_result_2d) => {
-                                let soft_cpu = gpu_result_2d.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in softmax: {e}"); ndarray::ArrayD::zeros(gpu_result_2d.shape()) });
-                                let soft_shape_2d = soft_cpu.shape().to_vec();
+                                let gpu_2d_for_cpu = gpu_result_2d.clone();
                                 let gpu_result = gpu_result_2d.reshape(orig_shape.clone());
                                 let gpu_result = match gpu_result {
                                     Ok(r) => r,
@@ -37,14 +36,14 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                 return Tensor::from_gpu_with_grad_fn(
                                     gpu_result,
                                     vec![input.clone()],
-                                    vec![soft_cpu],
+                                    vec![],
                                     vec![gpu_saved],
-                                    Box::new(move |grad, saved| {
-                                        let soft = &saved[0];
+                                    Box::new(move |grad, _saved| {
+                                        let soft = gpu_2d_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in softmax: {e}"); ndarray::ArrayD::zeros(gpu_2d_for_cpu.shape()) });
                                         let g_vec: Vec<f32> = grad.iter().copied().collect();
                                         let n = soft.len();
-                                        let batch = soft_shape_2d[0];
-                                        let dim = soft_shape_2d[1];
+                                        let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
+                                        let dim = orig_shape[orig_shape.len() - 1];
                                         let mut dx = vec![0.0f32; n];
                                         for b in 0..batch {
                                             let base = b * dim;
@@ -180,8 +179,7 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                         // GPU: softmax(input) then ln = log_softmax
                         match ctx.softmax(&gpu_2d) {
                                 Ok(soft_2d) => {
-                                let soft_cpu = soft_2d.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in log_softmax: {e}"); ndarray::ArrayD::zeros(soft_2d.shape()) });
-                                let soft_shape_2d = soft_cpu.shape().to_vec();
+                                let gpu_soft_for_cpu = soft_2d.clone();
                                 match ctx.elementwise_unary(&soft_2d, crate::gpu::ElemOp::Ln) {
                                     Ok(gpu_result_2d) => {
                                         let gpu_result = gpu_result_2d.reshape(orig_shape.clone());
@@ -208,14 +206,14 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                         return Tensor::from_gpu_with_grad_fn(
                                             gpu_result,
                                             vec![input.clone()],
-                                            vec![soft_cpu],
+                                            vec![],
                                             vec![gpu_soft_saved],
-                                            Box::new(move |grad, saved| {
-                                                let soft = &saved[0];
+                                            Box::new(move |grad, _saved| {
+                                                let soft = gpu_soft_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in log_softmax: {e}"); ndarray::ArrayD::zeros(gpu_soft_for_cpu.shape()) });
                                                 let g_vec: Vec<f32> = grad.iter().copied().collect();
                                                 let s_vec: Vec<f32> = soft.iter().copied().collect();
-                                                let batch = soft_shape_2d[0];
-                                                let dim = soft_shape_2d[1];
+                                                let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
+                                                let dim = orig_shape[orig_shape.len() - 1];
                                                 let mut sum_g = vec![0.0f32; batch];
                                                 for b in 0..batch {
                                                     let base = b * dim;
@@ -613,16 +611,16 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                             let id = crate::tensor::next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let data_cpu = gpu_in.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_in.shape()) });
-                        let tgt_cpu = gpu_t.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_t.shape()) });
+                        let gpu_in_for_cpu = gpu_in.clone();
+                        let gpu_t_for_cpu = gpu_t.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
-                            vec![data_cpu, tgt_cpu],
+                            vec![],
                             vec![gpu_in.clone(), gpu_t.clone()],
-                            Box::new(move |grad, saved| {
-                                let x = &saved[0];
-                                let t = &saved[1];
+                            Box::new(move |grad, _saved| {
+                                let x = gpu_in_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_in_for_cpu.shape()) });
+                                let t = gpu_t_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_t_for_cpu.shape()) });
                                 let mut dx_data = vec![0.0f32; x.len()];
                                 for (i, (&g, (&xv, &tv))) in grad.iter().zip(x.iter().zip(t.iter())).enumerate() {
                                     let p = xv.clamp(1e-7, 1.0 - 1e-7);
@@ -738,50 +736,39 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let lsm_data = {
-                            let data = input.data();
-                            let _tgt = target.data();
-                            let batch = data.shape()[0];
-                            let classes = data.shape()[1];
-                            let mut lsm = vec![0.0f32; data.len()];
-                            for b in 0..batch {
-                                let mut mx = f32::NEG_INFINITY;
-                                for c in 0..classes {
-                                    mx = mx.max(data[[b, c]]);
-                                }
-                                let mut sum_exp = 0.0;
-                                for c in 0..classes {
-                                    sum_exp += (data[[b, c]] - mx).exp();
-                                }
-                                let log_sum = sum_exp.ln();
-                                for c in 0..classes {
-                                    lsm[b * classes + c] = (data[[b, c]] - mx) - log_sum;
-                                }
-                            }
-                            ArrayD::from_shape_vec(vec![batch, classes], lsm).unwrap_or_else(|e| {
-                                debug!("shape encoding failed (infallible): {e}");
-                                ArrayD::zeros(vec![0])
-                            })
-                        };
-                        let saved_tgt = target.data();
-                        let batch = lsm_data.shape()[0];
-                        let classes = lsm_data.shape()[1];
+                        let gpu_in_for_cpu = gpu_in.clone();
+                        let gpu_t_for_cpu = gpu_t.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input.clone()],
-                            vec![lsm_data, saved_tgt],
+                            vec![],
                             vec![gpu_in.clone(), gpu_t.clone()],
-                            Box::new(move |grad, saved| {
-                                let lsm = &saved[0];
-                                let tgt_saved = &saved[1];
-                                let batch = lsm.shape()[0];
-                                let classes = lsm.shape()[1];
+                            Box::new(move |grad, _saved| {
+                                let data = gpu_in_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_in_for_cpu.shape()) });
+                                let tgt = gpu_t_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_t_for_cpu.shape()) });
+                                let batch = data.shape()[0];
+                                let classes = data.shape()[1];
+                                let mut lsm = vec![0.0f32; data.len()];
+                                for b in 0..batch {
+                                    let mut mx = f32::NEG_INFINITY;
+                                    for c in 0..classes {
+                                        mx = mx.max(data[[b, c]]);
+                                    }
+                                    let mut sum_exp = 0.0;
+                                    for c in 0..classes {
+                                        sum_exp += (data[[b, c]] - mx).exp();
+                                    }
+                                    let log_sum = sum_exp.ln();
+                                    for c in 0..classes {
+                                        lsm[b * classes + c] = (data[[b, c]] - mx) - log_sum;
+                                    }
+                                }
                                 let mut dx = vec![0.0f32; batch * classes];
                                 for b in 0..batch {
-                                    let t = tgt_saved[b] as usize;
+                                    let t = tgt[b] as usize;
                                     let g = grad[b];
                                     for c in 0..classes {
-                                        let p = lsm[[b, c]].exp();
+                                        let p = lsm[b * classes + c].exp();
                                         dx[b * classes + c] = g * if c == t { p - 1.0 } else { p };
                                     }
                                 }
@@ -933,16 +920,16 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
-                        let ids_saved = input_ids.data();
+                        let gpu_ids_for_cpu = gpu_ids.clone();
                         let w_shape = weight.shape().to_vec();
                         let w_shape_gpu = w_shape.clone();
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_result,
                             vec![input_ids.clone(), weight.clone()],
-                            vec![ids_saved],
+                            vec![],
                             vec![gpu_ids.clone()],
-                            Box::new(move |grad, saved| {
-                                let ids_arr = &saved[0];
+                            Box::new(move |grad, _saved| {
+                                let ids_arr = gpu_ids_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in embedding: {e}"); ndarray::ArrayD::zeros(gpu_ids_for_cpu.shape()) });
                                 let d = grad.shape()[1];
                                 let vocab_size = w_shape[0];
                                 let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
@@ -1319,25 +1306,19 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                 let id = next_tensor_id();
                                 return Tensor::from_gpu(gpu_result, id, false);
                             }
-                            let q_data = q.data();
-                            let k_data = k.data();
-                            let v_data = v.data();
+                            let gq_for_cpu = gq.clone();
+                            let gk_for_cpu = gk.clone();
+                            let gv_for_cpu = gv.clone();
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![q.clone(), k.clone(), v.clone()],
-                                vec![
-                                    q_data.clone(),
-                                    k_data.clone(),
-                                    v_data.clone(),
-                                    ArrayD::from_elem(vec![1], scale),
-                                ],
+                                vec![],
                                 vec![gq.clone(), gk.clone(), gv.clone()],
-                                Box::new(move |grad, saved| {
-                                    let qs = &saved[0];
-                                    let ks = &saved[1];
-                                    let vs = &saved[2];
-                                    let s = saved[3].iter().copied().next().unwrap_or(1.0);
-                                    attention_backward_cpu(grad, qs, ks, vs, s)
+                                Box::new(move |grad, _saved| {
+                                    let qs = gq_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in causal_attention q: {e}"); ndarray::ArrayD::zeros(gq_for_cpu.shape()) });
+                                    let ks = gk_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in causal_attention k: {e}"); ndarray::ArrayD::zeros(gk_for_cpu.shape()) });
+                                    let vs = gv_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in causal_attention v: {e}"); ndarray::ArrayD::zeros(gv_for_cpu.shape()) });
+                                    attention_backward_cpu(grad, &qs, &ks, &vs, scale)
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                     let gq = &saved_gpu[0];

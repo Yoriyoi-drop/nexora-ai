@@ -10,6 +10,17 @@ use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
+const DEFAULT_CHUNK_SIZE: usize = 64;
+const DEFAULT_NUM_THREADS: usize = 4;
+const DEFAULT_BLOCK_SIZE: usize = 64;
+const ASSOCIATIVE_STRENGTH: f32 = 0.8;
+const HIERARCHY_SCALE_FACTOR: usize = 4;
+const MIN_BLOCK_SIZE: usize = 16;
+const MAX_BLOCK_SIZE: usize = 256;
+const MEMORY_RESERVE_DIVISOR: usize = 2;
+const FLOAT_COMPARE_TOLERANCE: f32 = 1e-6;
+const SCAN_CORRECTNESS_TOLERANCE: f32 = 1e-4;
+
 /// Associative operator untuk state composition
 #[derive(Debug, Clone)]
 pub struct AssociativeOperator {
@@ -40,8 +51,8 @@ impl AssociativeOperator {
             bias,
             hidden_size,
             associative_strength,
-            chunk_size: 64,
-            num_threads: 4,
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            num_threads: DEFAULT_NUM_THREADS,
         })
     }
 
@@ -131,7 +142,7 @@ impl AssociativeOperator {
             difference += (l - r).abs();
         }
 
-        Ok(difference < 1e-6) // Tolerance for floating point comparison
+        Ok(difference < FLOAT_COMPARE_TOLERANCE)
     }
 }
 
@@ -155,9 +166,9 @@ pub struct ParallelAssociativeScan {
 
 impl ParallelAssociativeScan {
     pub fn new(hidden_size: usize, sequence_length: usize) -> DLResult<Self> {
-        let associative_op = AssociativeOperator::new(hidden_size, 0.8)?;
+        let associative_op = AssociativeOperator::new(hidden_size, ASSOCIATIVE_STRENGTH)?;
 
-        let block_size = 64; // Optimal for GPU cache
+        let block_size = DEFAULT_BLOCK_SIZE;
         let num_blocks = (sequence_length + block_size - 1) / block_size;
 
         Ok(Self {
@@ -225,7 +236,7 @@ impl ParallelAssociativeScan {
         self.compute_prefix_sums()?;
 
         // Phase 3: Apply prefix corrections to blocks
-        self.apply_prefix_corrections(a_matrices, b_matrices, inputs)
+        self.apply_prefix_corrections(a_matrices, b_matrices, inputs, initial_state)
     }
 
     /// Process individual blocks in parallel
@@ -296,6 +307,7 @@ impl ParallelAssociativeScan {
         a_matrices: &[ArrayD<f32>],
         b_matrices: &[ArrayD<f32>],
         inputs: &[ArrayD<f32>],
+        initial_state: &ArrayD<f32>,
     ) -> DLResult<Vec<ArrayD<f32>>> {
         let mut final_results = Vec::with_capacity(self.sequence_length);
 
@@ -307,18 +319,13 @@ impl ParallelAssociativeScan {
                 break;
             }
 
-            // Get prefix correction for this block
-            let prefix_correction = if block_idx > 0 {
-                &self.prefix_sums[block_idx - 1]
+            let prefix = if block_idx == 0 {
+                initial_state.clone()
             } else {
-                return Err(DeepLearningError::Computation {
-                    reason: "Invalid block index for prefix correction".to_string(),
-                });
+                self.prefix_sums[block_idx - 1].clone()
             };
 
-            // Process block with correction
-            let mut current_state = prefix_correction.clone();
-
+            let mut current_state = prefix;
             for i in start_idx..end_idx {
                 current_state = self.state_transition(
                     &a_matrices[i],
@@ -374,7 +381,7 @@ impl ParallelAssociativeScan {
         initial_state: &ArrayD<f32>,
     ) -> DLResult<Vec<ArrayD<f32>>> {
         // Divide into chunks
-        let chunk_size = self.block_size * 4; // Larger chunks for hierarchy
+        let chunk_size = self.block_size * HIERARCHY_SCALE_FACTOR;
         let mut chunks = Vec::new();
 
         for chunk in sequence.chunks(chunk_size) {
@@ -425,8 +432,8 @@ impl ParallelAssociativeScan {
 
         // Optimize block size for parallel efficiency
         let optimal_block_size = (sequence_length / max_blocks_in_memory.max(1))
-            .max(16)
-            .min(256);
+            .max(MIN_BLOCK_SIZE)
+            .min(MAX_BLOCK_SIZE);
         self.block_size = optimal_block_size;
         self.num_blocks = (sequence_length + self.block_size - 1) / self.block_size;
     }
@@ -461,7 +468,7 @@ impl ParallelAssociativeScan {
     ) -> DLResult<Vec<ArrayD<f32>>> {
         let element_size = self.hidden_size * 4;
         let max_elements_in_memory = memory_limit_bytes / element_size;
-        let chunk_size = max_elements_in_memory / 2; // Reserve memory for computation
+        let chunk_size = max_elements_in_memory / MEMORY_RESERVE_DIVISOR;
 
         let mut all_results = Vec::new();
         let mut current_state = initial_state.clone();
@@ -509,7 +516,7 @@ impl ParallelAssociativeScan {
         }
 
         let avg_error = total_error / (sequential_results.len() * self.hidden_size) as f32;
-        Ok(avg_error < 1e-4)
+        Ok(avg_error < SCAN_CORRECTNESS_TOLERANCE)
     }
 }
 

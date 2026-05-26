@@ -21,7 +21,7 @@ use crate::{
 use nexora_common::retry::RetryConfig;
 use nexora_memory::MemoryManager;
 use nexora_tokenizer::BpeTokenizer;
-use nexora_transformer::{CausalLM, KVCacheProvider, TransformerConfig};
+use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, TransformerConfig};
 #[cfg(feature = "gpu")]
 use nexora_transformer::GpuKVCache;
 
@@ -293,32 +293,33 @@ impl InferenceEngine {
         let active = self.active_requests.clone();
 
         let request_id = request.request_id;
+        let prompt = request.prompt;
         let max_tokens = request.max_tokens;
         let temperature = request.temperature;
         let top_p = request.top_p;
         let top_k = request.top_k as usize;
         let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
 
-        // Memory-based RAG for streaming path
+        // Memory-based RAG for streaming path (no clone: move prompt ownership)
         let augmented_prompt = if let Some(memory) = &self.memory {
             let mem = memory.lock().await;
-            match mem.search(&request.prompt).await {
+            match mem.search(&prompt).await {
                 Ok(results) if !results.is_empty() => {
-                    let context: String = results
-                        .iter()
-                        .take(3)
-                        .map(|r| format!("- {}", r.value))
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    use std::fmt::Write;
+                    let mut context = String::new();
+                    for (i, r) in results.iter().take(3).enumerate() {
+                        if i > 0 { context.push('\n'); }
+                        let _ = write!(context, "- {}", r.value);
+                    }
                     format!(
                         "Relevant context:\n{}\n\n---\n\n{}",
-                        context, request.prompt
+                        context, prompt
                     )
                 }
-                _ => request.prompt.clone(),
+                _ => prompt,
             }
         } else {
-            request.prompt.clone()
+            prompt
         };
         let memory_clone = self.memory.clone();
 
@@ -686,28 +687,29 @@ impl InferenceEngine {
                 .with_inference_time(start.elapsed().as_millis() as u64));
         }
 
-        // Memory-based RAG: enrich prompt with relevant past context
+        // Memory-based RAG: enrich prompt with relevant past context (no clone: move prompt)
+        let prompt = request.prompt;
         let augmented_prompt = if let Some(memory) = &self.memory {
             let mem = memory.lock().await;
-            match mem.search(&request.prompt).await {
+            match mem.search(&prompt).await {
                 Ok(results) if !results.is_empty() => {
-                    let context: String = results
-                        .iter()
-                        .take(3)
-                        .map(|r| format!("- {}", r.value))
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    use std::fmt::Write;
+                    let mut context = String::new();
+                    for (i, r) in results.iter().take(3).enumerate() {
+                        if i > 0 { context.push('\n'); }
+                        let _ = write!(context, "- {}", r.value);
+                    }
                     let augmented = format!(
                         "Relevant context:\n{}\n\n---\n\n{}",
-                        context, request.prompt
+                        context, prompt
                     );
                     debug!("Memory RAG: prepended {} context items to prompt", results.iter().take(3).count());
                     augmented
                 }
-                _ => request.prompt.clone(),
+                _ => prompt,
             }
         } else {
-            request.prompt.clone()
+            prompt
         };
 
         let prompt_ids = self.encode_prompt(&augmented_prompt).await?;
@@ -717,6 +719,7 @@ impl InferenceEngine {
         let prefix_match = self.prefix_cache.match_prefix(&prompt_ids).await;
         let prefix_len = prefix_match.prefix_len;
         let prefix_logits = prefix_match.cached_value;
+        let prefix_kv_cache = prefix_match.cached_kv_cache;
         if prefix_len > 0 {
             debug!(
                 "Prefix cache hit: {}/{} tokens matched, skipping prefill",
@@ -739,6 +742,14 @@ impl InferenceEngine {
         };
         #[cfg(not(feature = "gpu"))]
         let mut kv_state = Box::new(cpu_cache);
+
+        // Restore KV cache from prefix match if available — avoids recomputing K/V for prefix tokens
+        if !prefix_kv_cache.is_empty() {
+            if let Some(cpu_entries) = kv_state.as_cpu_entries() {
+                *cpu_entries = prefix_kv_cache;
+                debug!("Restored KV cache for {} matched prefix tokens", prefix_len);
+            }
+        }
 
         let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
             temperature: request.temperature,
@@ -814,7 +825,7 @@ impl InferenceEngine {
         let tokenizer = self.tokenizer.clone();
         let prompt_ids_for_loop = prompt_ids.clone();
         let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
-        let (tokens, last_logits, timed_out) = tokio::task::spawn_blocking(move || {
+        let (tokens, last_logits, timed_out, prefix_kv_cache) = tokio::task::spawn_blocking(move || {
             run_generation_loop(
                 &model,
                 &prompt_ids_for_loop,
@@ -844,12 +855,13 @@ impl InferenceEngine {
         }
         response.inference_time_ms = start.elapsed().as_millis() as u64;
 
-        // Cache generated sequence + last logits for future prefix reuse
+        // Cache generated sequence + last logits + KV cache for future prefix reuse
         let generated_ids: Vec<u32> = response.tokens.iter().map(|t| t.token_id).collect();
         let mut full_seq = prompt_ids.clone();
         full_seq.extend(&generated_ids);
         if !full_seq.is_empty() && !last_logits.is_empty() {
-            self.prefix_cache.insert(&full_seq, last_logits).await;
+            let kvcache = if prefix_kv_cache.is_empty() { None } else { Some(prefix_kv_cache) };
+            self.prefix_cache.insert_with_kvcache(&full_seq, last_logits, kvcache).await;
         }
 
         debug!(
@@ -1225,7 +1237,7 @@ fn run_generation_loop(
     prefix_len: usize,
     prefix_logits: Vec<f32>,
     generation_timeout: Duration,
-) -> (Vec<GeneratedToken>, Vec<f32>, bool) {
+) -> (Vec<GeneratedToken>, Vec<f32>, bool, Vec<KVCacheEntry>) {
     let start = std::time::Instant::now();
     let mut all_ids = prompt_ids.to_vec();
     let mut tokens = Vec::with_capacity(max_gen);
@@ -1288,11 +1300,13 @@ fn run_generation_loop(
 
         if token_id == 0 || start.elapsed() > generation_timeout {
             let timed_out = start.elapsed() > generation_timeout;
-            return (tokens, last_logits, timed_out);
+            let kvcache = kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default();
+            return (tokens, last_logits, timed_out, kvcache);
         }
     }
 
-    (tokens, last_logits, false)
+    let kvcache = kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default();
+    (tokens, last_logits, false, kvcache)
 }
 
 const BATCH_CONCURRENCY_LIMIT: usize = 64;
@@ -1404,6 +1418,7 @@ impl InferenceEngineHandle {
                 let prefix_match = prefix_cache.match_prefix(&prompt_ids).await;
                 let prefix_len = prefix_match.prefix_len;
                 let prefix_logits = prefix_match.cached_value;
+                let prefix_kv_cache = prefix_match.cached_kv_cache;
                 if prefix_len > 0 {
                     debug!(
                         "Prefix cache hit: {}/{} tokens matched, skipping prefill",
@@ -1425,6 +1440,14 @@ impl InferenceEngineHandle {
                 };
                 #[cfg(not(feature = "gpu"))]
                 let mut kv_state = Box::new(cpu_cache);
+
+                // Restore KV cache from prefix match if available
+                if !prefix_kv_cache.is_empty() {
+                    if let Some(cpu_entries) = kv_state.as_cpu_entries() {
+                        *cpu_entries = prefix_kv_cache;
+                        debug!("Restored KV cache for {} matched prefix tokens", prefix_len);
+                    }
+                }
                 let max_gen = breq.max_tokens.min(2048) as usize;
 
                 let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
@@ -1452,7 +1475,7 @@ impl InferenceEngineHandle {
                 })
                 .await;
 
-                let (tokens, _last_logits, timed_out) = match gen_result {
+                let (tokens, _last_logits, timed_out, _batch_kv_cache) = match gen_result {
                     Ok(r) => r,
                     Err(e) => {
                         error!("Batch generation loop panicked: {:?}", e);

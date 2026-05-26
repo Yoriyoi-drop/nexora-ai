@@ -1635,6 +1635,9 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     fn compile_matmul_tiled(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_tiled") {
+            return Ok(());
+        }
         let wgsl =
             std::borrow::Cow::Owned(MATMUL_TILED_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()));
         self.compile_pipeline(
@@ -2242,14 +2245,17 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     fn compile_reduce(&mut self, op: ReduceOp) -> Result<(), GpuError> {
-        let wgsl = std::borrow::Cow::Owned(
-            REDUCE_WGSL_TEMPLATE.replace("{{OP}}", &(op as u32).to_string()),
-        );
         let key = match op {
             ReduceOp::Sum => "reduce_sum",
             ReduceOp::Max => "reduce_max",
             ReduceOp::Min => "reduce_min",
         };
+        if self.pipelines.contains_key(key) {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            REDUCE_WGSL_TEMPLATE.replace("{{OP}}", &(op as u32).to_string()),
+        );
         self.compile_pipeline(
             key,
             &[

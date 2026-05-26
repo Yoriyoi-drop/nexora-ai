@@ -802,8 +802,9 @@ impl InferenceRuntime {
             // `MaybeUninit::zeroed().assume_init()` is valid because `cpu_set_t` is
             // a plain-old-data type with no invalid bit patterns.
             let mut cpu_set: libc::cpu_set_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
+            let max_cpu = libc::CPU_SETSIZE as usize;
             for &cpu in affinity {
-                if cpu < 64 {
+                if cpu < max_cpu {
                     // SAFETY: `CPU_SET` is a libc macro that only touches the given
                     // `cpu_set_t` and `cpu < 64` ensures we stay within bounds.
                     unsafe {

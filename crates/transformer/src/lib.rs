@@ -8,6 +8,7 @@ pub mod rope;
 pub mod safetensors;
 pub mod swiglu;
 pub mod trainable;
+pub mod quantized;
 
 pub use config::TransformerConfig;
 pub use gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};

@@ -4,33 +4,35 @@
 //! across workers (`all_reduce_gradients`), and multi-worker coordination
 //! (`DataParallel`).
 //!
-//! ## Current limitations
+//! ## GPU support
 //!
-//! - **CPU-only parallelism**: The current implementation shards data across
-//!   threads and averages gradients in CPU memory. No actual multi-GPU dispatch.
-//! - **No NCCL / all-reduce backend**: `all_reduce_gradients` performs a naive
-//!   CPU-side sum-and-divide. For multi-GPU training, integrate NCCL or similar.
-//! - **No automatic device placement**: Workers all run on the same device.
-//!   True data parallelism requires per-worker device assignment + gradient sync.
-//!
-//! To add multi-GPU support:
-//! 1. Spawn one OS thread per GPU.
-//! 2. Set `GpuContext` per-thread (or use device IDs).
-//! 3. Replace `all_reduce_gradients` with NCCL all-reduce or wgpu buffer copy.
+//! When the `gpu` feature is enabled, [`GradientAccumulator`] stores and
+//! accumulates gradients entirely on-device with no CPU round-trip.
+//! [`accumulate()`](GradientAccumulator::accumulate) reads gradients via
+//! [`Tensor::grad_storage`] and performs addition + scaling on the GPU
+//! through wgpu compute shaders.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use ndarray::ArrayD;
 
+use super::device::Storage;
 use super::Tensor;
+
+#[cfg(feature = "gpu")]
+use crate::gpu::GpuContext;
 
 // ─── Gradient Accumulation ────────────────────────────────────────────────────
 
 /// Accumulates gradients across multiple micro-batches before each optimizer step.
 ///
+/// Works with both CPU and GPU storage. When gradients live on GPU,
+/// accumulation happens entirely on-device with no CPU round-trip.
+///
 /// Usage:
 /// ```ignore
-/// let mut acc = GradientAccumulator::new(4);  // 4 micro-batches
+/// let mut acc = GradientAccumulator::new(4);
 /// for batch in micro_batches {
 ///     let loss = model.forward(&batch).sum();
 ///     loss.backward();
@@ -44,16 +46,12 @@ use super::Tensor;
 /// }
 /// ```
 pub struct GradientAccumulator {
-    /// Number of micro-batches to accumulate
     num_micro_batches: usize,
-    /// Current micro-batch counter
     counter: usize,
-    /// Stashed accumulated gradients: parameter_id → gradient
-    stash: HashMap<usize, ArrayD<f32>>,
+    stash: HashMap<usize, Storage>,
 }
 
 impl GradientAccumulator {
-    /// Create new accumulator that accumulates across `num_micro_batches` steps
     pub fn new(num_micro_batches: usize) -> Self {
         assert!(num_micro_batches >= 1, "num_micro_batches must be >= 1");
         Self {
@@ -63,47 +61,36 @@ impl GradientAccumulator {
         }
     }
 
-    /// Accumulate gradients from current micro-batch.
-    /// Call after `loss.backward()` for each micro-batch.
     pub fn accumulate(&mut self, params: &[Tensor]) {
         self.counter += 1;
         let scale = 1.0 / self.num_micro_batches as f32;
 
         for (i, p) in params.iter().enumerate() {
-            if let Some(g) = p.grad() {
-                let scaled = &g * scale;
-                self.stash
-                    .entry(i)
-                    .and_modify(|existing| {
-                        *existing = &*existing + &scaled;
-                    })
-                    .or_insert(scaled);
+            let grad = get_storage_grad(p);
+            if let Some(g) = grad {
+                let scaled = storage_scale(&g, scale);
+                stash_add_inplace(&mut self.stash, i, scaled);
             }
         }
     }
 
-    /// Check if ready for optimizer step
     pub fn ready(&self) -> bool {
         self.counter >= self.num_micro_batches
     }
 
-    /// Finalize: set averaged gradients on model parameters.
-    /// Call before `optimizer.step()`.
     pub fn finalize(&self, params: &[Tensor]) {
         for (i, p) in params.iter().enumerate() {
             if let Some(g) = self.stash.get(&i) {
-                p.set_grad(g.clone());
+                set_storage_grad(p, g);
             }
         }
     }
 
-    /// Reset accumulator for next cycle
     pub fn reset(&mut self) {
         self.counter = 0;
         self.stash.clear();
     }
 
-    /// Progress (0.0 – 1.0)
     pub fn progress(&self) -> f32 {
         self.counter as f32 / self.num_micro_batches as f32
     }
@@ -147,13 +134,9 @@ pub fn all_reduce_gradients(gradients: &mut [Vec<ArrayD<f32>>]) {
 /// Configuration for data-parallel training
 #[derive(Clone, Debug)]
 pub struct DataParallelConfig {
-    /// Number of parallel workers (threads). Default: 1 (no parallelism)
     pub num_workers: usize,
-    /// Batch size per worker per step
     pub batch_size_per_worker: usize,
-    /// Whether to use gradient accumulation across micro-batches
     pub gradient_accumulation: bool,
-    /// Number of micro-batches to accumulate (if gradient_accumulation is true)
     pub accumulation_steps: usize,
 }
 
@@ -169,7 +152,6 @@ impl Default for DataParallelConfig {
 }
 
 impl DataParallelConfig {
-    /// Effective batch size across all workers
     pub fn effective_batch_size(&self) -> usize {
         let per_step = self.num_workers * self.batch_size_per_worker;
         if self.gradient_accumulation {
@@ -179,7 +161,6 @@ impl DataParallelConfig {
         }
     }
 
-    /// Optimize config based on available CPU cores
     pub fn auto_configure() -> Self {
         let num_cpus = num_cpus::get();
         Self {
@@ -196,11 +177,8 @@ impl DataParallelConfig {
 /// Result from a single data-parallel worker
 pub struct WorkerResult {
     pub worker_id: usize,
-    /// Per-parameter gradients
     pub gradients: Vec<ArrayD<f32>>,
-    /// Average loss for this worker's shard
     pub loss: f32,
-    /// Number of samples processed
     pub num_samples: usize,
 }
 
@@ -223,7 +201,6 @@ impl DataParallel {
         &self.config
     }
 
-    /// Shard data indices across workers
     pub fn shard_indices(&self, total_samples: usize) -> Vec<std::ops::Range<usize>> {
         let per_worker = total_samples / self.config.num_workers;
         let remainder = total_samples % self.config.num_workers;
@@ -238,7 +215,6 @@ impl DataParallel {
         ranges
     }
 
-    /// Reduce (average) gradients from all workers into the first worker's gradients
     pub fn reduce_gradients(&self, results: &mut [WorkerResult]) {
         let grads: Vec<&mut Vec<ArrayD<f32>>> =
             results.iter_mut().map(|r| &mut r.gradients).collect();
@@ -252,7 +228,6 @@ impl DataParallel {
         }
     }
 
-    /// Compute total loss across all workers (mean)
     pub fn total_loss(&self, results: &[WorkerResult]) -> f32 {
         let total: f32 = results.iter().map(|r| r.loss * r.num_samples as f32).sum();
         let total_samples: usize = results.iter().map(|r| r.num_samples).sum();
@@ -260,6 +235,85 @@ impl DataParallel {
             total / total_samples as f32
         } else {
             0.0
+        }
+    }
+}
+
+// ─── Internal helpers: Storage gradient ops ───────────────────────────────────
+
+/// Read gradient as [`Storage`] without forcing a GPU→CPU readback when the
+/// gradient already lives on GPU.
+fn get_storage_grad(p: &Tensor) -> Option<Storage> {
+    #[cfg(feature = "gpu")]
+    if let Some(s) = p.grad_storage() {
+        return Some(s);
+    }
+    p.grad().map(Storage::from)
+}
+
+/// Scale a [`Storage`] by `scale`. GPU gradients are scaled on-device via
+/// [`GpuContext::scale_inplace`]; CPU gradients use ndarray arithmetic.
+fn storage_scale(s: &Storage, scale: f32) -> Storage {
+    match s {
+        Storage::Cpu(arr) => Storage::Cpu(Arc::new(arr.as_ref() * scale)),
+        #[cfg(feature = "gpu")]
+        Storage::Gpu(t) => {
+            let mut copy = t.clone();
+            if let Ok(ctx) = GpuContext::global() {
+                let _ = ctx.scale_inplace(&mut copy, scale);
+            }
+            Storage::Gpu(copy)
+        }
+    }
+}
+
+/// Add a scaled gradient into the stash. Handles all CPU/GPU cross-product cases.
+fn stash_add_inplace(stash: &mut HashMap<usize, Storage>, idx: usize, grad: Storage) {
+    use std::collections::hash_map::Entry;
+
+    match stash.entry(idx) {
+        Entry::Occupied(mut entry) => {
+            let existing = entry.get_mut();
+            match (existing, &grad) {
+                (Storage::Cpu(ref mut e), Storage::Cpu(g)) => {
+                    *e = Arc::new(e.as_ref() + g.as_ref());
+                }
+                #[cfg(feature = "gpu")]
+                (Storage::Cpu(ref mut e), Storage::Gpu(g)) => {
+                    if let Ok(g_cpu) = g.to_cpu() {
+                        *e = Arc::new(e.as_ref() + &g_cpu);
+                    }
+                }
+                #[cfg(feature = "gpu")]
+                (Storage::Gpu(ref mut e), Storage::Cpu(g)) => {
+                    if let Ok(ctx) = GpuContext::global() {
+                        if let Ok(g_gpu) = crate::gpu::GpuTensor::from_cpu(g) {
+                            let _ = ctx.add_inplace(e, &g_gpu);
+                        }
+                    }
+                }
+                #[cfg(feature = "gpu")]
+                (Storage::Gpu(ref mut e), Storage::Gpu(g)) => {
+                    if let Ok(ctx) = GpuContext::global() {
+                        let _ = ctx.add_inplace(e, g);
+                    }
+                }
+            }
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(grad);
+        }
+    }
+}
+
+/// Set a gradient on a [`Tensor`] from a [`Storage`] reference.
+/// GPU gradients use [`Tensor::set_grad_storage`] to avoid a CPU round-trip.
+fn set_storage_grad(p: &Tensor, g: &Storage) {
+    match g {
+        Storage::Cpu(arr) => p.set_grad(arr.as_ref().clone()),
+        #[cfg(feature = "gpu")]
+        Storage::Gpu(t) => {
+            p.set_grad_storage(Storage::Gpu(t.clone()));
         }
     }
 }
@@ -282,11 +336,8 @@ mod tests {
     #[test]
     fn test_gradient_accumulator_ready() {
         let mut acc = GradientAccumulator::new(3);
-        // Simulate accumulation without real gradients
         let p = Tensor::randn(&[4], true);
         for _ in 0..3 {
-            // Just increment counter by calling accumulate with empty grads
-            // (params have no grads yet since we didn't backward)
             acc.accumulate(&[p.clone()]);
         }
         assert!(acc.ready());
@@ -310,7 +361,6 @@ mod tests {
             ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap()
         ]];
         all_reduce_gradients(&mut grads);
-        // Single worker: no change
         assert_eq!(grads[0][0][0], 1.0);
         assert_eq!(grads[0][0][1], 2.0);
         assert_eq!(grads[0][0][2], 3.0);
@@ -323,7 +373,6 @@ mod tests {
             vec![ArrayD::from_shape_vec(vec![2], vec![4.0, 6.0]).unwrap()],
         ];
         all_reduce_gradients(&mut grads);
-        // Average: (2+4)/2=3, (4+6)/2=5
         assert!((grads[0][0][0] - 3.0).abs() < 1e-6);
         assert!((grads[0][0][1] - 5.0).abs() < 1e-6);
     }
@@ -332,7 +381,6 @@ mod tests {
     fn test_all_reduce_empty() {
         let mut grads: Vec<Vec<ArrayD<f32>>> = vec![];
         all_reduce_gradients(&mut grads);
-        // Should not panic
     }
 
     #[test]
@@ -363,7 +411,6 @@ mod tests {
         assert_eq!(shards.len(), 4);
         let total: usize = shards.iter().map(|r| r.len()).sum();
         assert_eq!(total, 100);
-        // First shards get the remainder
         assert_eq!(shards[0].len(), 25);
         assert_eq!(shards[1].len(), 25);
         assert_eq!(shards[2].len(), 25);
@@ -406,7 +453,6 @@ mod tests {
 
     #[test]
     fn test_gradient_accumulate_backward_integration() {
-        // End-to-end: multiple micro-batches with gradient accumulation
         let w = Tensor::randn(&[4, 2], true);
         let mut acc = GradientAccumulator::new(3);
         let params = vec![w.clone()];

@@ -238,10 +238,13 @@ impl SelectiveStateUpdate {
         }
 
         // Update average relevance
-        let relevance_flat = require_contiguous(relevance.as_slice())
-            .expect("relevance tensor is contiguous by construction");
-        let relevance_sum: f32 = relevance_flat.iter().sum();
-        let relevance_avg = relevance_sum / relevance_flat.len() as f32;
+        let relevance_avg = match require_contiguous(relevance.as_slice()) {
+            Ok(flat) => flat.iter().sum::<f32>() / flat.len() as f32,
+            Err(_) => {
+                tracing::warn!("SSU: relevance tensor not contiguous, skipping stats update");
+                return;
+            }
+        };
 
         self.avg_relevance = (self.avg_relevance * (self.total_steps - 1) as f32 + relevance_avg)
             / self.total_steps as f32;

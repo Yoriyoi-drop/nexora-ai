@@ -11,6 +11,15 @@
 //! `general_mat_mul` if the FFI call fails.
 //! To enable C BLAS with link-time: add `features = ["blas"]` to ndarray in
 //! Cargo.toml and link `blas-src` + a provider (`openblas-src`, `intel-mkl-src`).
+//!
+//! # GPU Limitation
+//!
+//! GPU-accelerated operations (behind `#[cfg(feature = "gpu")]`) perform a
+//! full PCIe round-trip for EVERY operation: `GpuTensor::from_cpu()` → GPU
+//! compute → `result.to_cpu()`. Data never stays on GPU between calls. This
+//! negates most GPU benefit for matrices under ~4096 dimensions. Production
+//! GPU acceleration requires a compute graph with lazy execution (see
+//! autograd GPU pipeline).
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
@@ -685,6 +694,15 @@ impl BlasOperations {
     }
 
     // ── GPU-accelerated operations ───────────────────────────────────────────────
+    //
+    // WARNING: GPU operations follow an upload→compute→download pattern for
+    // EVERY operation: `from_cpu()` → GPU compute → `to_cpu()`. Data never
+    // stays on GPU between operations. This causes a PCIe round-trip per op
+    // which negates most GPU benefit for matrices smaller than ~4096 dimensions.
+    //
+    // This GPU path is suitable for prototyping and single large operations.
+    // For production GPU acceleration, a compute graph with lazy execution
+    // and minimal readback is required (see: autograd GPU pipeline).
 
     #[cfg(feature = "gpu")]
     pub fn gemm_gpu(

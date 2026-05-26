@@ -500,37 +500,13 @@ impl IterativeResonanceReasoner {
 
     /// Get reasoning history
     pub fn get_query_weights(&self) -> Tensor {
-        // safe: iterated from same array, length always matches
-        let data = ArrayD::from_shape_vec(
-            vec![self.query_weights.shape()[0], self.query_weights.shape()[1]],
-            self.query_weights.iter().copied().collect(),
-        )
-        .expect("data length matches shape");
-        Tensor::new(data)
+        Tensor::new(self.query_weights.clone().into_dyn())
     }
     pub fn get_refinement_weights(&self) -> Tensor {
-        // safe: iterated from same array, length always matches
-        let data = ArrayD::from_shape_vec(
-            vec![
-                self.refinement_weights.shape()[0],
-                self.refinement_weights.shape()[1],
-            ],
-            self.refinement_weights.iter().copied().collect(),
-        )
-        .expect("data length matches shape");
-        Tensor::new(data)
+        Tensor::new(self.refinement_weights.clone().into_dyn())
     }
     pub fn get_output_weights(&self) -> Tensor {
-        // safe: iterated from same array, length always matches
-        let data = ArrayD::from_shape_vec(
-            vec![
-                self.output_weights.shape()[0],
-                self.output_weights.shape()[1],
-            ],
-            self.output_weights.iter().copied().collect(),
-        )
-        .expect("data length matches shape");
-        Tensor::new(data)
+        Tensor::new(self.output_weights.clone().into_dyn())
     }
     pub fn set_query_weights(&mut self, t: &Tensor) {
         let d = t.data();

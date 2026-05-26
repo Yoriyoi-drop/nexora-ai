@@ -966,9 +966,16 @@ impl Value {
         if let Ok(unix_timestamp) = timestamp_str.parse::<f64>() {
             let seconds = unix_timestamp.trunc() as i64;
             let nanos = ((unix_timestamp.fract() * 1_000_000_000.0) as u32) * 1_000_000;
+            let seconds_u64: u64 = match seconds.try_into() {
+                Ok(s) => s,
+                Err(_) => {
+                    tracing::warn!("Timestamp seconds out of range: {seconds}, using current time");
+                    return Value::Timestamp(std::time::SystemTime::now());
+                }
+            };
             if let Some(system_time) =
                 std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
-                    seconds.try_into().expect("timestamp seconds fit into u64"),
+                    seconds_u64,
                     nanos,
                 ))
             {
@@ -980,13 +987,15 @@ impl Value {
         for format in &formats {
             if let Ok(naive_dt) = NaiveDateTime::parse_from_str(timestamp_str, format) {
                 let datetime: DateTime<Utc> = DateTime::from_naive_utc_and_offset(naive_dt, Utc);
-                if let Some(nanos) = datetime.timestamp_nanos_opt() {
+                if let Some(nanos_total) = datetime.timestamp_nanos_opt() {
+                    let secs_u64: u64 = match (nanos_total / 1_000_000_000).try_into() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
                     if let Some(system_time) =
                         std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
-                            (nanos / 1_000_000_000)
-                                .try_into()
-                                .expect("nanos fit into u64"),
-                            (nanos % 1_000_000_000) as u32,
+                            secs_u64,
+                            (nanos_total % 1_000_000_000) as u32,
                         ))
                     {
                         return Value::Timestamp(system_time);

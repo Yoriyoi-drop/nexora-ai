@@ -22,6 +22,33 @@ pub trait LayerInjector: std::fmt::Debug + Send {
         h: &mut Array2<f32>,
         pos: usize,
     ) -> TransformerResult<()>;
+
+    /// GPU-native injector: receives a mutable `GpuTensor` instead of CPU array.
+    /// Default implementation falls back to CPU: reads GPU tensor, calls `after_layer`,
+    /// and writes the result back.
+    /// Override this for zero-copy GPU-native injection.
+    #[cfg(feature = "gpu")]
+    fn after_layer_gpu(
+        &mut self,
+        layer_idx: usize,
+        h: &mut nexora_autograd::gpu::GpuTensor,
+        pos: usize,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        let h_cpu = h.to_cpu()?;
+        let dims = h_cpu.shape().to_vec();
+        let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>()
+            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                format!("injector reshape [{}x{}]: {}", dims[0], dims[1], e)
+            ))?;
+        self.after_layer(layer_idx, &mut h_2d, pos)
+            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(
+                format!("injector after_layer: {}", e)
+            ))?;
+        let h_dyn = h_2d.into_dyn();
+        *h = nexora_autograd::gpu::GpuTensor::from_cpu(&h_dyn)?;
+        Ok(())
+    }
 }
 
 fn softmax(logits: &Array1<f32>) -> Array1<f32> {
@@ -891,25 +918,10 @@ impl CausalLM {
             // Run injectors (Echo-Net APSS, etc.) after each layer
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
-                    let h_cpu = h.to_cpu()?;
-                    let dims = h_cpu.shape().to_vec();
-                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector reshape [{}x{}]: {}",
-                            dims[0], dims[1], e
-                        ))
-                    })?;
                     let mut guard = injector.lock().map_err(|e| {
                         nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
-                    guard.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector after_layer: {}",
-                            e
-                        ))
-                    })?;
-                    let h_dyn = h_2d.into_dyn();
-                    h = GpuTensor::from_cpu(&h_dyn)?;
+                    guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
             }
         }
@@ -1004,25 +1016,10 @@ impl CausalLM {
 
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
-                    let h_cpu = h.to_cpu()?;
-                    let dims = h_cpu.shape().to_vec();
-                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector reshape [{}x{}]: {}",
-                            dims[0], dims[1], e
-                        ))
-                    })?;
                     let mut guard = injector.lock().map_err(|e| {
                         nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
-                    guard.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector after_layer: {}",
-                            e
-                        ))
-                    })?;
-                    let h_dyn = h_2d.into_dyn();
-                    h = GpuTensor::from_cpu(&h_dyn)?;
+                    guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
             }
         }
@@ -1518,25 +1515,10 @@ impl CausalLM {
             // Run injectors (Echo-Net APSS) after each layer
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
-                    let h_cpu = h.to_cpu()?;
-                    let dims = h_cpu.shape().to_vec();
-                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector reshape [{}x{}]: {}",
-                            dims[0], dims[1], e
-                        ))
-                    })?;
                     let mut guard = injector.lock().map_err(|e| {
                         nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
-                    guard.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector after_layer: {}",
-                            e
-                        ))
-                    })?;
-                    let h_dyn = h_2d.into_dyn();
-                    h = GpuTensor::from_cpu(&h_dyn)?;
+                    guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
             }
         }
@@ -1625,25 +1607,10 @@ impl CausalLM {
             // Run injectors (Echo-Net APSS) after each layer
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
-                    let h_cpu = h.to_cpu()?;
-                    let dims = h_cpu.shape().to_vec();
-                    let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector reshape [{}x{}]: {}",
-                            dims[0], dims[1], e
-                        ))
-                    })?;
                     let mut guard = injector.lock().map_err(|e| {
                         nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
-                    guard.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!(
-                            "injector after_layer: {}",
-                            e
-                        ))
-                    })?;
-                    let h_dyn = h_2d.into_dyn();
-                    h = GpuTensor::from_cpu(&h_dyn)?;
+                    guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
             }
         }
